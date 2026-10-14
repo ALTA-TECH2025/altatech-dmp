@@ -1,0 +1,41 @@
+# Claude 在 GitHub 上的兩個角色：
+#  1) PR 自動審查：每個 PR 開啟／更新時，依 AGENTS.md 與 CLAUDE.md 的規則審查（口徑、權限、密鑰、授權、測試是否足夠），只留評論不會合併。
+#  2) @claude 指派：在 issue 或 PR 留言 @claude 加指示（例：「依驗收條件補測試」「把這個 story 做出來開 PR」），Claude 在新分支上開 PR。
+# 需要 repo secret ANTHROPIC_API_KEY（或改用 claude_code_oauth_token）。正式啟用前請在 Settings → Actions 允許此 action 並限制 write 權限。
+name: claude
+on:
+  pull_request: { types: [opened, synchronize, ready_for_review] }
+  issue_comment: { types: [created] }
+  pull_request_review_comment: { types: [created] }
+  issues: { types: [opened, assigned] }
+permissions: { contents: write, pull-requests: write, issues: write, id-token: write }
+jobs:
+  review:
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            請依 AGENTS.md 與 CLAUDE.md 審查這個 PR。只回報真的問題，依嚴重度排序，每項附檔案與行號：
+            1. 口徑：指標／維度／事件定義是否與 backend/semantic/*.yaml 一致；SQL 是否繞過語意層。
+            2. 權限與隱碼：是否繞過 Policy Engine authorize()；敏感欄位是否在 UI 或 agent 端自行判斷。
+            3. 密鑰與資料：是否出現明文密鑰、真實客戶資料、未經 secret_ref 的憑證。
+            4. 授權：新增的套件／映像是否在 LICENSES.md 白名單。
+            5. 測試：PR 描述的「跑過的驗證」是否與 diff 相符；驗收條件是否有對應測試。
+            6. 範圍：是否超過一件事或改了不屬於該工作流的目錄（見 CODEOWNERS）。
+            沒問題就明確說「未發現阻擋問題」。不要改程式碼。
+          claude_args: "--max-turns 15"
+  mention:
+    if: (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') && contains(github.event.comment.body, '@claude') || (github.event_name == 'issues' && contains(github.event.issue.body, '@claude'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 40"

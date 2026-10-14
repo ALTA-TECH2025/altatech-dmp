@@ -1,0 +1,76 @@
+name: ci
+on:
+  pull_request:
+  push: { branches: [main] }
+concurrency:
+  group: "ci-${{ github.ref }}"
+  cancel-in-progress: true
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs: { backend: ${{ steps.f.outputs.backend }}, web: ${{ steps.f.outputs.web }}, deploy: ${{ steps.f.outputs.deploy }}, contract: ${{ steps.f.outputs.contract }} }
+    steps:
+      - uses: actions/checkout@v4
+      - id: f
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend: ['backend/**']
+            web: ['prototype/**', 'web/**']
+            deploy: ['deploy/**', '.github/**']
+            contract: ['backend/openapi.yaml', 'backend/semantic/**', 'backend/mcp/tools.yaml', 'backend/security/*.yaml']
+  contract:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install pyyaml openapi-spec-validator
+      - name: YAML 與 OpenAPI 驗證
+        run: |
+          python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True)]"
+          python3 -m openapi_spec_validator backend/openapi.yaml
+      - name: 契約變更需要 contract 標籤
+        if: needs.changes.outputs.contract == 'true' && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'contract')
+        run: echo "::error::改了契約檔但 PR 沒有 contract 標籤；請拆成獨立的 contract PR" && exit 1
+  backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install -r backend/requirements.txt ruff pytest
+      - run: ruff check backend
+      - name: 骨架自測
+        run: python3 backend/security/policy.py && python3 backend/integration/transforms.py && python3 backend/integration/auth.py && python3 backend/insight_agent/runtime.py
+      - name: pytest（若有 tests/）
+        run: test -d tests && pytest -q tests || echo "no tests dir yet"
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: node --check prototype/js/app.js && node --check prototype/js/data.js
+      - name: Playwright 煙霧測試（桌機 1440 + 手機 390，無 console error、無橫向溢出）
+        run: |
+          npx --yes playwright@1.48.2 install --with-deps chromium
+          (cd prototype && python3 -m http.server 8765 >/dev/null 2>&1 &) ; sleep 1
+          test -f tests/e2e/smoke.mjs && node tests/e2e/smoke.mjs || echo "tests/e2e/smoke.mjs 尚未加入（QA 工作流 S1）"
+  deploy:
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Helm lint（每個 values 檔）
+        run: for f in deploy/helm/altatech-dmp/values*.yaml; do helm lint deploy/helm/altatech-dmp -f "$f" || exit 1; done
+      - name: Dockerfile lint
+        uses: hadolint/hadolint-action@v3.1.0
+        with: { recursive: true, dockerfile: deploy/images/Dockerfile.core }

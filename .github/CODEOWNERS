@@ -1,0 +1,15 @@
+# 目錄即邊界：PR 動到哪個目錄就需要該工作流擁有者 review；契約檔需要 TL。
+# 請把 @handle 換成實際 GitHub 帳號（團隊可用 @ALTA-TECH2025/<team>）。
+*                                   @tl-handle
+backend/openapi.yaml                @tl-handle
+backend/semantic/                   @tl-handle @query-handle
+backend/mcp/                        @tl-handle @query-handle
+backend/security/                   @tl-handle @query-handle
+backend/api/ backend/query/         @query-handle
+backend/stream/ backend/clickhouse/ @data-handle
+backend/integration/                @data-handle
+backend/insight_agent/              @tl-handle
+prototype/ web/                     @web-handle
+deploy/ .github/ LICENSES.md        @infra-handle
+tests/ tools/synth/                 @qa-handle
+docs/                               @tl-handle
