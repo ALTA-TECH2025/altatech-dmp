@@ -37,6 +37,11 @@ locals {
       general  = { machine = "n2-standard-16", min = 4, max = 4,  disk = 200 }
       spot     = { machine = "n2-standard-8",  min = 0, max = 4,  disk = 100 }
     }
+    "5n-noai" = {   # A′. 第一階段不含 AI 洞察：olap × 2 + general × 3（docs/13 §4.6）
+      olap     = { machine = "c3-highmem-22",  min = 2, max = 2,  disk = 100 }
+      general  = { machine = "n2-standard-16", min = 3, max = 4,  disk = 200 }
+      spot     = { machine = "n2-standard-8",  min = 0, max = 4,  disk = 100 }
+    }
     "4n" = {   # B. 平衡：olap × 2 + general × 2（n2-standard-32）
       olap     = { machine = "c3-highmem-22",  min = 2, max = 2,  disk = 100 }
       general  = { machine = "n2-standard-32", min = 2, max = 2,  disk = 200 }

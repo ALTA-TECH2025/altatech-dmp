@@ -82,6 +82,27 @@ olap 同 A；general 改 **n2-standard-32 × 2**（32 vCPU / 128 GB）。Kafka 3
 - 日批時段 node-3 跑批次、node-1/2 跑查詢，互不干擾。
 - 事件量翻倍：先把 node-3 升級成 ClickHouse 第三副本或第二分片。
 
+
+### 4.6 若 AI 洞察延到第二階段：機器能小多少
+
+結論：**能省，但有限（約 1 台、月費約 10%）**，因為 AI 層在叢集內只是幾個小 Pod，模型本身在外部 LLM 閘道，真正吃資源的是 ClickHouse、Kafka、Flink 與標籤日批。
+
+| 項目 | 第一階段含 AI | 第一階段不含 AI | 差異 |
+|---|---|---|---|
+| Agent Runtime + Tool Gateway + Insight Store（pgvector）Pod | ≈ 5 vCPU / 10 GB | 0 | −5 vCPU / −10 GB |
+| 排程 agent 的 ClickHouse 查詢（異常偵測每 15 分鐘、日報、漏斗診斷） | ≈ 10% 查詢負載 | 0 | OLAP 不需改機型 |
+| general 池 | n2-standard-16 × 4（需求 ≈ 52 vCPU / 140 GB） | **n2-standard-16 × 3**（需求 ≈ 47 vCPU / 130 GB，用量約 95%，以 PriorityClass 與 HPA 上限控管） | **−1 台** |
+| olap 池 | c3-highmem-22 × 2 | 不變（由 200 億事件、50 人併發與標籤日批決定） | 0 |
+| GCP 月費（隨需／CUD） | ≈ 6,500 / 4,900 | **≈ 5,900 / 4,450** | −約 9% |
+| 機房 Dell | 正式 6 台 | **正式 5 台**（少 1 台 R660 general） | −約 NT$ 28–38 萬 |
+
+要省更多，不是靠拿掉 AI，而是：
+- ClickHouse 機型由 c3-highmem-22 改 **n2-highmem-16**（16 vCPU / 128 GB）：月費再 −約 US$ 600；代價是 30 天漏斗 P95 約 8–12 秒、標籤日批約 70 分鐘。50 人併發仍可承受。
+- 測試環境用 C-經濟（n2-highmem-16 × 3）或平日縮到 0。
+- 若原本規劃**自建 GPU 跑本地 LLM**，延後 AI 才會省下 GPU 節點（GCP g2-standard-24 含 L4 約 US$ 1,500–2,000／月；機房 1 台 GPU 伺服器約 NT$ 100–150 萬）。本規劃假設走企業 LLM 閘道（API），所以沒有這筆。
+
+第二階段加回 AI 的作法：general 池加 1 台、Helm 把 agentRuntime／gateway 副本由 0 改回 2、Cloud SQL 啟用 pgvector 即可；語意層與 Policy Engine 第一階段就必須有（UI 本身要用），所以 AI 是純增量，不需重構。對應 `values-gcp-5n-noai.yaml`。
+
 ### 4.5 環境指派（已決定）
 
 | 環境 | 檔位 | 常駐 | 說明 |
