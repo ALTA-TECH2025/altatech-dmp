@@ -438,3 +438,62 @@ export const DELIVERIES = [
   { id: 'dlv_01J8…f1', seg: '高價值沉睡客', dest: 'CRM 客戶系統', ver: 41, mode: 'full', n: 11_420, batches: '2/3', status: 'retrying', at: '昨天 03:02', resp: '503 · 第 3 次重試 15 分後' },
   { id: 'dlv_01J8…e0', seg: '看盤未下單（即時）', dest: '數據平台 Kafka', ver: '—', mode: 'realtime', n: 3_812, batches: '—', status: 'ok', at: '持續', resp: 'lag 0.8 s' },
 ];
+
+/* ------------------------------------------------------------------ v0.4：查詢條件目錄（事件分析／漏斗分析共用，對標神策「篩選條件／按分組查看／指標類型」） */
+export const PROPS = [
+  // 事件屬性（$ 開頭為 SDK/GA 預置屬性）
+  { k: 'platform', cn: '平台', scope: 'event', type: 'string', vals: ['iOS', 'Android', 'Web'] },
+  { k: 'channel', cn: '渠道', scope: 'event', type: 'string', vals: ['App', '官網', 'LINE', '營業員', '活動頁'] },
+  { k: '$utm_source', cn: 'UTM 來源', scope: 'event', type: 'string', vals: ['google', 'facebook', 'line', 'direct', 'edm'] },
+  { k: '$utm_campaign', cn: 'UTM 活動', scope: 'event', type: 'string', vals: ['q4_open_bonus', 'etf_dca', 'us_stock_launch', 'brand'] },
+  { k: '$app_version', cn: 'App 版本', scope: 'event', type: 'string', vals: ['5.2.0', '5.1.3', '5.0.9'] },
+  { k: '$os_version', cn: 'OS 版本', scope: 'event', type: 'string', vals: ['iOS 18', 'iOS 17', 'Android 15', 'Android 14'] },
+  { k: 'page_group', cn: '頁面群組', scope: 'event', type: 'string', vals: ['account_open', 'quote', 'trade', 'wealth', 'campaign'] },
+  { k: 'symbol', cn: '商品代碼', scope: 'event', type: 'string', vals: ['2330', '2317', '0050', '2454', '00878'] },
+  { k: 'market', cn: '市場', scope: 'event', type: 'string', vals: ['TSE', 'OTC', 'US', 'ETF'] },
+  { k: 'side', cn: '買賣別', scope: 'event', type: 'string', vals: ['buy', 'sell'] },
+  { k: 'order_type', cn: '委託類型', scope: 'event', type: 'string', vals: ['limit', 'market', 'odd_lot', 'day_trade'] },
+  { k: 'reason_code', cn: '失敗原因碼', scope: 'event', type: 'string', vals: ['E001 餘額不足', 'E012 漲跌停', 'E020 零股限制', 'E031 額度不足'] },
+  { k: 'method', cn: '入金方式', scope: 'event', type: 'string', vals: ['約定轉帳', 'ATM', '超商', '信用卡'] },
+  { k: 'branch_id', cn: '分公司', scope: 'event', type: 'string', vals: ['TPE01', 'TPE02', 'TCH01', 'KHH01'] },
+  { k: 'kyc_level', cn: 'KYC 等級', scope: 'event', type: 'string', vals: ['L1', 'L2', 'L3'] },
+  { k: 'amount', cn: '金額', scope: 'event', type: 'number' },
+  { k: 'qty', cn: '數量', scope: 'event', type: 'number' },
+  { k: 'fee', cn: '手續費', scope: 'event', type: 'number' },
+  { k: 'duration_ms', cn: '停留時長（ms）', scope: 'event', type: 'number' },
+  { k: 'result_count', cn: '搜尋結果數', scope: 'event', type: 'number' },
+  // 用戶屬性（profile）
+  { k: 'u.lifecycle', cn: '生命週期', scope: 'user', type: 'string', vals: ['新客', '成長', '成熟', '沉睡', '流失'] },
+  { k: 'u.tier', cn: '價值分級', scope: 'user', type: 'string', vals: ['P1', 'P2', 'P3', 'P4', 'P5'] },
+  { k: 'u.age_band', cn: '年齡層', scope: 'user', type: 'string', vals: ['18–25', '26–35', '36–45', '46–55', '56+'] },
+  { k: 'u.gender', cn: '性別', scope: 'user', type: 'string', vals: ['M', 'F'] },
+  { k: 'u.first_utm_source', cn: '首次來源', scope: 'user', type: 'string', vals: ['google', 'facebook', 'line', 'direct', 'edm'] },
+  { k: 'u.aum_bucket', cn: '資產區間', scope: 'user', type: 'string', vals: ['< 10 萬', '10–50 萬', '50–100 萬', '100–500 萬', '> 500 萬'] },
+  { k: 'u.branch_id', cn: '所屬分公司', scope: 'user', type: 'string', vals: ['TPE01', 'TPE02', 'TCH01', 'KHH01'] },
+  { k: 'u.account_age_days', cn: '開戶天數', scope: 'user', type: 'number' },
+  { k: 'u.has_margin', cn: '信用戶', scope: 'user', type: 'bool' },
+  { k: 'u.signup_date', cn: '註冊日期', scope: 'user', type: 'date' },
+  // 標籤（標籤引擎輸出，可直接當條件）
+  { k: 'tag.churn_risk', cn: '流失風險', scope: 'tag', type: 'string', vals: ['高', '中', '低'] },
+  { k: 'tag.trade_style', cn: '交易風格', scope: 'tag', type: 'string', vals: ['當沖', '波段', '長期', 'ETF 定期定額'] },
+  { k: 'tag.pref_market', cn: '偏好市場', scope: 'tag', type: 'string', vals: ['台股', '美股', 'ETF', '期權'] },
+];
+export const PROP_SCOPES = [['event', '事件屬性'], ['user', '用戶屬性'], ['tag', '用戶標籤']];
+export const OPS = {
+  string: [['eq', '等於'], ['neq', '不等於'], ['in', '包含於'], ['like', '包含'], ['nlike', '不包含'], ['set', '有值'], ['nset', '無值']],
+  number: [['eq', '等於'], ['gt', '大於'], ['lt', '小於'], ['between', '區間'], ['set', '有值'], ['nset', '無值']],
+  bool:   [['true', '為真'], ['false', '為假']],
+  date:   [['rel', '相對當前時間'], ['between', '絕對時間區間'], ['set', '有值']],
+};
+export const AGGS = [
+  ['total', '總次數', false], ['users', '觸發用戶數', false], ['avg_per_user', '人均次數', false], ['uniq', '去重數', 'prop'],
+  ['sum', '數值求和', 'num'], ['avg', '數值均值', 'num'], ['max', '數值最大值', 'num'], ['min', '數值最小值', 'num'], ['p50', '數值中位數', 'num'], ['p90', '數值 90 分位', 'num'],
+];
+export const GRANS = [['minute', '分鐘'], ['hour', '小時'], ['day', '日'], ['week', '週'], ['month', '月'], ['total', '合計']];
+export const CHART_TYPES = [['line', '折線'], ['bar', '柱狀'], ['stack', '堆疊'], ['cum', '累計'], ['table', '表格']];
+export const SAVED_REPORTS = [
+  { id: 'r1', name: '每日成交客戶 × 平台', kind: 'events', owner: '王小明', updated: '10-12' },
+  { id: 'r2', name: '委託失敗率 × 原因碼（近 7 天）', kind: 'events', owner: '王小明', updated: '10-13' },
+  { id: 'r3', name: '開戶→首筆成交（iOS vs Android）', kind: 'funnel', owner: '林主管', updated: '10-11' },
+  { id: 'r4', name: '推播→成交（7 天窗口）', kind: 'funnel', owner: 'MA 小組', updated: '10-09' },
+];

@@ -1,4 +1,4 @@
-// AltaTech DMP 原型 v0.1
+// AltaTech DMP 原型 v0.4 — v0.4：事件分析／漏斗分析查詢條件建構器（對標神策／DataFinder）、H5 行動版適配
 // 側欄 + 頂欄 + 內容的外框沿用 AltaTech 原型系列；頁面：總覽、事件分析、漏斗、留存、用戶細查、標籤分群、即時觸發、AI 洞察、治理、設定。
 // 所有數字來自 data.js 的模擬資料；圖表為內嵌 SVG（dataviz 規範：細線 2px、單軸、固定類別色序、hover 提示）。
 'use strict';
@@ -6,24 +6,24 @@
 import { ACCOUNTS, SOURCES, EVENTS, TS, PLATFORM_SPLIT, CHANNEL_SPLIT, UTM_SPLIT, FUNNELS, RETENTION, TAGS, SEGMENTS,
          TRIGGERS, TRIGGER_FEED, PROFILES, INSIGHTS, AGENTS, TOOLS, ASK_SCRIPTS, TODAY, dkey, dayOffset,
          PATHS, ATTRIBUTION, USERS, CONNECTIONS, MODEL_EXAMPLE, CONFIG_CARDS,
-         ROLES, MODULES, MATRIX, DATA_SCOPES, MASK_RULES, APPROVALS, AUDIT, DESTINATIONS, AUDIENCE_PUSHES, DELIVERIES } from './data.js?v=20261014.4';
+         ROLES, MODULES, MATRIX, DATA_SCOPES, MASK_RULES, APPROVALS, AUDIT, DESTINATIONS, AUDIENCE_PUSHES, DELIVERIES,
+         PROPS, PROP_SCOPES, OPS, AGGS, GRANS, CHART_TYPES, SAVED_REPORTS } from './data.js?v=20261014.6';
 
-const VERSION = 'v0.3.2';
-const BUILD = '20261014.5';
+const VERSION = 'v0.4.0';
+const BUILD = '20261014.6';
 
 /* ------------------------------------------------------------------ state */
 const S = {
   user: null, route: { name: 'overview' }, collapsed: false,
   range: 30,                                   // 7 / 30 / 90 天
-  ev: { metric: 'traders', group: 'none', gran: '日' },
-  funnel: { id: 'open', compare: true, group: 'none' },
+  ev: null, funnel: null, qcfgCollapsed: false, navOpen: false,   // v0.4：由 resetEvents()/resetFunnel() 初始化
   profile: { q: '', sel: null, reason: '', unlocked: {} },
   seg: { tab: 'segments' }, segDrawer: null,
   ai: { tab: 'insights', kind: 'all', status: 'open', open: {}, chat: [], busy: false, prefill: '' },
   gov: { tab: 'dictionary' },
   iam: { tab: 'roles' }, roleEdit: null, customRoles: {}, customMatrix: {}, push: null,
-  path: { steps: 4 }, attr: { model: 'position' }, users: { q: '', lc: 'all', tier: 'all', page: 0, sel: {} }, integ: { tab: 'connections', step: 4 },
-  sqlDrawer: null, toast: null,
+  path: { steps: 4 }, attr: { model: 'position' }, users: { q: '', lc: 'all', tier: 'all', page: 0, sel: {}, from: null }, integ: { tab: 'connections', step: 4 },
+  sqlDrawer: null, toast: null, _evSql: '', _fnSql: '',
   approved: {},                                // 原型：審批狀態
   feedback: {},
 };
@@ -72,7 +72,7 @@ const LOGO = `<svg class="logo" viewBox="0 0 64 64"><rect width="64" height="64"
 const SER = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(--s5)', 'var(--s6)', 'var(--s7)', 'var(--s8)'];
 
 /* ------------------------------------------------------------------ charts */
-function ticks(max) { const raw = max / 4; const p = Math.pow(10, Math.floor(Math.log10(raw))); const n = [1, 2, 2.5, 5, 10].find(k => k * p >= raw) * p; const out = []; for (let v = 0; v <= max + n * .001; v += n) out.push(v); return out; }
+function ticks(max) { const raw = max / 4; const p = Math.pow(10, Math.floor(Math.log10(raw))); const n = [1, 2, 2.5, 5, 10].find(k => k * p >= raw) * p; const out = []; for (let v = 0; v < max + n; v += n) out.push(v); return out; }
 function lineChart(id, series, { h = 220, fmt = compact, area = true } = {}) {
   const W = 760, H = h, padL = 54, padR = 16, padT = 14, padB = 28;
   const xs = series[0].data.map(p => p.d);
@@ -104,13 +104,14 @@ function hbar(rows, { fmt = compact, color = 'var(--s1)', total = null } = {}) {
   const max = Math.max(...rows.map(r => r.v)); const tot = total ?? sum(rows.map(r => r.v));
   return `<table class="tbl">${rows.map(r => `<tr><td style="width:120px;font-weight:600">${esc(r.k)}</td><td><span class="bar-in" style="width:${(r.v / max * 100).toFixed(1)}%;background:${color}"></span></td><td class="num mono" style="width:90px">${fmt(r.v)}</td><td class="num" style="width:60px;color:var(--muted)">${pct(r.v / tot, 0)}</td></tr>`).join('')}</table>`;
 }
-function funnelView(f, { compare = true } = {}) {
+function funnelView(f, { compare = true, sel = -1, selectable = false } = {}) {
   const top = f.steps[0].n;
   return `<div class="funnel">${f.steps.map((s, i) => {
     const conv = i ? s.n / f.steps[i - 1].n : 1; const convP = i ? s.prev / f.steps[i - 1].prev : 1;
-    const drop = i ? `<div class="fdrop"><span></span><span>轉化 <b style="color:${conv - convP < -.03 ? 'var(--st-serious)' : 'var(--ink2)'}">${pct(conv)}</b>${compare ? ` <span style="color:var(--muted)">（前期 ${pct(convP)}，${pt(conv - convP)}）</span>` : ''} · 流失 ${n0(f.steps[i - 1].n - s.n)} 人</span></div>` : '';
-    return `${drop}<div class="fstep"><div class="nm">${esc(s.cn)}<small class="mono">${esc(s.ev)}</small></div><div class="trk">${compare ? `<div class="fill cmp" style="width:${(s.prev / top * 100).toFixed(1)}%"></div>` : ''}<div class="fill" style="width:${(s.n / top * 100).toFixed(1)}%;${compare ? 'bottom:50%' : ''}"></div></div><div class="v">${n0(s.n)}<small>${pct(s.n / top)} 總體</small></div></div>`;
-  }).join('')}</div>${compare ? `<div class="legend"><span class="k"><i class="sw rect" style="background:var(--s1)"></i>本期</span><span class="k"><i class="sw rect" style="background:var(--s2)"></i>前期</span></div>` : ''}`;
+    const drop = i ? `<div class="fdrop"><span></span><span>轉化 <b style="color:${conv - convP < -.03 ? 'var(--st-serious)' : 'var(--ink2)'}">${pct(conv)}</b>${compare ? ` <span style="color:var(--muted)">（上期 ${pct(convP)}，${pt(conv - convP)}）</span>` : ''} · 流失 ${n0(f.steps[i - 1].n - s.n)} 人</span></div>` : '';
+    const selCls = selectable ? ` click ${sel === i || sel === i - 1 ? 'sel' : ''}` : '';
+    return `${drop}<div class="fstep${selCls}" ${selectable ? `data-act="fnstep" data-arg="${Math.min(i, f.steps.length - 2)}"` : ''}><div class="nm">${selectable ? `${i + 1}. ` : ''}${esc(s.cn)}<small class="mono">${esc(s.ev)}</small></div><div class="trk">${compare ? `<div class="fill cmp" style="width:${(s.prev / top * 100).toFixed(1)}%"></div>` : ''}<div class="fill" style="width:${(s.n / top * 100).toFixed(1)}%;${compare ? 'bottom:50%' : ''}"></div></div><div class="v">${n0(s.n)}<small>${pct(s.n / top)} 總體</small></div></div>`;
+  }).join('')}</div>${compare ? `<div class="legend"><span class="k"><i class="sw rect" style="background:var(--s1)"></i>本期</span><span class="k"><i class="sw rect" style="background:var(--s2)"></i>上期</span></div>` : ''}`;
 }
 function heatTable(rows) {
   const cls = v => v == null ? 'n' : v >= 45 ? 'c5' : v >= 38 ? 'c4' : v >= 32 ? 'c3' : v >= 27 ? 'c2' : v >= 20 ? 'c1' : 'c0';
@@ -146,6 +147,11 @@ const METRICS = [
 ];
 const sumLast = (key, n) => sum(last(TS[key], n).map(p => p.v));
 const delta = (key, n = 7) => { const a = sumLast(key, n), b = sum(TS[key].slice(-2 * n, -n).map(p => p.v)); return (a - b) / b; };
+
+/* ------------------------------------------------------------------ v0.4 查詢狀態 */
+function resetEvents() { S.ev = { metrics: [{ ev: 'order_filled', agg: 'users', prop: 'amount', filters: { logic: 'and', items: [] }, open: false }], filters: { logic: 'and', items: [] }, groups: [], topN: 10, gran: 'day', chart: 'line', compare: false, tableAll: false, saved: S.ev ? S.ev.saved : [] }; }
+function resetFunnel(id = 'open') { const t = FUNNELS.find(f => f.id === id); const w = t.window === '當日' ? { n: 1, unit: '天' } : t.window === '7 天' ? { n: 7, unit: '天' } : { n: 30, unit: '天' }; S.funnel = { id, name: t.name, steps: t.steps.map(s => ({ ev: s.ev, cn: s.cn, filters: { logic: 'and', items: [] }, open: false })), window: w, assoc: '', filters: { logic: 'and', items: [] }, group: 'none', compare: true, view: 'funnel', sel: 0, saved: S.funnel ? S.funnel.saved : [] }; }
+resetEvents(); resetFunnel();
 
 /* ------------------------------------------------------------------ routing */
 function parseHash() { const h = (location.hash || '#/overview').replace(/^#\/?/, ''); const p = h.split('/').filter(Boolean); return { name: p[0] || 'overview', tab: p[1], arg: p[2] }; }
@@ -184,12 +190,18 @@ function viewGate() {
 function viewTopNav() {
   const u = S.user; const g = activeGroup(); const open = INSIGHTS.filter(i => i.status === 'open').length;
   const groups = NAV_GROUPS.filter(gr => gr.items.some(it => canRoute(it[0]))).map(gr => `<button class="${gr.id === g.id ? 'on' : ''}" data-act="goto" data-arg="#/${gr.items.find(it => canRoute(it[0]))[0]}">${gr.cn}${gr.id === 'ai' ? `<span class="badge">${open}</span>` : ''}</button>`).join('');
-  return `<header class="topnav"><div class="tn-in"><a class="brand" href="#/overview">${LOGO_MARK}<b>ALTA TECH<sup>LTD</sup></b><span class="prod">DMP</span></a><nav class="tn-nav">${groups}</nav>
+  return `<header class="topnav"><div class="tn-in"><button class="icon-btn hamb" data-act="navtoggle" aria-label="選單">${svg(I.menu, 20)}</button><a class="brand" href="#/overview">${LOGO_MARK}<b>ALTA TECH<sup>LTD</sup></b><span class="prod">DMP</span></a><nav class="tn-nav">${groups}</nav>
     <div class="tn-right"><div class="search">${svg(I.spark, 15)}<input placeholder="問 AI：上週開戶到入金的轉化率？" data-act="askbar" value="" autocomplete="off"><kbd>⏎</kbd></div>
       <button class="org-pick" data-act="noop">證券示範專案<span class="sep">/</span>prod</button>
       <button class="icon-btn" data-act="goto" data-arg="#/ai/insights" title="洞察通知">${svg(I.bell, 18)}<span class="dot"></span></button>
       <button class="icon-btn" data-act="noop" title="語言">${svg(I.globe, 18)}</button>
       <button class="me" data-act="logout" title="切換身分"><span class="av" style="background:${u.col}">${u.init}</span><span><span class="nm">${esc(u.name)}</span><span class="rl">${esc(u.role)}</span></span></button></div></div></header>`;
+}
+function viewMobileNav() {
+  if (!S.navOpen) return ''; const cur = S.route.name === 'ai' ? `ai/${S.ai.tab}` : S.route.name;
+  return `<div class="mnav"><div class="drawer-bg" data-act="navclose"></div><nav class="mnav-panel"><div class="hd">${LOGO_MARK}<b>ALTA TECH<sup>LTD</sup></b><span class="prod">DMP</span><button class="icon-btn x" data-act="navclose">✕</button></div>
+    ${NAV_GROUPS.filter(gr => gr.items.some(it => canRoute(it[0]))).map(gr => `<div class="grp">${gr.cn}</div>${gr.items.filter(it => canRoute(it[0])).map(it => `<button class="it ${it[0] === cur ? 'on' : ''}" data-act="goto" data-arg="#/${it[0]}">${it[1]}</button>`).join('')}`).join('')}
+    <div class="ft"><button class="it" data-act="logout">切換身分</button></div></nav></div>`;
 }
 function viewSubNav() {
   const g = activeGroup(); const cur = S.route.name === 'ai' ? `ai/${S.ai.tab}` : S.route.name; const u = S.user;
@@ -361,26 +373,229 @@ function pageOverview() {
   </div></div>`;
 }
 
+/* ================================================================== v0.4：查詢條件建構器 + 模擬查詢引擎（事件分析／漏斗分析） */
+// 設計對標：神策分析「事件分析」（多指標＋指標類型、篩選條件 且/或、按分組查看、時間粒度、圖表切換、數據表）
+// 與「漏斗分析」（步驟＋每步篩選、窗口期、關聯屬性、分組對比、轉化趨勢、流失用戶）；火山 DataFinder「轉化分析」（窗口期、人群對比、UV/PV）。
+const hash = s => { let h = 2166136261; for (const c of String(s)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } return h; };
+const hf = (s, lo, hi) => lo + (hash(s) % 10007) / 10007 * (hi - lo);          // 以設定字串決定的穩定係數
+const propOf = k => PROPS.find(p => p.k === k);
+const evOf = name => EVENTS.find(e => e.name === name) || EVENTS[0];
+const LIVE_EVENTS = EVENTS.filter(e => e.status === 'live');
+const NUM_PROPS = PROPS.filter(p => p.type === 'number');
+const newFilter = () => ({ logic: 'and', items: [] });
+const newCond = (k = 'platform') => { const p = propOf(k); return { k, op: OPS[p.type][0][0], v: p.vals ? p.vals[0] : (p.type === 'number' ? '1000' : ''), v2: '' }; };
+const condText = c => { const p = propOf(c.k); const op = (OPS[p.type].find(o => o[0] === c.op) || [])[1] || c.op; const needV = !['set', 'nset', 'true', 'false'].includes(c.op); return `${p.cn} ${op}${needV ? ' ' + (c.op === 'between' ? `${c.v}～${c.v2}` : c.v) : ''}`; };
+const filterText = f => f.items.length ? f.items.map(condText).join(f.logic === 'and' ? ' 且 ' : ' 或 ') : '';
+const filterKey = f => f.items.map(c => `${c.k}${c.op}${c.v}${c.v2}`).join(f.logic);
+function filterFactor(f) {                                                     // 篩選後保留比例（AND 連乘、OR 取聯集）
+  if (!f.items.length) return 1;
+  const fs = f.items.map(c => ['set', 'nlike', 'neq'].includes(c.op) ? hf(c.k + c.op + c.v, .72, .96) : ['nset'].includes(c.op) ? hf(c.k, .02, .12) : hf(c.k + c.op + c.v + c.v2, .12, .6));
+  return f.logic === 'and' ? fs.reduce((a, b) => a * b, 1) : 1 - fs.reduce((a, b) => a * (1 - b), 1);
+}
+// 篩選條件建構器：ns 為條件物件的位址（ev / ev.m0 / fn / fn.s1）
+function fbRef(ns) {
+  if (ns === 'ev') return S.ev.filters; if (ns === 'fn') return S.funnel.filters;
+  if (ns.startsWith('ev.m')) return S.ev.metrics[Number(ns.slice(4))].filters;
+  if (ns.startsWith('fn.s')) return S.funnel.steps[Number(ns.slice(4))].filters;
+  return newFilter();
+}
+function filterBuilder(ns, { title = '篩選條件', compact = false } = {}) {
+  const f = fbRef(ns);
+  const propSel = (c, i) => `<select class="sel" data-act="fbprop" data-arg="${ns}:${i}">${PROP_SCOPES.map(sc => `<optgroup label="${sc[1]}">${PROPS.filter(p => p.scope === sc[0]).map(p => `<option value="${p.k}" ${p.k === c.k ? 'selected' : ''}>${esc(p.cn)}<span> </span>${p.scope === 'event' ? ' ' + p.k : ''}</option>`).join('')}</optgroup>`).join('')}</select>`;
+  const rows = f.items.map((c, i) => {
+    const p = propOf(c.k); const ops = OPS[p.type]; const needV = !['set', 'nset', 'true', 'false'].includes(c.op);
+    let val = '';
+    if (needV) {
+      if (p.vals && ['eq', 'neq', 'in'].includes(c.op)) val = `<select class="sel" data-act="fbval" data-arg="${ns}:${i}">${p.vals.map(v => `<option ${v === c.v ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>${c.op === 'in' ? `<button class="btn-ghost sm" data-act="toast" data-arg="原型：多選值請以逗號分隔；正式版為可搜尋多選">+ 多選</button>` : ''}`;
+      else if (c.op === 'between') val = `<input class="inp num" type="${p.type === 'date' ? 'date' : 'number'}" data-act="fbval" data-arg="${ns}:${i}" value="${esc(c.v)}"><span class="note">～</span><input class="inp num" type="${p.type === 'date' ? 'date' : 'number'}" data-act="fbval2" data-arg="${ns}:${i}" value="${esc(c.v2)}">`;
+      else if (c.op === 'rel') val = `<span class="note">過去</span><input class="inp num" type="number" data-act="fbval" data-arg="${ns}:${i}" value="${esc(c.v || 30)}"><span class="note">天內</span>`;
+      else val = `<input class="inp ${p.type === 'number' ? 'num' : ''}" type="${p.type === 'number' ? 'number' : 'text'}" data-act="fbval" data-arg="${ns}:${i}" value="${esc(c.v)}" placeholder="${p.type === 'number' ? '數值' : '文字'}">`;
+    }
+    return `<div class="fb-row">${i ? `<span class="fb-logic">${f.logic === 'and' ? '且' : '或'}</span>` : '<span class="fb-logic first">其中</span>'}${propSel(c, i)}<select class="sel" data-act="fbop" data-arg="${ns}:${i}">${ops.map(o => `<option value="${o[0]}" ${o[0] === c.op ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>${val}<button class="icon-btn x sm" data-act="fbdel" data-arg="${ns}:${i}" title="移除條件">✕</button></div>`;
+  }).join('');
+  return `<div class="fb ${compact ? 'compact' : ''}"><div class="fb-hd"><span>${esc(title)}</span>${f.items.length > 1 ? `<span class="seg xs"><button class="${f.logic === 'and' ? 'on' : ''}" data-act="fblogic" data-arg="${ns}:and">且</button><button class="${f.logic === 'or' ? 'on' : ''}" data-act="fblogic" data-arg="${ns}:or">或</button></span>` : ''}<span class="right note">${f.items.length ? `${f.items.length} 條` : '未設定'}</span></div>${rows}<div class="fb-ft"><button class="btn-ghost sm" data-act="fbadd" data-arg="${ns}">＋ 添加篩選條件</button>${f.items.length ? `<button class="btn-ghost sm" data-act="fbclear" data-arg="${ns}">清空</button>` : ''}</div></div>`;
+}
+// 時間粒度：以 90 天日序列為母體，聚合或展開
+const DAU_SHAPE = TS.dau.map(p => p.v / (sum(TS.dau.map(q => q.v)) / TS.dau.length));
+const shapeAt = i => DAU_SHAPE[((i % 90) + 90) % 90];
+const HOUR_PROFILE = [.05, .03, .02, .02, .02, .04, .12, .35, .9, 1.9, 1.8, 1.6, 1.5, 1.3, .7, .5, .45, .5, .6, .7, .8, .7, .4, .15];
+function bucketize(points, gran, isUsers) {
+  if (gran === 'day') return points;
+  if (gran === 'total') return [{ d: '合計', v: isUsers ? Math.round(sum(points.map(p => p.v)) * .58) : sum(points.map(p => p.v)) }];
+  if (gran === 'hour' || gran === 'minute') { const lastV = points[points.length - 1].v; const n = gran === 'hour' ? 24 : 60; const tot = sum(HOUR_PROFILE); return Array.from({ length: n }, (_, i) => { const h = gran === 'hour' ? i : 13; const w = gran === 'hour' ? HOUR_PROFILE[h] / tot : HOUR_PROFILE[13] / tot / 60 * (1 + Math.sin(i * 1.7) * .25); return { d: gran === 'hour' ? `${String(h).padStart(2, '0')}:00` : `13:${String(i).padStart(2, '0')}`, v: Math.round(lastV * w) }; }); }
+  const keyOf = d => { const dt = new Date(d); if (gran === 'week') { const w = new Date(dt); w.setDate(dt.getDate() - ((dt.getDay() + 6) % 7)); return dkey(w).slice(5) + ' 週'; } return d.slice(0, 7); };
+  const out = []; const map = {};
+  points.forEach(p => { const k = keyOf(p.d); if (!map[k]) { map[k] = { d: k, v: 0, n: 0 }; out.push(map[k]); } map[k].v += p.v; map[k].n++; });
+  return out.map(b => ({ d: b.d, v: isUsers ? Math.round(b.v * (gran === 'week' ? .62 : .41)) : b.v }));
+}
+// 事件分析：指標 → 時序
+function metricLabel(m) { const e = evOf(m.ev); const a = AGGS.find(x => x[0] === m.agg); return `${e.cn}·${a[1]}${a[2] ? `(${propOf(m.prop)?.cn || ''})` : ''}`; }
+function metricFmt(m) { return ['sum', 'avg', 'max', 'min', 'p50', 'p90'].includes(m.agg) && /amount|fee/.test(m.prop || '') ? v => compact(v) : m.agg === 'avg_per_user' ? v => v.toFixed(2) : compact; }
+function metricDaily(m, offset = 0) {                                            // offset: 0 本期、S.range 上期
+  const e = evOf(m.ev); const usersBase = Math.min(e.daily * .3, 412000 * hf(e.name + ':u', .25, .95));
+  const ff = filterFactor(S.ev.filters) * filterFactor(m.filters);
+  const p = m.prop ? propOf(m.prop) : null; const unit = p ? hf(p.k + e.name, /amount|fee/.test(p.k) ? 900 : 3, /amount|fee/.test(p.k) ? 48000 : 400) : 1;
+  const base = { total: e.daily, users: usersBase, avg_per_user: e.daily / usersBase, uniq: usersBase * hf(m.prop || '', .08, .6), sum: e.daily * unit, avg: unit, max: unit * hf(e.name + 'max', 18, 70), min: unit * hf(e.name + 'min', .01, .08), p50: unit * .72, p90: unit * 2.4 }[m.agg];
+  const scaled = ['avg_per_user', 'avg', 'max', 'min', 'p50', 'p90'].includes(m.agg) ? base * (ff < 1 ? hf(filterKey(S.ev.filters) + filterKey(m.filters), .85, 1.25) : 1) : base * ff;
+  const drift = hf(e.name + m.agg, -.08, .14);
+  return Array.from({ length: S.range }, (_, j) => { const i = 90 - S.range + j - offset; const t = (i / 90); const v = scaled * (['avg_per_user', 'avg', 'p50', 'p90'].includes(m.agg) ? 1 + (shapeAt(i) - 1) * .3 : shapeAt(i)) * (1 + drift * t) * (1 + Math.sin(i * .9 + hash(e.name) % 7) * .03); return { d: dkey(dayOffset(j - S.range + 1 - offset)), v: v < 100 ? Math.round(v * 100) / 100 : Math.round(v) }; });
+}
+function groupSplit(points, dims, topN) {                                        // 按分組查看：多維度 → 組合
+  if (!dims.length) return [{ name: null, data: points }];
+  const combos = dims.reduce((acc, d) => { const p = propOf(d); const vals = p.vals || (p.type === 'number' ? ['0–100', '100–1k', '1k–10k', '> 10k'] : ['true', 'false']); return acc.flatMap(a => vals.map(v => [...a, v])); }, [[]]);
+  const ws = combos.map(c => hf(c.join('|'), .3, 1.6)); const tot = sum(ws);
+  return combos.map((c, i) => ({ name: c.join(' / '), w: ws[i] / tot, data: points.map((p, j) => ({ d: p.d, v: Math.round(p.v * ws[i] / tot * (1 + Math.sin(j * .5 + i) * .05) * 100) / 100 })) })).sort((a, b) => b.w - a.w).slice(0, topN);
+}
+function evSeries() {
+  const ev = S.ev; const out = []; const isUsers = m => ['users', 'uniq'].includes(m.agg);
+  ev.metrics.forEach((m, mi) => {
+    const daily = metricDaily(m); const prev = ev.compare ? metricDaily(m, S.range) : null;
+    groupSplit(daily, ev.groups, ev.topN).forEach((g, gi) => {
+      const nm = (ev.metrics.length > 1 || !g.name ? metricLabel(m) : '') + (g.name ? (ev.metrics.length > 1 ? ' · ' : '') + g.name : '');
+      out.push({ name: nm, m, color: SER[out.length % SER.length], data: bucketize(g.data, ev.gran, isUsers(m)) });
+      if (prev && !g.name) out.push({ name: nm + '（上期）', m, prev: true, color: SER[out.length % SER.length], dash: true, data: bucketize(prev, ev.gran, isUsers(m)).map((p, i) => ({ d: out[out.length - 1].data[i]?.d || p.d, v: p.v })) });
+    });
+  });
+  return out.slice(0, 8);
+}
+// 柱狀 / 堆疊 / 累計
+function barChart(id, series, { h = 260, fmt = compact, stack = false } = {}) {
+  const W = 760, H = h, padL = 54, padR = 16, padT = 14, padB = 28; const xs = series[0].data.map(p => p.d); const n = xs.length;
+  const tops = xs.map((_, i) => stack ? sum(series.map(s => s.data[i].v)) : Math.max(...series.map(s => s.data[i].v)));
+  const tks = ticks(Math.max(...tops)); const top = tks[tks.length - 1];
+  const slot = (W - padL - padR) / n; const x = i => padL + slot * (i + .5); const y = v => padT + (H - padT - padB) * (1 - v / top);
+  CHARTS[id] = { xs, series, fmt, x: xs.map((_, i) => x(i)), W, padL, padR };
+  const grid = tks.map(t => `<line class="grid-line" x1="${padL}" x2="${W - padR}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"/><text class="tick" x="${padL - 8}" y="${(y(t) + 3.5).toFixed(1)}" text-anchor="end">${fmt(t)}</text>`).join('');
+  const step = Math.max(1, Math.round(n / 6)); const xt = xs.map((d, i) => (i % step === 0 || i === n - 1) ? `<text class="tick" x="${x(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${d.length > 7 ? d.slice(5) : d}</text>` : '').join('');
+  const bw = stack ? Math.max(3, slot * .62) : Math.max(2, (slot * .72 - 2 * (series.length - 1)) / series.length);
+  const bars = xs.map((_, i) => { let acc = 0; return series.map((s, si) => { const v = s.data[i].v; const bx = stack ? x(i) - bw / 2 : x(i) - (bw * series.length + 2 * (series.length - 1)) / 2 + si * (bw + 2); const y1 = y(acc + v), y0 = y(acc); acc += stack ? v : 0; return `<rect class="bar" x="${bx.toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, y0 - y1 - (stack && si ? 2 : 0)).toFixed(1)}" fill="${s.color}" rx="${stack && si < series.length - 1 ? 0 : 3}"/>`; }).join(''); }).join('');
+  const legend = series.length > 1 ? `<div class="legend">${series.map(s => `<span class="k"><i class="sw rect" style="background:${s.color}"></i>${esc(s.name)}</span>`).join('')}</div>` : '';
+  return `<div class="chart-wrap" data-chart="${id}"><svg class="chart" viewBox="0 0 ${W + 40} ${H}">${grid}<line class="axis" x1="${padL}" x2="${W - padR}" y1="${y(0)}" y2="${y(0)}"/>${xt}${bars}<line class="xline hidden" y1="${padT}" y2="${y(0)}"/><rect class="hit" x="${padL}" y="0" width="${W - padL - padR}" height="${H}"/></svg>${legend}</div>`;
+}
+const cumulate = series => series.map(s => { let a = 0; return { ...s, data: s.data.map(p => ({ d: p.d, v: (a += p.v) })) }; });
+function evChart(series, fmt) {
+  const t = S.ev.chart; if (!series.length) return '<div class="empty">請至少加入一個指標</div>';
+  if (S.ev.gran === 'total' || t === 'bar') return barChart('ev-main', series, { h: 300, fmt });
+  if (t === 'stack') return barChart('ev-main', series.filter(s => !s.prev), { h: 300, fmt, stack: true });
+  if (t === 'cum') return lineChart('ev-main', cumulate(series), { h: 300, fmt, area: series.length === 1 });
+  return lineChart('ev-main', series, { h: 300, fmt, area: series.length === 1 });
+}
+const dateRangeText = () => `${dkey(dayOffset(-S.range + 1))} ～ ${dkey(TODAY)}`;
+function evSummary(series) {
+  const cur = series.filter(s => !s.prev);
+  return `<div class="grid c4 kpi">${cur.slice(0, 4).map(s => { const vals = s.data.map(p => p.v); const tot = ['avg_per_user', 'avg', 'max', 'min', 'p50', 'p90'].includes(s.m.agg) ? sum(vals) / vals.length : sum(vals); const prev = series.find(p => p.prev && p.m === s.m); const pv = prev ? (['avg_per_user', 'avg', 'max', 'min', 'p50', 'p90'].includes(s.m.agg) ? sum(prev.data.map(p => p.v)) / prev.data.length : sum(prev.data.map(p => p.v))) : null; const d = pv ? (tot - pv) / pv : null; const f = metricFmt(s.m); return `<div class="tile"><div class="lbl"><i class="sw" style="background:${s.color}"></i>${esc(s.name)}</div><div class="val">${f(tot)}</div><div class="delta ${d == null ? '' : d >= 0 ? 'up' : 'down'}">${d == null ? `<span>${S.ev.gran === 'total' ? '合計' : '區間合計'} · ${s.data.length} 個時間點</span>` : `<b>${d >= 0 ? '▲' : '▼'} ${pct(Math.abs(d))}</b><span>vs 上期 ${f(pv)}</span>`}</div></div>`; }).join('')}</div>`;
+}
+function evTable(series, fmt) {
+  const xs = series[0].data.map(p => p.d); const usersCol = s => ['users', 'uniq'].includes(s.m.agg);
+  const tot = s => ['avg_per_user', 'avg', 'max', 'min', 'p50', 'p90'].includes(s.m.agg) ? sum(s.data.map(p => p.v)) / s.data.length : sum(s.data.map(p => p.v));
+  const rows = xs.map((d, i) => `<tr><td class="mono">${esc(d)}</td>${series.map(s => `<td class="num mono">${usersCol(s) && !s.prev ? `<button class="lnk" data-act="evusers" data-arg="${esc(s.name)}｜${esc(d)}" title="查看這格的用戶列表">${metricFmt(s.m)(s.data[i].v)}</button>` : metricFmt(s.m)(s.data[i].v)}</td>`).join('')}</tr>`);
+  return `<div class="tbl-wrap"><table class="tbl"><tr><th>時間</th>${series.map(s => `<th class="num"><i class="sw" style="background:${s.color}"></i> ${esc(s.name)}</th>`).join('')}</tr><tr class="total"><td>合計 / 均值</td>${series.map(s => `<td class="num mono">${metricFmt(s.m)(tot(s))}</td>`).join('')}</tr>${(S.ev.tableAll ? rows : rows.slice().reverse().slice(0, 12)).join('')}</table></div>${rows.length > 12 ? `<div class="pager"><span>${S.ev.tableAll ? `全部 ${rows.length} 列` : `最近 12 列 / 共 ${rows.length}`}</span><span class="right"><button class="btn-ghost sm" data-act="evtableall">${S.ev.tableAll ? '只看最近 12 列' : '展開全部'}</button><button class="btn-ghost sm" data-act="toast" data-arg="${has('events', 'e') ? '已匯出 CSV（審計：export.events）' : '你的角色沒有匯出權限'}">匯出 CSV</button></span></div>` : ''}`;
+}
 function pageEvents() {
-  const m = METRICS.find(x => x[0] === S.ev.metric); const series = S.ev.group === 'platform' ? splitByPlatform(m[0]) : [{ name: m[1], color: SER[0], data: seriesRange(m[0]) }];
-  const rows = series[0].data.map((p, i) => ({ d: p.d, vals: series.map(s => s.data[i].v) })).reverse().slice(0, 12);
-  return `<div class="page-h"><div><h1>事件分析</h1><p>指標來自語意層（metrics.yaml）；同一個查詢編譯器同時服務這個頁面與 AI agent 的 metric.query 工具。</p></div><div class="right"><button class="btn-ghost" data-act="sql" data-arg="metric">${svg(I.code, 14)} 檢視 SQL 與血緣</button><button class="btn-primary teal" data-act="askpre" data-arg="${esc(m[1])}最近的變化有什麼值得注意？">${svg(I.spark, 14)} 請 agent 解讀</button></div></div>
-  <div class="filters"><span class="note">指標</span><select class="sel" data-act="evmetric">${METRICS.map(x => `<option value="${x[0]}" ${x[0] === m[0] ? 'selected' : ''}>${x[1]}</option>`).join('')}</select>
-    <span class="note">分組</span><select class="sel" data-act="evgroup"><option value="none" ${S.ev.group === 'none' ? 'selected' : ''}>不分組</option><option value="platform" ${S.ev.group === 'platform' ? 'selected' : ''}>平台</option></select>
-    <span class="note">篩選</span><span class="pill blue">project = 證券示範</span><span class="pill">+ 條件</span><span style="margin-left:auto" class="note">掃描估算 <b class="mono">${(S.range * 0.21).toFixed(1)} GB</b> · 行級規則：${S.user.scope === 'all' ? '無' : 'branch_id IN (TPE01)'}</span></div>
-  <div class="grid c2"><div class="card"><div class="card-h"><h3>${esc(m[1])}</h3><span class="sub">近 ${S.range} 天 · 每日</span></div>${lineChart('ev-main', series, { h: 300, fmt: m[2] })}</div>
-  <div class="card flush"><table class="tbl"><tr><th>日期</th>${series.map(s => `<th class="num">${esc(s.name)}</th>`).join('')}</tr>${rows.map(r => `<tr><td class="mono">${r.d}</td>${r.vals.map(v => `<td class="num mono">${m[2](v)}</td>`).join('')}</tr>`).join('')}</table></div></div>
-  <div class="grid c3" style="margin-top:16px"><div class="card"><div class="card-h"><h3>平台</h3><span class="sub">成交客戶</span></div>${hbar(PLATFORM_SPLIT.map(p => ({ k: p.k, v: p.users })))}</div><div class="card"><div class="card-h"><h3>委託失敗率（平台）</h3></div>${hbar(PLATFORM_SPLIT.map(p => ({ k: p.k, v: Math.round(p.reject * 10000) / 100 })), { fmt: v => v + '%', color: SER[1], total: 1e9 }).replace(/<td class="num" style="width:60px[^<]*<\/td>/g, '')}</div><div class="card"><div class="card-h"><h3>新戶首次來源</h3><span class="sub">first_utm_source</span></div>${hbar(UTM_SPLIT.map(u => ({ k: u.k, v: u.v })), { fmt: n0, color: SER[2] })}</div></div>`;
+  const ev = S.ev; const series = evSeries(); const fmt = series.length ? metricFmt(series[0].m) : compact;
+  const gText = ev.groups.map(g => propOf(g).cn).join('、');
+  const cfgOpen = !S.qcfgCollapsed;
+  const metricRow = (m, i) => { const agg = AGGS.find(a => a[0] === m.agg); const needProp = !!agg[2]; return `<div class="qm"><div class="qm-hd"><span class="qm-idx" style="background:${SER[i % 8]}">${String.fromCharCode(65 + i)}</span>
+      <select class="sel grow" data-act="evmev" data-arg="${i}">${LIVE_EVENTS.map(e => `<option value="${e.name}" ${e.name === m.ev ? 'selected' : ''}>${esc(e.cn)}（${e.name}）</option>`).join('')}</select>
+      <select class="sel" data-act="evmagg" data-arg="${i}">${AGGS.map(a => `<option value="${a[0]}" ${a[0] === m.agg ? 'selected' : ''}>${a[1]}</option>`).join('')}</select>
+      ${needProp ? `<select class="sel" data-act="evmprop" data-arg="${i}">${(agg[2] === 'num' ? NUM_PROPS : PROPS).map(p => `<option value="${p.k}" ${p.k === m.prop ? 'selected' : ''}>${esc(p.cn)}</option>`).join('')}</select>` : ''}
+      <button class="btn-ghost sm ${m.open ? 'on' : ''}" data-act="evmfilter" data-arg="${i}" title="指標篩選">篩選${m.filters.items.length ? ` ${m.filters.items.length}` : ''}</button>
+      ${ev.metrics.length > 1 ? `<button class="icon-btn x sm" data-act="evmdel" data-arg="${i}" title="移除指標">✕</button>` : ''}</div>
+      ${m.open ? filterBuilder(`ev.m${i}`, { title: `指標 ${String.fromCharCode(65 + i)} 的篩選`, compact: true }) : (m.filters.items.length ? `<div class="qm-ft note">${esc(filterText(m.filters))}</div>` : '')}</div>`; };
+  const cfg = `<aside class="qpanel card ${cfgOpen ? '' : 'collapsed'}"><div class="card-h"><h3>查詢條件</h3><span class="sub">事件分析</span><div class="right"><button class="btn-ghost sm mob-only" data-act="qcfg">${cfgOpen ? '收合' : '展開'}</button></div></div><div class="qbody stack" style="gap:14px">
+    <div class="qsec"><div class="qsec-h"><b>指標</b><span class="note">事件 × 指標類型（總次數／觸發用戶數／人均次數／去重數／數值屬性求和、均值、分位）</span></div>${ev.metrics.map(metricRow).join('')}<div class="acts"><button class="btn-ghost sm" data-act="evmadd" ${ev.metrics.length >= 5 ? 'disabled' : ''}>＋ 添加指標</button><button class="btn-ghost sm" data-act="toast" data-arg="原型：公式指標（A / B、A − B）將於正式版提供">＋ 公式指標</button></div></div>
+    <div class="qsec">${filterBuilder('ev', { title: '全局篩選（作用於所有指標）' })}</div>
+    <div class="qsec"><div class="qsec-h"><b>按分組查看</b><span class="note">最多 3 個維度；數值屬性自動分桶</span></div><div class="chips">${ev.groups.map(g => `<span class="chip">${esc(propOf(g).cn)}<button data-act="evgdel" data-arg="${g}">✕</button></span>`).join('')}${ev.groups.length < 3 ? `<select class="sel" data-act="evgadd"><option value="">＋ 添加分組維度</option>${PROP_SCOPES.map(sc => `<optgroup label="${sc[1]}">${PROPS.filter(p => p.scope === sc[0] && !ev.groups.includes(p.k)).map(p => `<option value="${p.k}">${esc(p.cn)}</option>`).join('')}</optgroup>`).join('')}</select>` : ''}</div>${ev.groups.length ? `<div class="row note" style="margin-top:8px">顯示前 <select class="sel xs" data-act="evtopn">${[5, 10, 20].map(n => `<option ${ev.topN === n ? 'selected' : ''}>${n}</option>`).join('')}</select> 組，其餘併入「其他」</div>` : ''}</div>
+    <div class="qsec"><div class="qsec-h"><b>時間</b></div><div class="row"><div class="seg">${[7, 30, 90].map(n => `<button class="${S.range === n ? 'on' : ''}" data-act="range" data-arg="${n}">近 ${n} 天</button>`).join('')}</div><button class="btn-ghost sm" data-act="toast" data-arg="原型：自訂日期區間／相對時間（本週、上月）將於正式版提供">自訂</button></div><div class="note mono" style="margin-top:6px">${dateRangeText()}</div>
+      <div class="row" style="margin-top:10px"><span class="note">粒度</span><div class="seg">${GRANS.map(g => `<button class="${ev.gran === g[0] ? 'on' : ''}" data-act="evgran" data-arg="${g[0]}">${g[1]}</button>`).join('')}</div></div>
+      <label class="row chk-row" style="margin-top:10px"><button class="chk ${ev.compare ? 'on' : ''}" data-act="evcompare" aria-label="對比上期"></button><span>對比上一期（前 ${S.range} 天）</span></label></div>
+    <div class="acts qacts"><button class="btn-primary" data-act="evrun">查詢</button><button class="btn-ghost" data-act="evsave">儲存報表</button><button class="btn-ghost" data-act="evreset">重置</button></div>
+    </div></aside>`;
+  const sqlHint = `SELECT ${ev.gran === 'total' ? '' : `toStartOf${ev.gran === 'day' ? 'Day' : ev.gran === 'week' ? 'Week' : ev.gran === 'month' ? 'Month' : 'Hour'}(time) AS t, `}${ev.groups.map(g => g.replace('u.', 'profile.').replace('tag.', 'tags.')).concat(ev.metrics.map(m => ({ total: 'count()', users: 'uniqExact(one_id)', avg_per_user: 'count()/uniqExact(one_id)', uniq: `uniqExact(props.${m.prop})` }[m.agg] || `${m.agg}(props.${m.prop})`) + ` AS m_${m.ev}`)).join(', ')}\nFROM dmp.events WHERE project='sinopac_demo' AND event IN (${[...new Set(ev.metrics.map(m => `'${m.ev}'`))].join(', ')})\n  AND event_date BETWEEN today()-${S.range} AND today()${ev.filters.items.length ? `\n  AND (${ev.filters.items.map(c => `${c.k.replace('u.', 'profile.').replace('tag.', 'tags.')} ${c.op === 'eq' ? '=' : c.op === 'neq' ? '!=' : c.op === 'gt' ? '>' : c.op === 'lt' ? '<' : c.op.toUpperCase()} '${c.v}'`).join(ev.filters.logic === 'and' ? ' AND ' : ' OR ')})` : ''}${S.user.scope === 'all' ? '' : "\n  AND branch_id IN ('TPE01')  -- 行級規則"}\nGROUP BY ${ev.gran === 'total' ? '' : 't'}${ev.groups.length ? (ev.gran === 'total' ? '' : ', ') + ev.groups.join(', ') : ''}${ev.gran === 'total' && !ev.groups.length ? '()' : ''} ORDER BY t`;
+  S._evSql = sqlHint;
+  const res = `<section class="qresult stack">
+    ${evSummary(series)}
+    <div class="card"><div class="card-h"><h3>${esc(ev.metrics.map(metricLabel).join('、'))}</h3><span class="sub">${dateRangeText()} · 按${GRANS.find(g => g[0] === ev.gran)[1]}${gText ? ` · 按 ${gText} 分組` : ''}${ev.filters.items.length ? ` · 篩選：${esc(filterText(ev.filters))}` : ''}</span>
+      <div class="right"><div class="seg">${CHART_TYPES.map(c => `<button class="${ev.chart === c[0] ? 'on' : ''}" data-act="evchart" data-arg="${c[0]}" ${c[0] === 'stack' && series.length < 2 ? 'disabled' : ''}>${c[1]}</button>`).join('')}</div></div></div>
+      ${ev.chart === 'table' ? evTable(series, fmt) : evChart(series, fmt)}
+      ${ev.chart !== 'table' ? `<div class="note" style="margin-top:8px">滑過圖表查看每個時間點的數值；${ev.compare ? '虛線／淡色為上一期。' : ''}掃描估算 <b class="mono">${(S.range * 0.21 * Math.max(1, ev.metrics.length * .6)).toFixed(1)} GB</b> · 行級規則：${S.user.scope === 'all' ? '無' : 'branch_id IN (TPE01)'} · 查詢耗時 <b class="mono">${(0.3 + ev.metrics.length * .18 + ev.groups.length * .25).toFixed(2)} s</b></div>` : ''}</div>
+    ${ev.chart !== 'table' ? `<div class="card"><div class="card-h"><h3>數據表</h3><span class="sub">點擊「觸發用戶數」的數字可下鑽到用戶列表</span></div>${evTable(series, fmt)}</div>` : ''}
+    <div class="grid c21"><div class="card"><div class="card-h"><h3>已儲存報表</h3><span class="sub">書籤 · 可排程寄送／訂閱異常告警</span></div><div class="tbl-wrap"><table class="tbl">${SAVED_REPORTS.filter(r => r.kind === 'events').map(r => `<tr class="click"><td><b>${esc(r.name)}</b><span class="sub">${esc(r.owner)} · 更新 ${r.updated}</span></td><td class="num"><button class="btn-ghost sm" data-act="toast" data-arg="已載入報表「${esc(r.name)}」（原型）">開啟</button></td></tr>`).join('')}${S.ev.saved.map(r => `<tr class="click"><td><b>${esc(r)}</b><span class="sub">${esc(S.user.name)} · 剛剛</span></td><td class="num"><span class="pill teal">新</span></td></tr>`).join('')}</table></div></div>
+    <div class="card"><div class="card-h"><h3>相關洞察</h3><span class="sub">agent 以同一組指標口徑自動偵測</span></div><div class="stack" style="gap:10px">${INSIGHTS.filter(i => i.kind === 'anomaly' || i.kind === 'trend').slice(0, 2).map(i => insightCard(i, true)).join('') || '<div class="empty">暫無</div>'}</div></div></div>
+  </section>`;
+  return `<div class="page-h"><div><h1>事件分析</h1><p>多指標 × 指標類型 × 篩選（且／或）× 分組 × 時間粒度；指標口徑來自語意層，與 AI agent 的 metric.query 走同一個查詢編譯器。</p></div><div class="right"><button class="btn-ghost" data-act="sql" data-arg="metric">${svg(I.code, 14)} 檢視 SQL</button><button class="btn-primary teal" data-act="askpre" data-arg="解讀「${esc(series[0] ? series[0].name : '')}」近 ${S.range} 天的變化${gText ? `（按 ${gText} 分組）` : ''}，有什麼值得注意？">${svg(I.spark, 14)} 請 agent 解讀</button></div></div>
+  <div class="qlayout">${cfg}${res}</div>`;
 }
 
+/* ------------------------------------------------------------------ 漏斗分析 */
+const FUNNEL_GROUPS = [['none', '不分組'], ['platform', '平台'], ['channel', '渠道'], ['u.tier', '價值分級'], ['u.age_band', '年齡層'], ['segment', '人群分群']];
+const WINDOW_UNITS = ['分鐘', '小時', '天'];
+function funnelTemplate(id) { const t = FUNNELS.find(f => f.id === id); const w = t.window === '當日' ? { n: 1, unit: '天' } : t.window === '7 天' ? { n: 7, unit: '天' } : { n: 30, unit: '天' }; return { id, name: t.name, steps: t.steps.map(s => ({ ev: s.ev, cn: s.cn, filters: newFilter(), open: false })), window: w }; }
+function funnelCounts(groupVal = null) {                                          // 每步人數（本期／上期）
+  const f = S.funnel; const t = FUNNELS.find(x => x.id === f.id); const sameAsTemplate = t && t.steps.length === f.steps.length && t.steps.every((s, i) => s.ev === f.steps[i].ev);
+  const rangeF = S.range / 30; const gF = filterFactor(f.filters); const win = f.window.unit === '天' ? f.window.n : f.window.unit === '小時' ? f.window.n / 24 : f.window.n / 1440;
+  const winF = i => i === 0 ? 1 : Math.min(1, .55 + .45 * Math.log10(1 + win * 3) / Math.log10(91));
+  const gw = groupVal == null ? 1 : hf(f.group + groupVal, .12, .5);
+  const n = [], prev = [], nb = [], pb = []; let cumF = 1, cumD = 1;
+  f.steps.forEach((s, i) => {
+    let base, basePrev;
+    if (sameAsTemplate) { base = t.steps[i].n * rangeF; basePrev = t.steps[i].prev * rangeF; }
+    else if (i === 0) { const e = evOf(s.ev); base = Math.min(e.daily * .3, 412000 * hf(e.name + ':u', .25, .95)) * S.range * .55; basePrev = base * hf(s.ev + 'prev', .88, 1.08); }
+    else { const conv = hf(f.steps[i - 1].ev + s.ev, .22, .78); base = nb[i - 1] * conv; basePrev = pb[i - 1] * conv * hf(s.ev + 'p' + i, .92, 1.06); }
+    nb.push(base); pb.push(basePrev);
+    cumF *= filterFactor(s.filters); if (groupVal != null && i) cumD *= hf(groupVal + i, .86, 1.06);
+    n.push(base * gF * cumF * winF(i) * gw * cumD); prev.push(basePrev * gF * cumF * winF(i) * gw * cumD);
+    if (i) { n[i] = Math.min(n[i], n[i - 1] * .985); prev[i] = Math.min(prev[i], prev[i - 1] * .985); }
+  });
+  return { n: n.map(Math.round), prev: prev.map(Math.round) };
+}
+function funnelGroupValues() { const f = S.funnel; if (f.group === 'none') return []; if (f.group === 'segment') return SEGMENTS.slice(0, 4).map(s => s.name); return propOf(f.group).vals.slice(0, 5); }
+const medianTime = (i, g = '') => { const f = S.funnel; const h = hf(f.steps[i].ev + g + i, .2, 1) * (f.window.unit === '天' ? f.window.n * 24 * .18 : f.window.unit === '小時' ? f.window.n * .4 : f.window.n / 60 * .4); return h < 1 ? `${Math.max(1, Math.round(h * 60))} 分` : h < 48 ? `${h.toFixed(1)} 小時` : `${(h / 24).toFixed(1)} 天`; };
+function funnelGroupView(groups) {
+  const f = S.funnel; const top = Math.max(...groups.map(g => g.n[0]));
+  return `<div class="funnel grp">${f.steps.map((s, i) => `<div class="fstep ${f.sel === i ? 'sel' : ''}" data-act="fnstep" data-arg="${i}"><div class="nm">${i + 1}. ${esc(s.cn)}<small class="mono">${esc(s.ev)}</small></div><div class="trk multi">${groups.map((g, gi) => `<div class="fill" style="width:${(g.n[i] / top * 100).toFixed(1)}%;background:${g.color}" title="${esc(g.name)}：${n0(g.n[i])}"></div>`).join('')}</div><div class="v"><small>${groups.map(g => `<span><i class="sw rect" style="background:${g.color}"></i>${i ? pct(g.n[i] / g.n[i - 1]) : n0(g.n[0])}</span>`).join('')}</small></div></div>`).join('')}</div><div class="legend">${groups.map(g => `<span class="k"><i class="sw rect" style="background:${g.color}"></i>${esc(g.name)}</span>`).join('')}</div>`;
+}
 function pageFunnel() {
-  const f = FUNNELS.find(x => x.id === S.funnel.id);
-  const byPlat = ['iOS', 'Android', 'Web'].map((k, i) => { const w = [.46, .36, .18][i]; const adj = (f.id === 'open' && k === 'iOS') ? [1, 1, .87, .87, .8, .8] : f.steps.map(() => 1); return { k, steps: f.steps.map((s, j) => Math.round(s.n * w * adj[j])) }; });
-  return `<div class="page-h"><div><h1>漏斗分析</h1><p>以 ClickHouse windowFunnel 計算；步驟可混用 GA 行為事件與交易事件。</p></div><div class="right"><button class="btn-ghost" data-act="sql" data-arg="funnel">${svg(I.code, 14)} SQL</button><button class="btn-primary teal" data-act="askpre" data-arg="診斷「${esc(f.name)}」漏斗：哪一步流失最大、哪個分群最差、可能原因？">${svg(I.spark, 14)} 請 agent 診斷</button></div></div>
-  <div class="filters"><div class="seg">${FUNNELS.map(x => `<button class="${x.id === f.id ? 'on' : ''}" data-act="funnelid" data-arg="${x.id}">${esc(x.name)}</button>`).join('')}</div><span class="pill blue">視窗 ${f.window}</span><button class="btn-ghost sm" data-act="funnelcmp">${S.funnel.compare ? '✓ ' : ''}對比前期</button><span class="pill">+ 篩選</span></div>
-  <div class="grid c2"><div class="card"><div class="card-h"><h3>${esc(f.name)}</h3><span class="sub">近 ${S.range} 天 vs 前 ${S.range} 天</span></div>${funnelView(f, { compare: S.funnel.compare })}</div>
-  <div class="stack"><div class="card"><div class="card-h"><h3>各平台轉化</h3><span class="sub">首步→末步</span></div><table class="tbl"><tr><th>平台</th>${f.steps.map(s => `<th class="num">${esc(s.cn)}</th>`).join('')}<th class="num">總轉化</th></tr>${byPlat.map(p => { const t = p.steps[p.steps.length - 1] / p.steps[0]; return `<tr><td style="font-weight:600">${p.k}</td>${p.steps.map(v => `<td class="num mono">${n0(v)}</td>`).join('')}<td class="num mono" style="color:${t < .03 && f.id === 'open' ? 'var(--st-serious)' : 'inherit'}">${pct(t)}</td></tr>`; }).join('')}</table></div>
-  <div class="card"><div class="card-h"><h3>相關洞察</h3></div><div class="stack" style="gap:10px">${INSIGHTS.filter(i => i.kind === 'funnel' || i.kind === 'opportunity').slice(0, 2).map(i => insightCard(i, true)).join('')}</div></div></div></div>`;
+  const f = S.funnel; const cur = funnelCounts(); const gvals = funnelGroupValues();
+  const groups = gvals.map((v, i) => ({ name: v, color: SER[i], ...funnelCounts(v) }));
+  const first = cur.n[0], lastN = cur.n[cur.n.length - 1]; const convAll = lastN / first; const prevConv = cur.prev[cur.prev.length - 1] / cur.prev[0];
+  const sel = Math.min(f.sel, f.steps.length - 2); const cfgOpen = !S.qcfgCollapsed;
+  const stepRow = (s, i) => `<div class="qm step"><div class="qm-hd"><span class="qm-idx">${i + 1}</span><select class="sel grow" data-act="fnev" data-arg="${i}">${LIVE_EVENTS.map(e => `<option value="${e.name}" ${e.name === s.ev ? 'selected' : ''}>${esc(e.cn)}（${e.name}）</option>`).join('')}</select>
+      <button class="btn-ghost sm ${s.open ? 'on' : ''}" data-act="fnsfilter" data-arg="${i}">篩選${s.filters.items.length ? ` ${s.filters.items.length}` : ''}</button>
+      <button class="icon-btn sm" data-act="fnup" data-arg="${i}" title="上移" ${i === 0 ? 'disabled' : ''}>↑</button>${f.steps.length > 2 ? `<button class="icon-btn x sm" data-act="fnsdel" data-arg="${i}" title="移除步驟">✕</button>` : ''}</div>
+      ${s.open ? filterBuilder(`fn.s${i}`, { title: `步驟 ${i + 1} 的事件篩選`, compact: true }) : (s.filters.items.length ? `<div class="qm-ft note">${esc(filterText(s.filters))}</div>` : '')}</div>`;
+  const cfg = `<aside class="qpanel card ${cfgOpen ? '' : 'collapsed'}"><div class="card-h"><h3>漏斗設定</h3><span class="sub">${esc(f.name)}</span><div class="right"><button class="btn-ghost sm mob-only" data-act="qcfg">${cfgOpen ? '收合' : '展開'}</button></div></div><div class="qbody stack" style="gap:14px">
+    <div class="qsec"><div class="qsec-h"><b>範本</b></div><div class="seg wrap">${FUNNELS.map(x => `<button class="${x.id === f.id ? 'on' : ''}" data-act="funnelid" data-arg="${x.id}">${esc(x.name)}</button>`).join('')}</div></div>
+    <div class="qsec"><div class="qsec-h"><b>漏斗步驟</b><span class="note">依序完成；每步可加事件屬性篩選（例：頁面群組 = account_open）</span></div>${f.steps.map(stepRow).join('')}<div class="acts"><button class="btn-ghost sm" data-act="fnsadd" ${f.steps.length >= 8 ? 'disabled' : ''}>＋ 添加步驟</button></div></div>
+    <div class="qsec"><div class="qsec-h"><b>窗口期</b><span class="note">完成全部步驟的最長時間（1 分鐘～3650 天）</span></div><div class="row"><input class="inp num" type="number" min="1" max="3650" data-act="fnwin" value="${f.window.n}"><select class="sel" data-act="fnwinu">${WINDOW_UNITS.map(u => `<option ${u === f.window.unit ? 'selected' : ''}>${u}</option>`).join('')}</select><span class="note">內依序完成</span></div></div>
+    <div class="qsec"><div class="qsec-h"><b>關聯屬性</b><span class="note">各步驟須為同一個屬性值（例：同一商品代碼）</span></div><select class="sel" data-act="fnassoc"><option value="">不設定</option>${PROPS.filter(p => p.scope === 'event' && p.vals).map(p => `<option value="${p.k}" ${f.assoc === p.k ? 'selected' : ''}>${esc(p.cn)}（${p.k}）</option>`).join('')}</select></div>
+    <div class="qsec">${filterBuilder('fn', { title: '全局篩選（用戶屬性／標籤／事件屬性）' })}</div>
+    <div class="qsec"><div class="qsec-h"><b>對比</b></div><div class="row"><span class="note">分組</span><select class="sel" data-act="fngroup">${FUNNEL_GROUPS.map(g => `<option value="${g[0]}" ${f.group === g[0] ? 'selected' : ''}>${g[1]}</option>`).join('')}</select></div>
+      <label class="row chk-row" style="margin-top:8px"><button class="chk ${f.compare ? 'on' : ''}" data-act="funnelcmp" aria-label="對比上期"></button><span>對比上一期（前 ${S.range} 天）</span></label>
+      <div class="row" style="margin-top:10px"><span class="note">時間</span><div class="seg">${[7, 30, 90].map(n => `<button class="${S.range === n ? 'on' : ''}" data-act="range" data-arg="${n}">近 ${n} 天</button>`).join('')}</div></div></div>
+    <div class="acts qacts"><button class="btn-primary" data-act="fnrun">查詢</button><button class="btn-ghost" data-act="fnsave">儲存漏斗</button><button class="btn-ghost" data-act="fnreset">重置</button></div></div></aside>`;
+  const tiles = `<div class="grid c4 kpi"><div class="tile"><div class="lbl">總轉化率</div><div class="val">${pct(convAll)}</div><div class="delta ${convAll - prevConv >= 0 ? 'up' : 'down'}">${f.compare ? `<b>${pt(convAll - prevConv)}</b><span>vs 上期 ${pct(prevConv)}</span>` : `<span>${f.steps[0].cn} → ${f.steps[f.steps.length - 1].cn}</span>`}</div></div>
+    <div class="tile"><div class="lbl">轉化用戶</div><div class="val">${compact(lastN)}</div><div class="delta"><span>完成全部 ${f.steps.length} 步</span></div></div>
+    <div class="tile"><div class="lbl">流失用戶</div><div class="val">${compact(first - lastN)}</div><div class="delta"><span>最大流失：第 ${(() => { let w = 1, m = 0; for (let i = 1; i < cur.n.length; i++) { const r = 1 - cur.n[i] / cur.n[i - 1]; if (r > m) { m = r; w = i; } } return w; })()} 步</span></div></div>
+    <div class="tile"><div class="lbl">中位轉化時長</div><div class="val" style="font-size:22px">${medianTime(f.steps.length - 1, 'all')}</div><div class="delta"><span>窗口期 ${f.window.n} ${f.window.unit}${f.assoc ? ` · 關聯 ${propOf(f.assoc).cn}` : ''}</span></div></div></div>`;
+  const stepDetail = (() => { const i = sel; const a = cur.n[i], b = cur.n[i + 1]; const conv = b / a; const pconv = cur.prev[i + 1] / cur.prev[i]; return `<div class="card"><div class="card-h"><h3>步驟 ${i + 1} → ${i + 2}：${esc(f.steps[i].cn)} → ${esc(f.steps[i + 1].cn)}</h3><span class="sub">點選左側漏斗的步驟切換</span></div>
+    <dl class="kv"><dt>轉化率</dt><dd><b style="font-size:16px">${pct(conv)}</b>${f.compare ? ` <span class="note">上期 ${pct(pconv)}（${pt(conv - pconv)}）</span>` : ''}</dd><dt>轉化用戶</dt><dd class="mono">${n0(b)}</dd><dt>流失用戶</dt><dd class="mono" style="color:var(--st-serious)">${n0(a - b)}</dd><dt>中位轉化時長</dt><dd>${medianTime(i + 1, 'step')}</dd>${gvals.length ? `<dt>各組轉化率</dt><dd>${groups.map(g => `<span class="pill" style="margin:0 6px 4px 0"><i class="sw rect" style="background:${g.color}"></i>${esc(g.name)} ${pct(g.n[i + 1] / g.n[i])}</span>`).join('')}</dd>` : ''}</dl>
+    <div class="acts" style="margin-top:12px"><button class="btn-ghost sm" data-act="fnusers" data-arg="lost:${i}">查看流失用戶（${compact(a - b)}）</button><button class="btn-ghost sm" data-act="fnusers" data-arg="conv:${i}">查看轉化用戶</button><button class="btn-ghost sm" data-act="goto" data-arg="#/path">流失用戶的後續路徑</button><button class="btn-ghost sm" data-act="toast" data-arg="已建立分群草稿：漏斗「${esc(f.name)}」步驟 ${i + 1} 流失用戶（需審批）">存為分群</button></div></div>`; })();
+  const trendSeries = (gvals.length ? groups : [{ name: '總轉化率', color: SER[0], n: cur.n }]).map(g => { const base = g.n[g.n.length - 1] / g.n[0]; return { name: g.name, color: g.color, data: Array.from({ length: S.range }, (_, j) => { const i = 90 - S.range + j; return { d: dkey(dayOffset(j - S.range + 1)), v: Math.round(base * (1 + (shapeAt(i) - 1) * .35) * (1 + Math.sin(i * .7 + hash(g.name) % 5) * .06) * 10000) / 100 }; }) }; });
+  const table = `<div class="tbl-wrap"><table class="tbl"><tr><th>${gvals.length ? FUNNEL_GROUPS.find(g => g[0] === f.group)[1] : '期間'}</th>${f.steps.map((s, i) => `<th class="num">${i + 1}. ${esc(s.cn)}</th>`).join('')}<th class="num">總轉化</th><th class="num">中位時長</th></tr>${(gvals.length ? groups.map(g => ({ name: g.name, color: g.color, n: g.n })) : [{ name: '本期', n: cur.n }, ...(f.compare ? [{ name: '上期', n: cur.prev }] : [])]).map(r => `<tr><td style="font-weight:600">${r.color ? `<i class="sw rect" style="background:${r.color}"></i> ` : ''}${esc(r.name)}</td>${r.n.map((v, i) => `<td class="num mono">${n0(v)}${i ? `<span class="sub">${pct(v / r.n[i - 1])}</span>` : ''}</td>`).join('')}<td class="num mono" style="color:${r.n[r.n.length - 1] / r.n[0] < convAll * .8 ? 'var(--st-serious)' : 'inherit'}">${pct(r.n[r.n.length - 1] / r.n[0])}</td><td class="num">${medianTime(f.steps.length - 1, r.name)}</td></tr>`).join('')}</table></div>`;
+  const res = `<section class="qresult stack">${tiles}
+    <div class="card"><div class="card-h"><h3>${esc(f.name)}</h3><span class="sub">${dateRangeText()} · 窗口 ${f.window.n} ${f.window.unit}${f.filters.items.length ? ` · 篩選：${esc(filterText(f.filters))}` : ''}${gvals.length ? ` · 按${FUNNEL_GROUPS.find(g => g[0] === f.group)[1]}對比` : ''}</span><div class="right"><div class="seg">${[['funnel', '漏斗圖'], ['trend', '轉化趨勢'], ['table', '數據表']].map(v => `<button class="${f.view === v[0] ? 'on' : ''}" data-act="fnview" data-arg="${v[0]}">${v[1]}</button>`).join('')}</div></div></div>
+      ${f.view === 'trend' ? lineChart('fn-trend', trendSeries, { h: 280, fmt: v => v.toFixed(1) + '%', area: trendSeries.length === 1 }) + '<div class="note" style="margin-top:8px">每日完成首步的用戶，在窗口期內走完全部步驟的比例（依首步日期歸屬）。</div>'
+        : f.view === 'table' ? table
+        : gvals.length ? funnelGroupView(groups) : funnelView({ steps: f.steps.map((s, i) => ({ ev: s.ev, cn: s.cn, n: cur.n[i], prev: cur.prev[i] })) }, { compare: f.compare, sel, selectable: true })}
+      ${f.view === 'funnel' ? `<div class="note" style="margin-top:8px">以 ClickHouse windowFunnel(${f.window.unit === '天' ? f.window.n * 86400 : f.window.unit === '小時' ? f.window.n * 3600 : f.window.n * 60})(strict_order) 計算；${f.assoc ? `關聯屬性 ${f.assoc} 以 arrayJoin + 相等條件實作；` : ''}步驟可混用 GA 行為事件與交易事件。</div>` : ''}</div>
+    <div class="grid c21">${stepDetail}<div class="card"><div class="card-h"><h3>相關洞察</h3></div><div class="stack" style="gap:10px">${INSIGHTS.filter(i => i.kind === 'funnel' || i.kind === 'opportunity').slice(0, 2).map(i => insightCard(i, true)).join('')}</div></div></div>
+    ${f.view !== 'table' ? `<div class="card"><div class="card-h"><h3>數據表</h3><span class="sub">各步驟人數與逐步轉化率</span></div>${table}</div>` : ''}
+    <div class="card"><div class="card-h"><h3>已儲存漏斗</h3></div><div class="tbl-wrap"><table class="tbl">${SAVED_REPORTS.filter(r => r.kind === 'funnel').map(r => `<tr class="click"><td><b>${esc(r.name)}</b><span class="sub">${esc(r.owner)} · 更新 ${r.updated}</span></td><td class="num"><button class="btn-ghost sm" data-act="toast" data-arg="已載入漏斗「${esc(r.name)}」（原型）">開啟</button></td></tr>`).join('')}${f.saved.map(r => `<tr class="click"><td><b>${esc(r)}</b><span class="sub">${esc(S.user.name)} · 剛剛</span></td><td class="num"><span class="pill teal">新</span></td></tr>`).join('')}</table></div></div>
+  </section>`;
+  S._fnSql = `-- funnel.run: ${f.id}（windowFunnel）\nSELECT level, count() AS users FROM (\n  SELECT one_id, windowFunnel(${f.window.unit === '天' ? f.window.n * 86400 : f.window.unit === '小時' ? f.window.n * 3600 : f.window.n * 60}, 'strict_order')(time,\n${f.steps.map((s, i) => `    event='${s.ev}'${s.filters.items.map(c => ` AND ${c.k} ${c.op === 'eq' ? '=' : c.op === 'neq' ? '!=' : c.op === 'gt' ? '>' : c.op === 'lt' ? '<' : c.op.toUpperCase()} '${c.v}'`).join('')}${i < f.steps.length - 1 ? ',' : ') AS level'}`).join('\n')}\n  FROM dmp.events WHERE event_date >= today()-${S.range + Math.ceil(f.window.unit === '天' ? f.window.n : 1)}${f.filters.items.length ? `\n    AND (${f.filters.items.map(c => `${c.k.replace('u.', 'profile.').replace('tag.', 'tags.')} ${c.op === 'eq' ? '=' : c.op.toUpperCase()} '${c.v}'`).join(f.filters.logic === 'and' ? ' AND ' : ' OR ')})` : ''}\n  GROUP BY one_id${f.group !== 'none' ? `, ${f.group}` : ''})\nGROUP BY level${f.group !== 'none' ? `, ${f.group}` : ''} ORDER BY level;`;
+  return `<div class="page-h"><div><h1>漏斗分析</h1><p>步驟＋每步篩選、窗口期、關聯屬性、全局篩選、分組對比與轉化趨勢；點選步驟可看轉化／流失明細並下鑽到用戶列表。</p></div><div class="right"><button class="btn-ghost" data-act="sql" data-arg="funnel">${svg(I.code, 14)} SQL</button><button class="btn-primary teal" data-act="askpre" data-arg="診斷「${esc(f.name)}」漏斗：哪一步流失最大、哪個分群最差、可能原因？">${svg(I.spark, 14)} 請 agent 診斷</button></div></div>
+  <div class="qlayout">${cfg}${res}</div>`;
 }
 
 function pageRetention() {
@@ -528,6 +743,7 @@ function pageUsers() {
   const est = Math.round(list.length / Math.max(1, all.length) * (S.user.scope === 'all' ? 1412000 : 38400));
   const PS = 10; const pages = Math.max(1, Math.ceil(list.length / PS)); const page = Math.min(u.page, pages - 1); const rows = list.slice(page * PS, page * PS + PS); const nsel = Object.keys(u.sel).filter(k => u.sel[k]).length;
   return `<div class="page-h"><div><h1>用戶列表</h1><p>條件 → Bitmap 人數預估（&lt; 1 秒）→ 分頁列表（脫敏、行級權限）。任何分析落點都能進到這裡，再存為分群或推送。</p></div><div class="right"><button class="btn-ghost" data-act="toast" data-arg="已存為分群草稿">存為分群</button><button class="btn-ghost" data-act="toast" data-arg="${has('users', 'e') ? '匯出需審批：已送出申請（L2 區間化、浮水印、上限 10 萬列）' : '你的角色沒有用戶列表匯出權限'}" ${has('users', 'e') ? '' : 'style="opacity:.5"'}>匯出（審批）</button><button class="btn-primary" data-act="toast" data-arg="推送需審批：已送出申請">推送到渠道</button></div></div>
+  ${u.from ? `<div class="from-bar"><span class="pill blue">來源條件</span><b>${esc(u.from.label)}</b>${u.from.n ? `<span class="note">預估 ${n0(u.from.n)} 人</span>` : ''}<button class="btn-ghost sm" data-act="ufromclear">清除</button></div>` : ''}
   <div class="filters"><input class="inp" placeholder="one_id / 客戶代碼" data-act="uq" value="${esc(u.q)}"><select class="sel" data-act="ulc"><option value="all">生命週期：全部</option>${['新客', '成長', '成熟', '沉睡', '流失'].map(v => `<option value="${v}" ${u.lc === v ? 'selected' : ''}>${v}</option>`).join('')}</select><select class="sel" data-act="utier"><option value="all">價值分級：全部</option>${['P1', 'P2', 'P3', 'P4', 'P5'].map(v => `<option value="${v}" ${u.tier === v ? 'selected' : ''}>${v}</option>`).join('')}</select><span class="pill">+ 行為條件</span><span class="pill">+ 標籤</span><span class="pill">+ 分群</span><span style="margin-left:auto" class="pill teal">預估 ${n0(est)} 人 · Bitmap 0.3 s</span>${nsel ? `<span class="pill blue">已選 ${nsel}</span><button class="btn-ghost sm" data-act="toast" data-arg="已批次打標籤（需審批）">批次打標籤</button>` : ''}</div>
   <div class="card flush"><table class="tbl"><tr><th></th><th>one_id</th><th>客戶</th><th>分公司 / 營業員</th><th>生命週期</th><th>價值</th><th>偏好</th><th>年齡層</th><th class="num">流失分</th><th class="num">90 天手續費</th><th class="num">30 天委託</th><th>最近活躍</th><th></th></tr>
   ${rows.map(x => `<tr><td><button class="chk ${u.sel[x.one_id] ? 'on' : ''}" data-act="usel" data-arg="${x.one_id}" aria-label="選取"></button></td><td>${mId(x.one_id)}</td><td class="mono">${esc(x.cust)}</td><td>${esc(x.branch)} / ${esc(x.agent)}</td><td><span class="pill ${x.lifecycle === '沉睡' || x.lifecycle === '流失' ? 'amber' : 'teal'}">${x.lifecycle}</span></td><td><span class="pill">${x.tier}</span></td><td>${x.market}</td><td>${x.age}</td><td class="num">${mScore(x.churn)}</td><td class="num">${mMoney(x.fee90)}</td><td class="num mono">${x.orders30}</td><td class="mono">${x.last}</td><td class="num"><button class="btn-ghost sm" data-act="uprofile" data-arg="${x.one_id}">細查</button></td></tr>`).join('') || '<tr><td colspan="13"><div class="empty">沒有符合條件的客戶</div></td></tr>'}</table>
@@ -560,8 +776,9 @@ function sqlDrawer() {
   const k = S.sqlDrawer; if (!k) return '';
   const SQLS = {
     events_volume: `-- metric.query: 事件量 by source（語意層編譯）\nSELECT event_date, source, countMerge(cnt) AS events\nFROM dmp.events_daily_agg\nWHERE project='sinopac_demo' AND event_date >= today()-${S.range}\nGROUP BY event_date, source ORDER BY event_date;`,
-    metric: `-- metric.query: ${S.ev.metric}${S.ev.group === 'platform' ? ' group_by=platform' : ''}\nSELECT event_date${S.ev.group === 'platform' ? ', platform' : ''}, uniqExact(one_id) AS value\nFROM dmp.events\nWHERE project='sinopac_demo' AND event='order_filled'\n  AND event_date BETWEEN today()-${S.range} AND today()${S.user.scope === 'all' ? '' : "\n  AND entity_id IN (SELECT item_id FROM dmp.items WHERE item_type='account' AND props.branch_id='TPE01')  -- 行級規則"}\nGROUP BY event_date${S.ev.group === 'platform' ? ', platform' : ''} ORDER BY event_date;`,
-    funnel: `-- funnel.run: ${S.funnel.id}（windowFunnel）\nSELECT level, count() AS users FROM (\n  SELECT one_id, windowFunnel(2592000)(time,\n    event='ga.page_view' AND props.page_group='account_open',\n    event='account_open_start', event='account_open_submit',\n    event='account_open_approved', event='fund_deposit', event='order_filled') AS level\n  FROM dmp.events WHERE event_date >= today()-${S.range + 30}\n  GROUP BY one_id)\nGROUP BY level ORDER BY level;`,
+    metric: `-- metric.query（語意層編譯，與事件分析頁設定一致）
+${S._evSql}`,
+    funnel: S._fnSql,
     path: `-- path.run: anchor=quote_view after 4 steps（Session 內，SAMPLE 1/10）\nWITH arr AS (\n  SELECT one_id, session_id, arraySort(x -> x.1, groupArray((time, event_node))) AS seq\n  FROM dmp.events SAMPLE 1/10\n  PREWHERE event_date >= today()-${S.range} AND event_node != ''\n  GROUP BY one_id, session_id)\nSELECT path, count() AS users FROM (\n  SELECT one_id, arraySlice(arrayMap(x -> x.2, seq), idx, 5) AS path\n  FROM arr ARRAY JOIN arrayEnumerate(seq) AS idx WHERE seq[idx].2 = 'quote_view')\nGROUP BY path ORDER BY users DESC LIMIT 100;`,
     attribution: `-- attribution.run: conversion=order_filled(first) window=14d models=[first,last,linear,position,decay]\nWITH conv AS (SELECT one_id_uint, min(time) t FROM dmp.events WHERE event='order_filled' AND event_date >= today()-${S.range} GROUP BY 1),\n tp AS (SELECT c.one_id_uint, arraySort(x -> x.1, groupArray((t.time, t.touch))) AS touches\n       FROM conv c JOIN dmp.touchpoints t ON t.one_id_uint = c.one_id_uint AND t.time BETWEEN c.t - 14*86400 AND c.t GROUP BY 1)\nSELECT touch,\n  sum(w_first) first, sum(w_last) last, sum(w_linear) linear, sum(w_pos) position, sum(w_decay) decay\nFROM tp ARRAY JOIN touches AS x, arrayEnumerate(touches) AS i   -- 權重於 SQL 內計算\nGROUP BY touch ORDER BY position DESC;`,
     retention: `-- retention.run: cohort=account_open_approved return=order_filled（週）\nSELECT toStartOfWeek(c.t) AS cohort, count(DISTINCT c.one_id) AS n,\n  retention(r.t >= c.t, r.t >= c.t + 7*86400, r.t >= c.t + 14*86400, ...)\nFROM (SELECT one_id, min(time) t FROM dmp.events WHERE event='account_open_approved' GROUP BY one_id) c\nLEFT JOIN (SELECT one_id, time t FROM dmp.events WHERE event='order_filled') r USING one_id\nGROUP BY cohort;`,
@@ -597,9 +814,9 @@ let render = function () {
   if (!S.user) { root.innerHTML = viewGate(); return; }
   const pages = { overview: pageOverview, events: pageEvents, funnel: pageFunnel, path: pagePath, attribution: pageAttribution, users: pageUsers, integration: pageIntegration, retention: pageRetention, iam: pageIAM, audit: pageAudit, profile: pageProfile, segments: pageSegments, triggers: pageTriggers, ai: pageAI, governance: pageGovernance, settings: pageSettings };
   const page = canRoute(S.route.name) ? (pages[S.route.name] || pageOverview)() : pageForbidden();
-  const active = document.activeElement; const keep = active && active.dataset && active.dataset.act; const selStart = active && active.selectionStart;
-  root.innerHTML = `<div class="app">${viewTopNav()}${viewSubNav()}<main class="content"><div class="wrap">${page}</div></main></div>${sqlDrawer()}${segDrawer()}${roleDrawer()}${pushDrawer()}${S.toast ? `<div class="toast">${esc(S.toast)}</div>` : ''}`;
-  if (keep) { const el = root.querySelector(`[data-act="${keep}"]`); if (el && el.focus) { el.focus(); try { if (selStart != null) el.setSelectionRange(selStart, selStart); } catch (e) { /* non-text */ } } }
+  const active = document.activeElement; const keep = active && active.dataset && active.dataset.act; const keepArg = active && active.dataset && active.dataset.arg; const selStart = active && active.selectionStart;
+  root.innerHTML = `<div class="app">${viewTopNav()}${viewSubNav()}<main class="content"><div class="wrap">${page}</div></main></div>${viewMobileNav()}${sqlDrawer()}${segDrawer()}${roleDrawer()}${pushDrawer()}${S.toast ? `<div class="toast">${esc(S.toast)}</div>` : ''}`;
+  if (keep) { const el = root.querySelector(keepArg != null ? `[data-act="${keep}"][data-arg="${keepArg}"]` : `[data-act="${keep}"]`); if (el && el.focus) { el.focus(); try { if (selStart != null) el.setSelectionRange(selStart, selStart); } catch (e) { /* non-text */ } } }
 }
 
 /* ------------------------------------------------------------------ events */
@@ -608,10 +825,33 @@ document.addEventListener('click', e => {
   const A = {
     login: () => { S.user = ACCOUNTS.find(a => a.id === arg); S.route = parseHash(); render(); },
     logout: () => { S.user = null; S.ai.chat = []; render(); },
-    goto: () => go(arg), collapse: () => { S.collapsed = !S.collapsed; render(); }, noop: () => {},
+    goto: () => { S.navOpen = false; go(arg); if (location.hash === arg) render(); }, navtoggle: () => { S.navOpen = !S.navOpen; render(); }, navclose: () => { S.navOpen = false; render(); }, qcfg: () => { S.qcfgCollapsed = !S.qcfgCollapsed; render(); }, collapse: () => { S.collapsed = !S.collapsed; render(); }, noop: () => {},
     range: () => { S.range = Number(arg); render(); },
-    evmetric: () => {}, evgroup: () => {},
-    funnelid: () => { S.funnel.id = arg; render(); }, funnelcmp: () => { S.funnel.compare = !S.funnel.compare; render(); },
+    // v0.4 事件分析
+    evmadd: () => { if (S.ev.metrics.length >= 5) return; const nxt = ['login', 'quote_view', 'order_submit', 'fund_deposit', 'account_open_approved'].find(e => !S.ev.metrics.some(m => m.ev === e)) || 'login'; S.ev.metrics.push({ ev: nxt, agg: 'users', prop: 'amount', filters: { logic: 'and', items: [] }, open: false }); render(); },
+    evmdel: () => { S.ev.metrics.splice(Number(arg), 1); render(); }, evmfilter: () => { const m = S.ev.metrics[Number(arg)]; m.open = !m.open; if (m.open && !m.filters.items.length) m.filters.items.push(newCond('platform')); render(); },
+    evgdel: () => { S.ev.groups = S.ev.groups.filter(g => g !== arg); render(); }, evgran: () => { S.ev.gran = arg; if (arg === 'total' && S.ev.chart === 'line') S.ev.chart = 'bar'; render(); },
+    evchart: () => { S.ev.chart = arg; render(); }, evcompare: () => { S.ev.compare = !S.ev.compare; render(); }, evtableall: () => { S.ev.tableAll = !S.ev.tableAll; render(); },
+    evrun: () => toast(`查詢完成：${S.ev.metrics.length} 個指標 · ${S.ev.groups.length} 個分組 · ${S.ev.filters.items.length} 條篩選（${(0.3 + S.ev.metrics.length * .18 + S.ev.groups.length * .25).toFixed(2)} s，審計 query.events）`),
+    evsave: () => { const nm = `${metricLabel(S.ev.metrics[0])}${S.ev.groups.length ? ' × ' + S.ev.groups.map(g => propOf(g).cn).join('/') : ''}（近 ${S.range} 天）`; S.ev.saved.push(nm); toast('已儲存報表：' + nm); },
+    evreset: () => { resetEvents(); toast('已重置查詢條件'); },
+    evusers: () => { const [nm, d] = arg.split('｜'); S.users.from = { label: `事件分析 · ${nm} · ${d}`, n: null }; S.users.page = 0; go('#/users'); },
+    // v0.4 篩選條件建構器（ns:index）
+    fbadd: () => { const f = fbRef(arg); f.items.push(newCond(f.items.length ? 'u.lifecycle' : 'platform')); render(); },
+    fbdel: () => { const [ns, i] = arg.split(':'); fbRef(ns).items.splice(Number(i), 1); render(); }, fbclear: () => { fbRef(arg).items = []; render(); },
+    fblogic: () => { const [ns, l] = arg.split(':'); fbRef(ns).logic = l; render(); },
+    // v0.4 漏斗
+    funnelid: () => { resetFunnel(arg); render(); }, funnelcmp: () => { S.funnel.compare = !S.funnel.compare; render(); },
+    fnstep: () => { S.funnel.sel = Number(arg); render(); }, fnview: () => { S.funnel.view = arg; render(); },
+    fnsadd: () => { if (S.funnel.steps.length >= 8) return; const e = evOf('login'); S.funnel.steps.push({ ev: e.name, cn: e.cn, filters: { logic: 'and', items: [] }, open: false }); render(); },
+    fnsdel: () => { S.funnel.steps.splice(Number(arg), 1); S.funnel.sel = Math.min(S.funnel.sel, S.funnel.steps.length - 2); render(); },
+    fnup: () => { const i = Number(arg); if (!i) return; const st = S.funnel.steps; [st[i - 1], st[i]] = [st[i], st[i - 1]]; render(); },
+    fnsfilter: () => { const st = S.funnel.steps[Number(arg)]; st.open = !st.open; if (st.open && !st.filters.items.length) st.filters.items.push(newCond(st.ev === 'ga.page_view' ? 'page_group' : 'platform')); render(); },
+    fnrun: () => toast(`漏斗已重算：${S.funnel.steps.length} 步 · 窗口 ${S.funnel.window.n} ${S.funnel.window.unit}${S.funnel.group !== 'none' ? ' · 分組對比' : ''}（windowFunnel，1.1 s，審計 query.funnel）`),
+    fnsave: () => { const nm = `${S.funnel.steps[0].cn} → ${S.funnel.steps[S.funnel.steps.length - 1].cn}（${S.funnel.window.n} ${S.funnel.window.unit}）`; S.funnel.saved.push(nm); toast('已儲存漏斗：' + nm); },
+    fnreset: () => { resetFunnel(S.funnel.id); toast('已重置漏斗設定'); },
+    fnusers: () => { const [kind, i] = arg.split(':'); const f = S.funnel; const c = funnelCounts(); const k = Number(i); S.users.from = { label: `漏斗「${f.name}」步驟 ${k + 1} → ${k + 2} ${kind === 'lost' ? '流失' : '轉化'}用戶`, n: kind === 'lost' ? c.n[k] - c.n[k + 1] : c.n[k + 1] }; S.users.page = 0; go('#/users'); },
+    ufromclear: () => { S.users.from = null; render(); },
     psel: () => { S.profile.sel = arg; render(); }, punlock: () => { if (!S.profile.reason.trim()) { toast('請先填寫查詢理由'); return; } S.profile.unlocked[arg] = S.profile.reason; S.profile.reason = ''; toast('已記錄審計：profile.timeline（' + arg + '）'); },
     segtab: () => { S.seg.tab = arg; render(); }, segopen: () => { S.segDrawer = arg; render(); }, segclose: () => { S.segDrawer = null; render(); },
     approve: () => { S.approved[arg] = true; S.segDrawer = null; toast('已核准並生效，審計已記錄'); },
@@ -647,8 +887,20 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
-  if (el.dataset.act === 'evmetric') { S.ev.metric = el.value; render(); }
-  if (el.dataset.act === 'evgroup') { S.ev.group = el.value; render(); }
+  const act = el.dataset.act, arg = el.dataset.arg;
+  if (act === 'evmev') { const m = S.ev.metrics[Number(arg)]; m.ev = el.value; render(); }
+  if (act === 'evmagg') { const m = S.ev.metrics[Number(arg)]; m.agg = el.value; const a = AGGS.find(x => x[0] === m.agg); if (a[2] === 'num' && !NUM_PROPS.some(p => p.k === m.prop)) m.prop = 'amount'; if (a[2] === 'prop' && !m.prop) m.prop = 'symbol'; render(); }
+  if (act === 'evmprop') { S.ev.metrics[Number(arg)].prop = el.value; render(); }
+  if (act === 'evgadd' && el.value) { S.ev.groups.push(el.value); render(); }
+  if (act === 'evtopn') { S.ev.topN = Number(el.value); render(); }
+  if (act === 'fbprop') { const [ns, i] = arg.split(':'); const f = fbRef(ns); f.items[Number(i)] = newCond(el.value); render(); }
+  if (act === 'fbop') { const [ns, i] = arg.split(':'); const c = fbRef(ns).items[Number(i)]; c.op = el.value; const p = propOf(c.k); if (['eq', 'neq', 'in'].includes(c.op) && p.vals && !p.vals.includes(c.v)) c.v = p.vals[0]; render(); }
+  if (act === 'fbval' || act === 'fbval2') { const [ns, i] = arg.split(':'); const c = fbRef(ns).items[Number(i)]; c[act === 'fbval' ? 'v' : 'v2'] = el.value; render(); }
+  if (act === 'fnev') { const st = S.funnel.steps[Number(arg)]; st.ev = el.value; st.cn = evOf(el.value).cn; render(); }
+  if (act === 'fnwin') { S.funnel.window.n = Math.max(1, Math.min(3650, Number(el.value) || 1)); render(); }
+  if (act === 'fnwinu') { S.funnel.window.unit = el.value; render(); }
+  if (act === 'fnassoc') { S.funnel.assoc = el.value; render(); }
+  if (act === 'fngroup') { S.funnel.group = el.value; render(); }
   if (el.dataset.act === 'rolescope' && S.roleEdit) { S.roleEdit.scope = el.value; render(); }
   if (el.dataset.act === 'ulc') { S.users.lc = el.value; S.users.page = 0; render(); }
   if (el.dataset.act === 'utier') { S.users.tier = el.value; S.users.page = 0; render(); }
@@ -656,6 +908,8 @@ document.addEventListener('change', e => {
 document.addEventListener('input', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   if (el.dataset.act === 'pq') { S.profile.q = el.value; render(); }
+  if (el.dataset.act === 'fbval' || el.dataset.act === 'fbval2') { const [ns, i] = el.dataset.arg.split(':'); const c = fbRef(ns).items[Number(i)]; if (c) c[el.dataset.act === 'fbval' ? 'v' : 'v2'] = el.value; }
+  if (el.dataset.act === 'fnwin') S.funnel.window.n = Math.max(1, Math.min(3650, Number(el.value) || 1));
   if (S.roleEdit) { if (el.dataset.act === 'rolecn') S.roleEdit.cn = el.value; if (el.dataset.act === 'roledesc') S.roleEdit.desc = el.value; if (el.dataset.act === 'rolelookback') S.roleEdit.lookback = Number(el.value) || 0; }
   if (el.dataset.act === 'uq') { S.users.q = el.value; S.users.page = 0; render(); }
   if (el.dataset.act === 'preason') S.profile.reason = el.value;
@@ -668,7 +922,7 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('pointermove', onChartMove);
 document.addEventListener('pointerout', onChartLeave);
-window.addEventListener('hashchange', () => { S.route = parseHash(); if (S.route.name === 'ai' && S.route.tab) S.ai.tab = S.route.tab; if (S.route.name === 'governance' && S.route.tab) S.gov.tab = S.route.tab; if (S.route.name === 'iam' && S.route.tab) S.iam.tab = S.route.tab; render(); });
+window.addEventListener('hashchange', () => { S.route = parseHash(); S.navOpen = false; if (S.route.name === 'ai' && S.route.tab) S.ai.tab = S.route.tab; if (S.route.name === 'governance' && S.route.tab) S.gov.tab = S.route.tab; if (S.route.name === 'iam' && S.route.tab) S.iam.tab = S.route.tab; render(); });
 
 S.route = parseHash(); if (S.route.name === 'ai' && S.route.tab) S.ai.tab = S.route.tab;
 render();
