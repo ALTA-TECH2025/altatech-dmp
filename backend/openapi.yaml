@@ -20,6 +20,7 @@ tags:
   - { name: IAM }
   - { name: Sync }
   - { name: Activation }
+  - { name: Integration }
 paths:
   /v1/events:
     post:
@@ -136,6 +137,29 @@ paths:
     post: { tags: [Sync], summary: 觸發批次匯出（全量／增量 Parquet 到 GCS dmp-sync，含 manifest 與 checksum；寫審計 sync.delivered）, responses: { '202': { description: accepted } } }
   /v1/sync/subscriptions:
     get: { tags: [Sync], summary: 下游訂閱清單（Kafka consumer group、Webhook、GCS），含最後同步時間與落後量, responses: { '200': { description: ok } } }
+  /v1/integration/connectors:
+    get: { tags: [Integration], summary: 連接器目錄（類型、鑑權方式與欄位、最小權限清單、輪替政策；來自 connectors.yaml）, responses: { '200': { description: ok } } }
+  /v1/integration/connections:
+    get: { tags: [Integration], summary: 連線清單（密鑰一律遮罩，只回 secret_ref 與輪替狀態、最後測試）, responses: { '200': { description: ok } } }
+    post:
+      tags: [Integration]
+      summary: 建立連線。密鑰不入庫：請求可帶 secret_ref，或帶一次性明文由 API 直接寫入密鑰庫後只保留參照（回應不回顯）；需 integration.d 權限；寫審計 integration.connection.created
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConnectionCreate' } } } }
+      responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Connection' } } } }, '422': { description: 欄位／secret_ref 格式錯誤或疑似明文密鑰 } }
+  /v1/integration/connections/{id}:
+    get: { tags: [Integration], summary: 連線詳情（遮罩）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    patch: { tags: [Integration], summary: 更新非機密欄位或換 secret_ref（換參照視同輪替）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    delete: { tags: [Integration], summary: 停用連線（保留審計；有模型依賴時拒絕）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: disabled } } }
+  /v1/integration/connections/{id}/test:
+    post:
+      tags: [Integration]
+      summary: 連線測試：逐步診斷 dns→tcp→tls→auth→privilege→cdc_prereq→sample_read→clock_skew，失敗步驟附修法；在執行節點以 Workload Identity 取密鑰，API 節點不接觸明文；寫審計 integration.connection.tested
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/ConnectionTest' } } } } }
+  /v1/integration/connections/{id}/rotate:
+    post: { tags: [Integration], summary: 輪替密鑰（新 secret_ref；新舊並存 24 小時；短效憑證回 409）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok }, '409': { description: 短效憑證不需輪替 } } }
+  /v1/integration/connections/{id}/privileges:
+    get: { tags: [Integration], summary: 權限自檢結果（對照 least_privilege 清單逐項 ✓／✗）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/destinations:
     get: { tags: [Activation], summary: 目的地清單（webhook / kafka / gcs / ga4_audience）, responses: { '200': { description: ok } } }
     post: { tags: [Activation], summary: 建立目的地（需 segments.approve；對外目的地首次另需稽核）, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Destination' } } } }, responses: { '201': { description: created } } }
@@ -164,6 +188,38 @@ components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer }
   schemas:
+    ConnectionCreate:
+      type: object
+      required: [id, type, auth_method, fields]
+      properties:
+        id: { type: string, pattern: '^[a-z][a-z0-9_]{2,31}$' }
+        type: { type: string, enum: [mssql, postgresql, bigquery, sensorsdata, kafka, gcs] }
+        auth_method: { type: string, description: 見 /v1/integration/connectors 的 auth_methods }
+        fields: { type: object, additionalProperties: true, description: 非機密欄位；API 會掃描疑似明文密鑰並拒絕 }
+        secret_refs: { type: object, additionalProperties: { type: string }, description: 'secret_field → 密鑰庫參照（projects/…/secrets/…/versions/N、kv/data/dmp/…#key、secret://ns/name/key）' }
+        secrets_once: { type: object, additionalProperties: { type: string, format: password }, description: 一次性明文，API 寫入密鑰庫後丟棄；不入日誌、不回顯 }
+        tls_verify: { type: boolean, default: true }
+        owner: { type: string, description: 憑證負責人（輪替到期通知對象） }
+    Connection:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string }
+        auth_method: { type: string }
+        fields: { type: object, additionalProperties: true }
+        secrets: { type: object, additionalProperties: { type: object, properties: { ref: { type: string }, value: { type: string, const: '••••••••' } } } }
+        tls_verify: { type: boolean }
+        rotation: { type: object, properties: { kind: { type: string, enum: [short_lived, rotating] }, every_days: { type: integer }, due: { type: string, format: date }, days_left: { type: integer }, state: { type: string, enum: [ok, warn, expired] } } }
+        last_test: { type: object, properties: { at: { type: string, format: date-time }, ok: { type: boolean }, failed_step: { type: string, nullable: true } } }
+        owner: { type: string }
+    ConnectionTest:
+      type: object
+      properties:
+        ok: { type: boolean }
+        at: { type: string, format: date-time }
+        steps:
+          type: array
+          items: { type: object, properties: { step: { type: string, enum: [validate, dns, tcp, tls, auth, privilege, cdc_prereq, sample_read, clock_skew] }, ok: { type: boolean }, detail: { type: string }, fix: { type: string } } }
     Event:
       type: object
       required: [type, time, project]

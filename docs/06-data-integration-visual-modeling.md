@@ -75,3 +75,35 @@
 - `backend/integration/connectors.yaml`：來源連接器定義（類型、認證方式、能力：batch/cdc、預設轉換）。
 - `backend/integration/models.example.yaml`：一個可視化建模產物的 YAML（UI 存檔格式；Flink／Spark 作業由此生成）。
 - `backend/integration/transforms.py`：轉換函式庫（純函式，單元測試）。
+
+## 6. 資料來源連線的鑑權設計（v0.4.2 檢視與優化）
+
+### 6.1 檢視結果（優化前的缺口）
+
+| 項目 | 優化前 | 問題 |
+|---|---|---|
+| 鑑權方式 | connectors.yaml 只列方法名稱（password／kerberos／azure_ad…） | 沒有欄位定義、沒有優先順序，UI 無從生成表單 |
+| 密鑰存放 | 未定義 | 若實作時直接存在平台 PostgreSQL，等於多一份明文密鑰；稽核不會過 |
+| 最小權限 | 未定義 | 現場常拿 db_owner／superuser 帳號接 CDC；一旦外洩影響範圍是整個交易庫 |
+| 連線測試 | 無 | 連不上只回「失敗」，DBA 與平台互推；CDC 前置（cdc 啟用、wal_level、publication）無法事前驗證 |
+| 輪替 | 無 | 密碼型憑證無到期管理；神策 token 匯入後沒有撤銷動作 |
+| API | 無 integration 端點 | UI「新增連線」只是提示 |
+| 審計 | 只有 sync／profile 類事件 | 密鑰讀取與連線測試不留痕 |
+
+### 6.2 優化後的設計
+
+1. **密鑰不入庫**：Connection 只存 `secret_ref`（`projects/…/secrets/…/versions/N`、OpenBao `kv/data/dmp/{env}/{conn}#key`、PoC 用 `secret://ns/name/key`）。UI 可「輸入一次」，API 直接寫入密鑰庫後只保留參照，回應與日誌不回顯；也可直接填既有參照。API 會掃描非機密欄位，疑似明文密鑰（長 token、PEM）一律 422。
+2. **無密鑰優先，方法有排序**：
+   - BigQuery：Workload Identity ＞ 服務帳號模擬（跨專案）＞ 金鑰檔（不建議，組織政策通常禁止）。
+   - PostgreSQL：Cloud SQL IAM 驗證（1 小時 token）＞ mTLS 用戶端憑證 ＞ 帳密（機房可用 OpenBao database engine 發動態帳密，TTL 24 h）。
+   - MSSQL：Kerberos（AD，keytab 以 CSI 掛到執行 Pod）＞ Entra ID 服務主體 ＞ SQL 帳密。
+   - Kafka：mTLS ＞ SASL/SCRAM ＞ OAUTHBEARER；GCS／S3 相容：Workload Identity ＞ HMAC。
+   - 神策：API token，一次性匯入完成後撤銷。
+3. **最小權限清單**寫在 connectors.yaml（批次與 CDC 分開），連線測試逐項自檢；不接受 db_owner／superuser／專案層級 Viewer。
+4. **連線測試是逐步診斷**：dns → tcp → tls → auth → privilege → cdc_prereq → sample_read → clock_skew；在哪一步失敗就回該步的原因與修法（例：TLS 失敗 → 提供 CA bundle，而不是關閉驗證）。測試在執行節點以 Workload Identity 取密鑰，API 節點與瀏覽器不接觸明文。儲存前必須通過測試。
+5. **傳輸與網路**：TLS 1.2+ 且驗證伺服器憑證為強制（UI 不提供關閉）；私有 IP／Private Google Access；來源端放行 dmp 固定出口 IP（Cloud NAT／機房出口）。
+6. **輪替**：密碼 90 天、服務帳號金鑰 90 天、API token 180 天、用戶端憑證依憑證效期；新舊版本並存 24 小時（執行中的作業用舊版跑完）；到期前 14 天通知憑證負責人；UI 顯示到期倒數與一鍵輪替。
+7. **審計**：`integration.connection.created/updated/tested/rotated` 與 `secret.accessed`（含 provider、ref、on_behalf_of、指紋，不含明文）進 audit_log，日誌統計可看「誰在何時讀了哪個密鑰」。
+8. **權限**：建立／修改／輪替連線需 `integration` 模組的設定權限（d）；分析師只可見連線清單（遮罩）。
+
+對應檔案：`backend/integration/connectors.yaml`（secret_providers、auth_methods、least_privilege、rotation_policy、connection_test）、`backend/integration/auth.py`（Connection.validate／redacted、SecretResolver、test_connection、rotate，含自測）、`backend/openapi.yaml`（/v1/integration/*）、原型「數據整合 → 連線 → 連線設定／新增連線」抽屜。

@@ -32,7 +32,7 @@ backend/                                            後端骨架（可讀、可�
   semantic/{events,metrics,dimensions,ga4_mapping}.yaml   語意層定義（agent 的資料地圖）
   mcp/tools.yaml  mcp/server.py                    Agent Tool Gateway（工具目錄 + 權限/預算/脫敏/審計骨架）
   insight_agent/agents.yaml  skills/*.md  evals/golden.yaml  runtime.py   agent 註冊、skill、評測、執行迴圈
-  integration/connectors.yaml  models.example.yaml  transforms.py        連接器定義、可視化建模產物、轉換函式庫
+  integration/connectors.yaml  models.example.yaml  transforms.py  auth.py   連接器定義（鑑權方式、最小權限、輪替、測試步驟）、建模產物、轉換函式庫、鑑權邏輯（密鑰參照、連線診斷、輪替）
   security/rbac.yaml  masking.yaml  policy.py                           角色矩陣、欄位隱碼策略、Policy Engine（authorize）骨架
   activation/destinations.yaml  webhook.py  ga4_mp.py                 受眾推送目的地、Webhook 簽章／批次／重試、GA4 MP payload
   clickhouse/audit.sql                             審計表、日誌統計物化視圖、row policy 與 masking view
@@ -70,6 +70,7 @@ pip install pyyaml
 python3 backend/mcp/server.py              # 工具閘道：semantic.search 範例呼叫 + 審計事件
 python3 backend/insight_agent/runtime.py   # agent 執行迴圈：plan → execute → verify → narrate
 python3 backend/integration/transforms.py  # 欄位轉換函式庫自測
+python3 backend/integration/auth.py        # 連線鑑權自測：密鑰參照驗證、逐步連線診斷、輪替、審計
 docker compose -f backend/docker-compose.yml up -d   # 本機基礎設施
 cd deploy && make gcp-up PROJECT=<gcp-project> && make deploy ENV=gcp   # GCP 一鍵部署（需 tofu/helm/kubectl）
 ```

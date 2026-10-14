@@ -333,12 +333,49 @@ export const USERS = (() => {
 
 /* 資料整合：連線、建模、清洗 */
 export const CONNECTIONS = [
-  { id: 'trade_core', type: 'MSSQL', cn: '交易主機（SQL Server 2019）', mode: 'CDC（Debezium）', tables: 6, models: 3, lag: '1.4 秒', status: 'ok', rows24h: 18_240_902 },
-  { id: 'ga_bq', type: 'BigQuery', cn: 'GA360 匯出（analytics_3012…）', mode: 'Storage Read API（Daily + Fresh）', tables: 2, models: 2, lag: '55 分', status: 'ok', rows24h: 182_430_112 },
-  { id: 'crm_pg', type: 'PostgreSQL', cn: 'CRM 客戶主檔', mode: 'CDC（pgoutput）+ 日批', tables: 4, models: 2, lag: '3.1 秒', status: 'ok', rows24h: 1_230_119 },
-  { id: 'sensors', type: 'SensorsData', cn: '神策分析歷史事件（一次性匯入，已完成）', mode: '查詢 API → Parquet → Iceberg', tables: 1, models: 1, lag: '已完成 10/02', status: 'ok', rows24h: 0, note: '匯入 48.7 億筆，對帳差異 0.4%；之後行為事件全部來自 GA360' },
-  { id: 'fund_pg', type: 'PostgreSQL', cn: '基金平台', mode: 'CDC', tables: 2, models: 1, lag: '4.0 秒', status: 'warn', rows24h: 41_000, note: '來源新增欄位 PLAN_FREQ，建議映射到 plan_type' },
+  { id: 'trade_core', type: 'MSSQL', cn: '交易主機（SQL Server 2019）', mode: 'CDC（Debezium）', tables: 6, models: 3, lag: '1.4 秒', status: 'ok', rows24h: 18_240_902,
+    auth: { method: 'kerberos', cn: 'Kerberos（AD 網域）', fields: { host: 'sql-core.bank.internal', port: 1433, database: 'TRADE', principal: 'svc-dmp-ro@BANK.LOCAL' }, secret: { field: 'keytab', ref: 'kv/data/dmp/prod/trade_core#keytab', provider: 'OpenBao' }, rotation: { kind: 'rotating', every: 90, due: '2026-12-20', left: 67, state: 'ok' }, lastTest: { at: '10-14 06:00', ok: true }, owner: 'DBA 陳', tls: true, privileges: [['db_datareader（TRADE.dbo）', true], ['SELECT on cdc.*', true], ['VIEW DATABASE STATE', true], ['非 db_owner', true]] } },
+  { id: 'ga_bq', type: 'BigQuery', cn: 'GA360 匯出（analytics_3012…）', mode: 'Storage Read API（Daily + Fresh）', tables: 2, models: 2, lag: '55 分', status: 'ok', rows24h: 182_430_112,
+    auth: { method: 'workload_identity', cn: 'Workload Identity（無密鑰）', fields: { project_id: 'ga-export-3012', dataset: 'analytics_3012', location: 'asia-east1' }, secret: null, rotation: { kind: 'short_lived' }, lastTest: { at: '10-14 05:10', ok: true }, owner: '數位行銷 林', tls: true, privileges: [['bigquery.dataViewer（dataset）', true], ['bigquery.readSessionUser', true], ['bigquery.jobUser（dmp 專案）', true]] } },
+  { id: 'crm_pg', type: 'PostgreSQL', cn: 'CRM 客戶主檔', mode: 'CDC（pgoutput）+ 日批', tables: 4, models: 2, lag: '3.1 秒', status: 'ok', rows24h: 1_230_119,
+    auth: { method: 'password', cn: '帳號密碼', fields: { host: '10.20.8.14', port: 5432, database: 'crm', username: 'dmp_ro' }, secret: { field: 'password', ref: 'projects/dmp-prod/secrets/crm-pg/versions/3', provider: 'Secret Manager' }, rotation: { kind: 'rotating', every: 90, due: '2026-10-24', left: 10, state: 'warn' }, lastTest: { at: '10-14 02:00', ok: true }, owner: 'CRM 王', tls: true, privileges: [['CONNECT / USAGE', true], ['SELECT on 4 表', true], ['REPLICATION', true], ['非 superuser', true]], note: '建議改 Cloud SQL IAM 驗證（短效 token，免輪替）' } },
+  { id: 'sensors', type: 'SensorsData', cn: '神策分析歷史事件（一次性匯入，已完成）', mode: '查詢 API → Parquet → Iceberg', tables: 1, models: 1, lag: '已完成 10/02', status: 'ok', rows24h: 0, note: '匯入 48.7 億筆，對帳差異 0.4%；之後行為事件全部來自 GA360',
+    auth: { method: 'api_token', cn: 'API token（已撤銷）', fields: { base_url: 'https://sa.bank.internal', project: 'production' }, secret: { field: 'api_secret', ref: 'projects/dmp-prod/secrets/sensors-token/versions/2', provider: 'Secret Manager', revoked: true }, rotation: { kind: 'revoked' }, lastTest: { at: '10-02 18:40', ok: true }, owner: '數據分析 王', tls: true, privileges: [['專案唯讀分析帳號', true]] } },
+  { id: 'fund_pg', type: 'PostgreSQL', cn: '基金平台', mode: 'CDC', tables: 2, models: 1, lag: '4.0 秒', status: 'warn', rows24h: 41_000, note: '來源新增欄位 PLAN_FREQ，建議映射到 plan_type',
+    auth: { method: 'cert', cn: 'mTLS 用戶端憑證', fields: { host: 'fund-db.bank.internal', port: 5432, database: 'fund', username: 'dmp_ro' }, secret: { field: 'client_cert', ref: 'kv/data/dmp/prod/fund_pg#client_cert', provider: 'OpenBao' }, rotation: { kind: 'rotating', every: 365, due: '2027-03-01', left: 138, state: 'ok' }, lastTest: { at: '10-13 02:00', ok: false, failedStep: 'cdc_prereq' }, owner: '財富 李', tls: true, privileges: [['CONNECT / USAGE', true], ['SELECT on 2 表', true], ['REPLICATION', true], ['publication 含新表', false]] } },
 ];
+// 連接器鑑權目錄（鏡自 backend/integration/connectors.yaml）
+export const CONNECTOR_AUTH = {
+  MSSQL: { port: 1433, methods: [
+    { id: 'kerberos', cn: 'Kerberos（AD 網域）', rec: true, fields: ['host', 'port', 'database', 'principal'], secret: 'keytab', rotate: 0, note: 'keytab 存密鑰庫，以 CSI 掛載到執行 Pod；不需 SQL 帳密' },
+    { id: 'entra_id_sp', cn: 'Entra ID 服務主體', rec: false, fields: ['host', 'port', 'database', 'tenant_id', 'client_id'], secret: 'client_secret', rotate: 180, note: 'Azure SQL／Arc 啟用的 SQL Server' },
+    { id: 'password', cn: 'SQL 帳號密碼', rec: false, fields: ['host', 'port', 'database', 'username'], secret: 'password', rotate: 90, note: '僅來源不支援前兩者時；encrypt=true、不信任自簽憑證' }],
+    priv: { batch: ['db_datareader（指定 schema）', 'VIEW DEFINITION'], cdc: ['SELECT on cdc.*', 'db_datareader', 'VIEW DATABASE STATE', '不需 db_owner（CDC 啟用由 DBA 執行）'] } },
+  PostgreSQL: { port: 5432, methods: [
+    { id: 'iam', cn: 'Cloud SQL IAM 驗證（短效 token）', rec: true, fields: ['instance', 'database', 'iam_user'], secret: null, rotate: 0, note: 'Workload Identity 取 1 小時 token，無長期密鑰；機房無此選項' },
+    { id: 'cert', cn: 'mTLS 用戶端憑證', rec: false, fields: ['host', 'port', 'database', 'username'], secret: 'client_cert', rotate: 365, note: 'sslmode=verify-full' },
+    { id: 'password', cn: '帳號密碼', rec: false, fields: ['host', 'port', 'database', 'username'], secret: 'password', rotate: 90, note: '機房 OpenBao 可改用動態帳密（TTL 24h）' }],
+    priv: { batch: ['CONNECT', 'USAGE on schema', 'SELECT on 指定表'], cdc: ['REPLICATION（或 cloudsqlreplica）', 'publication（DBA 預建）', 'SELECT on 指定表', '不需 superuser'] } },
+  BigQuery: { methods: [
+    { id: 'workload_identity', cn: 'Workload Identity（無密鑰）', rec: true, fields: ['project_id', 'dataset', 'location'], secret: null, rotate: 0, note: 'GA 匯出專案授權 dmp-ingest 服務帳號即可' },
+    { id: 'sa_impersonation', cn: '服務帳號模擬', rec: false, fields: ['project_id', 'dataset', 'location', 'target_service_account'], secret: null, rotate: 0, note: '跨專案；短效 token、可審計' },
+    { id: 'service_account_key', cn: '服務帳號金鑰檔', rec: false, fields: ['project_id', 'dataset', 'location'], secret: 'sa_key_json', rotate: 90, note: '不建議；組織政策通常禁止建立金鑰' }],
+    priv: { batch: ['bigquery.dataViewer（dataset 層級）', 'bigquery.readSessionUser', 'bigquery.jobUser（dmp 專案）'] } },
+  SensorsData: { methods: [{ id: 'api_token', cn: 'API token', rec: true, fields: ['base_url', 'project'], secret: 'api_secret', rotate: 180, note: '一次性匯入完成後撤銷' }], priv: { batch: ['專案唯讀分析帳號'] } },
+  Kafka: { port: 9092, methods: [
+    { id: 'mtls', cn: 'mTLS', rec: true, fields: ['bootstrap', 'topics'], secret: 'client_cert', rotate: 365, note: '' },
+    { id: 'sasl_scram', cn: 'SASL/SCRAM', rec: false, fields: ['bootstrap', 'topics', 'username'], secret: 'password', rotate: 90, note: '' },
+    { id: 'sasl_oauthbearer', cn: 'SASL/OAUTHBEARER', rec: false, fields: ['bootstrap', 'topics', 'token_endpoint', 'client_id'], secret: 'client_secret', rotate: 180, note: '' }],
+    priv: { batch: ['Read on 指定 topic', 'Describe on consumer group'] } },
+  GCS: { methods: [
+    { id: 'workload_identity', cn: 'Workload Identity（無密鑰）', rec: true, fields: ['bucket', 'prefix'], secret: null, rotate: 0, note: '' },
+    { id: 'hmac_key', cn: 'HMAC 金鑰（S3 相容）', rec: false, fields: ['bucket', 'prefix', 'endpoint'], secret: 'secret_key', rotate: 90, note: '機房 SeaweedFS／NAS' }],
+    priv: { batch: ['storage.objectViewer（bucket/prefix）'] } },
+};
+export const FIELD_CN = { host: '主機', port: '埠', database: '資料庫', principal: 'Kerberos 主體', tenant_id: 'Tenant ID', client_id: 'Client ID', username: '帳號', instance: 'Cloud SQL 執行個體', iam_user: 'IAM 使用者', project_id: 'GCP 專案', dataset: 'Dataset', location: '位置', target_service_account: '目標服務帳號', base_url: 'API 網址', project: '專案', bootstrap: 'Bootstrap', topics: 'Topics', token_endpoint: 'Token 端點', bucket: 'Bucket', prefix: '前綴', endpoint: '端點' };
+export const TEST_STEPS = [['dns', 'DNS 解析'], ['tcp', 'TCP 連通'], ['tls', 'TLS 憑證驗證'], ['auth', '鑑權'], ['privilege', '最小權限自檢'], ['cdc_prereq', 'CDC 前置'], ['sample_read', '抽樣讀取'], ['clock_skew', '時鐘偏移']];
+export const TEST_FIX = { dns: '檢查主機名稱／私有 DNS；GCP 需 Private Google Access 或 Cloud DNS 轉發', tcp: '請網路放行 dmp 固定出口 IP 與埠號', tls: '伺服器憑證不受信任：提供 CA bundle 或換內部 CA 簽發；不要關閉驗證', auth: '帳密／keytab／服務主體錯誤或過期：確認密鑰庫版本、Kerberos 時間同步', privilege: '依最小權限清單補授權（唯讀即可）', cdc_prereq: '請 DBA 啟用 CDC／wal_level=logical／建立 publication 與 slot', sample_read: '確認表名、schema、分片表命名', clock_skew: '來源時鐘偏移 > 5 秒，請對時 NTP' };
+
 export const MODEL_EXAMPLE = {
   id: 'mdl_order_hist', name: '交易主機委託表 → 委託/成交事件', source: 'trade_core · dbo.ORDER_HIST', entity: '事件（狀態機事件化）',
   src: [['ORD_NO', 'varchar(20)', '0.0%', 'A2026101400012345'], ['CUST_ID', 'varchar(12)', '0.0%', '00007281'], ['ACCT_NO', 'varchar(10)', '0.0%', '9801234567'], ['STK_CODE', 'char(6)', '0.0%', '2330  '], ['MKT', 'char(1)', '0.0%', 'T'], ['BS_FLAG', 'char(1)', '0.0%', 'B'], ['PRICE', 'decimal(12,2)', '0.0%', '1050.00'], ['QTY', 'int', '0.0%', '1000'], ['STATUS', 'char(1)', '0.0%', 'F'], ['ORD_TIME', 'datetime2', '0.0%', '2026-10-14 13:57:02'], ['CHANNEL', 'char(1)', '0.4%', 'A'], ['CUST_NAME', 'nvarchar(50)', '0.0%', '（個資）'], ['PHONE', 'varchar(15)', '2.1%', '（個資）']],

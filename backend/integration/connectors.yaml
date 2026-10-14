@@ -1,9 +1,34 @@
 # 資料連接器定義（可視化建模的「① 連線」）。全部連接器為 Apache-2.0 / MIT / BSD 授權元件。
+# 鑑權原則（docs/06 §7）：
+#   1. 平台資料庫永不存明文密鑰：連線只存 secret_ref（Secret Manager / OpenBao / K8s Secret 的路徑＋版本）；UI 寫入即送密鑰庫，回顯一律遮罩。
+#   2. 優先用無密碼／短效憑證：BigQuery 走 Workload Identity（＋服務帳號模擬），Cloud SQL 走 IAM 資料庫驗證，MSSQL 優先 Kerberos／Entra ID 服務主體；密碼只在來源不支援時使用。
+#   3. 最小權限：每個來源一個專用唯讀帳號，權限清單寫在 least_privilege，連線測試會逐項驗證。
+#   4. 傳輸加密必開（TLS 1.2+，驗證伺服器憑證）；網路走私有 IP／Private Google Access／固定來源 IP 白名單。
+#   5. 輪替：密碼型憑證 90 天、服務帳號金鑰 90 天、API token 180 天；新舊並存 24 小時；到期前 14 天告警；輪替與測試都寫審計。
+#   6. 每次使用都以 on_behalf_of（誰發起建模／誰排程）記審計；密鑰讀取只在執行節點（Flink/Spark/Connect）以 Workload Identity 取得，API 節點拿不到明文。
+secret_providers:
+  gcp_secret_manager: { ref_format: "projects/{project}/secrets/{name}/versions/{version}", access: workload_identity, rotation_hook: cloud_function }
+  openbao:            { ref_format: "kv/data/dmp/{env}/{conn_id}#{key}", access: kubernetes_auth, rotation_hook: openbao_db_engine }   # 機房；可用 database secrets engine 產動態帳密
+  k8s_secret:         { ref_format: "secret://{namespace}/{name}/{key}", access: csi_driver, note: "僅 PoC／測試環境" }
+rotation_policy: { password_days: 90, sa_key_days: 90, api_token_days: 180, overlap_hours: 24, warn_days_before: 14 }
+connection_test:   # 逐步診斷，哪一步失敗就回哪一步的原因與修法（UI 顯示）
+  steps: [dns, tcp, tls, auth, privilege, cdc_prereq, sample_read, clock_skew]
+  timeout_seconds: 15
+  audit_event: integration.connection.tested
 connectors:
   - type: mssql
     cn: Microsoft SQL Server
     versions: ["2016+"]
-    auth: [password, kerberos, azure_ad]
+    auth: [kerberos, entra_id_sp, password]        # 建議順序：Kerberos（AD 網域）> Entra ID 服務主體 > SQL 帳密
+    auth_methods:
+      kerberos:    { fields: [host, port, database, principal], secret_fields: [keytab], secret_ref_required: true, notes: "keytab 存密鑰庫，以 CSI 掛載到 Connect/Flink Pod；integratedSecurity=true;authenticationScheme=JavaKerberos" }
+      entra_id_sp: { fields: [host, port, database, tenant_id, client_id], secret_fields: [client_secret], secret_ref_required: true, notes: "authentication=ActiveDirectoryServicePrincipal；Azure SQL／Arc 啟用的 SQL Server" }
+      password:    { fields: [host, port, database, username], secret_fields: [password], secret_ref_required: true, rotation_days: 90, notes: "僅來源不支援前兩者時；encrypt=true;trustServerCertificate=false" }
+    tls: { required: true, min_version: "1.2", verify_server_cert: true, ca_bundle_ref: optional }
+    network: { private_ip: true, source_ip_allowlist: "Cloud NAT 固定 IP / 機房出口 IP", port_default: 1433 }
+    least_privilege:
+      batch: ["db_datareader on 指定 schema（或逐表 SELECT）", "VIEW DEFINITION（schema discovery）"]
+      cdc:   ["SELECT on cdc.* 與 cdc.fn_cdc_get_all_changes_*", "db_datareader", "VIEW DATABASE STATE（讀 LSN）", "不需要 db_owner；CDC 啟用由 DBA 以 sysadmin 執行"]
     capabilities: { batch: jdbc_incremental, cdc: debezium_sqlserver, schema_discovery: true }
     driver: { name: mssql-jdbc, license: MIT }
     cdc_requirements: ["sys.sp_cdc_enable_db", "sys.sp_cdc_enable_table per table", "SQL Server Agent running"]
@@ -11,13 +36,28 @@ connectors:
   - type: postgresql
     cn: PostgreSQL
     versions: ["12+"]
-    auth: [password, iam, cert]
+    auth: [iam, cert, password]                     # 建議順序：Cloud SQL IAM（短效 token）> mTLS 用戶端憑證 > 帳密
+    auth_methods:
+      iam:      { fields: [instance_connection_name_or_host, database, iam_user], secret_fields: [], secret_ref_required: false, notes: "Cloud SQL IAM database authentication；以 Workload Identity 取 1 小時 token，無長期密鑰；機房無此選項" }
+      cert:     { fields: [host, port, database, username], secret_fields: [client_cert, client_key], secret_ref_required: true, notes: "sslmode=verify-full；伺服器 CA 以 ca_bundle_ref 指定" }
+      password: { fields: [host, port, database, username], secret_fields: [password], secret_ref_required: true, rotation_days: 90, notes: "機房 OpenBao 可改用 database secrets engine 動態帳密（TTL 24h）" }
+    tls: { required: true, sslmode: verify-full, ca_bundle_ref: optional }
+    network: { private_ip: true, port_default: 5432 }
+    least_privilege:
+      batch: ["CONNECT", "USAGE on schema", "SELECT on 指定表"]
+      cdc:   ["REPLICATION 屬性（或 Cloud SQL 的 cloudsqlreplica）", "CREATE on database（建 publication）或由 DBA 預建 publication", "SELECT on 指定表", "不需要 superuser"]
     capabilities: { batch: jdbc_incremental, cdc: debezium_postgres_pgoutput, schema_discovery: true }
     driver: { name: pgjdbc, license: BSD-2 }
     cdc_requirements: ["wal_level=logical", "publication per table", "replication slot"]
   - type: bigquery
     cn: Google BigQuery
-    auth: [workload_identity, service_account]
+    auth: [workload_identity, sa_impersonation, service_account_key]   # 建議順序：WI > WI 模擬目標專案的 SA > 金鑰檔（僅跨組織且不能建立信任時）
+    auth_methods:
+      workload_identity:   { fields: [project_id, dataset, location], secret_fields: [], secret_ref_required: false, notes: "GKE Workload Identity 綁 dmp-ingest SA；GA360 匯出專案需授權此 SA" }
+      sa_impersonation:    { fields: [project_id, dataset, location, target_service_account], secret_fields: [], secret_ref_required: false, notes: "dmp SA 具 roles/iam.serviceAccountTokenCreator，模擬 GA 專案的 SA；短效 token，可審計" }
+      service_account_key: { fields: [project_id, dataset, location], secret_fields: [sa_key_json], secret_ref_required: true, rotation_days: 90, notes: "不建議；金鑰存密鑰庫，組織政策建議 constraints/iam.disableServiceAccountKeyCreation" }
+    least_privilege: ["roles/bigquery.dataViewer on 指定 dataset（非專案層級）", "roles/bigquery.readSessionUser（Storage Read API）", "roles/bigquery.jobUser on dmp 專案（查詢計費在 dmp 側）"]
+    network: { private_google_access: true, vpc_sc: optional }
     capabilities: { batch: storage_read_api, cdc: none, schema_discovery: true, sharded_tables: "events_YYYYMMDD" }
     driver: { name: spark-bigquery-connector, license: Apache-2.0 }
     network: private_google_access
@@ -25,13 +65,28 @@ connectors:
   - type: sensorsdata
     cn: 神策 SensorsData（歷史事件，一次性匯入）
     auth: [api_token]
+    auth_methods:
+      api_token: { fields: [base_url, project], secret_fields: [api_secret], secret_ref_required: true, rotation_days: 180, notes: "神策查詢 API token；一次性匯入完成後即撤銷" }
+    tls: { required: true }
+    least_privilege: ["專案唯讀分析帳號（可查詢、不可管理）"]
     capabilities: { batch: sql_query_api_or_parquet, cdc: none, schema_discovery: "events/properties via API" }
     mode: one_time_import              # 匯入完成後行為事件全部來自 GA360；不接增量、不寫回
     protocol: sensors_json            # type/event/distinct_id/identities/properties/time
     mapping_preset: sensors_native     # 幾乎 1:1 映射；事件名對照到 GA 命名（$pageview ↔ ga.page_view）
   - type: kafka
     cn: Apache Kafka
+    auth: [mtls, sasl_scram, sasl_oauthbearer]
+    auth_methods:
+      mtls:            { fields: [bootstrap, topics], secret_fields: [client_cert, client_key], secret_ref_required: true }
+      sasl_scram:      { fields: [bootstrap, topics, username], secret_fields: [password], secret_ref_required: true, rotation_days: 90 }
+      sasl_oauthbearer: { fields: [bootstrap, topics, token_endpoint, client_id], secret_fields: [client_secret], secret_ref_required: true }
+    least_privilege: ["Read on 指定 topic", "Describe on consumer group"]
     capabilities: { batch: false, cdc: stream, formats: [json, avro(apicurio)] }
   - type: gcs
     cn: Google Cloud Storage / 檔案
+    auth: [workload_identity, hmac_key]
+    auth_methods:
+      workload_identity: { fields: [bucket, prefix], secret_fields: [], secret_ref_required: false }
+      hmac_key:          { fields: [bucket, prefix, endpoint], secret_fields: [access_key, secret_key], secret_ref_required: true, rotation_days: 90, notes: "S3 相容（機房 SeaweedFS / NAS）" }
+    least_privilege: ["roles/storage.objectViewer on 指定 bucket/prefix"]
     capabilities: { batch: files, formats: [csv, jsonl, parquet] }

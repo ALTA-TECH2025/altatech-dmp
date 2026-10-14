@@ -7,10 +7,10 @@ import { ACCOUNTS, SOURCES, EVENTS, TS, PLATFORM_SPLIT, CHANNEL_SPLIT, UTM_SPLIT
          TRIGGERS, TRIGGER_FEED, PROFILES, INSIGHTS, AGENTS, TOOLS, ASK_SCRIPTS, TODAY, dkey, dayOffset,
          PATHS, ATTRIBUTION, USERS, CONNECTIONS, MODEL_EXAMPLE, CONFIG_CARDS,
          ROLES, MODULES, MATRIX, DATA_SCOPES, MASK_RULES, APPROVALS, AUDIT, DESTINATIONS, AUDIENCE_PUSHES, DELIVERIES,
-         PROPS, PROP_SCOPES, OPS, AGGS, GRANS, CHART_TYPES, SAVED_REPORTS } from './data.js?v=20261014.7';
+         PROPS, PROP_SCOPES, OPS, AGGS, GRANS, CHART_TYPES, SAVED_REPORTS, CONNECTOR_AUTH, FIELD_CN, TEST_STEPS, TEST_FIX } from './data.js?v=20261014.8';
 
-const VERSION = 'v0.4.1';
-const BUILD = '20261014.7';
+const VERSION = 'v0.4.2';
+const BUILD = '20261014.8';
 
 /* ------------------------------------------------------------------ state */
 const S = {
@@ -22,7 +22,7 @@ const S = {
   ai: { tab: 'insights', kind: 'all', status: 'open', open: {}, chat: [], busy: false, prefill: '' },
   gov: { tab: 'dictionary' },
   iam: { tab: 'roles' }, roleEdit: null, customRoles: {}, customMatrix: {}, push: null,
-  path: null, attr: null, ret: null, users: { q: '', lc: 'all', tier: 'all', page: 0, sel: {}, from: null }, integ: { tab: 'connections', step: 4 },
+  path: null, attr: null, ret: null, conn: null, users: { q: '', lc: 'all', tier: 'all', page: 0, sel: {}, from: null }, integ: { tab: 'connections', step: 4 },
   sqlDrawer: null, toast: null, _evSql: '', _fnSql: '',
   approved: {},                                // 原型：審批狀態
   feedback: {},
@@ -943,11 +943,74 @@ function pageUsers() {
   <div class="pager"><span>第 ${page + 1} / ${pages} 頁 · 本頁 ${rows.length} 筆 · 列表上限 10 萬筆</span><span class="right"><button class="btn-ghost sm" data-act="upage" data-arg="-1" ${page === 0 ? 'disabled' : ''}>上一頁</button><button class="btn-ghost sm" data-act="upage" data-arg="1" ${page >= pages - 1 ? 'disabled' : ''}>下一頁</button></span></div></div>
   <div class="note" style="margin-top:10px">欄位皆為代碼化或分桶後的值；姓名、手機、帳號明文不在分析倉。「細查」需填寫理由並寫入審計。${S.user.scope === 'all' ? '' : '你的範圍：台北分公司 TPE01。'}</div>`;
 }
+/* ================================================================== v0.4.2：資料來源連線與鑑權（新增／編輯連線、連線測試、輪替） */
+const CONN_TYPES = ['MSSQL', 'PostgreSQL', 'BigQuery', 'Kafka', 'GCS', 'SensorsData'];
+function openConn(id) {
+  const c = id ? CONNECTIONS.find(x => x.id === id) : null; const type = c ? c.type : 'MSSQL'; const cat = CONNECTOR_AUTH[type]; const m = c ? cat.methods.find(x => x.id === c.auth.method) || cat.methods[0] : cat.methods[0];
+  S.conn = { id: c ? c.id : '', isNew: !c, cn: c ? c.cn : '', type, method: m.id, fields: c ? { ...c.auth.fields } : Object.fromEntries(m.fields.map(f => [f, f === 'port' ? cat.port || '' : ''])), mode: c ? 'cdc' : 'batch', secretMode: c && c.auth.secret ? 'ref' : 'once', secretRef: c && c.auth.secret ? c.auth.secret.ref : '', secretOnce: '', owner: c ? c.auth.owner : '', test: null, testing: false, dirty: false };
+  render();
+}
+function connSetType(t) { const cat = CONNECTOR_AUTH[t]; const m = cat.methods[0]; S.conn.type = t; S.conn.method = m.id; S.conn.fields = Object.fromEntries(m.fields.map(f => [f, f === 'port' ? cat.port || '' : ''])); S.conn.test = null; render(); }
+function connSetMethod(id) { const cat = CONNECTOR_AUTH[S.conn.type]; const m = cat.methods.find(x => x.id === id); const old = S.conn.fields; S.conn.method = id; S.conn.fields = Object.fromEntries(m.fields.map(f => [f, old[f] ?? (f === 'port' ? cat.port || '' : '')])); S.conn.secretRef = ''; S.conn.secretOnce = ''; S.conn.test = null; render(); }
+function connTest() {
+  const c = S.conn; const cat = CONNECTOR_AUTH[c.type]; const m = cat.methods.find(x => x.id === c.method); const errs = [];
+  m.fields.forEach(f => { if (!String(c.fields[f] || '').trim()) errs.push(`缺少 ${FIELD_CN[f] || f}`); });
+  if (m.secret) { if (c.secretMode === 'ref' && !/^(projects\/[^/]+\/secrets\/[^/]+\/versions\/(\d+|latest)|kv\/data\/dmp\/[a-z]+\/[a-z0-9_]+#[a-z_]+|secret:\/\/[a-z0-9-]+\/[a-z0-9-]+\/[A-Za-z0-9_.-]+)$/.test(c.secretRef)) errs.push('密鑰參照格式不合法（projects/…/secrets/…/versions/N、kv/data/dmp/…#key 或 secret://ns/name/key）'); if (c.secretMode === 'once' && !c.secretOnce) errs.push(`請輸入 ${m.secret}（一次性，寫入密鑰庫後不回顯）`); }
+  Object.entries(c.fields).forEach(([k, v]) => { if (/^(-----BEGIN|[A-Za-z0-9+/=_-]{40,})/.test(String(v))) errs.push(`欄位 ${FIELD_CN[k] || k} 疑似明文密鑰，請改用密鑰欄位`); });
+  if (errs.length) { c.test = { ok: false, steps: [{ step: 'validate', cn: '表單驗證', ok: false, detail: errs.join('；') }] }; render(); return; }
+  c.testing = true; render();
+  setTimeout(() => {
+    const host = String(c.fields.host || c.fields.instance || c.fields.project_id || c.fields.bootstrap || c.fields.base_url || c.fields.bucket || '');
+    const failAt = /bad|錯/.test(host) ? 'auth' : /old|self/.test(host) ? 'tls' : /nocdc/.test(host) ? 'cdc_prereq' : /10\.9\./.test(host) ? 'tcp' : null;
+    const isCdc = c.mode === 'cdc' && ['MSSQL', 'PostgreSQL'].includes(c.type);
+    const steps = []; let ok = true;
+    for (const [id, cn] of TEST_STEPS) {
+      if (id === 'cdc_prereq' && !isCdc) { steps.push({ step: id, cn, ok: true, detail: '不適用（批次）' }); continue; }
+      if (id === 'tls' && c.type === 'BigQuery') { steps.push({ step: id, cn, ok: true, detail: 'Google API（TLS 1.3）' }); continue; }
+      if (failAt === id) { steps.push({ step: id, cn, ok: false, detail: { auth: '28000: authentication failed for user', tls: 'x509: certificate signed by unknown authority', cdc_prereq: 'publication "dmp_pub" does not exist', tcp: 'connect timeout after 5 s' }[id], fix: TEST_FIX[id] }); ok = false; break; }
+      steps.push({ step: id, cn, ok: true, detail: { dns: '10.20.3.5（私有 DNS）', tcp: `${c.fields.port || 443} open · 2 ms`, tls: 'TLS 1.2 · 內部 CA · 到期 2027-05', auth: `${m.cn} · 以 Workload Identity 取密鑰 v${c.secretMode === 'ref' && /versions\/(\d+)/.test(c.secretRef) ? c.secretRef.match(/versions\/(\d+)/)[1] : '1'}`, privilege: `${(cat.priv[isCdc ? 'cdc' : 'batch'] || cat.priv.batch).length} 項權限全部具備`, cdc_prereq: 'cdc 已啟用 · 6 表 · agent running', sample_read: '讀取 1,000 列 · 0.4 s', clock_skew: '偏移 0.3 s' }[id] });
+    }
+    c.test = { ok, steps, at: '剛剛' }; c.testing = false; render();
+  }, 700);
+}
+function connSave() {
+  const c = S.conn; if (!c.test || !c.test.ok) { toast('請先通過連線測試再儲存'); return; }
+  if (!c.cn.trim()) { toast('請填寫連線名稱'); return; }
+  const m = CONNECTOR_AUTH[c.type].methods.find(x => x.id === c.method); const id = c.isNew ? (c.cn.replace(/[^a-z0-9]+/gi, '_').toLowerCase().slice(0, 16) || 'conn') + '_' + Date.now().toString(36).slice(-3) : c.id;
+  const ref = m.secret ? (c.secretMode === 'ref' ? c.secretRef : `projects/dmp-prod/secrets/${id}/versions/1`) : null;
+  const auth = { method: c.method, cn: m.cn, fields: { ...c.fields }, secret: m.secret ? { field: m.secret, ref, provider: ref.startsWith('kv/') ? 'OpenBao' : ref.startsWith('secret://') ? 'K8s Secret' : 'Secret Manager' } : null, rotation: m.rotate ? { kind: 'rotating', every: m.rotate, due: dkey(dayOffset(m.rotate)), left: m.rotate, state: 'ok' } : { kind: 'short_lived' }, lastTest: { at: '剛剛', ok: true }, owner: c.owner || S.user.name, tls: true, privileges: (CONNECTOR_AUTH[c.type].priv[c.mode === 'cdc' ? 'cdc' : 'batch'] || CONNECTOR_AUTH[c.type].priv.batch).map(p => [p, true]) };
+  if (c.isNew) CONNECTIONS.push({ id, type: c.type, cn: c.cn, mode: c.mode === 'cdc' ? 'CDC' : '批次', tables: 0, models: 0, lag: '—', status: 'ok', rows24h: 0, auth });
+  else { const x = CONNECTIONS.find(y => y.id === c.id); x.cn = c.cn; x.auth = { ...x.auth, ...auth, lastTest: auth.lastTest }; }
+  S.conn = null; toast(c.isNew ? `連線已建立：密鑰已寫入密鑰庫（${auth.secret ? auth.secret.provider : '無密鑰'}），平台只保留參照；審計 integration.connection.created` : '連線已更新；審計 integration.connection.updated');
+}
+function connRotate(id) { const x = CONNECTIONS.find(y => y.id === id); if (!x.auth.secret || x.auth.rotation.kind !== 'rotating') { toast('短效憑證／無密鑰，不需輪替'); return; } const ref = x.auth.secret.ref.replace(/versions\/(\d+)$/, (_, n) => `versions/${Number(n) + 1}`).replace(/#(\w+)$/, '#$1'); x.auth.secret.ref = ref; x.auth.rotation = { ...x.auth.rotation, due: dkey(dayOffset(x.auth.rotation.every)), left: x.auth.rotation.every, state: 'ok' }; toast(`已輪替：新舊版本並存 24 小時，執行中的作業跑完才切換；審計 integration.connection.rotated`); }
+function connDrawer() {
+  const c = S.conn; if (!c) return ''; const cat = CONNECTOR_AUTH[c.type]; const m = cat.methods.find(x => x.id === c.method); const isCdc = c.mode === 'cdc' && ['MSSQL', 'PostgreSQL'].includes(c.type);
+  const privs = cat.priv[isCdc ? 'cdc' : 'batch'] || cat.priv.batch;
+  const testView = c.testing ? '<div class="note">測試中：在執行節點以 Workload Identity 取密鑰並逐步探測…</div>' : c.test ? `<div class="tsteps">${c.test.steps.map(s => `<div class="tstep ${s.ok ? 'ok' : 'fail'}"><span class="ic">${s.ok ? '✓' : '✗'}</span><span class="nm">${esc(s.cn || s.step)}</span><span class="d">${esc(s.detail)}</span>${s.fix ? `<div class="fix">修法：${esc(s.fix)}</div>` : ''}</div>`).join('')}${c.test.ok ? '<div class="pill green" style="margin-top:8px">全部通過 · 已寫審計 integration.connection.tested</div>' : '<div class="pill red" style="margin-top:8px">未通過 · 修正後再測</div>'}</div>` : '<div class="note">尚未測試。儲存前必須通過連線測試；測試不會把密鑰帶到瀏覽器或 API 節點。</div>';
+  return `<div class="drawer-bg" data-act="connclose"></div><div class="drawer wide"><div class="hd"><b>${c.isNew ? '新增連線' : `編輯連線：${esc(c.cn)}`}</b><span class="pill blue">密鑰不入庫</span><button class="icon-btn x" data-act="connclose">✕</button></div><div class="bd stack">
+    <div class="form"><label>連線名稱</label><input class="inp" data-act="conncn" value="${esc(c.cn)}" placeholder="例：交易主機（SQL Server 2019）">
+      <label>來源類型</label><div class="seg wrap">${CONN_TYPES.map(t => `<button class="${c.type === t ? 'on' : ''}" data-act="conntype" data-arg="${t}" ${!c.isNew ? 'disabled' : ''}>${t}</button>`).join('')}</div>
+      <label>接入方式</label><div class="seg"><button class="${c.mode === 'batch' ? 'on' : ''}" data-act="connmode" data-arg="batch">批次／增量</button><button class="${c.mode === 'cdc' ? 'on' : ''}" data-act="connmode" data-arg="cdc" ${['MSSQL', 'PostgreSQL'].includes(c.type) ? '' : 'disabled'}>CDC（即時）</button></div>
+      <label>憑證負責人</label><input class="inp" data-act="connowner" value="${esc(c.owner)}" placeholder="輪替到期通知對象"></div>
+    <div class="qsec"><div class="qsec-h"><b>鑑權方式</b><span class="note">依安全性排序；優先用無密鑰或短效憑證</span></div>${cat.methods.map(x => `<label class="auth-opt ${c.method === x.id ? 'on' : ''}"><button class="radio ${c.method === x.id ? 'on' : ''}" data-act="connmethod" data-arg="${x.id}" aria-label="${esc(x.cn)}"></button><span><b>${esc(x.cn)}</b>${x.rec ? '<span class="pill green">建議</span>' : ''}${x.secret ? `<span class="pill gray">密鑰：${x.secret}${x.rotate ? ` · ${x.rotate} 天輪替` : ''}</span>` : '<span class="pill teal">無長期密鑰</span>'}<small>${esc(x.note)}</small></span></label>`).join('')}</div>
+    <div class="qsec"><div class="qsec-h"><b>連線參數</b><span class="note">非機密；API 會掃描疑似明文密鑰並拒絕</span></div><div class="form">${m.fields.map(f => `<label>${esc(FIELD_CN[f] || f)}</label><input class="inp" data-act="connfield" data-arg="${f}" value="${esc(c.fields[f] ?? '')}" placeholder="${f === 'host' ? '私有 IP 或內部 DNS' : f === 'port' ? String(cat.port || '') : ''}">`).join('')}
+      <label>傳輸加密</label><div class="row"><button class="chk on dis" aria-label="TLS"></button><span class="note">TLS 1.2+ 並驗證伺服器憑證（強制；自簽憑證請提供 CA bundle 參照）</span></div></div></div>
+    ${m.secret ? `<div class="qsec"><div class="qsec-h"><b>密鑰（${esc(m.secret)}）</b><span class="note">平台資料庫只存參照；明文只在執行節點（Flink／Kafka Connect／Spark）用 Workload Identity 取得</span></div>
+      <div class="seg" style="margin-bottom:8px"><button class="${c.secretMode === 'once' ? 'on' : ''}" data-act="connsecmode" data-arg="once">輸入一次（寫入密鑰庫）</button><button class="${c.secretMode === 'ref' ? 'on' : ''}" data-act="connsecmode" data-arg="ref">使用既有密鑰參照</button></div>
+      ${c.secretMode === 'once' ? `<input class="inp" type="password" autocomplete="new-password" data-act="connseconce" value="${esc(c.secretOnce)}" placeholder="${m.secret === 'keytab' || m.secret.includes('cert') || m.secret.includes('json') ? '貼上 base64 內容' : '輸入後只傳一次，不回顯'}" style="width:100%"><div class="note" style="margin-top:6px">送出後 API 直接寫入 ${S.user.scope === 'all' ? 'Secret Manager（GCP）／OpenBao（機房）' : '密鑰庫'}，回傳參照；表單與日誌都不保留。</div>` : `<input class="inp mono" data-act="connsecref" value="${esc(c.secretRef)}" placeholder="projects/dmp-prod/secrets/xxx/versions/3 或 kv/data/dmp/prod/xxx#password" style="width:100%">`}</div>` : `<div class="qsec"><div class="qsec-h"><b>密鑰</b></div><div class="note">此方式不需要長期密鑰：執行節點以 Workload Identity 取得短效權杖（約 1 小時），無輪替負擔。</div></div>`}
+    <div class="qsec"><div class="qsec-h"><b>來源端最小權限（測試時逐項自檢）</b></div><ul class="priv">${privs.map(p => `<li>${esc(p)}</li>`).join('')}</ul><div class="note">只給唯讀與必要的 CDC 權限；不要 db_owner／superuser／專案層級 Viewer。網路：私有 IP／Private Google Access，來源端放行 dmp 固定出口 IP。</div></div>
+    <div class="qsec"><div class="qsec-h"><b>連線測試</b><span class="note">逐步診斷：DNS → TCP → TLS → 鑑權 → 權限 → CDC 前置 → 抽樣讀取 → 時鐘</span></div>${testView}</div>
+    </div><div class="ft"><button class="btn-ghost" data-act="conntest" ${c.testing ? 'disabled' : ''}>${c.testing ? '測試中…' : '測試連線'}</button><div class="right">${!c.isNew && CONNECTIONS.find(y => y.id === c.id)?.auth.secret ? `<button class="btn-ghost" data-act="connrotate" data-arg="${c.id}">輪替密鑰</button>` : ''}<button class="btn-ghost" data-act="connclose">取消</button><button class="btn-primary" data-act="connsave" ${c.test && c.test.ok ? '' : 'disabled'}>${c.isNew ? '建立連線' : '儲存'}</button></div></div></div>`;
+}
+
 function pageIntegration() {
   const t = S.integ.tab; const M = MODEL_EXAMPLE; const step = S.integ.step;
   const TYPECOL = { MSSQL: '#A4262C', BigQuery: '#4285F4', PostgreSQL: '#336791', SensorsData: '#0F8F85' };
   let body = '';
-  if (t === 'connections') body = `<div class="card flush"><table class="tbl"><tr><th>來源</th><th>接入方式</th><th class="num">表 / 模型</th><th>延遲</th><th class="num">24h 筆數</th><th>狀態</th><th></th></tr>${CONNECTIONS.map(c => `<tr><td style="display:flex;gap:10px;align-items:center"><span class="conn-type" style="background:${TYPECOL[c.type]}">${c.type === 'SensorsData' ? 'SA' : c.type === 'PostgreSQL' ? 'PG' : c.type === 'BigQuery' ? 'BQ' : 'MS'}</span><span><b>${esc(c.cn)}</b><span class="sub mono">${esc(c.id)} · ${esc(c.type)}</span></span></td><td>${esc(c.mode)}</td><td class="num mono">${c.tables} / ${c.models}</td><td class="mono">${esc(c.lag)}</td><td class="num mono">${n0(c.rows24h)}</td><td><span class="status ${c.status}"><span class="dot"></span>${c.status === 'ok' ? '正常' : '注意'}</span>${c.note ? `<span class="sub">${esc(c.note)}</span>` : ''}</td><td class="num"><button class="btn-ghost sm" data-act="integtab" data-arg="modeling">建模</button></td></tr>`).join('')}</table></div>
+  if (t === 'connections') body = `<div class="card flush"><div class="tbl-wrap"><table class="tbl"><tr><th>來源</th><th>接入方式</th><th>鑑權</th><th>密鑰／輪替</th><th>最後測試</th><th class="num">表 / 模型</th><th>延遲</th><th class="num">24h 筆數</th><th>狀態</th><th></th></tr>${CONNECTIONS.map(c => `<tr><td style="display:flex;gap:10px;align-items:center"><span class="conn-type" style="background:${TYPECOL[c.type]}">${c.type === 'SensorsData' ? 'SA' : c.type === 'PostgreSQL' ? 'PG' : c.type === 'BigQuery' ? 'BQ' : 'MS'}</span><span><b>${esc(c.cn)}</b><span class="sub mono">${esc(c.id)} · ${esc(c.type)}</span></span></td><td>${esc(c.mode)}</td><td><b style="font-size:12px">${esc(c.auth.cn)}</b><span class="sub mono">${esc(c.auth.fields.username || c.auth.fields.principal || c.auth.fields.iam_user || 'WI: dmp-ingest')}</span></td><td>${c.auth.secret ? `<span class="pill ${c.auth.secret.revoked ? 'gray' : c.auth.rotation.state === 'warn' ? 'amber' : c.auth.rotation.state === 'expired' ? 'red' : 'blue'}">${esc(c.auth.secret.provider)}${c.auth.secret.revoked ? ' · 已撤銷' : c.auth.rotation.kind === 'rotating' ? ` · ${c.auth.rotation.left} 天後到期` : ''}</span>` : '<span class="pill teal">無長期密鑰</span>'}${c.auth.note ? `<span class="sub">${esc(c.auth.note)}</span>` : ''}</td><td><span class="status ${c.auth.lastTest.ok ? 'ok' : 'warn'}"><span class="dot"></span>${c.auth.lastTest.ok ? '通過' : `失敗：${c.auth.lastTest.failedStep}`}</span><span class="sub mono">${esc(c.auth.lastTest.at)}</span></td><td class="num mono">${c.tables} / ${c.models}</td><td class="mono">${esc(c.lag)}</td><td class="num mono">${n0(c.rows24h)}</td><td><span class="status ${c.status}"><span class="dot"></span>${c.status === 'ok' ? '正常' : '注意'}</span>${c.note ? `<span class="sub">${esc(c.note)}</span>` : ''}</td><td class="num" style="white-space:nowrap"><button class="btn-ghost sm" data-act="connopen" data-arg="${c.id}">連線設定</button> <button class="btn-ghost sm" data-act="integtab" data-arg="modeling">建模</button></td></tr>`).join('')}</table></div></div>
+    <div class="grid c21" style="margin-top:16px"><div class="card"><div class="card-h"><h3>鑑權原則</h3><span class="sub">connectors.yaml · auth.py</span></div><ul class="priv">${['平台資料庫永不存明文密鑰：只存密鑰庫參照（Secret Manager／OpenBao），UI 回顯一律遮罩', '優先無密鑰或短效憑證：BigQuery Workload Identity、Cloud SQL IAM token、MSSQL Kerberos；密碼只在來源不支援時使用', '最小權限：每來源一個專用唯讀帳號，連線測試逐項自檢；不給 db_owner／superuser', 'TLS 1.2+ 並驗證伺服器憑證（強制）；私有 IP／Private Google Access；來源端放行固定出口 IP', '輪替：密碼 90 天、服務帳號金鑰 90 天、API token 180 天；新舊並存 24 小時；到期前 14 天通知負責人', '密鑰只在執行節點取得；每次取用、測試、輪替都寫審計（secret.accessed、integration.connection.*）'].map(x => `<li>${x}</li>`).join('')}</ul></div>
+    <div class="card"><div class="card-h"><h3>到期與告警</h3></div>${CONNECTIONS.filter(c => c.auth.secret && !c.auth.secret.revoked && c.auth.rotation.kind === 'rotating').map(c => `<div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line2)"><span style="min-width:0"><b>${esc(c.cn)}</b><span class="sub mono" style="display:block;font-size:11px;color:var(--muted);overflow-wrap:anywhere">${esc(c.auth.secret.ref)}</span></span><span class="pill ${c.auth.rotation.state === 'warn' ? 'amber' : 'blue'}">${c.auth.rotation.left} 天 · ${c.auth.rotation.due}</span><button class="btn-ghost sm" data-act="connrotate" data-arg="${c.id}">輪替</button></div>`).join('')}<div class="note" style="margin-top:8px">無密鑰連線（Workload Identity／IAM）不在此列；建議把 CRM 的帳密改為 Cloud SQL IAM 驗證即可免輪替。</div></div></div>
     <div class="grid c4" style="margin-top:16px">${[['MSSQL', 'JDBC 增量 / Debezium CDC', 'mssql-jdbc（MIT）、Debezium（Apache-2.0）'], ['BigQuery', 'Storage Read API（Arrow）', 'spark-bigquery-connector（Apache-2.0）'], ['PostgreSQL', 'JDBC / pgoutput CDC', 'pgjdbc（BSD-2）、Debezium'], ['SensorsData', '歷史事件一次性匯入', '查詢 API / Parquet → Iceberg；協議 1:1 映射']].map(x => `<div class="tile"><div class="lbl">${x[0]}</div><div style="font-size:12.5px;margin-top:6px;font-weight:600">${x[1]}</div><div class="delta"><span>${x[2]}</span></div></div>`).join('')}</div>`;
   else if (t === 'modeling') {
     const steps = ['連線', '選表', '實體對映', '欄位映射', '清洗規則', '預覽驗證', '排程發佈'];
@@ -961,7 +1024,7 @@ function pageIntegration() {
     else pane = `<div class="card"><dl class="kv"><dt>模式</dt><dd>即時（Debezium → Kafka raw.trade_cdc → Flink 事件化）</dd><dt>監控</dt><dd>延遲、筆數、隔離率、Schema drift 告警</dd><dt>血緣</dt><dd>已登記（OpenLineage）</dd></dl><div class="acts" style="margin-top:12px;display:flex;gap:8px"><button class="btn-primary" data-act="toast" data-arg="已發佈：Flink CDC 作業建立中（K8s Operator）">發佈</button><button class="btn-ghost" data-act="toast" data-arg="已輸出 models/mdl_order_hist.yaml">匯出 YAML</button></div></div>`;
     body = `<div class="card-h" style="margin-bottom:10px"><h3>${esc(M.name)}</h3><span class="pill">${esc(M.entity)}</span><div class="right"><button class="btn-ghost sm" data-act="integstep" data-arg="${Math.max(1, step - 1)}">上一步</button><button class="btn-primary" data-act="integstep" data-arg="${Math.min(7, step + 1)}">下一步</button></div></div>${stepper}${pane}`;
   } else body = `<div class="grid c2"><div class="card flush"><table class="tbl"><tr><th>時間</th><th>來源</th><th>原因</th><th class="num">筆數</th><th></th></tr>${[['14:20', 'trade_core', 'market 值 "X" 不在枚舉', 4], ['14:05', 'fund_pg', '必填 plan_type 空值（來源新增 PLAN_FREQ）', 38], ['13:50', 'ga_bq', 'time 超出 7 天（遲到資料）', 1210], ['12:30', 'crm_pg', '個資掃描：memo 含手機號', 2]].map(r => `<tr><td class="mono" style="color:var(--muted)">${r[0]}</td><td class="mono">${r[1]}</td><td>${esc(r[2])}</td><td class="num mono">${n0(r[3])}</td><td class="num"><button class="btn-ghost sm" data-act="toast" data-arg="已重放（修正映射後）">重放</button></td></tr>`).join('')}</table></div><div class="card"><div class="card-h"><h3>隔離原則</h3></div><div class="note">不符規則的資料進隔離表而非丟棄；修正映射或規則後可重放。個資命中一律拒絕並告警，不進隔離表（不落地）。隔離率 &gt; 1% 時通知模型負責人。</div></div></div>`;
-  return `<div class="page-h"><div><h1>數據整合（可視化建模）</h1><p>連線 → 選表 → 實體對映 → 欄位映射 → 清洗規則 → 預覽驗證 → 排程發佈。支援 MSSQL、BigQuery、PostgreSQL、神策；與事件模型解耦，倉表可雙向映射。</p></div><div class="right"><button class="btn-primary" data-act="toast" data-arg="原型：新增連線精靈（MSSQL / BigQuery / PostgreSQL / Kafka / GCS）">＋ 新增連線</button></div></div>
+  return `<div class="page-h"><div><h1>數據整合（可視化建模）</h1><p>連線 → 選表 → 實體對映 → 欄位映射 → 清洗規則 → 預覽驗證 → 排程發佈。支援 MSSQL、BigQuery、PostgreSQL、神策；與事件模型解耦，倉表可雙向映射。</p></div><div class="right"><button class="btn-primary" data-act="connnew" ${has('integration', 'd') ? '' : 'disabled title="需要數據整合的設定權限"'}>＋ 新增連線</button></div></div>
   <div class="filters"><div class="seg">${[['connections', '連線'], ['modeling', '建模'], ['quarantine', '清洗與隔離']].map(x => `<button class="${t === x[0] ? 'on' : ''}" data-act="integtab" data-arg="${x[0]}">${x[1]}</button>`).join('')}</div></div>${body}`;
 }
 
@@ -1008,7 +1071,7 @@ let render = function () {
   const pages = { overview: pageOverview, events: pageEvents, funnel: pageFunnel, path: pagePath, attribution: pageAttribution, users: pageUsers, integration: pageIntegration, retention: pageRetention, iam: pageIAM, audit: pageAudit, profile: pageProfile, segments: pageSegments, triggers: pageTriggers, ai: pageAI, governance: pageGovernance, settings: pageSettings };
   const page = canRoute(S.route.name) ? (pages[S.route.name] || pageOverview)() : pageForbidden();
   const active = document.activeElement; const keep = active && active.dataset && active.dataset.act; const keepArg = active && active.dataset && active.dataset.arg; const selStart = active && active.selectionStart;
-  root.innerHTML = `<div class="app">${viewTopNav()}${viewSubNav()}<main class="content"><div class="wrap">${page}</div></main></div>${viewMobileNav()}${sqlDrawer()}${segDrawer()}${roleDrawer()}${pushDrawer()}${S.toast ? `<div class="toast">${esc(S.toast)}</div>` : ''}`;
+  root.innerHTML = `<div class="app">${viewTopNav()}${viewSubNav()}<main class="content"><div class="wrap">${page}</div></main></div>${viewMobileNav()}${sqlDrawer()}${connDrawer()}${segDrawer()}${roleDrawer()}${pushDrawer()}${S.toast ? `<div class="toast">${esc(S.toast)}</div>` : ''}`;
   if (keep) { const el = root.querySelector(keepArg != null ? `[data-act="${keep}"][data-arg="${keepArg}"]` : `[data-act="${keep}"]`); if (el && el.focus) { el.focus(); try { if (selStart != null) el.setSelectionRange(selStart, selStart); } catch (e) { /* non-text */ } } }
 }
 
@@ -1045,6 +1108,10 @@ document.addEventListener('click', e => {
     fnreset: () => { resetFunnel(S.funnel.id); toast('已重置漏斗設定'); },
     fnusers: () => { const [kind, i] = arg.split(':'); const f = S.funnel; const c = funnelCounts(); const k = Number(i); S.users.from = { label: `漏斗「${f.name}」步驟 ${k + 1} → ${k + 2} ${kind === 'lost' ? '流失' : '轉化'}用戶`, n: kind === 'lost' ? c.n[k] - c.n[k + 1] : c.n[k + 1] }; S.users.page = 0; go('#/users'); },
     ufromclear: () => { S.users.from = null; render(); },
+    // v0.4.2 連線與鑑權
+    connnew: () => openConn(null), connopen: () => openConn(arg), connclose: () => { S.conn = null; render(); },
+    conntype: () => connSetType(arg), connmethod: () => connSetMethod(arg), connmode: () => { S.conn.mode = arg; S.conn.test = null; render(); }, connsecmode: () => { S.conn.secretMode = arg; S.conn.test = null; render(); },
+    conntest: () => connTest(), connsave: () => connSave(), connrotate: () => { if (!has('integration', 'd')) { toast('需要數據整合的設定權限'); return; } connRotate(arg); },
     // v0.4.1 行為路徑
     pathdir: () => { S.path.dir = arg; S.path.sel = null; render(); }, pathanchorf: () => { S.path.anchorOpen = !S.path.anchorOpen; if (S.path.anchorOpen && !S.path.anchorFilters.items.length) S.path.anchorFilters.items.push(newCond('platform')); render(); },
     pathev: () => { const e = S.path.events; const i = e.indexOf(arg); i >= 0 ? e.splice(i, 1) : e.push(arg); S.path.sel = null; render(); }, pathsplit: () => { S.path.split[arg] = !S.path.split[arg]; S.path.sel = null; render(); },
@@ -1134,6 +1201,7 @@ document.addEventListener('input', e => {
   if (el.dataset.act === 'fbval' || el.dataset.act === 'fbval2') { const [ns, i] = el.dataset.arg.split(':'); const c = fbRef(ns).items[Number(i)]; if (c) c[el.dataset.act === 'fbval' ? 'v' : 'v2'] = el.value; }
   if (el.dataset.act === 'fnwin') S.funnel.window.n = Math.max(1, Math.min(3650, Number(el.value) || 1));
   if (el.dataset.act === 'attrtname') S.attr.touches[Number(el.dataset.arg)].name = el.value;
+  if (S.conn) { const a = el.dataset.act; if (a === 'conncn') S.conn.cn = el.value; if (a === 'connowner') S.conn.owner = el.value; if (a === 'connfield') { S.conn.fields[el.dataset.arg] = el.value; S.conn.test = null; } if (a === 'connseconce') S.conn.secretOnce = el.value; if (a === 'connsecref') S.conn.secretRef = el.value; }
   if (el.dataset.act === 'attrhl') S.attr.halfLife = Number(el.value) || S.attr.halfLife; if (el.dataset.act === 'attrwin') S.attr.window.n = Number(el.value) || S.attr.window.n; if (el.dataset.act === 'retperiods') S.ret.periods = Math.max(1, Math.min(30, Number(el.value) || S.ret.periods));
   if (S.roleEdit) { if (el.dataset.act === 'rolecn') S.roleEdit.cn = el.value; if (el.dataset.act === 'roledesc') S.roleEdit.desc = el.value; if (el.dataset.act === 'rolelookback') S.roleEdit.lookback = Number(el.value) || 0; }
   if (el.dataset.act === 'uq') { S.users.q = el.value; S.users.page = 0; render(); }
