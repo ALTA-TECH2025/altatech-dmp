@@ -5,10 +5,11 @@
 
 import { ACCOUNTS, SOURCES, EVENTS, TS, PLATFORM_SPLIT, CHANNEL_SPLIT, UTM_SPLIT, FUNNELS, RETENTION, TAGS, SEGMENTS,
          TRIGGERS, TRIGGER_FEED, PROFILES, INSIGHTS, AGENTS, TOOLS, ASK_SCRIPTS, TODAY, dkey, dayOffset,
-         PATHS, ATTRIBUTION, USERS, CONNECTIONS, MODEL_EXAMPLE, CONFIG_CARDS } from './data.js?v=20261014.2';
+         PATHS, ATTRIBUTION, USERS, CONNECTIONS, MODEL_EXAMPLE, CONFIG_CARDS,
+         ROLES, MODULES, MATRIX, DATA_SCOPES, MASK_RULES, APPROVALS, AUDIT } from './data.js?v=20261014.3';
 
-const VERSION = 'v0.2.0';
-const BUILD = '20261014.2';
+const VERSION = 'v0.3.0';
+const BUILD = '20261014.3';
 
 /* ------------------------------------------------------------------ state */
 const S = {
@@ -20,6 +21,7 @@ const S = {
   seg: { tab: 'segments' }, segDrawer: null,
   ai: { tab: 'insights', kind: 'all', status: 'open', open: {}, chat: [], busy: false, prefill: '' },
   gov: { tab: 'dictionary' },
+  iam: { tab: 'roles' },
   path: { steps: 4 }, attr: { model: 'position' }, users: { q: '', lc: 'all', tier: 'all', page: 0, sel: {} }, integ: { tab: 'connections', step: 4 },
   sqlDrawer: null, toast: null,
   approved: {},                                // 原型：審批狀態
@@ -59,6 +61,7 @@ const I = {
   warn:  '<path d="M12 8v5M12 16.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6" fill="none"/>',
   search:'<circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
   clock: '<path d="M12 7v5l3 2M3.5 12a8.5 8.5 0 1017 0 8.5 8.5 0 00-17 0z" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+  globe: '<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3.5 12h17M12 3.5c4 4.5 4 12.5 0 17-4-4.5-4-12.5 0-17z" stroke="currentColor" stroke-width="1.6" fill="none"/>',
   code:  '<path d="M8 8l-4 4 4 4M16 8l4 4-4 4M14 5l-4 14" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   send:  '<path d="M3 11l18-8-8 18-2-8z" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linejoin="round"/>',
   up:    '<path d="M12 19V5M6 11l6-6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -148,46 +151,85 @@ const delta = (key, n = 7) => { const a = sumLast(key, n), b = sum(TS[key].slice
 function parseHash() { const h = (location.hash || '#/overview').replace(/^#\/?/, ''); const p = h.split('/').filter(Boolean); return { name: p[0] || 'overview', tab: p[1], arg: p[2] }; }
 
 /* ------------------------------------------------------------------ shell */
+const TITLES = { overview: '總覽', events: '事件分析', funnel: '漏斗分析', path: '行為路徑分析', attribution: '歸因分析', users: '用戶列表', integration: '數據整合', retention: '留存分析', audit: '日誌統計', iam: '權限中心', profile: '用戶細查 / OneID', segments: '標籤與分群', triggers: '即時觸發', ai: 'AI 洞察', governance: '資料治理', settings: '平台設定' };
+/* ================================================================== v0.3：AltaTech 品牌、橫向導覽、模組權限、欄位隱碼 */
+const LOGO_MARK = `<svg class="logo" viewBox="0 0 64 64" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M10 26V10h16M10 10l14 14" stroke="#21DCCE" stroke-width="6"/><path d="M38 10h16v16" stroke="#B57BEA" stroke-width="6"/><path d="M10 38v16h16" stroke="#FECF00" stroke-width="6"/><path d="M54 38v16H38M54 54L40 40" stroke="#2C73EA" stroke-width="6"/></svg>`;
+const NAV_GROUPS = [
+  { id: 'home', cn: '首頁', items: [['overview', '總覽']] },
+  { id: 'analysis', cn: '分析', items: [['events', '事件分析'], ['funnel', '漏斗分析'], ['path', '行為路徑'], ['attribution', '歸因分析'], ['users', '用戶列表']] },
+  { id: 'ops', cn: '營運', items: [['segments', '標籤與分群'], ['triggers', '即時觸發']] },
+  { id: 'data', cn: '資料', items: [['integration', '數據整合'], ['profile', '用戶細查 / OneID'], ['retention', '留存分析']] },
+  { id: 'ai', cn: 'AI 洞察', items: [['ai/insights', '洞察串流'], ['ai/ask', '問答'], ['ai/agents', 'Agents'], ['ai/tools', '工具目錄']] },
+  { id: 'gov', cn: '治理', items: [['governance', '資料治理'], ['audit', '日誌統計'], ['iam', '權限中心'], ['settings', '平台設定']] },
+];
+const ROUTE_MODULE = { overview: 'overview', events: 'events', funnel: 'events', path: 'events', attribution: 'events', retention: 'events', users: 'users', profile: 'profile', segments: 'segments', triggers: 'triggers', integration: 'integration', ai: 'ai_ask', governance: 'governance', audit: 'audit', iam: 'iam', settings: 'iam' };
+const RK = () => (S.user && S.user.rk) || 'analyst';
+const perm = (mod) => (MATRIX[RK()] || {})[mod] || '';
+const has = (mod, act) => perm(mod).includes(act);
+const canRoute = (name) => { const m = ROUTE_MODULE[name.split('/')[0]] || 'overview'; const p = perm(m); return name === 'settings' ? p.includes('d') || p.includes('v') : p.includes('v') || p.includes('u'); };
+const LOCK = '<svg class="lock" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 11V7a4 4 0 018 0v4" stroke="currentColor" stroke-width="2"/></svg>';
+const PLAIN_ID = ['platform_admin', 'auditor'];
+const idMasked = () => !PLAIN_ID.includes(RK());
+function mId(v) { v = String(v); return idMasked() ? `<span class="masked" title="L3 代碼化識別：mask_tail(4)">${esc(v.slice(0, 4))}•••${esc(v.slice(-4))}${LOCK}</span>` : `<span class="mono">${esc(v)}</span>`; }
+function mMoney(v) { if (['platform_admin', 'analyst', 'ops_manager', 'branch_manager'].includes(RK())) return `<span class="mono">${n0(v)}</span>`; const b = v < 1e5 ? '< 10 萬' : v < 5e5 ? '10–50 萬' : v < 1e6 ? '50–100 萬' : '≥ 100 萬'; return `<span class="masked" title="L2 敏感業務：bucket">${b}${LOCK}</span>`; }
+function mScore(v) { if (['platform_admin', 'analyst', 'ops_manager', 'branch_manager', 'sales_agent'].includes(RK())) return `<span class="mono" style="color:${v > 60 ? 'var(--st-serious)' : 'inherit'}">${v}</span>`; return `<span class="masked">${v >= 70 ? '高' : v >= 40 ? '中' : '低'}${LOCK}</span>`; }
+
+function activeGroup() { const n = S.route.name; return NAV_GROUPS.find(g => g.items.some(it => it[0].split('/')[0] === n)) || NAV_GROUPS[0]; }
 function viewGate() {
-  return `<div class="gate"><div class="gate-brand">${LOGO}<div><b>AltaTech DMP</b><span>數位軌跡／客戶數據中台 · 原型 ${VERSION}</span></div></div>
-  <div class="gate-card"><h1>選擇示範身分</h1><p>原型以四種角色展示權限差異：分析師可看 SQL；營運主管可審批 agent 提議；營業員只能細查所屬客戶；管理員可改設定。資料皆為模擬。</p>
+  return `<div class="gate"><div class="gate-brand">${LOGO_MARK}<div><b>ALTA TECH<sup>LTD</sup></b><span>AltaTech DMP · 數位軌跡／客戶數據中台 · 原型 ${VERSION}</span></div></div>
+  <div class="gate-card"><h1>選擇示範身分</h1><p>原型以五種角色展示企業級權限：模組權限（哪些功能可見／可用／可匯出／可審批）、數據權限（行級範圍）、欄位隱碼（依敏感等級）、審批與審計。資料皆為模擬。</p>
   ${ACCOUNTS.map(a => `<button class="gate-role" data-act="login" data-arg="${a.id}"><span class="av" style="background:${a.col}">${a.init}</span><span><span class="nm">${esc(a.name)}</span><span class="em">${esc(a.email)}</span></span><span class="rl">${esc(a.role)}</span></button>`).join('')}</div>
-  <div class="gate-note">承接 GA360 埋點事件與證券交易事件；OneID 打通；事件／漏斗／留存／路徑分析；標籤分群與即時觸發；AI agent 透過語意層與工具閘道產生洞察。</div></div>`;
+  <div class="gate-note">承接 GA360 埋點事件與證券交易事件；OneID 打通；事件／漏斗／路徑／歸因／用戶列表／標籤；數據整合可視化建模；AI agent 透過語意層與工具閘道產生洞察。</div></div>`;
 }
-function navItem(hash, icon, label, on, badge = '') { return `<button class="nav-item${on ? ' on' : ''}" data-act="goto" data-arg="${hash}" title="${esc(label)}">${svg(icon, 18, 'ico')}<span class="lbl">${esc(label)}</span>${badge}</button>`; }
-function viewSide() {
-  const r = S.route; const open = INSIGHTS.filter(i => i.status === 'open').length; const pend = SEGMENTS.filter(s => s.status === 'pending_approval' && !S.approved[s.id]).length + TRIGGERS.filter(t => t.status === 'pending_approval' && !S.approved[t.id]).length;
-  return `<aside class="side"><div class="side-brand">${LOGO}<b>AltaTech DMP</b></div><div class="side-scroll">
-    <div class="nav-group">分析</div>
-    ${navItem('#/overview', I.home, '總覽', r.name === 'overview')}
-    ${navItem('#/events', I.chart, '事件分析', r.name === 'events')}
-    ${navItem('#/funnel', I.funnel, '漏斗分析', r.name === 'funnel')}
-    ${navItem('#/path', I.right, '行為路徑', r.name === 'path')}
-    ${navItem('#/attribution', I.grid, '歸因分析', r.name === 'attribution')}
-    ${navItem('#/users', I.user, '用戶列表', r.name === 'users')}
-    <div class="nav-group">營運</div>
-    ${navItem('#/segments', I.tag, '標籤與分群', r.name === 'segments', pend ? `<span class="badge">${pend} 待審</span>` : '')}
-    ${navItem('#/triggers', I.bolt, '即時觸發', r.name === 'triggers')}
-    <div class="nav-group">資料</div>
-    ${navItem('#/integration', I.code, '數據整合', r.name === 'integration')}
-    ${navItem('#/profile', I.search, '用戶細查 / OneID', r.name === 'profile')}
-    ${navItem('#/retention', I.clock, '留存分析', r.name === 'retention', '<span class="badge">P1</span>')}
-    <div class="nav-group">智能</div>
-    ${navItem('#/ai', I.spark, 'AI 洞察', r.name === 'ai', `<span class="badge ai">${open}</span>`)}
-    <div class="nav-group">治理</div>
-    ${navItem('#/governance', I.shield, '資料治理', r.name === 'governance')}
-    ${navItem('#/settings', I.cog, '平台設定', r.name === 'settings')}
-  </div><div class="side-foot"><div class="side-ver">${VERSION} · build ${BUILD}</div><button class="side-collapse" data-act="collapse">${svg(S.collapsed ? I.right : I.left, 16)}<span class="lbl">收合側欄</span></button></div></aside>`;
+function viewTopNav() {
+  const u = S.user; const g = activeGroup(); const open = INSIGHTS.filter(i => i.status === 'open').length;
+  const groups = NAV_GROUPS.filter(gr => gr.items.some(it => canRoute(it[0]))).map(gr => `<button class="${gr.id === g.id ? 'on' : ''}" data-act="goto" data-arg="#/${gr.items.find(it => canRoute(it[0]))[0]}">${gr.cn}${gr.id === 'ai' ? `<span class="badge">${open}</span>` : ''}</button>`).join('');
+  return `<header class="topnav"><div class="tn-in"><a class="brand" href="#/overview">${LOGO_MARK}<b>ALTA TECH<sup>LTD</sup></b><span class="prod">DMP</span></a><nav class="tn-nav">${groups}</nav>
+    <div class="tn-right"><div class="search">${svg(I.spark, 15)}<input placeholder="問 AI：上週開戶到入金的轉化率？" data-act="askbar" value="" autocomplete="off"><kbd>⏎</kbd></div>
+      <button class="org-pick" data-act="noop">證券示範專案<span class="sep">/</span>prod</button>
+      <button class="icon-btn" data-act="goto" data-arg="#/ai/insights" title="洞察通知">${svg(I.bell, 18)}<span class="dot"></span></button>
+      <button class="icon-btn" data-act="noop" title="語言">${svg(I.globe, 18)}</button>
+      <button class="me" data-act="logout" title="切換身分"><span class="av" style="background:${u.col}">${u.init}</span><span><span class="nm">${esc(u.name)}</span><span class="rl">${esc(u.role)}</span></span></button></div></div></header>`;
 }
-function viewTop() {
-  const u = S.user;
-  return `<header class="topbar"><button class="org-pick" data-act="noop">AltaTech<span class="sep">/</span>證券示範專案<span class="sep">/</span>prod</button>
-    <div class="search">${svg(I.spark, 15)}<input placeholder="問 AI：上週開戶到入金的轉化率？" data-act="askbar" value="" autocomplete="off"><kbd>⏎</kbd></div>
-    <div class="top-right"><button class="icon-btn" data-act="goto" data-arg="#/ai/insights" title="洞察通知">${svg(I.bell, 18)}<span class="dot"></span></button>
-    <button class="me" data-act="logout" title="切換身分"><span class="av" style="background:${u.col}">${u.init}</span><span><span class="nm">${esc(u.name)}</span><span class="rl">${esc(u.role)}</span></span></button></div></header>`;
+function viewSubNav() {
+  const g = activeGroup(); const cur = S.route.name === 'ai' ? `ai/${S.ai.tab}` : S.route.name; const u = S.user;
+  const items = g.items.filter(it => canRoute(it[0])).map(it => `<button class="sn-item ${it[0] === cur ? 'on' : ''}" data-act="goto" data-arg="#/${it[0]}">${it[1]}${it[0] === 'retention' ? '<span class="badge">P1</span>' : ''}</button>`).join('');
+  return `<div class="subnav"><div class="tn-in">${items}<div class="right"><span class="pill ${u.scope === 'all' ? 'blue' : 'amber'}">${svg(I.shield, 11)} ${u.scope === 'all' ? '全域' : '台北分公司 TPE01 · 回溯 90 天'}</span><div class="seg">${[7, 30, 90].map(n => `<button class="${S.range === n ? 'on' : ''}" data-act="range" data-arg="${n}">近 ${n} 天</button>`).join('')}</div></div></div></div>`;
 }
-const TITLES = { overview: '總覽', events: '事件分析', funnel: '漏斗分析', path: '行為路徑分析', attribution: '歸因分析', users: '用戶列表', integration: '數據整合', retention: '留存分析', profile: '用戶細查 / OneID', segments: '標籤與分群', triggers: '即時觸發', ai: 'AI 洞察', governance: '資料治理', settings: '平台設定' };
-function viewCrumb() { const u = S.user; return `<div class="crumb"><span>證券示範專案</span><span>/</span><span class="cur">${TITLES[S.route.name] || ''}</span><span class="perm">${svg(I.shield, 12)}${u.scope === 'all' ? '全域' : '台北分公司 TPE01'}</span><div class="right"><div class="seg">${[7, 30, 90].map(n => `<button class="${S.range === n ? 'on' : ''}" data-act="range" data-arg="${n}">近 ${n} 天</button>`).join('')}</div></div></div>`; }
+function pageForbidden() { return `<div class="card" style="max-width:640px;margin:60px auto"><div class="card-h"><h3>沒有這個模組的權限</h3></div><div class="note">你的角色「${esc(S.user.role)}」對此模組沒有可見或可用權限（模組權限矩陣由平台管理員在權限中心維護）。如需使用，請向主管申請角色或臨時提權（需審批並自動到期）。</div><div class="acts" style="margin-top:12px;display:flex;gap:8px"><button class="btn-ghost" data-act="goto" data-arg="#/overview">回總覽</button><button class="btn-ghost" data-act="toast" data-arg="已送出臨時提權申請（4 小時，需管理員＋稽核審批）">申請臨時提權</button></div></div>`; }
+
+/* ---- 權限中心 ---- */
+function pageIAM() {
+  const t = S.iam.tab; const tabs = [['roles', '角色'], ['modules', '模組權限'], ['data', '數據權限'], ['masking', '欄位隱碼'], ['approvals', '審批']];
+  const act = { v: ['v', '可見'], u: ['u', '可用'], e: ['e', '匯出'], a: ['a', '審批'], d: ['d', '設定'] };
+  let body = '';
+  if (t === 'roles') body = `<div class="card flush"><table class="tbl"><tr><th>角色</th><th>範圍</th><th>說明</th><th class="num">使用者</th><th></th></tr>${ROLES.map(r => `<tr><td><b>${esc(r.cn)}</b><span class="sub mono">${esc(r.key)}</span></td><td><span class="pill ${r.scope.startsWith('全域') ? 'blue' : 'amber'}">${esc(r.scope)}</span></td><td style="color:var(--body)">${esc(r.desc)}</td><td class="num mono">${n0(r.users)}</td><td class="num">${has('iam', 'd') ? `<button class="btn-ghost sm" data-act="toast" data-arg="原型：角色編輯（變更需雙人複核）">編輯</button> <button class="btn-ghost sm" data-act="toast" data-arg="已複製角色草稿">複製</button>` : '<span class="note">唯讀</span>'}</td></tr>`).join('')}</table></div>
+    <div class="grid c3" style="margin-top:16px"><div class="card"><div class="card-h"><h3>多角色組合規則</h3></div><div class="note">功能權限取<b>聯集</b>；欄位隱碼取<b>最嚴格</b>（避免以多角色繞過）；數據範圍取聯集。</div></div><div class="card"><div class="card-h"><h3>指派時效</h3></div><div class="note">角色指派可設到期日；臨時提權（break-glass）需管理員＋稽核審批，最長 4 小時自動到期。</div></div><div class="card"><div class="card-h"><h3>身分來源</h3></div><div class="note">SSO（OIDC／AD）；組織樹同步每日；客戶重分配以 items(agent) 版本化。</div></div></div>`;
+  else if (t === 'modules') body = `<div class="card flush" style="overflow-x:auto"><table class="matrix"><tr><th>模組 ＼ 角色</th>${ROLES.map(r => `<th>${esc(r.cn)}</th>`).join('')}</tr>${MODULES.map(m => `<tr><td>${esc(m[1])}</td>${ROLES.map(r => { const p = (MATRIX[r.key] || {})[m[0]] || ''; return `<td><span class="a">${Object.keys(act).map(k => `<i class="${p.includes(k) ? (k === 'a' ? 'ap' : k === 'd' ? 'ad' : '') : 'x'}" title="${act[k][1]}">${k}</i>`).join('')}</span></td>`; }).join('')}</tr>`).join('')}</table></div>
+    <div class="note" style="margin-top:10px">v 可見 · u 可用 · e 匯出（一律審批＋浮水印）· a 審批 · d 設定。UI、REST API 與 AI 工具閘道共用同一個 authorize()；AI 以委託身份執行，權限與人相同。</div>`;
+  else if (t === 'data') body = `<div class="card flush"><table class="tbl"><tr><th>維度</th><th>規則</th><th>實作</th><th>適用</th></tr>${DATA_SCOPES.map(d => `<tr><td><b>${esc(d.k)}</b></td><td class="mono" style="font-size:11.5px">${esc(d.rule)}</td><td style="color:var(--body)">${esc(d.how)}</td><td>${esc(d.who)}</td></tr>`).join('')}</table></div>
+    <div class="grid c2" style="margin-top:16px"><div class="card"><div class="card-h"><h3>你目前的行級條件</h3></div><div class="code">${S.user.scope === 'all' ? '-- 全域：無行級條件' : "branch_id IN ('TPE01') OR agent_id IN ('A001')\nAND event_date >= today()-90"}\n-- K 匿名：分組人數 < 20 → 顯示「< 20」</div></div><div class="card"><div class="card-h"><h3>範圍來源</h3></div><div class="note">範圍綁在「使用者 × 角色」：同一角色可指派不同組織範圍。查詢可選「當前歸屬」或「事件當下歸屬」。</div></div></div>`;
+  else if (t === 'masking') body = `<div class="card flush"><table class="tbl"><tr><th>欄位</th><th>等級</th><th>明文可見</th><th>其他角色顯示</th><th>說明</th></tr>${MASK_RULES.map(m => `<tr><td style="font-weight:600">${esc(m.field)}</td><td><span class="level ${m.level}">${m.level}</span></td><td>${esc(m.plain)}</td><td class="mono" style="font-size:11.5px">${esc(m.others)}</td><td style="color:var(--body)">${esc(m.how)}</td></tr>`).join('')}</table></div>
+    <div class="grid c3" style="margin-top:16px"><div class="card"><div class="card-h"><h3>揭露申請</h3></div><div class="note">理由必填、時效 24 小時、L3 需主管＋稽核；揭露期間每次查看都寫審計（mask.revealed）。</div></div><div class="card"><div class="card-h"><h3>匯出</h3></div><div class="note">比 UI 更嚴一級（L2 → 區間化）、浮水印（使用者／時間／單號）、上限 10 萬列。</div></div><div class="card"><div class="card-h"><h3>AI agent</h3></div><div class="note">工具回傳前先套遮罩；敘事層正規式攔截身分證／手機／Email；profile.* 必填理由。</div></div></div>
+    <div class="card" style="margin-top:16px"><div class="card-h"><h3>你的視角示範</h3><span class="sub">${esc(S.user.role)}</span></div><table class="tbl"><tr><th>one_id</th><th>客戶代碼</th><th class="num">90 天手續費</th><th class="num">流失分</th></tr><tr><td>${mId('oid_7k3a9q')}</td><td>${mId('cust_00007281')}</td><td class="num">${mMoney(48000)}</td><td class="num">${mScore(23)}</td></tr><tr><td>${mId('oid_2m8x1c')}</td><td>${mId('cust_00000412')}</td><td class="num">${mMoney(312000)}</td><td class="num">${mScore(81)}</td></tr></table>${idMasked() ? `<div class="acts" style="margin-top:10px"><button class="btn-ghost sm" data-act="reveal" data-arg="one_id">申請揭露 one_id（24h）</button></div>` : ''}</div>`;
+  else body = `<div class="card flush"><table class="tbl"><tr><th>單號</th><th>類型</th><th>申請者</th><th>內容</th><th>附註</th><th>時間</th><th>審批者</th><th>狀態</th><th></th></tr>${APPROVALS.map(a => { const st = S.approved[a.id] ? 'approved' : a.status; return `<tr><td class="mono">${a.id}</td><td><span class="pill ${({ '分群推送': 'blue', 'agent 提議': 'purple', '欄位揭露': 'amber', '匯出': 'teal', '臨時提權': 'red' })[a.type] || 'gray'}">${esc(a.type)}</span></td><td>${a.who.includes('-') ? `${svg(I.spark, 11)} ${esc(a.who)}` : esc(a.who)}</td><td>${esc(a.what)}</td><td style="color:var(--body)">${esc(a.n)}</td><td style="color:var(--muted)">${esc(a.at)}</td><td>${esc(a.approver)}</td><td>${({ pending: '<span class="pill amber">待審</span>', approved: '<span class="pill green">核准</span>', rejected: '<span class="pill red">駁回</span>', expired: '<span class="pill gray">已到期</span>' })[st]}</td><td class="num">${st === 'pending' && S.user.can.approve ? `<button class="btn-ghost sm" data-act="approve" data-arg="${a.id}">核准</button> <button class="btn-ghost sm danger" data-act="toast" data-arg="已駁回並通知申請者">駁回</button>` : ''}</td></tr>`; }).join('')}</table></div>`;
+  return `<div class="page-h"><div><h1>權限中心</h1><p>角色權限（RBAC + 範圍）、模組權限矩陣、數據權限（行級）、欄位隱碼（列級）、審批流程。UI、API 與 AI 工具閘道共用同一套 Policy Engine。</p></div><div class="right">${has('iam', 'd') ? '<button class="btn-primary" data-act="toast" data-arg="原型：新增角色（複製既有角色後調整）">＋ 新增角色</button>' : '<span class="pill gray">唯讀</span>'}</div></div>
+  <div class="filters"><div class="seg">${tabs.map(x => `<button class="${t === x[0] ? 'on' : ''}" data-act="iamtab" data-arg="${x[0]}">${x[1]}${x[0] === 'approvals' ? ` ${APPROVALS.filter(a => a.status === 'pending' && !S.approved[a.id]).length}` : ''}</button>`).join('')}</div></div>${body}`;
+}
+
+/* ---- 日誌統計 ---- */
+function pageAudit() {
+  const A = AUDIT; const full = ['auditor', 'platform_admin'].includes(RK());
+  return `<div class="page-h"><div><h1>日誌統計</h1><p>所有人與 AI 的讀寫都是審計事件；這裡用看板看使用概況、敏感存取、審批與異常。${full ? '你看到的是全平台。' : '你的角色只看到自己（或部門）的紀錄。'}</p></div><div class="right"><button class="btn-ghost" data-act="toast" data-arg="已匯出審計報表（需審批、浮水印）">匯出審計報表</button><button class="btn-primary teal" data-act="askpre" data-arg="上週誰細查最多？有沒有非上班時間的敏感存取？">${svg(I.spark, 14)} 問 agent</button></div></div>
+  <div class="grid c3" style="grid-template-columns:repeat(6,1fr);margin-bottom:16px">${A.tiles.map(t => `<div class="tile"><div class="lbl">${t[0]}</div><div class="val" style="font-size:22px">${t[1]}</div><div class="delta"><span>${t[2]}</span></div></div>`).join('')}</div>
+  <div class="grid c2"><div class="stack"><div class="card"><div class="card-h"><h3>細查次數（依角色）</h3><span class="sub">profile.viewed · 近 30 天</span></div>${lineChart('au-prof', A.profileByRole.map((s, i) => ({ name: s.name, color: SER[i], data: s.data })), { h: 220, fmt: n0, area: false })}</div>
+    <div class="grid c21"><div class="card"><div class="card-h"><h3>權限拒絕</h3><span class="sub">authz.denied · 日</span></div>${lineChart('au-den', [{ name: '拒絕次數', color: SER[7], data: A.denied }], { h: 150, fmt: n0 })}</div><div class="card"><div class="card-h"><h3>匯出件數</h3><span class="sub">export.downloaded · 日</span></div>${lineChart('au-exp', [{ name: '匯出件數', color: SER[2], data: A.exports }], { h: 150, fmt: n0 })}</div></div>
+    <div class="card"><div class="card-h"><h3>模組使用次數</h3><span class="sub">query.executed · 近 7 天</span></div>${hbar(A.modules, { fmt: n0 })}</div></div>
+  <div class="stack"><div class="card"><div class="card-h"><h3>敏感存取 Top</h3><span class="sub">近 7 天細查</span></div><table class="tbl"><tr><th>使用者</th><th class="num">次數</th><th>主要理由</th></tr>${A.topProfile.map(r => `<tr><td><b>${esc(r[0])}</b><span class="sub">${esc(r[1])}</span></td><td class="num mono">${r[2]}</td><td style="color:var(--body)">${esc(r[3])}</td></tr>`).join('')}</table></div>
+    <div class="card"><div class="card-h"><h3>異常與告警</h3></div><table class="tbl">${A.anomalies.map(r => `<tr><td class="mono" style="color:var(--muted);white-space:nowrap">${r[0]}</td><td><span class="status ${r[3]}"><span class="dot"></span>${esc(r[1])}</span><span class="sub">${esc(r[2])}</span></td></tr>`).join('')}</table></div>
+    <div class="card"><div class="card-h"><h3>AI agent 活動</h3></div><div class="grid c21" style="gap:10px">${A.agent.map(a => `<div class="tile" style="padding:12px 14px"><div class="lbl">${a.k}</div><div class="val" style="font-size:20px">${a.k === '採納率' ? a.v + '%' : n0(a.v)}</div></div>`).join('')}</div><div class="note" style="margin-top:8px">evals 通過率 94%；敏感工具（profile.*）呼叫皆附理由與委託身份。</div></div>
+    <div class="card"><div class="card-h"><h3>告警規則</h3></div><div class="note">非上班時間細查 > 3／人／日 · 單人 1 小時細查 > 10 · 匯出 > 5 萬列 · 權限拒絕 1 小時 > 10 · 同帳號多 IP → 通知稽核。</div></div></div></div>`;
+}
 
 /* ------------------------------------------------------------------ pages */
 function tile(lbl, key, fmt, unit = '') {
@@ -267,10 +309,10 @@ function pageProfile() {
   const unlocked = p && S.profile.unlocked[p.one_id];
   return `<div class="page-h"><div><h1>用戶細查 / OneID</h1><p>單人行為序列與身分圖。分析倉不含姓名、手機、身分證字號；細查需填寫理由並寫入審計（agent 的 profile.* 工具走同一道門）。</p></div></div>
   <div class="grid c2" style="grid-template-columns:360px 1fr"><div class="stack"><div class="card"><div class="filters" style="margin-bottom:10px"><input class="inp" style="flex:1" placeholder="one_id 或客戶代碼" data-act="pq" value="${esc(S.profile.q)}"></div>
-    ${list.length ? `<table class="tbl">${list.map(x => `<tr class="click" data-act="psel" data-arg="${x.one_id}"><td><b class="mono">${x.one_id}</b><span class="sub">${esc(x.cust)} · ${esc(x.branch)} · ${esc(x.agent)}</span></td><td class="num"><span class="pill ${x.lifecycle === '沉睡' ? 'amber' : 'teal'}">${x.lifecycle}</span></td></tr>`).join('')}</table>` : '<div class="empty">沒有符合（或不在你的客戶範圍內）</div>'}
+    ${list.length ? `<table class="tbl">${list.map(x => `<tr class="click" data-act="psel" data-arg="${x.one_id}"><td><b>${mId(x.one_id)}</b><span class="sub">${esc(x.cust)} · ${esc(x.branch)} · ${esc(x.agent)}</span></td><td class="num"><span class="pill ${x.lifecycle === '沉睡' ? 'amber' : 'teal'}">${x.lifecycle}</span></td></tr>`).join('')}</table>` : '<div class="empty">沒有符合（或不在你的客戶範圍內）</div>'}
     <div class="note" style="margin-top:10px">${S.user.scope === 'all' ? '你的範圍：全域' : '你的範圍：台北分公司 TPE01 所屬客戶'}</div></div></div>
   <div class="stack">${p ? `
-    <div class="card"><div class="card-h"><h3 class="mono">${p.one_id}</h3><span class="pill ${p.lifecycle === '沉睡' ? 'amber' : 'teal'}">${p.lifecycle}</span><span class="pill">${p.fee_tier}</span><span class="pill ${p.churn > 60 ? 'red' : 'gray'}">流失風險 ${p.churn}</span><div class="right"><button class="btn-ghost sm" data-act="askpre" data-arg="客戶 ${p.one_id} 的行為摘要與建議聯繫切入點（理由：營業員跟進）">${svg(I.spark, 13)} 請 agent 摘要</button></div></div>
+    <div class="card"><div class="card-h"><h3>${mId(p.one_id)}</h3><span class="pill ${p.lifecycle === '沉睡' ? 'amber' : 'teal'}">${p.lifecycle}</span><span class="pill">${p.fee_tier}</span><span class="pill ${p.churn > 60 ? 'red' : 'gray'}">流失風險 ${p.churn}</span><div class="right">${idMasked() ? `<button class="btn-ghost sm" data-act="reveal" data-arg="one_id / 帳號尾碼">${LOCK} 申請揭露</button>` : ''}<button class="btn-ghost sm" data-act="askpre" data-arg="客戶 ${p.one_id} 的行為摘要與建議聯繫切入點（理由：營業員跟進）">${svg(I.spark, 13)} 請 agent 摘要</button></div></div>
       <dl class="kv"><dt>客戶代碼</dt><dd class="mono">${esc(p.cust)}</dd><dt>帳戶</dt><dd>${p.accounts.map(a => `<span class="pill">${esc(a)}</span>`).join(' ')}</dd><dt>分公司 / 營業員</dt><dd>${esc(p.branch)} / ${esc(p.agent)}</dd><dt>偏好市場 / 年齡層</dt><dd>${esc(p.pref)} / ${esc(p.age)}</dd><dt>開戶日</dt><dd class="mono">${esc(p.since)}</dd></dl></div>
     <div class="card"><div class="card-h"><h3>身分圖（OneID）</h3><span class="sub">${p.identities.length} 個識別子 · 優先級 login_id › mobile › account_no › device › cookie</span></div>${idGraph(p)}</div>
     <div class="card"><div class="card-h"><h3>行為序列</h3><span class="sub">GA 行為與交易事件合併時間軸</span></div>
@@ -398,10 +440,10 @@ function pageUsers() {
   const list = all.filter(x => (u.lc === 'all' || x.lifecycle === u.lc) && (u.tier === 'all' || x.tier === u.tier) && (!u.q || x.one_id.includes(u.q) || x.cust.includes(u.q)));
   const est = Math.round(list.length / Math.max(1, all.length) * (S.user.scope === 'all' ? 1412000 : 38400));
   const PS = 10; const pages = Math.max(1, Math.ceil(list.length / PS)); const page = Math.min(u.page, pages - 1); const rows = list.slice(page * PS, page * PS + PS); const nsel = Object.keys(u.sel).filter(k => u.sel[k]).length;
-  return `<div class="page-h"><div><h1>用戶列表</h1><p>條件 → Bitmap 人數預估（&lt; 1 秒）→ 分頁列表（脫敏、行級權限）。任何分析落點都能進到這裡，再存為分群或推送。</p></div><div class="right"><button class="btn-ghost" data-act="toast" data-arg="已存為分群草稿">存為分群</button><button class="btn-ghost" data-act="toast" data-arg="匯出需審批：已送出申請（含浮水印）">匯出（審批）</button><button class="btn-primary" data-act="toast" data-arg="推送需審批：已送出申請">推送到渠道</button></div></div>
+  return `<div class="page-h"><div><h1>用戶列表</h1><p>條件 → Bitmap 人數預估（&lt; 1 秒）→ 分頁列表（脫敏、行級權限）。任何分析落點都能進到這裡，再存為分群或推送。</p></div><div class="right"><button class="btn-ghost" data-act="toast" data-arg="已存為分群草稿">存為分群</button><button class="btn-ghost" data-act="toast" data-arg="${has('users', 'e') ? '匯出需審批：已送出申請（L2 區間化、浮水印、上限 10 萬列）' : '你的角色沒有用戶列表匯出權限'}" ${has('users', 'e') ? '' : 'style="opacity:.5"'}>匯出（審批）</button><button class="btn-primary" data-act="toast" data-arg="推送需審批：已送出申請">推送到渠道</button></div></div>
   <div class="filters"><input class="inp" placeholder="one_id / 客戶代碼" data-act="uq" value="${esc(u.q)}"><select class="sel" data-act="ulc"><option value="all">生命週期：全部</option>${['新客', '成長', '成熟', '沉睡', '流失'].map(v => `<option value="${v}" ${u.lc === v ? 'selected' : ''}>${v}</option>`).join('')}</select><select class="sel" data-act="utier"><option value="all">價值分級：全部</option>${['P1', 'P2', 'P3', 'P4', 'P5'].map(v => `<option value="${v}" ${u.tier === v ? 'selected' : ''}>${v}</option>`).join('')}</select><span class="pill">+ 行為條件</span><span class="pill">+ 標籤</span><span class="pill">+ 分群</span><span style="margin-left:auto" class="pill teal">預估 ${n0(est)} 人 · Bitmap 0.3 s</span>${nsel ? `<span class="pill blue">已選 ${nsel}</span><button class="btn-ghost sm" data-act="toast" data-arg="已批次打標籤（需審批）">批次打標籤</button>` : ''}</div>
   <div class="card flush"><table class="tbl"><tr><th></th><th>one_id</th><th>客戶</th><th>分公司 / 營業員</th><th>生命週期</th><th>價值</th><th>偏好</th><th>年齡層</th><th class="num">流失分</th><th class="num">90 天手續費</th><th class="num">30 天委託</th><th>最近活躍</th><th></th></tr>
-  ${rows.map(x => `<tr><td><button class="chk ${u.sel[x.one_id] ? 'on' : ''}" data-act="usel" data-arg="${x.one_id}" aria-label="選取"></button></td><td class="mono">${x.one_id}</td><td class="mono">${esc(x.cust)}</td><td>${esc(x.branch)} / ${esc(x.agent)}</td><td><span class="pill ${x.lifecycle === '沉睡' || x.lifecycle === '流失' ? 'amber' : 'teal'}">${x.lifecycle}</span></td><td><span class="pill">${x.tier}</span></td><td>${x.market}</td><td>${x.age}</td><td class="num mono" style="color:${x.churn > 60 ? 'var(--st-serious)' : 'inherit'}">${x.churn}</td><td class="num mono">${n0(x.fee90)}</td><td class="num mono">${x.orders30}</td><td class="mono">${x.last}</td><td class="num"><button class="btn-ghost sm" data-act="uprofile" data-arg="${x.one_id}">細查</button></td></tr>`).join('') || '<tr><td colspan="13"><div class="empty">沒有符合條件的客戶</div></td></tr>'}</table>
+  ${rows.map(x => `<tr><td><button class="chk ${u.sel[x.one_id] ? 'on' : ''}" data-act="usel" data-arg="${x.one_id}" aria-label="選取"></button></td><td>${mId(x.one_id)}</td><td class="mono">${esc(x.cust)}</td><td>${esc(x.branch)} / ${esc(x.agent)}</td><td><span class="pill ${x.lifecycle === '沉睡' || x.lifecycle === '流失' ? 'amber' : 'teal'}">${x.lifecycle}</span></td><td><span class="pill">${x.tier}</span></td><td>${x.market}</td><td>${x.age}</td><td class="num">${mScore(x.churn)}</td><td class="num">${mMoney(x.fee90)}</td><td class="num mono">${x.orders30}</td><td class="mono">${x.last}</td><td class="num"><button class="btn-ghost sm" data-act="uprofile" data-arg="${x.one_id}">細查</button></td></tr>`).join('') || '<tr><td colspan="13"><div class="empty">沒有符合條件的客戶</div></td></tr>'}</table>
   <div class="pager"><span>第 ${page + 1} / ${pages} 頁 · 本頁 ${rows.length} 筆 · 列表上限 10 萬筆</span><span class="right"><button class="btn-ghost sm" data-act="upage" data-arg="-1" ${page === 0 ? 'disabled' : ''}>上一頁</button><button class="btn-ghost sm" data-act="upage" data-arg="1" ${page >= pages - 1 ? 'disabled' : ''}>下一頁</button></span></div></div>
   <div class="note" style="margin-top:10px">欄位皆為代碼化或分桶後的值；姓名、手機、帳號明文不在分析倉。「細查」需填寫理由並寫入審計。${S.user.scope === 'all' ? '' : '你的範圍：台北分公司 TPE01。'}</div>`;
 }
@@ -466,10 +508,10 @@ function scrollChat() { const el = document.getElementById('chatlog'); if (el) e
 function render() {
   const root = document.getElementById('root');
   if (!S.user) { root.innerHTML = viewGate(); return; }
-  const pages = { overview: pageOverview, events: pageEvents, funnel: pageFunnel, path: pagePath, attribution: pageAttribution, users: pageUsers, integration: pageIntegration, retention: pageRetention, profile: pageProfile, segments: pageSegments, triggers: pageTriggers, ai: pageAI, governance: pageGovernance, settings: pageSettings };
-  const page = (pages[S.route.name] || pageOverview)();
+  const pages = { overview: pageOverview, events: pageEvents, funnel: pageFunnel, path: pagePath, attribution: pageAttribution, users: pageUsers, integration: pageIntegration, retention: pageRetention, iam: pageIAM, audit: pageAudit, profile: pageProfile, segments: pageSegments, triggers: pageTriggers, ai: pageAI, governance: pageGovernance, settings: pageSettings };
+  const page = canRoute(S.route.name) ? (pages[S.route.name] || pageOverview)() : pageForbidden();
   const active = document.activeElement; const keep = active && active.dataset && active.dataset.act; const selStart = active && active.selectionStart;
-  root.innerHTML = `<div class="shell ${S.collapsed ? 'collapsed' : ''}">${viewSide()}<div class="main">${viewTop()}${viewCrumb()}<div class="content"><div class="wrap">${page}</div></div></div></div>${sqlDrawer()}${segDrawer()}${S.toast ? `<div class="toast">${esc(S.toast)}</div>` : ''}`;
+  root.innerHTML = `<div class="app">${viewTopNav()}${viewSubNav()}<main class="content"><div class="wrap">${page}</div></main></div>${sqlDrawer()}${segDrawer()}${S.toast ? `<div class="toast">${esc(S.toast)}</div>` : ''}`;
   if (keep) { const el = root.querySelector(`[data-act="${keep}"]`); if (el && el.focus) { el.focus(); try { if (selStart != null) el.setSelectionRange(selStart, selStart); } catch (e) { /* non-text */ } } }
 }
 
@@ -500,6 +542,8 @@ document.addEventListener('click', e => {
     upage: () => { S.users.page = Math.max(0, S.users.page + Number(arg)); render(); },
     uprofile: () => { S.profile.sel = PROFILES.some(p => p.one_id === arg) ? arg : PROFILES[0].one_id; go('#/profile'); },
     integtab: () => { S.integ.tab = arg; render(); },
+    iamtab: () => { S.iam.tab = arg; go('#/iam/' + arg); },
+    reveal: () => toast('揭露申請已送出：' + arg + '，時效 24 小時，需主管＋稽核審批；揭露期間每次查看都會寫入審計'),
     integstep: () => { S.integ.tab = 'modeling'; S.integ.step = Number(arg); render(); },
     toast: () => toast(arg),
   };
@@ -526,7 +570,7 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('pointermove', onChartMove);
 document.addEventListener('pointerout', onChartLeave);
-window.addEventListener('hashchange', () => { S.route = parseHash(); if (S.route.name === 'ai' && S.route.tab) S.ai.tab = S.route.tab; if (S.route.name === 'governance' && S.route.tab) S.gov.tab = S.route.tab; render(); });
+window.addEventListener('hashchange', () => { S.route = parseHash(); if (S.route.name === 'ai' && S.route.tab) S.ai.tab = S.route.tab; if (S.route.name === 'governance' && S.route.tab) S.gov.tab = S.route.tab; if (S.route.name === 'iam' && S.route.tab) S.iam.tab = S.route.tab; render(); });
 
 S.route = parseHash(); if (S.route.name === 'ai' && S.route.tab) S.ai.tab = S.route.tab;
 render();

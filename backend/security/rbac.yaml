@@ -1,0 +1,21 @@
+# 角色 × 模組 × 動作 矩陣；scope 型別：global | branch | agent | aggregate_only
+actions: [view, use, export, approve, admin]
+modules: [overview, events, funnel, path, attribution, users, profile, segments, triggers, integration, ai_ask, ai_admin, governance, audit, iam]
+roles:
+  platform_admin:   { cn: 平台管理員, scope: global, grants: { "*": [view, use, export, approve, admin] }, deny: { profile: [] } }
+  data_engineer:    { cn: 資料工程師, scope: global, grants: { overview: [view, use], events: [view, use], funnel: [view, use], path: [view, use], attribution: [view, use], integration: [view, use, export, approve, admin], governance: [view, use, admin], ai_ask: [use], audit: [view] } }
+  analyst:          { cn: 數據分析師, scope: global, grants: { overview: [view, use], events: [view, use, export], funnel: [view, use, export], path: [view, use, export], attribution: [view, use, export], users: [view, use], profile: [use], segments: [view, use], triggers: [view], integration: [view], ai_ask: [use], governance: [view], audit: [view] }, sql_sandbox: true }
+  ops_manager:      { cn: 數位營運主管, scope: global, grants: { overview: [view, use], events: [view, use, export], funnel: [view, use, export], path: [view, use, export], attribution: [view, use, export], users: [view, use, export], profile: [use], segments: [view, use, approve], triggers: [view, use, approve], integration: [view], ai_ask: [use, approve], governance: [view], audit: [view] } }
+  marketer:         { cn: 行銷專員, scope: global, grants: { overview: [view], events: [view, use], funnel: [view, use], path: [view, use], attribution: [view, use], segments: [use], triggers: [view], ai_ask: [use], audit: [view] }, segment_scope: campaign_exposed_only }
+  branch_manager:   { cn: 分公司主管, scope: branch, grants: { overview: [view], events: [view, use], funnel: [view, use], path: [view, use], attribution: [view, use], users: [view, use], profile: [use], segments: [view], ai_ask: [use], audit: [view] } }
+  sales_agent:      { cn: 營業員, scope: agent, grants: { overview: [view], users: [view, use], profile: [use], ai_ask: [use], audit: [view] }, lookback_days: 90 }
+  auditor:          { cn: 稽核／法遵, scope: global, grants: { "*": [view], audit: [view, use, export, approve], iam: [view] }, read_only: true }
+  svc_insight:      { cn: AI 服務身份, scope: aggregate_only, grants: { events: [use], funnel: [use], path: [use], attribution: [use], segments: [view], ai_ask: [use] }, deny: { profile: [use], users: [export] } }
+combination:
+  grants: union              # 多角色：功能權限取聯集
+  masking: strictest         # 欄位權限取最嚴格
+  scope: union
+assignment:
+  expiry_supported: true
+  break_glass: { approvers: [platform_admin, auditor], max_hours: 4 }
+k_anonymity: { min_group_size: 20 }

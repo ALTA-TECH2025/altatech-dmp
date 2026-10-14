@@ -19,6 +19,7 @@ docs/
   07-deployment-gcp-license-os.md                  GCP 容器化一鍵部署、開源授權審查（無需額外商業授權）、OS 支援矩陣
   08-engineering-plan.md                           語言與框架、團隊分工、版本規劃、10 個月時程
   09-scale-10b-events-performance.md               百億事件量級：稠密 ID、多層聚合、Bitmap 標籤引擎、查詢效能策略
+  10-enterprise-security-rbac-masking-audit.md     企業級安全：角色／模組／數據權限、欄位隱碼、審批、審計與日誌統計可視化
 prototype/                                          可直接開啟的前端原型（純靜態，無建置步驟）
   index.html  css/app.css  js/app.js  js/data.js  vercel.json
 backend/                                            後端骨架（可讀、可跑的最小實作與設定）
@@ -27,6 +28,8 @@ backend/                                            後端骨架（可讀、可�
   mcp/tools.yaml  mcp/server.py                    Agent Tool Gateway（工具目錄 + 權限/預算/脫敏/審計骨架）
   insight_agent/agents.yaml  skills/*.md  evals/golden.yaml  runtime.py   agent 註冊、skill、評測、執行迴圈
   integration/connectors.yaml  models.example.yaml  transforms.py        連接器定義、可視化建模產物、轉換函式庫
+  security/rbac.yaml  masking.yaml  policy.py                           角色矩陣、欄位隱碼策略、Policy Engine（authorize）骨架
+  clickhouse/audit.sql                             審計表、日誌統計物化視圖、row policy 與 masking view
   clickhouse/schema.sql  clickhouse/insight_store.sql      熱層 DDL、Insight Store（PostgreSQL + pgvector）
   docker-compose.yml                               本機開發環境（Kafka、ClickHouse、PostgreSQL、Valkey、物件儲存）
 deploy/                                             部署套件
@@ -43,8 +46,9 @@ LICENSES.md                                         第三方元件授權清單�
 cd prototype && python3 -m http.server 8080   # 或直接部署到 Vercel（root = prototype）
 ```
 
-頁面（P0 優先）：總覽、事件分析、漏斗分析、行為路徑、歸因分析、用戶列表、標籤與分群、即時觸發、數據整合（可視化建模）、用戶細查／OneID、留存（P1）、**AI 洞察**（洞察串流／選擇題式問答／Agents／工具目錄）、資料治理、平台設定。
-四種示範身分（分析師、營運主管、營業員、管理員）展示權限差異：SQL 檢視、審批 agent 提議、僅能細查所屬客戶、細查需理由並審計。
+UI：AltaTech 品牌色（#2C73EA）與四角箭頭標記；橫向導覽（首頁／分析／營運／資料／AI 洞察／治理）＋ 第二列子導覽，參考 AltaHub。
+頁面（P0 優先）：總覽、事件分析、漏斗分析、行為路徑、歸因分析、用戶列表、標籤與分群、即時觸發、數據整合（可視化建模）、用戶細查／OneID、留存（P1）、**AI 洞察**（洞察串流／選擇題式問答／Agents／工具目錄）、資料治理、**日誌統計**、**權限中心**（角色、模組權限矩陣、數據權限、欄位隱碼、審批）、平台設定。
+五種示範身分（分析師、營運主管、營業員、管理員、稽核）展示企業級權限：模組可見／可用／匯出／審批、行級範圍、欄位依敏感等級隱碼（L3 尾碼遮罩、L2 區間化）、揭露申請、審計。
 
 ## 後端骨架
 
