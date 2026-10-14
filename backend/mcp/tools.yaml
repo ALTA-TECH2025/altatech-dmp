@@ -134,3 +134,8 @@ tools:
     input: { approval_id: string, segment_id: string, channel: string }
     scope: execute
     approval: required
+  - name: audience.activate
+    description: 提議把受眾包推送到目的地（Webhook / Kafka / GCS / GA4 受眾）。只建立 pending_approval 的推送單，不會自行送出。
+    input: { audience_id: string, destination_ids: list, mode: "delta|full", rationale: string, insight_id: string }
+    scope: propose
+    approval: required

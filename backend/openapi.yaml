@@ -19,6 +19,7 @@ tags:
   - { name: Governance }
   - { name: IAM }
   - { name: Sync }
+  - { name: Activation }
 paths:
   /v1/events:
     post:
@@ -135,6 +136,24 @@ paths:
     post: { tags: [Sync], summary: 觸發批次匯出（全量／增量 Parquet 到 GCS dmp-sync，含 manifest 與 checksum；寫審計 sync.delivered）, responses: { '202': { description: accepted } } }
   /v1/sync/subscriptions:
     get: { tags: [Sync], summary: 下游訂閱清單（Kafka consumer group、Webhook、GCS），含最後同步時間與落後量, responses: { '200': { description: ok } } }
+  /v1/destinations:
+    get: { tags: [Activation], summary: 目的地清單（webhook / kafka / gcs / ga4_audience / google_ads_customer_match）, responses: { '200': { description: ok } } }
+    post: { tags: [Activation], summary: 建立目的地（需 segments.approve；對外目的地首次另需稽核）, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Destination' } } } }, responses: { '201': { description: created } } }
+  /v1/destinations/{id}/test:
+    post: { tags: [Activation], summary: 送測試事件（audience.test，3 筆假資料）並回傳接收端回應, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/destinations/{id}/rotate-secret:
+    post: { tags: [Activation], summary: 輪替 Webhook secret（新舊並存 24 小時）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/audiences/{id}/push:
+    post:
+      tags: [Activation]
+      summary: 推送受眾包到目的地（mode=delta|full；full 需審批；排程由 schedule 指定）
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { content: { application/json: { schema: { type: object, properties: { destination_ids: { type: array, items: { type: string } }, mode: { type: string, enum: [delta, full] }, schedule: { type: string, enum: [now, after_batch, realtime, cron] }, cron: { type: string }, include_tags: { type: array, items: { type: string } } } } } } }
+      responses: { '202': { description: accepted（pending_approval 或已排程） } }
+  /v1/deliveries:
+    get: { tags: [Activation], summary: 交付紀錄（受眾包、目的地、版本、批次、狀態、重試、下游回應）, parameters: [{ name: audience_id, in: query, schema: { type: string } }, { name: status, in: query, schema: { type: string, enum: [ok, retrying, failed, dlq] } }], responses: { '200': { description: ok } } }
+  /v1/deliveries/{id}/replay:
+    post: { tags: [Activation], summary: 重放失敗交付（沿用同一 Delivery-Id）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
   /v1/dictionary/events:
     get: { tags: [Governance], summary: 事件字典（含未登記隔離事件）, responses: { '200': { description: ok } } }
   /v1/lineage/{entity}:
@@ -200,6 +219,21 @@ components:
           additionalProperties: { type: array, items: { type: string, enum: [view, use, export, approve, admin] } }
         masking_profile: { type: string, enum: [default, stricter], default: default }
         builtin: { type: boolean, readOnly: true }
+    Destination:
+      type: object
+      required: [name, type]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type: { type: string, enum: [webhook, kafka, gcs, ga4_audience, google_ads_customer_match] }
+        url: { type: string, description: webhook 專用 }
+        identifier: { type: string, enum: [customer_code, one_id, client_id, hashed_email] }
+        allowed_tags: { type: array, items: { type: string } }
+        masking_level: { type: string, enum: [L1, L2], default: L2 }
+        ip_allowlist: { type: array, items: { type: string } }
+        mtls: { type: boolean }
+        consent_required: { type: array, items: { type: string } }
+        status: { type: string, enum: [active, paused, pending_approval] }
     TagSnapshot:
       type: object
       properties:

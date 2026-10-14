@@ -66,7 +66,7 @@ def s1():
     s.text(120, 406, "AltaTech DMP 數位軌跡／客戶數據中台", 26, 800, C["brand"])
     pillars = [("數據整合與 OneID", ["可視化建模、CDC / 批次", "客戶・帳戶・裝置打通", "個資代碼化（HMAC/FPE）"], "teal"),
                ("分析引擎", ["事件、漏斗、行為路徑", "歸因、用戶列表、留存", "百億事件秒級查詢"], "brand"),
-               ("標籤・分群・即時觸發", ["1,000+ 標籤每日運算", "Bitmap 分群、即時規則", "API / Kafka 同步到各系統"], "yellow"),
+               ("標籤・分群・受眾推送", ["1,000+ 標籤每日運算、Bitmap 分群", "即時規則；Webhook / Kafka / GCS 推送", "GA4 受眾 → Google Ads 再行銷"], "yellow"),
                ("AI 洞察 Agent", ["指標搜尋、選擇題式問答", "異常偵測、漏斗診斷、流失預警", "策略 → 審批 → 執行 → 復盤"], "purple")]
     for i, (t, ls, c) in enumerate(pillars):
         s.box(120 + i * 326, 430, 302, 190, t, ls, c, 24, 18)
@@ -78,7 +78,7 @@ def s1():
     s.text(144, 796, "法遵：資料境內（asia-east1 或機房）、KMS/HSM 金鑰、WORM 審計、DSAR；對應金管會委外辦法與個資法", 18, 400, C["gray"])
     # 應用
     s.text(1480, 215, "應用與輸出", 20, 800, C["muted"])
-    for i, (t, ls, c) in enumerate([("DMP Web", ["看板、分析、用戶列表", "權限中心、日誌統計"], "brand"), ("AI 洞察助理", ["問答、洞察串流", "外部 MCP 客戶端"], "purple"), ("MA・營業員 App", ["分群推送、即時觸發", "提示與待辦"], "teal"), ("數倉", ["Iceberg 雙向映射", "Parquet 批次匯出"], "gray")]):
+    for i, (t, ls, c) in enumerate([("DMP Web", ["看板、分析、用戶列表", "權限中心、日誌統計"], "brand"), ("AI 洞察助理", ["問答、洞察串流", "外部 MCP 客戶端"], "purple"), ("內部系統 Webhook・MA・營業員 App", ["受眾包／標籤簽章推送、即時觸發", "重試、DLQ、審計"], "teal"), ("GA4 受眾 → Google Ads 再行銷", ["匿名 client_id 回流，不傳個資", "Customer Match 選配（需同意）"], "gray")]):
         s.box(1480, 230 + i * 150, 344, 128, t, ls, c, 22, 17)
     # 箭頭
     for i in range(3): s.arrow(284 + i * 400, 326, 284 + i * 400, 368, sw=3)
@@ -93,7 +93,7 @@ def s2():
              ("打通", ["事件化：狀態表 → 業務事件", "OneID：客戶・帳戶・裝置", "個資在此代碼化，不進分析倉"], "teal"),
              ("儲存與聚合", ["ClickHouse 熱 13 個月", "GCS 冷層仍可查", "人日／日聚合層：九成查詢不碰明細"], "yellow"),
              ("分析與標籤", ["事件・漏斗・路徑・歸因・用戶列表", "1,000 標籤 45 分鐘內算完", "Bitmap 分群秒級"], "brand"),
-             ("洞察與行動", ["AI agent：異常、診斷、建議", "即時觸發 → MA / 營業員 App", "標籤 API / Kafka 同步"], "purple")]
+             ("洞察與行動", ["AI agent：異常、診斷、建議", "受眾包 Webhook → 內部系統", "GA4 受眾 → Google Ads 再行銷"], "purple")]
     for i, (t, ls, c) in enumerate(steps):
         x = 96 + i * 350
         s.chevron(x, 230, 340, 70, f"{i+1}  {t}", c, first=(i == 0))

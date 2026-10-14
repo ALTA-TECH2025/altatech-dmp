@@ -1,0 +1,45 @@
+# 受眾推送目的地類型（docs/14）
+types:
+  webhook:
+    cn: Webhook（內部系統）
+    identifier: [customer_code, one_id]
+    auth: { signature: hmac-sha256, header: X-DMP-Signature, timestamp_header: X-DMP-Timestamp, skew_seconds: 300, mtls: optional, ip_allowlist: optional }
+    batch: { size: 5000, timeout_seconds: 10 }
+    retry: { schedule_seconds: [60, 300, 900, 3600, 21600], dlq: true, pause_after_consecutive_failures: 3 }
+    masking: { max_level: L2, numeric: bucket }
+    events: [audience.delta, audience.full, audience.complete, tag.update, audience.test]
+  kafka:
+    cn: Kafka（內部即時）
+    topics: { audiences: dmp.audience_updates, tags: dmp.tag_updates }
+    format: avro
+  gcs:
+    cn: GCS Parquet（數倉／大量）
+    prefix: gs://dmp-sync/audiences/
+    manifest: true
+  ga4_audience:
+    cn: GA4 受眾 → Google Ads 再行銷
+    identifier: [client_id, app_instance_id, user_id_hmac]
+    transport: measurement_protocol
+    endpoint: https://www.google-analytics.com/mp/collect
+    secrets: [measurement_id, api_secret]            # Secret Manager
+    user_property_pattern: dmp_audience_{audience_id}  # 或單一 dmp_audiences 清單
+    consent_required: [marketing, ads_remarketing, ga_analytics_storage]
+    rate: { requests_per_second: 200, spread_hours: 24 }
+    reconcile: ga4_data_api_audience_size_t1
+    pii: none
+  google_ads_customer_match:
+    cn: Google Ads Customer Match（選配，需法遵開啟）
+    enabled: false
+    adapter: customer-match-adapter     # 獨立 Pod；唯一能取 CRM 明文並雜湊的元件
+    identifier: [hashed_email, hashed_phone]
+    normalization: { email: lowercase_trim, phone: e164 }
+    hash: sha256
+    api: google_ads_offline_user_data_job
+    consent_required: [marketing, ads_customer_match]
+    cross_border: true
+approval:
+  create_destination: [ops_manager]
+  external_destination_first_time: [ops_manager, auditor]
+  full_push: [ops_manager]
+  delta_scheduled: none
+audit_events: [sync.delivered, sync.external, sync.failed, sync.replayed]

@@ -56,7 +56,7 @@ def system_architecture():
     L = 28; W = 1230; colx = lambda i, n, pad=12: L + 14 + i * ((W - 28) // n) + pad * 0
     # 體驗層
     s.group(L, 80, W, 110, "體驗層  Experience")
-    for i, (t, ls) in enumerate([("DMP Web（React + ECharts）", ["總覽／事件／漏斗／路徑／歸因／用戶列表", "標籤分群／即時觸發／數據整合／權限中心／日誌統計"]), ("AI 洞察助理", ["洞察串流、選擇題式問答", "Agents、工具目錄"]), ("外部系統", ["MA 行銷自動化、客服工單", "營業員 App"]), ("外部 AI 客戶端", ["Claude Code / Cursor", "以 MCP 連工具閘道"])]):
+    for i, (t, ls) in enumerate([("DMP Web（React + ECharts）", ["總覽／事件／漏斗／路徑／歸因／用戶列表", "標籤分群／即時觸發／數據整合／權限中心／日誌統計"]), ("AI 洞察助理", ["洞察串流、選擇題式問答", "Agents、工具目錄"]), ("外部系統與受眾推送", ["MA、客服、營業員 App（Webhook）", "GA4 受眾 → Google Ads 再行銷"]), ("外部 AI 客戶端", ["Claude Code / Cursor", "以 MCP 連工具閘道"])]):
         s.box(L + 14 + i * 300, 110, 285, 66, t, ls, "brand")
     # Agent 層
     s.group(L, 205, W, 120, "Agent 層  AI Agent Layer（docs/03、05）")
@@ -142,7 +142,7 @@ def component_deployment():
         s.box(1294, 110 + i * 80, 264, 64, t, ls, "gray", small=True)
     # downstream (right bottom)
     s.group(1280, 620, 292, 230, "下游系統  Consumers")
-    for i, (t, ls) in enumerate([("MA 行銷自動化", ["dmp.triggers、分群推送"]), ("營業員 App", ["提示、待辦、洞察"]), ("客服工單 / 數倉", ["觸發、Iceberg 雙向映射"])]):
+    for i, (t, ls) in enumerate([("內部系統 Webhook / Kafka", ["MA、CRM、營業員 App、客服；受眾包與標籤"]), ("GA4 受眾 → Google Ads", ["匿名 ID 回流，再行銷"]), ("數倉", ["GCS Parquet、Iceberg 雙向映射"])]):
         s.box(1294, 650 + i * 64, 264, 56, t, ls, "brand", small=True)
     # arrows
     s.arrow(264, 300, 316, 300, ""); s.note(268, 292, "CDC")
@@ -178,7 +178,7 @@ def data_flow():
     sv = [("Semantic Compiler", ["語意查詢 JSON → SQL + 成本 + 血緣"]), ("Policy Engine", ["模組→行級→欄位隱碼→審批→審計"]), ("Analytics / Segment / Profile API", ["事件、漏斗、路徑、歸因、用戶列表、標籤"]), ("Tool Gateway（MCP）", ["27 工具；委託身份；預算；脫敏"]), ("Insight Agents", ["anomaly-watch、funnel-doctor、", "churn-radar、analyst-copilot…"]), ("dbt / Airflow 日批", ["標籤、聚合、ID 校正、快照"])]
     for i, (t, ls) in enumerate(sv): s.box(1076, 115 + i * 78, 234, 60, t, ls, "purple" if i in (3, 4) else "brand", small=True)
     # column 6 consumers
-    cs = [("DMP Web", ["看板、分析、用戶列表、權限中心"]), ("AI 洞察助理 / 外部 MCP 客戶端", ["問答、洞察串流"]), ("MA / 營業員 App", ["dmp.triggers、分群推送（審批）"]), ("Grafana 看板", ["資料品質、效能、審計統計"]), ("數倉", ["Iceberg 雙向映射讀取"]), ("稽核 / 法遵", ["audit_log WORM、DSAR 證明"])]
+    cs = [("DMP Web / AI 洞察助理", ["看板、分析、問答、權限中心"]), ("Webhook / MA / 營業員 App", ["受眾包增量推送（簽章、重試）"]), ("GA4 受眾 → Google Ads", ["Measurement Protocol 匿名回流"]), ("Grafana 看板", ["資料品質、效能、審計統計"]), ("數倉", ["Iceberg 雙向映射讀取"]), ("稽核 / 法遵", ["audit_log WORM、DSAR 證明"])]
     for i, (t, ls) in enumerate(cs): s.box(1338, 115 + i * 78, 234, 60, t, ls, "gray", small=True)
     # arrows source→ingest
     for i, j in [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 1)]:

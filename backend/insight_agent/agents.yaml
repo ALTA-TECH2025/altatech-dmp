@@ -64,5 +64,5 @@ agents:
     skill: skills/strategy-loop.md
     trigger: { type: event, topic: dmp.insights, match: { status: acknowledged } }
     identity: on_behalf_of_user
-    tools: [segment.preview, segment.propose, trigger.propose, campaign.execute, funnel.run, attribution.run, insight.create, report.compose]
+    tools: [segment.preview, segment.propose, trigger.propose, audience.activate, campaign.execute, funnel.run, attribution.run, insight.create, report.compose]
     budget: { scan_bytes: 60e9, llm_tokens: 30000 }

@@ -6,10 +6,10 @@
 import { ACCOUNTS, SOURCES, EVENTS, TS, PLATFORM_SPLIT, CHANNEL_SPLIT, UTM_SPLIT, FUNNELS, RETENTION, TAGS, SEGMENTS,
          TRIGGERS, TRIGGER_FEED, PROFILES, INSIGHTS, AGENTS, TOOLS, ASK_SCRIPTS, TODAY, dkey, dayOffset,
          PATHS, ATTRIBUTION, USERS, CONNECTIONS, MODEL_EXAMPLE, CONFIG_CARDS,
-         ROLES, MODULES, MATRIX, DATA_SCOPES, MASK_RULES, APPROVALS, AUDIT } from './data.js?v=20261014.3';
+         ROLES, MODULES, MATRIX, DATA_SCOPES, MASK_RULES, APPROVALS, AUDIT, DESTINATIONS, AUDIENCE_PUSHES, DELIVERIES } from './data.js?v=20261014.4';
 
-const VERSION = 'v0.3.1';
-const BUILD = '20261014.4';
+const VERSION = 'v0.3.2';
+const BUILD = '20261014.5';
 
 /* ------------------------------------------------------------------ state */
 const S = {
@@ -21,7 +21,7 @@ const S = {
   seg: { tab: 'segments' }, segDrawer: null,
   ai: { tab: 'insights', kind: 'all', status: 'open', open: {}, chat: [], busy: false, prefill: '' },
   gov: { tab: 'dictionary' },
-  iam: { tab: 'roles' }, roleEdit: null, customRoles: {}, customMatrix: {},
+  iam: { tab: 'roles' }, roleEdit: null, customRoles: {}, customMatrix: {}, push: null,
   path: { steps: 4 }, attr: { model: 'position' }, users: { q: '', lc: 'all', tier: 'all', page: 0, sel: {} }, integ: { tab: 'connections', step: 4 },
   sqlDrawer: null, toast: null,
   approved: {},                                // 原型：審批狀態
@@ -255,6 +255,36 @@ function roleDrawer() {
   <div class="ft">${e.mode === 'edit' && e.custom && !ro ? `<button class="btn-ghost danger" data-act="roledelete">刪除角色</button>` : ''}<div class="right"><button class="btn-ghost" data-act="roleclose">${ro ? '關閉' : '取消'}</button>${ro ? '' : `<button class="btn-primary" data-act="rolesave">儲存</button>`}</div></div></div>`;
 }
 
+/* ================================================================== v0.3.2：受眾推送（Webhook / GA4 受眾 / Google Ads） */
+const destById = id => DESTINATIONS.find(d => d.id === id);
+function openPush(segId) {
+  const seg = SEGMENTS.find(s => s.id === segId); const ex = AUDIENCE_PUSHES.find(p => p.seg === segId);
+  S.push = { seg: segId, dest: Object.fromEntries((ex ? ex.dest : []).map(d => [d, true])), mode: ex && ex.mode === 'realtime' ? 'realtime' : 'delta', schedule: ex ? (ex.schedule.includes('即時') ? 'realtime' : 'after_batch') : 'after_batch', tags: ['lifecycle', 'fee_tier'] };
+  S.segDrawer = null; render();
+}
+function pushDrawer() {
+  const p = S.push; if (!p) return ''; const seg = SEGMENTS.find(s => s.id === p.seg); const sel = DESTINATIONS.filter(d => p.dest[d.id]);
+  const external = sel.some(d => d.type === 'ga4_audience' || d.type === 'google_ads_customer_match');
+  const sample = { audience_id: seg.id, audience_name: seg.name, version: 43, mode: p.mode, batch: { index: 1, total: Math.max(1, Math.ceil(seg.n / 5000)), size: Math.min(5000, seg.n) }, identifier: 'customer_code', members: [{ customer_code: 'cust_8f3a…', one_id: 'oid_7k3a9q', action: 'add', tags: Object.fromEntries(p.tags.map(t => [t, t === 'lifecycle' ? '沉睡' : t === 'fee_tier' ? 'P1' : 'high'])) }, { customer_code: 'cust_21cc…', one_id: 'oid_2m8x1c', action: 'remove' }] };
+  const ga = { client_id: 'GA1.2.1844…', user_id: 'u_9a7b…', user_properties: { [`dmp_audience_${seg.id}`]: { value: '1' } }, events: [{ name: 'dmp_audience', params: { audience_id: seg.id, action: 'add', version: 43 } }] };
+  return `<div class="drawer-bg" data-act="pushclose"></div><div class="drawer wide"><div class="hd"><b>推送受眾包：${esc(seg.name)}</b><span class="pill">${n0(seg.n)} 人</span><button class="icon-btn x" data-act="pushclose">✕</button></div><div class="bd stack">
+    <div><div class="note" style="margin-bottom:8px"><b>目的地</b>（可多選；對外目的地需廣告再行銷同意過濾，首次綁定另需稽核核可）</div>
+    ${DESTINATIONS.map(d => `<div class="dest-pick ${p.dest[d.id] ? 'on' : ''} ${d.status === 'paused' ? 'dis' : ''}" data-act="pushdest" data-arg="${d.id}"><span class="chk ${p.dest[d.id] ? 'on' : ''}"></span><span class="dest-type ${d.type}">${esc(d.cn)}</span><span><b>${esc(d.name)}</b><span class="d"> · ${esc(d.target)} · 識別子 ${esc(d.ident)}</span></span></div>`).join('')}</div>
+    <div class="form"><label>模式</label><div class="seg"><button class="${p.mode === 'delta' ? 'on' : ''}" data-act="pushmode" data-arg="delta">增量（加入／移除）</button><button class="${p.mode === 'full' ? 'on' : ''}" data-act="pushmode" data-arg="full">全量（需審批）</button><button class="${p.mode === 'realtime' ? 'on' : ''}" data-act="pushmode" data-arg="realtime">即時（成員進出即推）</button></div>
+      <label>排程</label><div class="seg"><button class="${p.schedule === 'now' ? 'on' : ''}" data-act="pushsched" data-arg="now">立即</button><button class="${p.schedule === 'after_batch' ? 'on' : ''}" data-act="pushsched" data-arg="after_batch">日批完成後</button><button class="${p.schedule === 'realtime' ? 'on' : ''}" data-act="pushsched" data-arg="realtime">即時</button></div>
+      <label>附帶標籤</label><div>${['lifecycle', 'fee_tier', 'churn_score_bucket', 'pref_market'].map(t => `<button class="pill ${p.tags.includes(t) ? 'blue' : ''}" data-act="pushtag" data-arg="${t}" style="margin:2px">${t}</button>`).join('')}<div class="note" style="margin-top:4px">L2 數值標籤一律區間化；GA4／Ads 目的地不附帶任何標籤與個資</div></div></div>
+    <div class="grid c21"><div><div class="note" style="margin-bottom:6px"><b>Webhook payload 預覽</b>（X-DMP-Signature: HMAC-SHA256）</div><div class="code" style="font-size:10.5px">${esc(JSON.stringify(sample, null, 1))}</div></div>
+    <div><div class="note" style="margin-bottom:6px"><b>GA4 Measurement Protocol 預覽</b>（匿名 client_id，無個資）</div><div class="code" style="font-size:10.5px">${esc(JSON.stringify(ga, null, 1))}</div><div class="note" style="margin-top:8px">GA4 端以 user property <span class="mono">dmp_audience_${esc(seg.id)}=1</span> 建受眾，已連結的 Google Ads 自動同步為再行銷名單；成員資格到期自動移除。</div></div></div>
+    <div class="note">審批：${p.mode === 'full' ? '全量推送需營運主管核准' : '增量／即時依既核准排程自動執行'}${external ? '；對外目的地首次綁定需稽核核可' : ''}。每次交付寫審計 sync.delivered。</div></div>
+    <div class="ft"><button class="btn-ghost" data-act="toast" data-arg="已送出 audience.test（3 筆假資料）：CRM 200 · 180 ms；GA4 MP 204">送測試事件</button><div class="right"><button class="btn-ghost" data-act="pushclose">取消</button><button class="btn-primary" data-act="pushsave">${p.mode === 'full' || external ? '送審並排程' : '儲存排程'}</button></div></div></div>`;
+}
+function pageDestinations() {
+  return `<div class="card flush"><table class="tbl"><tr><th>目的地</th><th>類型</th><th>端點 / Topic</th><th>識別子</th><th>可附標籤</th><th class="num">7 天成功率</th><th>P95</th><th>最近交付</th><th>狀態</th><th></th></tr>${DESTINATIONS.map(d => `<tr><td><b>${esc(d.name)}</b><span class="sub">${esc(d.note)}</span></td><td><span class="dest-type ${d.type}">${esc(d.cn)}</span></td><td class="mono" style="font-size:11px">${esc(d.target)}</td><td class="mono" style="font-size:11px">${esc(d.ident)}</td><td>${d.tags.length ? d.tags.map(t => `<span class="pill mono" style="font-size:10px;margin:1px">${t}</span>`).join('') : '<span class="note">無（匿名 ID）</span>'}</td><td class="num mono">${d.ok7d == null ? '—' : pct(d.ok7d)}</td><td class="mono">${esc(d.p95)}</td><td style="color:var(--muted)">${esc(d.last)}</td><td>${d.status === 'active' ? '<span class="pill green">啟用</span>' : '<span class="pill gray">停用</span>'}</td><td class="num" style="white-space:nowrap"><button class="btn-ghost sm" data-act="toast" data-arg="已送出 audience.test，接收端回 200">測試</button> <button class="btn-ghost sm" data-act="toast" data-arg="secret 已輪替，新舊並存 24 小時">輪替 secret</button></td></tr>`).join('')}</table></div>
+  <div class="grid c2" style="margin-top:16px"><div class="card flush"><div class="card-h" style="padding:14px 16px 0"><h3>交付紀錄</h3><span class="sub">sync.delivered · 近 2 天</span></div><table class="tbl"><tr><th>Delivery</th><th>受眾包</th><th>目的地</th><th class="num">版本</th><th>模式</th><th class="num">筆數</th><th>批次</th><th>狀態</th><th>回應</th><th></th></tr>${DELIVERIES.map(x => `<tr><td class="mono" style="font-size:11px">${esc(x.id)}</td><td>${esc(x.seg)}</td><td>${esc(x.dest)}</td><td class="num mono">${esc(String(x.ver))}</td><td>${esc(x.mode)}</td><td class="num mono">${n0(x.n)}</td><td class="mono">${esc(x.batches)}</td><td>${({ ok: '<span class="pill green">成功</span>', running: '<span class="pill blue">進行中</span>', retrying: '<span class="pill amber">重試中</span>', failed: '<span class="pill red">失敗</span>' })[x.status]}</td><td style="color:var(--body);font-size:11.5px">${esc(x.resp)}</td><td class="num">${x.status === 'retrying' || x.status === 'failed' ? `<button class="btn-ghost sm" data-act="toast" data-arg="已重放（沿用同一 Delivery-Id）">重放</button>` : ''}</td></tr>`).join('')}</table></div>
+  <div class="stack"><div class="card"><div class="card-h"><h3>Webhook 規格</h3></div><div class="code" style="font-size:11px">POST {url}\nX-DMP-Event: audience.delta | audience.full | tag.update\nX-DMP-Delivery-Id: dlv_…   （冪等鍵）\nX-DMP-Timestamp: 1760400000\nX-DMP-Signature: sha256=HMAC(secret, ts + "." + body)\n\n每批 ≤ 5,000 筆；2xx 即成功；重試 1m/5m/15m/1h/6h → DLQ 可重放；\n連續失敗 3 批暫停目的地並通知。</div></div>
+  <div class="card"><div class="card-h"><h3>GA4 受眾 → Google Ads 再行銷</h3></div><div class="note">用 GA360 匯出既有的匿名 client_id／app_instance_id 回流，透過 Measurement Protocol 設 user property，GA4 受眾自動同步到已連結的 Google Ads。<b>不傳任何個資</b>；需「廣告再行銷」同意；大量變更分 24 小時攤平；T+1 以 GA4 Data API 對帳受眾人數。Customer Match（雜湊 email／手機）為選配，由隔離的 adapter 處理並需法遵核可。</div></div></div></div>`;
+}
+
 /* ---- 權限中心 ---- */
 function pageIAM() {
   const t = S.iam.tab; const tabs = [['roles', '角色'], ['modules', '模組權限'], ['data', '數據權限'], ['masking', '欄位隱碼'], ['approvals', '審批']];
@@ -382,8 +412,8 @@ function pageSegments() {
   const t = S.seg.tab;
   const stPill = s => { const st = S.approved[s.id] ? 'active' : s.status; return st === 'active' ? '<span class="pill green">生效</span>' : '<span class="pill amber">待審批</span>'; };
   return `<div class="page-h"><div><h1>標籤與分群</h1><p>標籤：規則／統計／SQL／模型／即時／匯入。分群以 Bitmap 交併差計算；agent 提議的分群需審批才生效。</p></div><div class="right"><button class="btn-ghost" data-act="toast" data-arg="原型：新增標籤精靈">＋ 新增標籤</button><button class="btn-primary" data-act="toast" data-arg="原型：分群規則編輯器">＋ 新增分群</button></div></div>
-  <div class="filters"><div class="seg"><button class="${t === 'segments' ? 'on' : ''}" data-act="segtab" data-arg="segments">分群 ${SEGMENTS.length}</button><button class="${t === 'tags' ? 'on' : ''}" data-act="segtab" data-arg="tags">標籤 ${TAGS.length}</button></div></div>
-  ${t === 'segments' ? `<div class="card flush"><table class="tbl"><tr><th>分群</th><th>規則</th><th class="num">人數</th><th>建立者</th><th>更新</th><th>狀態</th><th></th></tr>${SEGMENTS.map(s => `<tr class="click" data-act="segopen" data-arg="${s.id}"><td><b>${esc(s.name)}</b>${s.rt ? ' <span class="pill teal">即時</span>' : ''}</td><td class="mono" style="font-size:11.5px;color:var(--body)">${esc(s.rule)}</td><td class="num mono">${n0(s.n)}</td><td>${s.by.includes('-') ? `<span class="pill purple">${svg(I.spark, 11)} ${esc(s.by)}</span>` : esc(s.by)}</td><td style="color:var(--muted)">${esc(s.upd)}</td><td>${stPill(s)}</td><td class="num">${s.status === 'pending_approval' && !S.approved[s.id] ? (S.user.can.approve ? `<button class="btn-ghost sm" data-act="approve" data-arg="${s.id}">核准</button>` : '<span class="note">需主管核准</span>') : `<button class="btn-ghost sm" data-act="toast" data-arg="已推送到 MA / 營業員 App（Kafka dmp.segments）">推送</button>`}</td></tr>`).join('')}</table></div>`
+  <div class="filters"><div class="seg"><button class="${t === 'segments' ? 'on' : ''}" data-act="segtab" data-arg="segments">分群 ${SEGMENTS.length}</button><button class="${t === 'tags' ? 'on' : ''}" data-act="segtab" data-arg="tags">標籤 ${TAGS.length}</button><button class="${t === 'destinations' ? 'on' : ''}" data-act="segtab" data-arg="destinations">推送目的地 ${DESTINATIONS.filter(d => d.status === 'active').length}</button></div></div>
+  ${t === 'destinations' ? pageDestinations() : t === 'segments' ? `<div class="card flush"><table class="tbl"><tr><th>分群</th><th>規則</th><th class="num">人數</th><th>建立者</th><th>更新</th><th>狀態</th><th>推送</th></tr>${SEGMENTS.map(s => `<tr class="click" data-act="segopen" data-arg="${s.id}"><td><b>${esc(s.name)}</b>${s.rt ? ' <span class="pill teal">即時</span>' : ''}</td><td class="mono" style="font-size:11.5px;color:var(--body)">${esc(s.rule)}</td><td class="num mono">${n0(s.n)}</td><td>${s.by.includes('-') ? `<span class="pill purple">${svg(I.spark, 11)} ${esc(s.by)}</span>` : esc(s.by)}</td><td style="color:var(--muted)">${esc(s.upd)}</td><td>${stPill(s)}</td><td class="num">${s.status === 'pending_approval' && !S.approved[s.id] ? (S.user.can.approve ? `<button class="btn-ghost sm" data-act="approve" data-arg="${s.id}">核准</button>` : '<span class="note">需主管核准</span>') : `<button class="btn-ghost sm" data-act="pushopen" data-arg="${s.id}">${AUDIENCE_PUSHES.some(p => p.seg === s.id) ? `推送 · ${AUDIENCE_PUSHES.find(p => p.seg === s.id).dest.length} 個目的地` : '推送'}</button>`}</td></tr>`).join('')}</table></div>`
   : `<div class="card flush"><table class="tbl"><tr><th>標籤</th><th>類型</th><th>值域</th><th class="num">覆蓋人數</th><th>更新</th><th>負責人</th></tr>${TAGS.map(x => `<tr><td><b>${esc(x.cn)}</b><span class="sub mono">${esc(x.id)}</span></td><td><span class="pill ${x.rt ? 'teal' : x.type === '模型' ? 'purple' : x.type === 'SQL' ? 'blue' : 'gray'}">${esc(x.type)}</span></td><td style="color:var(--body)">${x.vals.map(v => `<span class="pill" style="margin:1px">${esc(v)}</span>`).join('')}</td><td class="num mono">${n0(x.cover)}</td><td style="color:var(--muted)">${esc(x.upd)}</td><td>${esc(x.owner)}</td></tr>`).join('')}</table></div>`}`;
 }
 function segDrawer() {
@@ -394,11 +424,11 @@ function segDrawer() {
     <div><div class="note" style="margin-bottom:6px"><b>群體洞察（vs 全體）</b></div>${hbar([{ k: '45–54 歲', v: 41 }, { k: '偏好 US', v: 38 }, { k: '偏好 TSE', v: 35 }, { k: '定期定額', v: 64 }, { k: 'iOS', v: 52 }], { fmt: v => v + '%', color: SER[2], total: 1e9 }).replace(/<td class="num" style="width:60px[^<]*<\/td>/g, '')}</div>
     <div><div class="note" style="margin-bottom:6px"><b>編譯後 SQL（Bitmap）</b></div><div class="code">${esc(sql)}</div></div>
     ${s.by.includes('-') ? `<div class="note">${svg(I.spark, 12)} 由 agent <b>${esc(s.by)}</b> 透過 segment.propose 提議；證據見 AI 洞察頁。</div>` : ''}
-    <div class="acts" style="display:flex;gap:8px">${s.status === 'pending_approval' && !S.approved[s.id] && S.user.can.approve ? `<button class="btn-primary" data-act="approve" data-arg="${s.id}">核准並生效</button>` : ''}<button class="btn-ghost" data-act="askpre" data-arg="分群「${esc(s.name)}」這群人有什麼共同行為特徵？建議怎麼接觸？">${svg(I.spark, 13)} 問 agent</button></div></div></div>`;
+    <div class="acts" style="display:flex;gap:8px">${s.status === 'pending_approval' && !S.approved[s.id] && S.user.can.approve ? `<button class="btn-primary" data-act="approve" data-arg="${s.id}">核准並生效</button>` : ''}<button class="btn-ghost" data-act="askpre" data-arg="分群「${esc(s.name)}」這群人有什麼共同行為特徵？建議怎麼接觸？">${svg(I.spark, 13)} 問 agent</button><button class="btn-ghost" data-act="pushopen" data-arg="${s.id}">推送到目的地</button></div></div></div>`;
 }
 
 function pageTriggers() {
-  return `<div class="page-h"><div><h1>即時觸發</h1><p>Flink CEP 規則 → Kafka dmp.triggers；下游：MA、客服工單、營業員 App、Insight Agent。</p></div><div class="right"><button class="btn-primary" data-act="toast" data-arg="原型：規則 DSL 編輯器">＋ 新增規則</button></div></div>
+  return `<div class="page-h"><div><h1>即時觸發</h1><p>Flink CEP 規則 → Kafka dmp.triggers；下游：MA、客服工單、營業員 App、Insight Agent；受眾包推送（Webhook／GA4 受眾）見「標籤與分群 › 推送目的地」。</p></div><div class="right"><button class="btn-primary" data-act="toast" data-arg="原型：規則 DSL 編輯器">＋ 新增規則</button></div></div>
   <div class="grid c2"><div class="card flush"><table class="tbl"><tr><th>規則</th><th>DSL</th><th>受眾</th><th>輸出</th><th class="num">24h 觸發</th><th>狀態</th></tr>${TRIGGERS.map(t => `<tr><td><b>${esc(t.name)}</b><span class="sub">節流 ${esc(t.throttle)}</span></td><td class="mono" style="font-size:11px;color:var(--body)">${esc(t.dsl)}</td><td>${esc(t.audience)}</td><td style="font-size:11.5px">${esc(t.out)}</td><td class="num mono">${n0(t.fires24h)}</td><td>${t.status === 'on' || S.approved[t.id] ? '<span class="pill green">啟用</span>' : (S.user.can.approve ? `<button class="btn-ghost sm" data-act="approve" data-arg="${t.id}">核准</button>` : '<span class="pill amber">待審批</span>')}</td></tr>`).join('')}</table></div>
   <div class="card"><div class="card-h"><h3>觸發串流</h3><span class="sub">dmp.triggers · 即時</span><span class="status ok" style="margin-left:auto"><span class="dot"></span>P95 延遲 2.8 秒</span></div><table class="tbl">${TRIGGER_FEED.map(f => `<tr><td class="mono" style="color:var(--muted);width:80px">${f.t}</td><td><b>${esc(f.rule)}</b><span class="sub mono">${esc(f.one)} · ${esc(f.payload)}</span></td></tr>`).join('')}</table></div></div>`;
 }
@@ -568,7 +598,7 @@ let render = function () {
   const pages = { overview: pageOverview, events: pageEvents, funnel: pageFunnel, path: pagePath, attribution: pageAttribution, users: pageUsers, integration: pageIntegration, retention: pageRetention, iam: pageIAM, audit: pageAudit, profile: pageProfile, segments: pageSegments, triggers: pageTriggers, ai: pageAI, governance: pageGovernance, settings: pageSettings };
   const page = canRoute(S.route.name) ? (pages[S.route.name] || pageOverview)() : pageForbidden();
   const active = document.activeElement; const keep = active && active.dataset && active.dataset.act; const selStart = active && active.selectionStart;
-  root.innerHTML = `<div class="app">${viewTopNav()}${viewSubNav()}<main class="content"><div class="wrap">${page}</div></main></div>${sqlDrawer()}${segDrawer()}${roleDrawer()}${S.toast ? `<div class="toast">${esc(S.toast)}</div>` : ''}`;
+  root.innerHTML = `<div class="app">${viewTopNav()}${viewSubNav()}<main class="content"><div class="wrap">${page}</div></main></div>${sqlDrawer()}${segDrawer()}${roleDrawer()}${pushDrawer()}${S.toast ? `<div class="toast">${esc(S.toast)}</div>` : ''}`;
   if (keep) { const el = root.querySelector(`[data-act="${keep}"]`); if (el && el.focus) { el.focus(); try { if (selStart != null) el.setSelectionRange(selStart, selStart); } catch (e) { /* non-text */ } } }
 }
 
@@ -600,6 +630,11 @@ document.addEventListener('click', e => {
     uprofile: () => { S.profile.sel = PROFILES.some(p => p.one_id === arg) ? arg : PROFILES[0].one_id; go('#/profile'); },
     integtab: () => { S.integ.tab = arg; render(); },
     iamtab: () => { S.iam.tab = arg; go('#/iam/' + arg); },
+    pushopen: () => openPush(arg), pushclose: () => { S.push = null; render(); },
+    pushdest: () => { const d = destById(arg); if (d.status === 'paused') { toast('此目的地預設關閉，需法遵核可後啟用'); return; } S.push.dest[arg] = !S.push.dest[arg]; render(); },
+    pushmode: () => { S.push.mode = arg; if (arg === 'realtime') S.push.schedule = 'realtime'; render(); }, pushsched: () => { S.push.schedule = arg; render(); },
+    pushtag: () => { const t = S.push.tags; const i = t.indexOf(arg); i >= 0 ? t.splice(i, 1) : t.push(arg); render(); },
+    pushsave: () => { const p = S.push; const n = Object.values(p.dest).filter(Boolean).length; if (!n) { toast('請至少選一個目的地'); return; } const ext = DESTINATIONS.some(d => p.dest[d.id] && d.type === 'ga4_audience'); S.push = null; toast(p.mode === 'full' || ext ? `推送單已送審（${n} 個目的地，${p.mode}）；核准後依排程執行` : `已儲存排程（${n} 個目的地，增量，日批後）；審計 sync.delivered`); },
     rolenew: () => openRoleEditor(null, 'new'), roleopen: () => openRoleEditor(arg, 'edit'), rolecopy: () => openRoleEditor(arg, 'copy'),
     roleclose: () => { S.roleEdit = null; render(); }, rolesave: () => roleSave(), roledelete: () => roleDelete(),
     rolechk: () => { if (!has('iam', 'd')) return; const [m, a] = arg.split(':'); roleToggle(m, a); },

@@ -22,6 +22,7 @@ docs/
   10-enterprise-security-rbac-masking-audit.md     企業級安全：角色／模組／數據權限、欄位隱碼、審批、審計與日誌統計可視化
   11-oss-risk-scorecard-and-maintainability.md     開源元件評分（弱點掃描風險／可用性／主流性／vibe coding 維護性）與選型修訂
   12-architecture-diagrams.md  diagrams/         系統架構圖、元件組成圖、數據流圖（SVG/PNG 由 build.py 產生 + Mermaid）
+  14-audience-activation.md                        受眾推送：簽章 Webhook 到內部系統、GA4 受眾 → Google Ads 再行銷、Customer Match（選配）
   13-capacity-plan-gcp.md                          GCP 容量規劃：3 年 200 億事件（首年含舊資料）、每日 1,000 標籤、API 同步、50 人上線；常駐 3–6 台三檔位
 prototype/                                          可直接開啟的前端原型（純靜態，無建置步驟）
   index.html  css/app.css  js/app.js  js/data.js  vercel.json
@@ -32,6 +33,7 @@ backend/                                            後端骨架（可讀、可�
   insight_agent/agents.yaml  skills/*.md  evals/golden.yaml  runtime.py   agent 註冊、skill、評測、執行迴圈
   integration/connectors.yaml  models.example.yaml  transforms.py        連接器定義、可視化建模產物、轉換函式庫
   security/rbac.yaml  masking.yaml  policy.py                           角色矩陣、欄位隱碼策略、Policy Engine（authorize）骨架
+  activation/destinations.yaml  webhook.py  ga4_mp.py                 受眾推送目的地、Webhook 簽章／批次／重試、GA4 MP payload
   clickhouse/audit.sql                             審計表、日誌統計物化視圖、row policy 與 masking view
   clickhouse/schema.sql  clickhouse/insight_store.sql      熱層 DDL、Insight Store（PostgreSQL + pgvector）
   docker-compose.yml                               本機開發環境（Kafka、ClickHouse、PostgreSQL、Valkey、物件儲存）

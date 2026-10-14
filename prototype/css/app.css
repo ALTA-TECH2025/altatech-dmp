@@ -447,3 +447,12 @@ a { color: inherit; }
 .drawer .ft .right { margin-left: auto; display: flex; gap: 8px; }
 .pill.custom { background: #FFF6CC; color: #7A5A00; border-color: #F2DD8A; }
 .rm td .sub { display: block; font-size: 10.5px; color: var(--muted); }
+
+/* ---------------------------------------------------------------- v0.3.2：受眾推送 */
+.dest-type { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; }
+.dest-type.webhook { background: var(--brand-soft); color: var(--brand); } .dest-type.kafka { background: #FFF6CC; color: #7A5A00; } .dest-type.gcs { background: var(--graysoft, #F1F4F6); color: var(--gray, #56646D); }
+.dest-type.ga4_audience { background: #E3F4EA; color: #156C43; } .dest-type.google_ads_customer_match { background: #FBE5E5; color: #A32626; }
+.dest-pick { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; cursor: pointer; }
+.dest-pick.on { border-color: var(--brand); background: var(--brand-soft); }
+.dest-pick.dis { opacity: .5; cursor: not-allowed; }
+.dest-pick b { font-size: 13px; } .dest-pick .d { font-size: 11.5px; color: var(--muted); }

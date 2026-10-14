@@ -414,3 +414,28 @@ export const AUDIT = {
   denied: _aud(27, .6),
   exports: _aud(6, .8),
 };
+
+/* ================================================================== v0.3.2：受眾推送（Webhook / GA4 受眾 / Google Ads） */
+export const DESTINATIONS = [
+  { id: 'd_crm', name: 'CRM 客戶系統', type: 'webhook', cn: 'Webhook（內部）', target: 'https://crm.internal/dmp/webhook', ident: 'customer_code', tags: ['lifecycle', 'fee_tier', 'churn_score_bucket'], status: 'active', ok7d: .998, p95: '420 ms', last: '今天 03:02', note: 'HMAC 簽章、IP 白名單' },
+  { id: 'd_app', name: '營業員 App 待辦', type: 'webhook', cn: 'Webhook（內部）', target: 'https://agentapp.internal/hooks/dmp', ident: 'customer_code', tags: ['lifecycle', 'pref_market'], status: 'active', ok7d: 1, p95: '180 ms', last: '今天 03:05', note: 'mTLS' },
+  { id: 'd_kafka', name: '數據平台 Kafka', type: 'kafka', cn: 'Kafka', target: 'dmp.audience_updates / dmp.tag_updates', ident: 'customer_code + one_id', tags: ['*'], status: 'active', ok7d: 1, p95: '—', last: '即時', note: 'Avro' },
+  { id: 'd_gcs', name: '數倉 Parquet', type: 'gcs', cn: 'GCS Parquet', target: 'gs://dmp-sync/audiences/', ident: 'customer_code', tags: ['*'], status: 'active', ok7d: 1, p95: '—', last: '今天 03:10', note: 'manifest + checksum' },
+  { id: 'd_ga4', name: 'GA4 受眾 → Google Ads 再行銷', type: 'ga4_audience', cn: 'GA4 受眾', target: 'G-XXXXXXX（Measurement Protocol）', ident: 'client_id / app_instance_id', tags: [], status: 'active', ok7d: .991, p95: '—', last: '今天 03:40（24 小時攤平）', note: '不含個資；需廣告再行銷同意；GA4 ↔ Ads 已連結' },
+  { id: 'd_cm', name: 'Google Ads Customer Match', type: 'google_ads_customer_match', cn: 'Customer Match（選配）', target: 'Google Ads API · customer-match-adapter', ident: 'hashed_email / hashed_phone', tags: [], status: 'paused', ok7d: null, p95: '—', last: '—', note: '預設關閉；需法遵核可與客戶同意（境外傳輸）' },
+];
+export const AUDIENCE_PUSHES = [
+  { seg: 'sg2', dest: ['d_app', 'd_crm'], mode: 'delta', schedule: '日批後 03:00', approved: true },
+  { seg: 'sg5', dest: ['d_ga4', 'd_gcs'], mode: 'delta', schedule: '日批後 03:00 · GA4 24 小時攤平', approved: true },
+  { seg: 'sg6', dest: ['d_ga4'], mode: 'delta', schedule: '即時', approved: true },
+  { seg: 'sg3', dest: ['d_kafka'], mode: 'realtime', schedule: '即時', approved: true },
+];
+export const DELIVERIES = [
+  { id: 'dlv_01J9…a3', seg: '新戶未入金（7 天）', dest: '營業員 App 待辦', ver: 118, mode: 'delta', n: 612, batches: '1/1', status: 'ok', at: '今天 03:05', resp: '200 · 180 ms' },
+  { id: 'dlv_01J9…a2', seg: '新戶未入金（7 天）', dest: 'CRM 客戶系統', ver: 118, mode: 'delta', n: 612, batches: '1/1', status: 'ok', at: '今天 03:02', resp: '200 · 410 ms' },
+  { id: 'dlv_01J9…9f', seg: '定期定額活躍客', dest: 'GA4 受眾 → Google Ads', ver: 44, mode: 'delta', n: 3_180, batches: '攤平中 61%', status: 'running', at: '今天 03:40', resp: 'MP 204 · 對帳 T+1' },
+  { id: 'dlv_01J9…9e', seg: '定期定額活躍客', dest: '數倉 Parquet', ver: 44, mode: 'full', n: 92_300, batches: '19/19', status: 'ok', at: '今天 03:10', resp: 'manifest 已寫入' },
+  { id: 'dlv_01J9…8c', seg: 'Q4 基金活動曝光者', dest: 'GA4 受眾 → Google Ads', ver: 301, mode: 'delta', n: 1_240, batches: '1/1', status: 'ok', at: '今天 02:58', resp: 'MP 204' },
+  { id: 'dlv_01J8…f1', seg: '高價值沉睡客', dest: 'CRM 客戶系統', ver: 41, mode: 'full', n: 11_420, batches: '2/3', status: 'retrying', at: '昨天 03:02', resp: '503 · 第 3 次重試 15 分後' },
+  { id: 'dlv_01J8…e0', seg: '看盤未下單（即時）', dest: '數據平台 Kafka', ver: '—', mode: 'realtime', n: 3_812, batches: '—', status: 'ok', at: '持續', resp: 'lag 0.8 s' },
+];
