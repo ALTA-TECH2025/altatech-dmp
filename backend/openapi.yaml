@@ -18,6 +18,7 @@ tags:
   - { name: Agents }
   - { name: Governance }
   - { name: IAM }
+  - { name: Sync }
 paths:
   /v1/events:
     post:
@@ -116,6 +117,24 @@ paths:
     post: { tags: [IAM], summary: 複製角色為新草稿, parameters: [{ name: key, in: path, required: true, schema: { type: string } }], responses: { '201': { description: created } } }
   /v1/iam/assignments:
     post: { tags: [IAM], summary: 指派角色給使用者（可帶範圍與到期日）, responses: { '201': { description: created } } }
+  /v1/sync/tags:
+    get:
+      tags: [Sync]
+      summary: 單一客戶的全部標籤值（Valkey 快取，< 10 ms；代碼化 ID；依目標系統合約套隱碼）
+      parameters: [{ name: one_id, in: query, schema: { type: string } }, { name: customer_code, in: query, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/TagSnapshot' } } } } }
+  /v1/sync/tags/changes:
+    get:
+      tags: [Sync]
+      summary: 標籤變更增量（日批後比對前一版本；分頁拉取；大量同步請用 Kafka dmp.tag_updates 或 GCS Parquet）
+      parameters: [{ name: since, in: query, required: true, schema: { type: string, format: date-time } }, { name: tag_ids, in: query, schema: { type: string } }, { name: page_token, in: query, schema: { type: string } }, { name: page_size, in: query, schema: { type: integer, default: 10000, maximum: 10000 } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/TagChange' } }, next_page_token: { type: string } } } } } } }
+  /v1/sync/segments/{id}/members:
+    get: { tags: [Sync], summary: 分群成員（分頁；或以 export=gcs 產生 Parquet manifest）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: export, in: query, schema: { type: string, enum: [page, gcs] } }], responses: { '200': { description: ok } } }
+  /v1/sync/exports:
+    post: { tags: [Sync], summary: 觸發批次匯出（全量／增量 Parquet 到 GCS dmp-sync，含 manifest 與 checksum；寫審計 sync.delivered）, responses: { '202': { description: accepted } } }
+  /v1/sync/subscriptions:
+    get: { tags: [Sync], summary: 下游訂閱清單（Kafka consumer group、Webhook、GCS），含最後同步時間與落後量, responses: { '200': { description: ok } } }
   /v1/dictionary/events:
     get: { tags: [Governance], summary: 事件字典（含未登記隔離事件）, responses: { '200': { description: ok } } }
   /v1/lineage/{entity}:
@@ -181,6 +200,24 @@ components:
           additionalProperties: { type: array, items: { type: string, enum: [view, use, export, approve, admin] } }
         masking_profile: { type: string, enum: [default, stricter], default: default }
         builtin: { type: boolean, readOnly: true }
+    TagSnapshot:
+      type: object
+      properties:
+        one_id: { type: string }
+        customer_code: { type: string, description: 代碼化 }
+        version: { type: integer }
+        computed_at: { type: string, format: date-time }
+        tags: { type: object, additionalProperties: {} }
+    TagChange:
+      type: object
+      properties:
+        one_id: { type: string }
+        customer_code: { type: string }
+        tag_id: { type: string }
+        old: {}
+        new: {}
+        version: { type: integer }
+        changed_at: { type: string, format: date-time }
     Insight:
       type: object
       required: [kind, title, summary]
