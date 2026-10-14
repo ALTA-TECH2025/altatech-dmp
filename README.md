@@ -23,6 +23,7 @@ docs/
   11-oss-risk-scorecard-and-maintainability.md     開源元件評分（弱點掃描風險／可用性／主流性／vibe coding 維護性）與選型修訂
   12-architecture-diagrams.md  diagrams/         系統架構圖、元件組成圖、數據流圖（SVG/PNG 由 build.py 產生 + Mermaid）
   14-audience-activation.md                        受眾推送：簽章 Webhook 到內部系統、GA4 受眾 → Google Ads 再行銷（Customer Match 本期不做）
+  15-vibe-coding-plan.md                           Vibe coding 開發計畫：6 人分工、測試協同、Epic/Story 拆解（154 人日）、代碼級第一版第 8 週、AI 洞察 v1 第 16 週
   13-capacity-plan-gcp.md                          GCP 容量規劃：3 年 200 億事件（首年含舊資料）、每日 500–1,000 標籤、API 同步、50 人上線；正式 A 檔 6 台或 D 檔 3 台大機型／測試 3 台；Docker 模組整併（6 個映像）；機房實體機／VM 規格與 Dell 估價
 prototype/                                          可直接開啟的前端原型（純靜態，無建置步驟）
   index.html  css/app.css  js/app.js  js/data.js  vercel.json
