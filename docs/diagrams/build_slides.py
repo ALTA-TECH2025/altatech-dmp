@@ -150,7 +150,7 @@ def s4():
     s.rect(96, 215, 1160, 560, "#FBFCFE", C["brandline"], 20)
     s.text(120, 252, "A. 標準 HA（建議）— GKE 私有叢集 6 台 + 臨時 Spot", 24, 800, C["brand"])
     pools = [("分析倉 olap", ["ClickHouse 1 shard × 2 replica，3 年全熱 3.9 TB / 副本", "任一台故障另一副本續服"], "c3-highmem-22 × 2 · Hyperdisk 4 TB", "yellow"),
-             ("資料・平台・應用 general", ["Kafka ×3、Keeper ×3、Flink、Airflow / dbt、Collector、CDC", "Keycloak、Prometheus、Grafana、API、語意層、分群、OneID、Agent、Web"], "n2-standard-16 × 4", "teal"),
+             ("資料・平台・應用 general", ["Kafka ×3、Keeper ×3、Flink、Airflow / dbt、Collector、CDC", "Keycloak、監控，以及全部應用（API、語意層、分群、Agent、Web）"], "n2-standard-16 × 4", "teal"),
              ("臨時 spot（不算常駐）", ["舊資料導入 50 億、BigQuery 大批匯入、模型訓練", "用完歸零"], "n2-standard-8 × 0–4（Spot）", "gray"),
              ("託管服務（不占台數）", ["Cloud SQL PostgreSQL 16 HA · Memorystore Valkey 8 GB", "Cloud Storage 8 TB · KMS/HSM · Artifact Registry"], "", "brand")]
     for i, (t, ls, m, c) in enumerate(pools):
