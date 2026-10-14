@@ -1,0 +1,29 @@
+# GA360 BigQuery Export → DMP 事件映射（Importer 與 GTM Server-side 共用）
+event_name: { to: event, transform: "prefix:ga." , keep_registered: true }
+event_timestamp: { to: time, transform: "us_to_ms" }
+user_pseudo_id:
+  web: { to: identities.$identity_cookie_id }
+  app: { to: identities.$identity_device_id }
+user_id: { to: identities.$identity_ga_user_id, resolve_to: $identity_login_id, require: hmac }
+event_params:
+  ga_session_id: $session_id
+  ga_session_number: $session_number
+  page_location: $page_url
+  page_referrer: $referrer
+  engagement_time_msec: $engagement_ms
+  "*": "props.{key}"
+device:
+  category: $device_type
+  operating_system: $os
+  operating_system_version: $os_version
+  language: $language
+  web_info.browser: $browser
+  advertising_id: DROP
+geo: { country: $geo_country, region: $geo_region, city: $geo_city }
+app_info: { id: $app_id, version: $app_version, install_source: $install_source }
+traffic_source: { source: $first_utm_source, medium: $first_utm_medium, name: $first_utm_campaign }
+session_traffic_source_last_click.manual_campaign: { source: $utm_source, medium: $utm_medium, campaign_name: $utm_campaign }
+privacy_info: { analytics_storage: consent.analytics, ads_storage: consent.ads, policy: "consent.analytics != 'Yes' => no_oneid_merge" }
+dedupe:
+  event_id: "sha256(stream_id|user_pseudo_id|event_timestamp|event_name|event_bundle_sequence_id)"
+  source_priority: [ga360, gtm_ss]

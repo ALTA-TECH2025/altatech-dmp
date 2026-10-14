@@ -1,0 +1,174 @@
+openapi: 3.1.0
+info:
+  title: AltaTech DMP API
+  version: 0.1.0
+  description: 人（UI）與 AI agent 共用的語意層／分析／分群／洞察 API。所有端點以 on_behalf_of 身份套權限。
+servers:
+  - url: https://dmp.internal/api
+security: [{ bearerAuth: [] }]
+tags:
+  - { name: Ingest }
+  - { name: Semantic }
+  - { name: Analytics }
+  - { name: Profile }
+  - { name: OneID }
+  - { name: Segments }
+  - { name: Triggers }
+  - { name: Insights }
+  - { name: Agents }
+  - { name: Governance }
+paths:
+  /v1/events:
+    post:
+      tags: [Ingest]
+      summary: 寫入事件（神策相容超集）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: array, items: { $ref: '#/components/schemas/Event' } }
+      responses: { '202': { description: accepted } }
+  /v1/semantic/metrics:
+    get: { tags: [Semantic], summary: 指標目錄, responses: { '200': { description: ok } } }
+  /v1/semantic/events:
+    get: { tags: [Semantic], summary: 事件字典, responses: { '200': { description: ok } } }
+  /v1/semantic/dimensions:
+    get: { tags: [Semantic], summary: 維度目錄, responses: { '200': { description: ok } } }
+  /v1/semantic/compile:
+    post:
+      tags: [Semantic]
+      summary: 語意查詢 → SQL（dry-run，含成本與血緣）
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SemanticQuery' } } } }
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/CompiledQuery' } } } } }
+  /v1/analytics/events:
+    post: { tags: [Analytics], summary: 事件分析, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SemanticQuery' } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AnalyticsResult' } } } } } }
+  /v1/analytics/funnel:
+    post: { tags: [Analytics], summary: 漏斗, responses: { '200': { description: ok } } }
+  /v1/analytics/retention:
+    post: { tags: [Analytics], summary: 留存, responses: { '200': { description: ok } } }
+  /v1/analytics/path:
+    post: { tags: [Analytics], summary: 路徑, responses: { '200': { description: ok } } }
+  /v1/analytics/interval:
+    post: { tags: [Analytics], summary: 間隔, responses: { '200': { description: ok } } }
+  /v1/analytics/distribution:
+    post: { tags: [Analytics], summary: 分布, responses: { '200': { description: ok } } }
+  /v1/analytics/attribution:
+    post: { tags: [Analytics], summary: 歸因, responses: { '200': { description: ok } } }
+  /v1/analytics/ltv:
+    post: { tags: [Analytics], summary: LTV, responses: { '200': { description: ok } } }
+  /v1/analytics/session:
+    post: { tags: [Analytics], summary: Session, responses: { '200': { description: ok } } }
+  /v1/profiles/{one_id}:
+    get: { tags: [Profile], summary: 畫像（脫敏）, parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/profiles/{one_id}/timeline:
+    get: { tags: [Profile], summary: 行為序列（用戶細查，需 reason）, parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }, { name: reason, in: query, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/oneid/resolve:
+    get: { tags: [OneID], summary: 解析 ID → one_id, parameters: [{ name: type, in: query, schema: { type: string } }, { name: value, in: query, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/oneid/bind:
+    post: { tags: [OneID], summary: 綁定, responses: { '200': { description: ok } } }
+  /v1/oneid/erase:
+    post: { tags: [OneID], summary: DSAR 刪除, responses: { '202': { description: accepted } } }
+  /v1/segments:
+    get: { tags: [Segments], summary: 列出分群, responses: { '200': { description: ok } } }
+    post: { tags: [Segments], summary: 建立分群（agent 提議者為 pending_approval）, responses: { '201': { description: created } } }
+  /v1/segments/{id}/preview:
+    post: { tags: [Segments], summary: 預估人數與畫像, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/tags:
+    get: { tags: [Segments], summary: 標籤目錄, responses: { '200': { description: ok } } }
+    post: { tags: [Segments], summary: 建立標籤, responses: { '201': { description: created } } }
+  /v1/triggers:
+    get: { tags: [Triggers], summary: 即時規則, responses: { '200': { description: ok } } }
+    post: { tags: [Triggers], summary: 建立規則, responses: { '201': { description: created } } }
+  /v1/insights:
+    get:
+      tags: [Insights]
+      summary: 洞察列表／檢索
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: kind, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Insight' } } } } } }
+    post: { tags: [Insights], summary: 建立洞察, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Insight' } } } }, responses: { '201': { description: created } } }
+  /v1/insights/{id}/feedback:
+    post: { tags: [Insights], summary: 回饋（useful / not_useful / wrong）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '201': { description: created } } }
+  /v1/insights/subscriptions:
+    post: { tags: [Insights], summary: 訂閱洞察, responses: { '201': { description: created } } }
+  /v1/agents:
+    get: { tags: [Agents], summary: agent 註冊表, responses: { '200': { description: ok } } }
+  /v1/agents/{id}/run:
+    post: { tags: [Agents], summary: 手動執行 agent, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+  /v1/agents/ask:
+    post:
+      tags: [Agents]
+      summary: 自然語言提問（on-demand agent），串流回傳計畫、工具呼叫與答案
+      requestBody: { content: { application/json: { schema: { type: object, properties: { question: { type: string }, context: { type: object } }, required: [question] } } } }
+      responses: { '200': { description: text/event-stream } }
+  /v1/agents/runs/{run_id}:
+    get: { tags: [Agents], summary: 執行紀錄（計畫、工具呼叫、成本）, parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/dictionary/events:
+    get: { tags: [Governance], summary: 事件字典（含未登記隔離事件）, responses: { '200': { description: ok } } }
+  /v1/lineage/{entity}:
+    get: { tags: [Governance], summary: 血緣, parameters: [{ name: entity, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/audit:
+    get: { tags: [Governance], summary: 審計（含 agent.tool_called）, responses: { '200': { description: ok } } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+  schemas:
+    Event:
+      type: object
+      required: [type, time, project]
+      properties:
+        type: { type: string, enum: [track, profile_set, profile_set_once, profile_increment, profile_append, profile_unset, item_set, item_delete, track_id_bind, track_id_unbind] }
+        event: { type: string }
+        event_id: { type: string }
+        time: { type: integer, description: ms since epoch (UTC) }
+        project: { type: string }
+        source: { type: string }
+        distinct_id: { type: string }
+        identities: { type: object, additionalProperties: true }
+        entity: { type: object, properties: { type: { type: string }, id: { type: string } } }
+        properties: { type: object, additionalProperties: true }
+    SemanticQuery:
+      type: object
+      required: [metric, time]
+      properties:
+        metric: { type: string }
+        time: { type: object, properties: { from: { type: string }, to: { type: string }, grain: { type: string, enum: [hour, day, week, month] } } }
+        filters: { type: array, items: { type: object, properties: { dimension: { type: string }, op: { type: string }, value: {} } } }
+        group_by: { type: array, items: { type: string } }
+        segment: { type: string }
+        compare: { type: string, enum: [previous_period, segment] }
+    CompiledQuery:
+      type: object
+      properties:
+        sql: { type: string }
+        estimated_scan_bytes: { type: number }
+        lineage: { type: array, items: { type: string } }
+        warnings: { type: array, items: { type: string } }
+    AnalyticsResult:
+      type: object
+      properties:
+        rows: { type: array, items: { type: object } }
+        chart_spec: { type: object }
+        sql: { type: string }
+        lineage: { type: array, items: { type: string } }
+        cost: { type: object, properties: { scan_bytes: { type: number }, ms: { type: number } } }
+        warnings: { type: array, items: { type: string } }
+    Insight:
+      type: object
+      required: [kind, title, summary]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [funnel, anomaly, risk, campaign, opportunity, answer] }
+        title: { type: string }
+        summary: { type: string }
+        hypothesis: { type: string }
+        evidence: { type: array, items: { type: object } }
+        chart_spec: { type: object }
+        scope: { type: object }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        severity: { type: string, enum: [low, medium, high, critical] }
+        actions: { type: array, items: { type: object } }
+        created_by: { type: object }
+        status: { type: string, enum: [open, acknowledged, resolved, dismissed] }

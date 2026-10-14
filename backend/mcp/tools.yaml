@@ -1,0 +1,103 @@
+# Agent Tool Gateway 工具目錄（MCP）。新增工具 = 新增一條 + 實作 handler。
+gateway:
+  budgets:
+    per_call_scan_bytes: 20e9
+    per_run_scan_bytes: 100e9
+    per_run_llm_tokens: 50000
+    per_agent_daily_scan_bytes: 2e12
+  policy:
+    identity: on_behalf_of          # agent 永遠代表某個使用者或服務身份
+    masking: column_level           # 回傳前套列級遮罩
+    row_level: from_dimensions      # 由 dimensions.yaml 的 row_level 規則套用
+    audit_event: agent.tool_called
+tools:
+  - name: semantic.search
+    description: 以自然語言搜尋事件、指標、維度與命名分群，回傳定義與說明。
+    input: { query: string, "kinds?": [event|metric|dimension|segment], "limit?": int }
+    output: { items: [ { kind, name, cn, description, caveats: list } ] }
+    scope: read
+  - name: semantic.describe
+    description: 取得單一 metric / event / dimension 的完整定義、口徑與注意事項。
+    input: { kind: string, name: string }
+    scope: read
+  - name: metric.query
+    description: 語意查詢：metric × filters × group_by × time。回傳表格、圖表規格、SQL、血緣、成本。
+    input: { metric: string, time: { from, to, grain }, "filters?": [ { dimension, op, value } ], "group_by?": [string], "compare?": previous_period|segment }
+    output: { rows, chart_spec, sql, lineage, cost: { scan_bytes, ms }, warnings: list }
+    scope: read
+    handler: analytics.events
+  - name: funnel.run
+    description: 漏斗分析；steps 為事件名或帶條件的事件；回傳各步人數、轉化率、流失最大步驟。
+    input: { steps: [ { event, "filter?" } ], window: string, time: {from,to}, "group_by?": [string], "segment?": string }
+    scope: read
+    handler: analytics.funnel
+  - name: retention.run
+    description: 留存分析（cohort × 回訪事件）。
+    input: { cohort_event, return_event, days: [int], time: {from,to}, "group_by?": [string] }
+    scope: read
+  - name: path.run
+    description: 路徑分析：某事件前／後 N 步最常見序列。
+    input: { anchor_event, direction: before|after, steps: int, time: {from,to}, "segment?": string }
+    scope: read
+  - name: interval.run
+    description: 間隔分析：事件 A 到事件 B 的時間分布。
+    input: { from_event, to_event, time: {from,to}, "group_by?": [string] }
+    scope: read
+  - name: distribution.run
+    description: 分布分析：某指標在使用者層的分桶分布。
+    input: { metric, "buckets?": [number], time: {from,to} }
+    scope: read
+  - name: attribution.run
+    description: 歸因分析（first/last/linear/position/time_decay）。
+    input: { conversion_event, touch_events: [string], model, window, time: {from,to} }
+    scope: read
+  - name: ltv.run
+    description: LTV cohort 分析。
+    input: { cohort_event, value_event, value_field, horizon, time: {from,to}, "group_by?": [string] }
+    scope: read
+  - name: anomaly.scan
+    description: 對指標時間序列做季節性與門檻偵測，回傳異常點與偏離幅度。
+    input: { metric, time: {from,to,grain}, "group_by?": [string], "sensitivity?": low|medium|high }
+    scope: read
+  - name: segment.preview
+    description: 以規則預估分群人數與畫像摘要（不建立）。
+    input: { rules: object }
+    scope: read
+  - name: segment.propose
+    description: 提議建立分群（草稿，需人審批後才生效）。
+    input: { name, rules: object, rationale: string, "insight_id?": string }
+    scope: propose
+    approval: required
+  - name: profile.get
+    description: 單人畫像（脫敏）。
+    input: { one_id: string, reason: string }
+    scope: sensitive
+    masking: strict
+    audit: reason_required
+  - name: profile.timeline
+    description: 單人行為序列（用戶細查，脫敏），僅限呼叫者有權的客戶。
+    input: { one_id: string, time: {from,to}, reason: string }
+    scope: sensitive
+    masking: strict
+    audit: reason_required
+  - name: insight.search
+    description: 檢索歷史洞察（向量 + 關鍵字）。
+    input: { query: string, "kinds?": [string], "limit?": int }
+    scope: read
+  - name: insight.create
+    description: 建立洞察物件（含證據、圖表規格、信心度）。
+    input: { insight: object }
+    scope: write
+  - name: trigger.propose
+    description: 提議即時規則（草稿，需審批）。
+    input: { name, dsl: object, rationale: string, "insight_id?": string }
+    scope: propose
+    approval: required
+  - name: knowledge.search
+    description: 搜尋事件字典、指標說明、業務詞彙、SOP。
+    input: { query: string, "limit?": int }
+    scope: read
+  - name: report.compose
+    description: 把多個洞察組成日報／週報草稿。
+    input: { insight_ids: [string], audience: string }
+    scope: read

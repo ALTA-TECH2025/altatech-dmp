@@ -1,0 +1,81 @@
+# 事件字典（語意層）— agent 與 UI 共用。新增事件只需在此登記。
+version: 3
+project: altatech_dmp
+events:
+  - name: ga.page_view
+    cn: 頁面瀏覽
+    entity: user
+    source: ga360
+    required: [$page_url, page_group]
+    optional: [$referrer, $utm_source, $utm_medium, $utm_campaign]
+    description: Web 頁面瀏覽，由 GA360 匯入或 GTM Server-side 即時雙寫。
+    example_questions: ["開戶頁每天多少人看", "哪個渠道帶來最多開戶頁流量"]
+  - name: ga.screen_view
+    cn: 畫面瀏覽
+    entity: user
+    source: ga360
+    required: [$screen_name, $app_version]
+  - name: quote_view
+    cn: 看盤
+    entity: user
+    source: ga360
+    required: [symbol, market]
+    optional: [duration_ms, from_screen]
+    description: 使用者打開個股／商品報價頁。
+  - name: login
+    cn: 登入
+    entity: user
+    source: app
+    required: [channel, auth_method]
+  - name: account_open_start
+    cn: 開戶開始
+    entity: user
+    source: account_system
+    required: [channel]
+  - name: account_open_submit
+    cn: 開戶送件
+    entity: user
+    source: account_system
+    required: [channel, account_types]
+  - name: account_open_approved
+    cn: 開戶核准
+    entity: user
+    source: account_system
+    required: [account_no, account_type, branch_id, agent_id]
+  - name: fund_deposit
+    cn: 入金
+    entity: account
+    source: ledger_cdc
+    required: [amount, method]
+  - name: order_submit
+    cn: 委託
+    entity: account
+    source: trade_cdc
+    required: [order_no, symbol, market, side, order_type, price, qty, amount, channel]
+    optional: [trade_kind, time_in_force]
+    caveats: ["委託不等於成交；成交金額請用 order_filled"]
+  - name: order_filled
+    cn: 成交
+    entity: account
+    source: trade_cdc
+    required: [order_no, filled_qty, filled_price, filled_amount, fee, tax]
+  - name: order_rejected
+    cn: 委託失敗
+    entity: account
+    source: trade_cdc
+    required: [order_no, reason_code]
+  - name: fund_subscribe
+    cn: 基金申購
+    entity: account
+    source: fund_cdc
+    required: [fund_code, amount, plan_type]
+  - name: push_opened
+    cn: 推播開啟
+    entity: user
+    source: ma
+    required: [campaign_id, push_id]
+  - name: coach_session_completed
+    cn: AI 對練完成
+    entity: agent
+    source: ai_coach
+    required: [scenario_id, score]

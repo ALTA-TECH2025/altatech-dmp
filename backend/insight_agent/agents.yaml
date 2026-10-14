@@ -1,0 +1,46 @@
+# Agent 註冊表：每個 agent = skill + 觸發 + 允許工具 + 身份 + 預算
+llm_gateway: { provider: enterprise-gateway, model: default-insight, fallback: local-small }
+agents:
+  - id: anomaly-watch
+    cn: 異常偵測
+    skill: skills/anomaly-watch.md
+    trigger: { type: schedule, cron: "*/15 * * * *" }
+    identity: svc-insight-readonly
+    tools: [semantic.search, semantic.describe, metric.query, anomaly.scan, insight.search, insight.create, knowledge.search]
+    budget: { scan_bytes: 50e9, llm_tokens: 20000 }
+    notify: { min_severity: high, channels: [in_app, line] }
+  - id: funnel-doctor
+    cn: 漏斗診斷
+    skill: skills/funnel-doctor.md
+    trigger: { type: schedule, cron: "30 6 * * *" }
+    identity: svc-insight-readonly
+    tools: [semantic.search, semantic.describe, metric.query, funnel.run, interval.run, path.run, segment.preview, segment.propose, insight.search, insight.create, knowledge.search]
+    budget: { scan_bytes: 100e9, llm_tokens: 40000 }
+  - id: churn-radar
+    cn: 流失預警
+    skill: skills/churn-radar.md
+    trigger: { type: schedule, cron: "0 7 * * *" }
+    identity: svc-insight-readonly
+    tools: [metric.query, retention.run, distribution.run, segment.preview, segment.propose, trigger.propose, insight.create, insight.search]
+    budget: { scan_bytes: 100e9, llm_tokens: 40000 }
+  - id: campaign-review
+    cn: 活動復盤
+    skill: skills/campaign-review.md
+    trigger: { type: event, topic: dmp.triggers, match: { rule: campaign_ended } }
+    identity: svc-insight-readonly
+    tools: [metric.query, funnel.run, attribution.run, insight.create, report.compose]
+    budget: { scan_bytes: 60e9, llm_tokens: 30000 }
+  - id: ask
+    cn: 洞察問答
+    skill: skills/ask.md
+    trigger: { type: question }
+    identity: on_behalf_of_user
+    tools: [semantic.search, semantic.describe, metric.query, funnel.run, retention.run, path.run, interval.run, distribution.run, attribution.run, ltv.run, anomaly.scan, segment.preview, segment.propose, profile.get, profile.timeline, insight.search, insight.create, knowledge.search]
+    budget: { scan_bytes: 100e9, llm_tokens: 50000 }
+  - id: reviewer
+    cn: 證據覆核
+    skill: skills/reviewer.md
+    trigger: { type: event, topic: dmp.insights, match: { status: open, created_by.agent: "*" } }
+    identity: svc-insight-readonly
+    tools: [metric.query, funnel.run, retention.run, semantic.describe]
+    budget: { scan_bytes: 40e9, llm_tokens: 10000 }

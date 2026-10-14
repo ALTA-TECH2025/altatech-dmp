@@ -1,0 +1,81 @@
+# 指標（語意層）。agent 回答任何數字都必須對應到這裡的一個 metric。
+metrics:
+  - name: dau
+    cn: 日活躍客戶
+    type: uniq_users
+    event: any
+    grain: day
+    description: 當日有任一事件的去重 OneID 數。
+    owner: data-platform
+  - name: login_users
+    cn: 登入人數
+    type: uniq_users
+    event: login
+  - name: quote_viewers
+    cn: 看盤人數
+    type: uniq_users
+    event: quote_view
+  - name: orders
+    cn: 委託筆數
+    type: count
+    event: order_submit
+  - name: order_reject_rate
+    cn: 委託失敗率
+    type: ratio
+    numerator: { type: count, event: order_rejected }
+    denominator: { type: count, event: order_submit }
+    caveats: ["系統性失敗（reason_code 以 SYS 開頭）與使用者因素應分開看"]
+  - name: traders
+    cn: 成交客戶數
+    type: uniq_users
+    event: order_filled
+  - name: turnover
+    cn: 成交金額
+    type: sum
+    event: order_filled
+    field: filled_amount
+    unit: TWD
+  - name: fee_income
+    cn: 手續費收入
+    type: sum
+    event: order_filled
+    field: fee
+    unit: TWD
+  - name: deposits
+    cn: 入金金額
+    type: sum
+    event: fund_deposit
+    field: amount
+    unit: TWD
+  - name: new_accounts
+    cn: 新開戶數
+    type: uniq_users
+    event: account_open_approved
+  - name: open_to_fund_rate
+    cn: 開戶→入金 轉化率
+    type: funnel_rate
+    steps: [account_open_approved, fund_deposit]
+    window: 30d
+  - name: fund_to_trade_rate
+    cn: 入金→首筆成交 轉化率
+    type: funnel_rate
+    steps: [fund_deposit, order_filled]
+    window: 30d
+  - name: d7_trade_retention
+    cn: 新戶 7 日交易留存
+    type: retention
+    cohort_event: account_open_approved
+    return_event: order_filled
+    days: 7
+  - name: digital_self_service_rate
+    cn: 數位自助率
+    type: ratio
+    numerator: { type: count, event: order_submit, filter: "channel IN ('app','web')" }
+    denominator: { type: count, event: order_submit }
+  - name: ltv_180
+    cn: 180 日累積手續費
+    type: ltv
+    cohort_event: account_open_approved
+    value_event: order_filled
+    value_field: fee
+    horizon: 180d

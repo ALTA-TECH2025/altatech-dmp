@@ -1,0 +1,60 @@
+# 維度（語意層）。sensitivity：L0 聚合 / L1 行為 / L2 敏感業務 / L3 代碼化識別 / L4 可識別（永不進分析倉）
+dimensions:
+  - name: platform
+    cn: 平台
+    column: platform
+    type: string
+    values: [web, ios, android]
+    sensitivity: L1
+  - name: channel
+    cn: 渠道
+    column: channel
+    type: string
+    values: [app, web, agent, ivr, api]
+    sensitivity: L1
+  - name: utm_source
+    cn: 流量來源
+    column: utm_source
+    type: string
+    sensitivity: L1
+    caveats: ["GA streaming 匯出缺新使用者流量來源，日批到齊後才完整"]
+  - name: symbol
+    cn: 商品代號
+    column: symbol
+    type: string
+    sensitivity: L2
+  - name: market
+    cn: 市場
+    column: props.market
+    type: string
+    values: [TSE, OTC, US, HK, FUND]
+    sensitivity: L1
+  - name: branch_id
+    cn: 分公司
+    column: items.branch_id
+    type: string
+    sensitivity: L2
+    row_level: "branch_id IN :user.branches"
+  - name: agent_id
+    cn: 營業員
+    column: items.agent_id
+    type: string
+    sensitivity: L2
+    row_level: "agent_id IN :user.agents"
+  - name: lifecycle
+    cn: 生命週期
+    column: tags.lifecycle
+    type: string
+    values: [new, growing, mature, dormant, churned]
+    sensitivity: L1
+  - name: age_band
+    cn: 年齡層
+    column: users.age_band
+    type: string
+    values: ["<25", "25-34", "35-44", "45-54", "55-64", "65+"]
+    sensitivity: L1
+  - name: app_version
+    cn: App 版本
+    column: props.$app_version
+    type: string
+    sensitivity: L1
