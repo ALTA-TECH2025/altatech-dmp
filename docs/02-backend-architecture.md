@@ -115,9 +115,20 @@ Kafka dmp.events ─► Flink CEP（規則）─► dmp.triggers ─► 訂閱�
 
 ## 9. 部署
 
-- Helm umbrella chart；Operators：Strimzi（Kafka）、Flink K8s Operator、ClickHouse Operator、CloudNativePG。
+- Helm umbrella chart；Operators：Strimzi（Kafka、KafkaConnect/Debezium）、Flink K8s Operator、ClickHouse Operator、CloudNativePG。
+- 自建映像 6 個（v0.6 整併，docs/13 §3.1）：
+
+| 映像 | 內容 | 分工 |
+|---|---|---|
+| dmp-core | API、語意層、分群標籤、OneID、Profile、Policy Engine、Tag Sync、受眾推送（Python 模組化單體） | `DMP_ROLE=api`／`worker` 兩種 Deployment |
+| dmp-agent | Tool Gateway（MCP）+ Agent Runtime + 洞察排程 | 第一階段不含 AI 時 replicas=0 |
+| dmp-ingest | Go Collector（/v1/events、/sa、/ga4） | HPA；CDC 由 KafkaConnect 跑官方 Debezium |
+| dmp-batch | Airflow（LocalExecutor）+ dbt + Spark client + dlt | 一個 Pod；CronJob／PodOperator 共用 |
+| dmp-flink-jobs | Flink SQL 作業集 | 一個 FlinkDeployment |
+| dmp-web | 前端靜態檔（nginx-unprivileged） | |
+
 - LLM：預設走企業內 LLM Gateway（可接 Claude／本地模型）；agent 不直接持有外部金鑰。
-- 本機開發：`backend/docker-compose.yml`（Kafka、ClickHouse、PostgreSQL+pgvector、Valkey、SeaweedFS；授權見 07 文件）。
+- 本機開發：`backend/docker-compose.yml`（Kafka、ClickHouse、PostgreSQL+pgvector、Valkey、SeaweedFS；`--profile apps` 再起 core-api／core-worker／agent／web；授權見 07 文件）。
 
 ## 10. 與商用產品的替換關係
 

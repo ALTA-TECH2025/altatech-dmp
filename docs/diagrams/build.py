@@ -116,11 +116,11 @@ def component_deployment():
     # GKE
     s.group(300, 80, 960, 770, "GKE 區域叢集  asia-east1（私有節點、Workload Identity、Binary Authorization）", fill="#FBFCFE")
     pools = [
-        ("node pool: ingest", 316, [("Collector ×3（Go, HPA）", "Deployment"), ("GTM SS 代理", "Deployment"), ("Debezium / Flink CDC", "Kafka Connect / Flink job")], "green"),
-        ("node pool: stream", 316, [("Flink JobManager ×2（HA）", "Flink K8s Operator"), ("Flink TaskManager ×6–16", "normalize / eventize / oneid / session / rules"), ("Checkpoint → GCS", "exactly-once")], "teal"),
-        ("node pool: data", 316, [("Kafka ×3（KRaft, Strimzi）", "StatefulSet, 2 TB NVMe"), ("Airflow（scheduler ×2, workers ×3）", "DAG 由建模產物生成"), ("dbt / Spark on K8s", "日批、BigQuery 匯入")], "yellow"),
+        ("node pool: ingest", 316, [("dmp-ingest：Collector ×2–3（Go, HPA）", "Deployment；/v1/events、/sa、/ga4"), ("GTM Server-side 代理", "Deployment"), ("KafkaConnect：Debezium CDC", "Strimzi，官方 connector 映像")], "green"),
+        ("node pool: stream", 316, [("dmp-flink-jobs：Flink JM ×1–2", "Flink K8s Operator，一個 FlinkDeployment"), ("Flink TaskManager ×2–16", "normalize / eventize / oneid / session / rules"), ("Checkpoint → GCS", "exactly-once")], "teal"),
+        ("node pool: data", 316, [("Kafka ×3（KRaft, Strimzi）", "StatefulSet，PVC 500 GB–2 TB"), ("dmp-batch：Airflow + dbt + Spark + dlt", "一個映像一個 Pod；DAG 由建模產物生成"), ("Spark on K8s（Spot，臨時）", "舊資料導入、BigQuery 大批匯入")], "yellow"),
         ("node pool: olap", 316, [("ClickHouse 2 shard × 2 replica", "Altinity Operator, c3-highmem, Hyperdisk 8 TB"), ("ClickHouse Keeper ×3", "協調"), ("冷層 → GCS（S3 disk）", "TTL 13 個月")], "yellow"),
-        ("node pool: app", 316, [("API / Semantic / Segment / Profile / OneID", "FastAPI, Deployment ×2–3"), ("Tool Gateway（MCP）+ Agent Runtime", "Deployment ×2–3"), ("Web（nginx-unprivileged）", "Deployment ×2")], "brand"),
+        ("node pool: app", 316, [("dmp-core：API / 語意層 / 分群 / OneID / 同步 / 推送", "一個映像；api ×2–3（online）、worker ×1–2（batch）"), ("dmp-agent：Tool Gateway（MCP）+ Runtime", "Deployment ×0–2；第二階段再開"), ("dmp-web（nginx-unprivileged）", "Deployment ×2")], "brand"),
     ]
     for i, (name, _, items, col) in enumerate(pools):
         x = 316 + (i % 3) * 312; y = 110 + (i // 3) * 250
@@ -134,7 +134,7 @@ def component_deployment():
     # ingress
     s.box(316, 620, 930, 50, "Ingress（GCE）+ Cloud Armor WAF + IAP", ["/v1/events、/sa、/ga4（Collector）；/api（服務）；/（Web）；/mcp（工具閘道）"], "brand", small=True)
     s.box(316, 684, 930, 50, "NetworkPolicy 預設拒絕 · Pod Security restricted · 非 root / 唯讀檔案系統 · Secret Manager CSI", [], "red", small=True)
-    s.box(316, 748, 930, 50, "Helm umbrella chart（values.yaml 機房 / values-gcp.yaml / values-small.yaml）· 映像：UBI 9 minimal / distroless · cosign 簽章", [], "gray", small=True)
+    s.box(316, 748, 930, 50, "Helm umbrella chart（values-gcp-6n / 3n-xl / 3n …）· 自建映像 6 個：ingest、core、agent、batch、flink-jobs、web · UBI 9 / distroless · cosign 簽章", [], "gray", small=True)
     s.note(316, 830, "機房：RKE2 + CloudNativePG（PostgreSQL）+ Valkey + SeaweedFS 或 Ceph + OpenBao，values.yaml 即預設。")
     # managed services (right)
     s.group(1280, 80, 292, 520, "GCP 託管服務  Managed")
@@ -150,7 +150,7 @@ def component_deployment():
     s.arrow(1246, 300, 1294, 300, "", dash=True)
     s.arrow(1246, 700, 1294, 700, ""); s.note(1248, 692, "Kafka/API")
     s.note(28, 900, "有狀態服務只有 5 個：Kafka、ClickHouse、PostgreSQL、Valkey、物件儲存；其餘皆為無狀態 Deployment，可水平擴展。")
-    s.note(28, 920, "規模：PoC 單節點 → 中型 2×2 ClickHouse（日 3 億事件）→ 大型 4×2（百億級總量、日 5 億），見 docs/07、09。")
+    s.note(28, 920, "檔位：A 6 台（olap ×2 + general ×4）、D 3 台大機型（c3-highmem-44 ×3 同構）、C 3 台測試；同一套 Helm 只換 values，見 docs/13。")
     s.legend(28, 960, [("green", "接入"), ("teal", "串流"), ("yellow", "儲存／批次"), ("brand", "服務／前端"), ("red", "安全"), ("gray", "託管／支撐")])
     s.save("component-deployment.svg")
 

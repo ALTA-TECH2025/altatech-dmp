@@ -70,19 +70,19 @@ flowchart LR
   end
   subgraph GKE[GKE asia-east1 / RKE2]
     subgraph P1[ingest pool]
-      C1[Collector ×3 Go] ; C2[Debezium / Flink CDC]
+      C1[dmp-ingest Collector ×2–3 Go] ; C2[KafkaConnect Debezium CDC]
     end
     subgraph P2[stream pool]
       F1[Flink JM ×2 + TM ×6–16]
     end
     subgraph P3[data pool]
-      K1[Kafka ×3 KRaft] ; A1[Airflow] ; D1[dbt / Spark]
+      K1[Kafka ×3 KRaft] ; A1[dmp-batch: Airflow + dbt + Spark + dlt] ; D1[dmp-flink-jobs]
     end
     subgraph P4[olap pool]
       CH1[ClickHouse 2×2 + Keeper ×3]
     end
     subgraph P5[app pool]
-      API[API / Semantic / Segment / OneID] ; MCP[Tool Gateway + Agent Runtime] ; WEB[Web]
+      API[dmp-core: API / 語意層 / 分群 / OneID / 同步 / 推送] ; MCP[dmp-agent: MCP 閘道 + Runtime] ; WEB[dmp-web]
     end
     subgraph P6[platform]
       KC[Keycloak] ; PR[Prometheus + OTel] ; GF[Grafana OSS]

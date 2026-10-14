@@ -1,0 +1,16 @@
+# dmp-core：模組化單體（Python）。一個映像、以 DMP_ROLE 分工：
+#   api    → FastAPI：Analytics / Semantic / Profile / OneID / Segments / Governance / IAM / Activation API（docs/02）
+#   worker → 分群標籤日批協調、OneID 合併、Tag Sync（Kafka → 下游）、受眾推送（Webhook / GA4 MP）、審批到期與審計歸檔
+# 基底：Red Hat UBI 9 minimal（免費再散布，與 RHEL 9 同源）；非 root、唯讀檔案系統
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.4 AS base
+RUN microdnf install -y python3.12 python3.12-pip shadow-utils && microdnf clean all \
+ && useradd -r -u 10001 -s /sbin/nologin app
+WORKDIR /app
+COPY backend/ ./backend/
+RUN python3.12 -m pip install --no-cache-dir -r backend/requirements.txt
+USER 10001
+ENV PYTHONUNBUFFERED=1 DMP_ROLE=api
+EXPOSE 8080
+# DMP_ROLE=api  → uvicorn backend.api.main:app
+# DMP_ROLE=worker → python -m backend.worker（tag sync / activation / oneid merge / scheduler）
+ENTRYPOINT ["python3.12", "-m", "backend.entry"]

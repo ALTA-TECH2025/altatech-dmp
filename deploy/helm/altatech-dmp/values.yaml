@@ -12,13 +12,13 @@ postgres: { inCluster: true, instances: 2, storageGi: 500, extensions: [pgvector
 valkey: { inCluster: true, replicas: 3 }
 objectStorage: { type: seaweedfs, endpoint: http://seaweedfs-s3:8333 }   # 機房：SeaweedFS（Apache-2.0）；GCP 覆寫為 GCS
 secrets: { provider: openbao }                                            # 機房：OpenBao（MPL-2.0）；GCP 覆寫為 Secret Manager
-apps:
-  collector: { replicas: 3, cpu: 2, memoryGi: 2, hpa: { min: 3, max: 20, targetCpu: 60 } }
-  api: { replicas: 3, cpu: 2, memoryGi: 4 }
-  semantic: { replicas: 2 }
-  segment: { replicas: 2 }
-  gateway: { replicas: 3 }
-  agentRuntime: { replicas: 2, llmGateway: http://llm-gateway.internal }
+apps:   # v0.6：6 個自建映像 ingest / core / agent / batch / flink-jobs / web
+  ingest: { replicas: 3, cpu: 2, memoryGi: 2, hpa: { min: 3, max: 20, targetCpu: 60 } }
+  core:
+    api: { replicas: 3, cpu: 2, memoryGi: 4, priorityClass: online }
+    worker: { replicas: 2, cpu: 3, memoryGi: 6, priorityClass: batch, kafkaBatch: 5000, topics: { tags: dmp.tag_updates, segments: dmp.segment_updates } }
+  agent: { replicas: 2, cpu: 2, memoryGi: 4, llmGateway: http://llm-gateway.internal }
+  batch: { airflow: { executor: LocalExecutor, replicas: 1, cpu: 2, memoryGi: 6 }, dbt: { parallelism: 6, schedule: "0 2 * * *", versionsKept: 7 } }
   web: { replicas: 2 }
 airflow: { enabled: true, workers: 3 }
 observability: { prometheus: true, otel: true, dashboards: grafana-oss, logs: opensearch }

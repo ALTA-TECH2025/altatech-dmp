@@ -1,0 +1,12 @@
+# dmp-agent：Tool Gateway（MCP，/mcp）+ Agent Runtime + 洞察排程，同一映像同一 Pod（兩個程序由 backend.agent_entry 啟動）
+# 第一階段不含 AI 時 replicas=0 即可；語意層與 Policy Engine 在 dmp-core，agent 只透過工具閘道存取資料
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.4 AS base
+RUN microdnf install -y python3.12 python3.12-pip shadow-utils && microdnf clean all \
+ && useradd -r -u 10001 -s /sbin/nologin app
+WORKDIR /app
+COPY backend/ ./backend/
+RUN python3.12 -m pip install --no-cache-dir -r backend/requirements.txt
+USER 10001
+ENV PYTHONUNBUFFERED=1 LLM_GATEWAY_URL=http://llm-gateway.internal
+EXPOSE 8090
+ENTRYPOINT ["python3.12", "-m", "backend.agent_entry"]   # 啟動 mcp/server.py（HTTP）與 insight_agent/runtime.py（排程）

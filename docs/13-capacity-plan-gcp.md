@@ -1,6 +1,6 @@
-# GCP 容量規劃：3 年 200 億事件（首年 100 億含舊資料導入、年增 50 億）、每日 1,000 個標籤、API 同步、50 人同時上線（常駐 3–6 台）
+# GCP 容量規劃：3 年 200 億事件（首年 100 億含舊資料導入、年增 50 億）、每日 500–1,000 個標籤、API 同步、50 人同時上線（常駐 3–6 台）
 
-> 版本 v0.5（2026-10-14）。本版依新假設縮小事件量，並把常駐機器限制在 **3–6 台**：6 台（完整 HA，建議）、4 台（平衡）、3 台（最小）。價格為粗估，以 GCP Pricing Calculator 為準。舊版（300 億、18 台）保留於 §10 供對照。
+> 版本 v0.6（2026-10-14）：新增 **D 檔「3 台大機型」**（§4.8，標籤以 500 個估）與 **Docker 模組整併**（§3.1：自建映像 8 → 6、3 台檔位 Pod 數 −35%）。v0.5：本版依新假設縮小事件量，並把常駐機器限制在 **3–6 台**：6 台（完整 HA，建議）、4 台（平衡）、3 台（最小）。價格為粗估，以 GCP Pricing Calculator 為準。舊版（300 億、18 台）保留於 §10 供對照。
 
 ## 1. 需求換算
 
@@ -10,7 +10,7 @@
 | 日常增量 | 50 億 / 年 ≈ **1,370 萬 / 日** | 設計尖峰 5,000 萬 / 日、**7,000 事件/秒**（開盤前 10 分鐘） |
 | 舊資料導入 | 50 億，一次性 | 以 Spark／dlt 從 GCS Parquet 批次灌入，4 台臨時 Spot 節點約 1–2 天，導入後釋放 |
 | 客戶數（假設） | 300 萬 OneID | — |
-| 標籤 | 1,000 個，每日全量重算；5,000 個標籤值 Bitmap，版本保留 7 份 | — |
+| 標籤 | **500 個**（本版基準，§4.7／§4.8）或 1,000 個（A／B／C 檔原估），每日全量重算；每標籤約 5 個值 → 2,500–5,000 個 Bitmap，版本保留 7 份 | — |
 | API 同步 | 每日變動 5–10%（0.75–1.5 億個「客戶 × 標籤」變更） | Kafka 增量 + GCS Parquet + REST 點查 |
 | 同時上線 | 50 人；高峰 5 查詢/秒 | ClickHouse 併發上限 100 |
 
@@ -45,6 +45,23 @@
 | 臨時運算用 Spot，不算常駐 | 舊資料導入 50 億、BigQuery 大批匯入、模型訓練：Spot 池 0–4 台，用完歸零 |
 | 託管服務不占台數 | Cloud SQL、Memorystore、GCS 為託管；若要再省，可改在叢集內跑 CloudNativePG 與 Valkey（各省約 US$250、80／月，但增加維運） |
 
+### 3.1 Docker 模組整併（v0.6）
+
+原本自建映像 8 個（collector、api、semantic、agent-runtime、tool-gateway、web、flink-jobs、spark-jobs），且 api／semantic／segment／oneid／tagSync 各自一個 Deployment。整併原則：**同一語言、同一資料存取層、同一發版節奏的模組合成一個映像，用環境變數分工**；第三方有狀態服務不動。
+
+| 整併後映像 | 內含模組（整併前） | 執行形態（3 台檔位） |
+|---|---|---|
+| **dmp-core**（Python 模組化單體） | api、semantic（語意層）、segment／tag（分群標籤）、oneid、profile、policy engine、tag-sync（API 同步）、activation（Webhook／GA4 受眾推送） | 一個映像，`DMP_ROLE=api`（Deployment ×2–3，online）／`DMP_ROLE=worker`（Deployment ×1–2，batch）；共用 ClickHouse／PostgreSQL／Valkey 連線池與語意層快取 |
+| **dmp-agent** | tool-gateway（MCP）、agent-runtime、洞察排程 | 一個映像一個 Pod（×0–2）；第一階段不含 AI 時 replicas=0，不需改其他模組 |
+| **dmp-ingest**（Go） | collector | Deployment ×2 + HPA；CDC 不再自建映像，改由 Strimzi KafkaConnect 以官方 Debezium connector 跑（`kafka.connect`） |
+| **dmp-batch** | airflow、dbt、spark client、dlt 匯入器 | Airflow 改 LocalExecutor，scheduler + webserver 同一 Pod；KubernetesPodOperator／CronJob 跑 dbt、dlt 也用同一映像 |
+| **dmp-flink-jobs** | flink-jobs（normalize／eventize／oneid／session／rules） | 一個 FlinkDeployment（session），1 JM + 2 TM；spark-jobs 併入 dmp-batch |
+| **dmp-web** | web | nginx-unprivileged ×2 |
+
+效果：自建映像 **8 → 6**（不含 AI 時實際運行 5 個）；3 台檔位的 Pod 數由約 26 降到約 17（Kafka 3、Keeper 3、ClickHouse 2、KafkaConnect 1、Flink 3、core 4、agent 2、ingest 2、batch 1、web 2、Keycloak 2、Prometheus 1、Grafana 1 — 其中有狀態的仍只有 Kafka／ClickHouse／PostgreSQL／Valkey／物件儲存）。好處是發版、弱掃、SBOM 與 Renovate 的面只剩 6 個映像，單一開發者也能維護；代價是 core 內部要守模組邊界（以 Python package 隔離、CI 禁止跨模組 import），日後流量不均時再把 worker 或 segment 拆出去，映像不必重建。
+
+對應檔案：`deploy/images/Dockerfile.{ingest,core,agent,batch,flink-jobs,web}`、`backend/docker-compose.yml`（profile `apps`／`full`）、各 `values-*.yaml` 的 `apps.{ingest,core.api,core.worker,agent,batch,web}` 與 `kafka.connect`。
+
 ## 4. 建議配置（常駐 3–6 台）
 
 ### 4.1 三個檔位總覽
@@ -55,8 +72,10 @@
 | **B. 平衡** | **4** | c3-highmem-22 × 2（olap）+ n2-standard-32 × 2（general） | 108 / 608 GB | ClickHouse 完整；Kafka／Keeper 一台放 2 個 Pod，該台故障短暫失去 quorum | ≈ US$ 6,500 | ≈ 4,900 |
 | **C. 最小** | **3** | n2-highmem-32 × 3（同構，每台都可跑任何服務） | 96 / 768 GB | ClickHouse 2 副本在 2 台；Kafka／Keeper 一機一 Pod；任一台故障仍可服務 | ≈ US$ 6,150 | ≈ 4,600 |
 | C-經濟 | 3 | n2-highmem-16 × 3 | 48 / 384 GB | 同 C | ≈ US$ 4,000 | ≈ 3,100 |
+| **D. 3 台大機型**（§4.8） | **3** | c3-highmem-44 × 3（同構，44 vCPU / 352 GB） | 132 / 1,056 GB | 同 C；ClickHouse 可選第三副本 | ≈ US$ 8,600 | ≈ 6,200 |
+| D-平衡 | 3 | n2-highmem-48 × 3（48 vCPU / 384 GB） | 144 / 1,152 GB | 同 D | ≈ US$ 8,400 | ≈ 6,050 |
 
-四個檔位都滿足：3 年 200 億事件全熱、每日 1,000 標籤、50 人同時上線。C-經濟 的代價是標籤日批約 90 分鐘、30 天漏斗 P95 約 15 秒、尖峰時段查詢與批次互相影響較明顯。
+六個檔位都滿足：3 年 200 億事件全熱、每日 500–1,000 標籤、50 人同時上線。C-經濟 的代價是標籤日批約 90 分鐘、30 天漏斗 P95 約 15 秒、尖峰時段查詢與批次互相影響較明顯。**成本跟 vCPU 走**：D 檔 3 台大機型的 vCPU／記憶體比 A 檔 6 台還多（132 vs 120 vCPU、1,056 vs 608 GB），所以月費更高而不是更低；選 D 是為了「台數最少、餘裕最大、日後不加機器」，不是為了省錢。
 
 ### 4.2 A. 標準 HA：6 台（建議）
 
@@ -127,12 +146,38 @@ olap 同 A；general 改 **n2-standard-32 × 2**（32 vCPU / 128 GB）。Kafka 3
 機房 Dell 對應：正式 OLAP 2 台可改 **R760 單顆 Xeon Gold 16 核、192 GB、2 × 3.84 TB NVMe**（約 NT$ 38–48 萬／台），正式 5 台合計約 NT$ 190–250 萬；加測試 3 台共 8 台約 NT$ 300–390 萬（未稅）。
 第二階段若標籤回到 1,000 個或加 AI：OLAP 記憶體可線上升級（GCP 換機型、機房加 RAM），general 加 1 台即可。對應 `values-gcp-5n-lite.yaml`。
 
+### 4.8 D. 3 台大機型（標籤 500 個；台數最少、餘裕最大）
+
+「3 台但選大一號機型」的版本。每台 **c3-highmem-44**（44 vCPU / 352 GB，Sapphire Rapids，支援 Hyperdisk），同構，任何無狀態 Pod 都能落在任一台；ClickHouse 2 副本固定在 node-1/2，node-3 專跑串流、批次與平台元件，並預留第三副本位置。
+
+| 台 | c3-highmem-44（44 vCPU / 352 GB） | 磁碟 |
+|---|---|---|
+| node-1 | ClickHouse replica-1（24 vCPU / 220 GB）+ Kafka-1 + Keeper-1 + ingest + core-api + web | Hyperdisk Balanced 4 TB（15k IOPS / 1.2 GB/s）+ Kafka PVC 500 GB |
+| node-2 | ClickHouse replica-2（24 vCPU / 220 GB）+ Kafka-2 + Keeper-2 + ingest + core-api + web | 同上 |
+| node-3 | Kafka-3 + Keeper-3 + KafkaConnect（CDC）+ Flink JM/TM（12 vCPU / 48 GB）+ batch（Airflow/dbt，3 vCPU）+ core-worker ×2 + agent ×2 + Keycloak + Prometheus + Grafana | Kafka PVC 500 GB + Prometheus PVC 150 GB；選配 Hyperdisk 4 TB 作第三副本 |
+
+| 項目 | C 檔（n2-highmem-32 × 3） | **D 檔（c3-highmem-44 × 3）** |
+|---|---|---|
+| vCPU / RAM | 96 / 768 GB | **132 / 1,056 GB** |
+| ClickHouse 每副本 | 20 vCPU / 160 GB | **24 vCPU / 220 GB**（+ 新一代 CPU 約 +25% 單核效能） |
+| 500 個標籤全量日批 | 約 35 分鐘 | **約 18–20 分鐘**（1,000 個約 40 分鐘） |
+| 30 天漏斗 P95（50 人併發） | 約 6 秒 | **約 3 秒** |
+| 事件量翻倍到 400 億 | 需加分片 | 磁碟擴到 8 TB 即可，不加機器 |
+| AI 洞察第二階段 | 可能需加 1 台 | 不加機器（node-3 仍有 ≥ 15 vCPU / 150 GB 餘裕） |
+| 任一台故障 | 可服務，無狀態 Pod 擠進剩餘兩台（記憶體偏緊） | 可服務，剩餘兩台仍各有 > 100 GB 餘裕 |
+| GCP 月費（隨需／1 年 CUD） | ≈ 6,150 / 4,600 | **≈ 8,600 / 6,200**；D-平衡（n2-highmem-48）≈ 8,400 / 6,050 |
+
+選配：ClickHouse **第三副本**放 node-3（`clickhouse.replicas: 3`，+ Hyperdisk 4 TB ≈ US$ 475／月）：讀取併發 +50%、任兩台故障仍可讀、滾動升級無降級。標籤 500 個時不必，事件翻倍或併發上百人再開。
+
+對應 `values-gcp-3n-xl.yaml`、tofu profile `3n-xl`；機房規格見 §11.1b。
+
 ### 4.5 環境指派（已決定）
 
 | 環境 | 檔位 | 常駐 | 說明 |
 |---|---|---|---|
-| **正式** | **A. 標準 HA** | 6 台（c3-highmem-22 × 2 + n2-standard-16 × 4）+ 臨時 Spot | 完整 HA；Cloud SQL HA、Memorystore Valkey、GCS |
-| **測試（SIT／UAT）** | **C. 最小** | 3 台（n2-highmem-32 × 3 同構） | 與正式同一套 Helm chart，只換 values；資料用合成或正式脫敏抽樣（1/10）；效能驗證時可暫時把 ClickHouse 盤擴到 4 TB |
+| **正式（選項 1，v0.5）** | **A. 標準 HA** | 6 台（c3-highmem-22 × 2 + n2-standard-16 × 4）+ 臨時 Spot | 完整 HA；Cloud SQL HA、Memorystore Valkey、GCS |
+| **正式（選項 2，v0.6，台數最少）** | **D. 3 台大機型** | 3 台（c3-highmem-44 × 3 同構）+ 臨時 Spot | 標籤 500 個；餘裕最大、AI 第二階段與事件翻倍都不加機器；月費比 A 高約 30% |
+| **測試（SIT／UAT）** | **C-經濟** | 3 台（n2-highmem-16 × 3 同構；標籤 500 個時足夠） | 與正式同一套 Helm chart，只換 values；資料用合成或正式脫敏抽樣（1/10）；效能驗證時可暫時換成 C 檔機型 |
 | 開發 | docker compose 或單節點 | 0–1 台 | 本機或 1 台 n2-standard-8 |
 
 測試環境可在非上班時段縮到 0（GKE 節點池 min=0 + Cloud SQL 停機），月費可再降一半以上。
@@ -171,20 +216,20 @@ olap 同 A；general 改 **n2-standard-32 × 2**（32 vCPU / 128 GB）。Kafka 3
 
 ## 8. 月費粗估（asia-east1，隨需，未稅，USD）
 
-| 項目 | A. 6 台 | B. 4 台 | C. 3 台 | C-經濟 3 台 |
-|---|---|---|---|---|
-| 運算（常駐） | c3-highmem-22 × 2 ≈ 2,200 + n2-standard-16 × 4 ≈ 2,280 | 2,200 + n2-standard-32 × 2 ≈ 2,280 | n2-highmem-32 × 3 ≈ 4,260 | n2-highmem-16 × 3 ≈ 2,130 |
-| Hyperdisk Balanced（4 TB × 2）+ 佈建 IOPS | ≈ 950 | ≈ 950 | ≈ 950 | ≈ 950 |
-| 其他區塊磁碟（Kafka、Prometheus、系統盤） | ≈ 250 | ≈ 200 | ≈ 150 | ≈ 150 |
-| Cloud SQL HA 2 vCPU/8 GB + 200 GB | ≈ 250 | ≈ 250 | ≈ 250 | ≈ 250 |
-| Memorystore Valkey 8 GB | ≈ 80 | ≈ 80 | ≈ 80 | ≈ 80 |
-| GCS 8 TB | ≈ 160 | ≈ 160 | ≈ 160 | ≈ 160 |
-| 網路、Cloud Armor、KMS、Logging | ≈ 300 | ≈ 300 | ≈ 300 | ≈ 300 |
-| 臨時 Spot（舊資料導入，攤 3 年） | ≈ 20 | ≈ 20 | ≈ 20 | ≈ 20 |
-| **合計（隨需）** | **≈ 6,500** | **≈ 6,450** | **≈ 6,150** | **≈ 4,050** |
-| **1 年 CUD（運算 −37%）** | **≈ 4,900** | **≈ 4,850** | **≈ 4,600** | **≈ 3,100** |
+| 項目 | A. 6 台 | B. 4 台 | C. 3 台 | C-經濟 3 台 | **D. 3 台大機型** |
+|---|---|---|---|---|---|
+| 運算（常駐） | c3-highmem-22 × 2 ≈ 2,200 + n2-standard-16 × 4 ≈ 2,280 | 2,200 + n2-standard-32 × 2 ≈ 2,280 | n2-highmem-32 × 3 ≈ 4,260 | n2-highmem-16 × 3 ≈ 2,130 | c3-highmem-44 × 3 ≈ 6,600（n2-highmem-48 × 3 ≈ 6,390） |
+| Hyperdisk Balanced（4 TB × 2）+ 佈建 IOPS | ≈ 950 | ≈ 950 | ≈ 950 | ≈ 950 | ≈ 1,050（15k IOPS）|
+| 其他區塊磁碟（Kafka、Prometheus、系統盤） | ≈ 250 | ≈ 200 | ≈ 150 | ≈ 150 | ≈ 170 |
+| Cloud SQL HA 2 vCPU/8 GB + 200 GB | ≈ 250 | ≈ 250 | ≈ 250 | ≈ 250 | ≈ 250 |
+| Memorystore Valkey 8 GB | ≈ 80 | ≈ 80 | ≈ 80 | ≈ 80 | ≈ 80 |
+| GCS 8 TB | ≈ 160 | ≈ 160 | ≈ 160 | ≈ 160 | ≈ 160 |
+| 網路、Cloud Armor、KMS、Logging | ≈ 300 | ≈ 300 | ≈ 300 | ≈ 300 | ≈ 300 |
+| 臨時 Spot（舊資料導入，攤 3 年） | ≈ 20 | ≈ 20 | ≈ 20 | ≈ 20 | ≈ 20 |
+| **合計（隨需）** | **≈ 6,500** | **≈ 6,450** | **≈ 6,150** | **≈ 4,050** | **≈ 8,600** |
+| **1 年 CUD（運算 −37%）** | **≈ 4,900** | **≈ 4,850** | **≈ 4,600** | **≈ 3,100** | **≈ 6,200** |
 
-台數從 6 降到 3 省得有限（約 5%），因為成本主要在 vCPU 與磁碟；要明顯省錢請選 C-經濟（縮機型）並接受效能折衷。對比舊版（300 億、18 台）約 10,900 / 月，A 檔降約 40%。
+台數從 6 降到 3 省得有限（約 5%），因為成本主要在 vCPU 與磁碟；要明顯省錢請選 C-經濟（縮機型）並接受效能折衷。D 檔 3 台大機型比 A 檔貴約 US$ 2,100／月（CUD 後約 1,300），換到的是 +10% vCPU、+74% 記憶體與「三年內不加機器」。對比舊版（300 億、18 台）約 10,900 / 月，A 檔降約 40%。
 
 ## 9. 風險與緩解
 | 風險 | 緩解 |
@@ -210,6 +255,15 @@ ClickHouse 2×2 c3-highmem-22（4 TB）、Kafka n2-standard-4 ×3、Flink n2-sta
 | 合計 | **6** | 128 核／256 執行緒 | 1,024 GB | NVMe 15 TB + SSD 5.8 TB + HDD 64 TB | 10 GbE 交換器 ×2（冗餘）| |
 
 另需（非運算節點，通常既有）：負載平衡（F5／HAProxy／MetalLB）、備份目標（NAS 20 TB 或既有備份系統）、NTP、DNS、AD／LDAP、WAF；舊資料導入時可借 2–4 台臨時 VM。
+
+### 11.1b 正式（對應 D 檔，3 台大機型）
+
+| 角色 | 台數 | CPU | 記憶體 | 磁碟 | 網路 | 說明 |
+|---|---|---|---|---|---|---|
+| all（同構，3 台皆可跑 ClickHouse） | 3 | **2 × 24 核**（48 核／96 執行緒），Intel Xeon 4th/5th gen 或 AMD EPYC 9004，3.0 GHz 以上 | **512 GB** DDR5 ECC | 系統 2 × 480 GB SSD（RAID1）；**資料 2 × 3.84 TB NVMe**（ClickHouse，node-3 作第三副本或接手）；**1 × 1.92 TB NVMe**（Kafka、PostgreSQL、Prometheus PVC）；**2 × 8 TB HDD**（SeaweedFS，3 台 48 TB 原始、約 16–24 TB 可用） | 2 × 25 GbE（bond）+ 1 GbE 管理 | 對應 c3-highmem-44 × 1.3 倍餘裕；ClickHouse 每副本可配 28 核／320 GB |
+| 合計 | **3** | 144 核／288 執行緒 | 1,536 GB | NVMe 29 TB + SSD 2.9 TB + HDD 48 TB | 25 GbE 交換器 ×2 | |
+
+測試環境配 §11.2 的 3 台（標籤 500 個時可降為 1 × 16 核／128 GB／1 × 1.92 TB NVMe）。合計 **6 台**。
 
 ### 11.2 測試（對應 C 檔，3 台）
 
@@ -269,13 +323,30 @@ ClickHouse 2×2 c3-highmem-22（4 TB）、Kafka n2-standard-4 ×3、Flink n2-sta
 - 若 general 節點的物件儲存改用既有 NAS／S3，可拿掉每台 2 × 8 TB HDD，約省 1.5–2 萬／台。
 - 美國 Dell 官網配置器與第三方經銷的參考：2 × Xeon Gold 6430、256 GB DDR5、2 × 1.92 TB NVMe 的 R760 約 US$ 8,500–10,500（不含台灣通路保固加價）。
 
+
+### 11.6b Dell PowerEdge 採購預估（D 檔：正式 3 台大機型 + 測試 3 台 = 6 台）
+
+| 角色 | 機型 | 建議配置 | 台數 | 單價（NT$） | 小計（NT$） |
+|---|---|---|---|---|---|
+| 正式（同構大機型） | **PowerEdge R760**（2U） | 2 × Xeon Gold 24 核（如 6542Y）、512 GB DDR5（16 × 32 GB）、BOSS-N1 2 × 480 GB、2 × 3.84 TB NVMe U.2 Mixed Use + 1 × 1.92 TB NVMe、2 × 8 TB NL-SAS HDD（HBA355 直通）、Broadcom 雙埠 25GbE、2 × 1,400 W | 3 | 78–98 萬 | 234–294 萬 |
+| 測試（同構，標籤 500） | **PowerEdge R660**（1U） | 1 × Xeon Gold 16 核、128 GB DDR5、BOSS-N1 2 × 480 GB、1 × 1.92 TB NVMe、2 × 4 TB NL-SAS HDD、雙埠 10/25GbE、2 × 800 W | 3 | 28–36 萬 | 84–108 萬 |
+| **6 台主機小計** | | | **6** | | **318–402 萬** |
+| 網路 | 2 × 10/25GbE ToR 交換器（Dell S5248F 或同級，含光模組／DAC） | | 2 | 8–15 萬 | 16–30 萬 |
+| 機櫃／PDU／線材 | 若無既有機櫃 | | 1 | 5–10 萬 | 5–10 萬 |
+| **硬體合計（未稅）** | | | | | **約 339–442 萬** |
+| 營業稅 5% | | | | | 17–22 萬 |
+| **含稅合計** | | | | | **約 356–464 萬** |
+
+與 §11.6 的 9 台方案（343–466 萬）**金額相當**：少 3 台機殼、電源與保固，換成每台多一顆 CPU、256 GB 記憶體與 NVMe。差別在維運面（6 台 vs 9 台）、機櫃空間（約 9U vs 13U）與電力（約 −1.5 kW），以及 D 檔三年內不必加機器。RHEL 訂閱若需要：6 台 3 年約 45–63 萬（比 9 台省約 25–32 萬）。
+
 ### 11.5 與 GCP 的差異
 - 機房 A 檔的 general 節點比 GCP 版大一倍記憶體並多 HDD，是因為把 Cloud SQL、Memorystore、GCS 收進叢集。
 - 沒有 Spot：舊資料導入用臨時 VM 或在夜間用 general 節點閒置資源分批跑（約 3–5 天）。
-- 硬體一次性採購：正式 6 台約 NT$ 210–280 萬、含測試 3 台共 9 台約 NT$ 320–430 萬（未稅，含 3 年保固；見 §11.6）；相較 GCP A 檔 3 年約 NT$ 560–750 萬（CUD 後約 NT$ 570 萬），測試環境另計。
+- 硬體一次性採購：正式 6 台約 NT$ 210–280 萬、含測試 3 台共 9 台約 NT$ 320–430 萬（未稅，含 3 年保固；見 §11.6）；D 檔正式 3 台大機型約 NT$ 234–294 萬、含測試共 6 台約 NT$ 320–400 萬（§11.6b）；相較 GCP A 檔 3 年約 NT$ 560–750 萬（CUD 後約 NT$ 570 萬），測試環境另計。
 
 ## 12. 對應檔案
-- `deploy/helm/altatech-dmp/values-gcp-6n.yaml`（A，正式，預設）、`values-gcp-4n.yaml`（B）、`values-gcp-3n.yaml`（C，測試）。
-- `deploy/helm/altatech-dmp/values-onprem-6n.yaml`（機房正式）、`values-onprem-3n.yaml`（機房測試）：叢集內 CloudNativePG／Valkey／SeaweedFS、LocalPV。
-- `deploy/tofu/gcp/main.tf`：profile `6n`（預設）、`4n`、`3n`、`30b`、`large`。
+- `deploy/helm/altatech-dmp/values-gcp-6n.yaml`（A，正式，預設）、`values-gcp-3n-xl.yaml`（**D，正式 3 台大機型**）、`values-gcp-5n-noai.yaml`（A′）、`values-gcp-5n-lite.yaml`（A″）、`values-gcp-4n.yaml`（B）、`values-gcp-3n.yaml`（C，測試）。
+- `deploy/images/Dockerfile.{ingest,core,agent,batch,flink-jobs,web}`：整併後 6 個映像（§3.1）；`deploy/Makefile images`。
+- `deploy/helm/altatech-dmp/values-onprem-6n.yaml`（機房正式 A）、`values-onprem-3n-xl.yaml`（機房正式 D，3 台大機型）、`values-onprem-3n.yaml`（機房測試）：叢集內 CloudNativePG／Valkey／SeaweedFS、LocalPV。
+- `deploy/tofu/gcp/main.tf`：profile `6n`（預設）、`3n-xl`、`5n-noai`、`5n-lite`、`4n`、`3n`、`30b`、`large`。
 - `backend/openapi.yaml`：`/v1/sync/*`。

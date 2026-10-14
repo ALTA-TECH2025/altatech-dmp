@@ -1,0 +1,38 @@
+# 機房正式環境 D 檔：3 台大機型（2 × 24 核／512 GB／NVMe，docs/13 §11.1b）；RKE2；叢集內 CloudNativePG、Valkey、SeaweedFS、OpenBao
+# helm upgrade --install dmp ./helm/altatech-dmp -f values.yaml -f values-onprem-3n-xl.yaml
+kafka: { replicas: 3, connect: { replicas: 1, cpu: 1, memoryGi: 2 }, storageGi: 500, partitions: { events: 12, tag_updates: 12 }, retentionDays: 7, nodeSelector: { pool: all }, antiAffinity: required, resources: { cpu: 3, memoryGi: 12 }, storageClass: local-nvme }
+flink: { jobmanagers: 1, taskmanagers: 2, slotsPerTm: 6, memoryGi: 24, nodeSelector: { pool: all }, nodeHint: node-3, checkpointDir: s3://dmp-checkpoints }
+clickhouse:
+  shards: 1
+  replicas: 2            # 3 台皆配 2 × 3.84 TB NVMe，可改 3 副本
+  cpu: 28
+  memoryGi: 320
+  storage: { class: local-nvme, sizeTi: 7 }
+  keeper: { replicas: 3, nodeSelector: { pool: all }, antiAffinity: required, cpu: 1, memoryGi: 2 }
+  nodeSelector: { pool: all }
+  nodeAffinity: { requiredHosts: [node-1, node-2] }
+  settings:
+    max_concurrent_queries: 120
+    workloads:
+      human: { max_memory_usage: 20000000000, max_execution_time: 60, max_threads: 12 }
+      agent: { max_memory_usage: 10000000000, max_execution_time: 40, max_threads: 8, max_bytes_to_read: 20000000000 }
+      batch: { priority: 10, max_threads: 14 }
+    query_cache: { enabled: true, ttlSeconds: 300 }
+    tiers: { hotMonths: 36, cold: { type: s3, endpoint: http://seaweedfs-s3:8333, bucket: dmp-cold, enabled: false } }
+spark: { enabled: true, onDemand: true, spot: false, nodeSelector: { pool: all }, nodeHint: node-3, executors: { max: 3, cpu: 4, memoryGi: 16 } }
+apps:
+  ingest:       { replicas: 2, cpu: 1, memoryGi: 1, hpa: { min: 2, max: 4, targetCpu: 60 }, nodeSelector: { pool: all } }
+  core:
+    api:        { replicas: 2, cpu: 3, memoryGi: 6, priorityClass: online, nodeSelector: { pool: all } }
+    worker:     { replicas: 2, cpu: 4, memoryGi: 8, priorityClass: batch, nodeSelector: { pool: all }, nodeHint: node-3, kafkaBatch: 5000, topics: { tags: dmp.tag_updates, segments: dmp.segment_updates } }
+  agent:        { replicas: 2, cpu: 2, memoryGi: 4, nodeSelector: { pool: all } }
+  batch:        { airflow: { executor: LocalExecutor, replicas: 1, cpu: 3, memoryGi: 8 }, dbt: { parallelism: 8, schedule: "0 2 * * *", versionsKept: 7, expectedTags: 500 }, nodeSelector: { pool: all }, nodeHint: node-3 }
+  web:          { replicas: 2, cpu: 0.5, memoryGi: 0.5, nodeSelector: { pool: all } }
+platform: { keycloak: { replicas: 2, antiAffinity: preferred }, prometheus: { retentionDays: 30, storageGi: 150, storageClass: local-nvme }, grafana: { replicas: 1 }, nodeSelector: { pool: all } }
+priorityClasses: { online: 1000, batch: 100 }
+resourceQuota: { all: { cpu: 132, memoryGi: 1400 } }
+scheduling: { batchNodeHint: node-3 }
+postgres: { inCluster: true, cnpg: { instances: 2, cpu: 2, memoryGi: 8, storageGi: 200, storageClass: local-nvme, nodeHint: node-3 } }
+valkey: { inCluster: true, replicas: 2, memoryGi: 8 }
+objectStore: { type: seaweedfs, replicas: 3, storageClass: local-hdd, volumeTi: 16 }   # 3 台 × 2 × 8 TB HDD
+secrets: { type: openbao, replicas: 2 }

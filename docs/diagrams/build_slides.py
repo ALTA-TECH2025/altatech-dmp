@@ -146,7 +146,7 @@ def s3():
 
 # ------------------------------------------------------------------ 4. GCP 部署與規模
 def s4():
-    s = Slide("GCP 部署架構與規模：3 年 200 億事件、每日 1,000 標籤、50 人同時上線", "常駐 3–6 台三個檔位；容器化部署套件（Docker 映像 + Helm）同一套件可部署機房；資料全程留在 asia-east1", 4)
+    s = Slide("GCP 部署架構與規模：3 年 200 億事件、每日 500–1,000 標籤、50 人同時上線", "常駐 3–6 台多個檔位（A 6 台／D 3 台大機型／C 3 台）；容器化部署套件（Docker 映像 + Helm）同一套件可部署機房；資料全程留在 asia-east1", 4)
     s.rect(96, 215, 1160, 560, "#FBFCFE", C["brandline"], 20)
     s.text(120, 252, "A. 標準 HA（建議）— GKE 私有叢集 6 台 + 臨時 Spot", 24, 800, C["brand"])
     pools = [("分析倉 olap", ["ClickHouse 1 shard × 2 replica，3 年全熱 3.9 TB / 副本", "任一台故障另一副本續服"], "c3-highmem-22 × 2 · Hyperdisk 4 TB", "yellow"),
@@ -161,15 +161,15 @@ def s4():
     s.rect(120, 600, 1110, 60, C["redsoft"], C["red"], 12)
     s.text(144, 638, "安全：私有節點、Workload Identity、Binary Authorization、CMEK、Cloud Armor WAF、IAP、NetworkPolicy、UBI 映像", 18, 600)
     s.rect(120, 680, 1110, 70, C["graysoft"], C["gray"], 12)
-    s.text(144, 708, "B. 平衡 4 台：olap × 2 + n2-standard-32 × 2　　C. 最小 3 台：n2-highmem-32 × 3 同構，ClickHouse 2 副本固定在其中 2 台", 18, 600)
-    s.text(144, 736, "三檔位皆滿足 200 億事件全熱、1,000 標籤日批、50 人上線；台數減少省錢有限（約 5%），成本主要在 vCPU 與磁碟", 17, 400, C["gray"])
+    s.text(144, 708, "D. 3 台大機型：c3-highmem-44 × 3 同構（132 vCPU / 1 TB），標籤 500、三年不加機器　　C. 3 台：n2-highmem-32 × 3（測試）", 18, 600)
+    s.text(144, 736, "各檔位皆滿足 200 億事件全熱、500–1,000 標籤日批、50 人上線；成本跟 vCPU 走：D 檔比 A 檔貴約 30%，換取台數最少與最大餘裕", 17, 400, C["gray"])
     s.rect(1300, 215, 524, 560, C["brandsoft"], C["brand"], 20)
     s.text(1324, 252, "規模與成本（A 檔 6 台）", 24, 800, C["brand"])
-    nums = [("6 台", "常駐 GKE 節點（舊版 18 台）"), ("120 vCPU / 608 GB", "運算與記憶體"), ("10.5 TB + 8 TB", "區塊磁碟 + GCS"), ("約 50 分鐘", "1,000 個標籤全量日批"), ("US$ 4.9–6.5 k / 月", "1 年 CUD vs 隨需；3 台約 4.6–6.2 k；粗估未稅")]
+    nums = [("6 台", "常駐 GKE 節點（舊版 18 台）"), ("120 vCPU / 608 GB", "運算與記憶體"), ("10.5 TB + 8 TB", "區塊磁碟 + GCS"), ("約 50 分鐘", "1,000 個標籤全量日批"), ("US$ 4.9–6.5 k / 月", "1 年 CUD vs 隨需；D 檔 3 台大機型 6.2–8.6 k；粗估未稅")]
     for i, (a, b) in enumerate(nums):
         y = 300 + i * 92
         s.text(1324, y + 30, a, 34, 800, C["ink"]); s.text(1324, y + 58, b, 17, 400, C["gray"])
-    s.text(96, 830, "正式環境採 A 檔 6 台；測試環境採 C 檔 3 台（同一套 Helm 只換 values，非上班時段可縮到 0）。機房方案：6 台實體機／VM（2 × 32 核 256 GB NVMe 8 TB + 4 × 16 核 128 GB），RKE2 + Rocky/RHEL 9。", 19, 600, C["ink"])
+    s.text(96, 830, "正式：A 檔 6 台或 D 檔 3 台大機型；測試：3 台（同一套 Helm 只換 values，非上班時段可縮到 0）。機房：D 檔 3 台 2 × 24 核／512 GB／NVMe 或 A 檔 6 台，RKE2 + Rocky/RHEL 9。自建映像整併為 6 個。", 19, 600, C["ink"])
     s.text(96, 866, "弱點與授權：所有元件 OSI 寬鬆授權（Grafana OSS 僅內部使用）、LTS 版本、CI 自動 SBOM／Grype／Trivy／授權白名單；修補 SLA Critical 7 天。", 19, 400, C["gray"])
     s.save("slide-4-gcp-deployment.svg")
 

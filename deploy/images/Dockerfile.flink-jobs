@@ -1,0 +1,5 @@
+# dmp-flink-jobs：Flink SQL 作業（normalize / eventize / oneid / session / rules）打包成一個映像，由 Flink Kubernetes Operator 以 session 模式載入
+FROM flink:1.20-scala_2.12-java17
+COPY backend/stream/sql/ /opt/dmp/sql/
+COPY backend/stream/lib/ /opt/flink/lib/          # flink-sql-connector-kafka、flink-connector-clickhouse、flink-cdc（皆 Apache-2.0）
+USER flink

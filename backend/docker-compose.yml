@@ -1,4 +1,5 @@
 # 本機開發環境（非正式部署）。正式部署見 docs/02-backend-architecture.md §9。
+# 基礎設施 5 個（kafka、clickhouse、postgres、valkey、seaweedfs）+ 自建應用 4 個（profile apps：core-api、core-worker、agent、web）；ingest/batch/flink-jobs 以 profile full 啟動。
 services:
   kafka:
     image: apache/kafka:3.8.0
@@ -29,3 +30,37 @@ services:
     command: server -s3 -dir=/data
     environment: { WEED_S3_ACCESS_KEY: dmp, WEED_S3_SECRET_KEY: dmp-secret }
     ports: ["8333:8333", "9333:9333"]
+  core-api:
+    build: { context: .., dockerfile: deploy/images/Dockerfile.core }
+    environment: { DMP_ROLE: api, CLICKHOUSE_URL: http://clickhouse:8123, DATABASE_URL: postgresql://dmp:dmp@postgres:5432/dmp, VALKEY_URL: redis://redis:6379, KAFKA_BOOTSTRAP: kafka:9092 }
+    ports: ["8080:8080"]
+    depends_on: [clickhouse, postgres, redis, kafka]
+    profiles: [apps]
+  core-worker:
+    build: { context: .., dockerfile: deploy/images/Dockerfile.core }
+    environment: { DMP_ROLE: worker, CLICKHOUSE_URL: http://clickhouse:8123, DATABASE_URL: postgresql://dmp:dmp@postgres:5432/dmp, VALKEY_URL: redis://redis:6379, KAFKA_BOOTSTRAP: kafka:9092 }
+    depends_on: [clickhouse, postgres, redis, kafka]
+    profiles: [apps]
+  agent:
+    build: { context: .., dockerfile: deploy/images/Dockerfile.agent }
+    environment: { CORE_URL: http://core-api:8080, DATABASE_URL: postgresql://dmp:dmp@postgres:5432/dmp, LLM_GATEWAY_URL: "${LLM_GATEWAY_URL:-http://host.docker.internal:4000}" }
+    ports: ["8090:8090"]
+    depends_on: [core-api]
+    profiles: [apps]
+  web:
+    build: { context: .., dockerfile: deploy/images/Dockerfile.web }
+    ports: ["8000:8080"]
+    profiles: [apps]
+  ingest:
+    build: { context: .., dockerfile: deploy/images/Dockerfile.ingest }
+    environment: { KAFKA_BOOTSTRAP: kafka:9092 }
+    ports: ["8081:8081"]
+    depends_on: [kafka]
+    profiles: [full]
+  batch:
+    build: { context: .., dockerfile: deploy/images/Dockerfile.batch }
+    command: standalone
+    environment: { AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://dmp:dmp@postgres:5432/dmp, CLICKHOUSE_URL: http://clickhouse:8123 }
+    ports: ["8082:8080"]
+    depends_on: [postgres, clickhouse]
+    profiles: [full]

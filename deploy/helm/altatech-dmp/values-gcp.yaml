@@ -7,6 +7,6 @@ secrets: { provider: gcp-secret-manager, kmsKeyRing: projects/PROJECT/locations/
 clickhouse: { coldStorage: { type: gcs, bucket: dmp-cold-asia-east1 }, nodeSelector: { pool: olap } }
 flink: { checkpointDir: gs://dmp-checkpoints, nodeSelector: { pool: stream } }
 kafka: { nodeSelector: { pool: data } }
-apps: { collector: { nodeSelector: { pool: ingest } }, api: { nodeSelector: { pool: app } } }
+apps: { ingest: { nodeSelector: { pool: ingest } }, core: { api: { nodeSelector: { pool: app } } } }
 observability: { dashboards: grafana-oss, logs: cloud-logging, managedPrometheus: true }
 ingress: { class: gce, cloudArmorPolicy: dmp-waf, iap: true }

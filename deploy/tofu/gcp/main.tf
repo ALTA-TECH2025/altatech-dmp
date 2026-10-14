@@ -29,7 +29,7 @@ resource "google_container_cluster" "gke" {
 }
 
 # 節點池：預設為 docs/13 的「標準配置」（3 年 300 億事件、每日 1,000 標籤、50 人同時上線）
-variable "profile" { type = string  default = "6n" }   # 6n（預設，6 台）| 4n | 3n | 30b | large
+variable "profile" { type = string  default = "6n" }   # 6n（預設，6 台）| 5n-noai | 5n-lite | 4n | 3n | 3n-xl（3 台大機型）| 30b | large
 locals {
   profiles = {
     "6n" = {   # A. 標準 HA：olap × 2 + general × 4（docs/13 §4.2）
@@ -50,6 +50,10 @@ locals {
     "4n" = {   # B. 平衡：olap × 2 + general × 2（n2-standard-32）
       olap     = { machine = "c3-highmem-22",  min = 2, max = 2,  disk = 100 }
       general  = { machine = "n2-standard-32", min = 2, max = 2,  disk = 200 }
+      spot     = { machine = "n2-standard-8",  min = 0, max = 4,  disk = 100 }
+    }
+    "3n-xl" = {   # D. 3 台大機型：c3-highmem-44 × 3 同構（44 vCPU / 352 GB）；標籤 500；Hyperdisk 4 TB PVC 由 Operator 佈建（docs/13 §4.8）
+      all      = { machine = "c3-highmem-44",  min = 3, max = 3,  disk = 200 }
       spot     = { machine = "n2-standard-8",  min = 0, max = 4,  disk = 100 }
     }
     "3n" = {   # C. 最小：3 台同構 n2-highmem-32，每台 Hyperdisk 4 TB PVC 由 Operator 佈建

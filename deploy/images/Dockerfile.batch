@@ -1,0 +1,12 @@
+# dmp-batch：Airflow（LocalExecutor；scheduler + webserver 同一 Pod）+ dbt-clickhouse + Spark client + dlt 匯入器，同一映像
+# Airflow 的 KubernetesPodOperator 與 CronJob 也用這個映像跑 dbt／dlt，避免多一份映像
+FROM apache/airflow:2.10.3-python3.12
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends openjdk-17-jre-headless && rm -rf /var/lib/apt/lists/*
+USER airflow
+COPY backend/requirements-batch.txt /tmp/requirements-batch.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-batch.txt   # dbt-core、dbt-clickhouse、dlt、pyspark、clickhouse-connect
+COPY --chown=airflow:0 backend/batch/dags/ /opt/airflow/dags/
+COPY --chown=airflow:0 backend/batch/dbt/ /opt/dmp/dbt/
+COPY --chown=airflow:0 backend/integration/ /opt/dmp/integration/
+ENV AIRFLOW__CORE__EXECUTOR=LocalExecutor DBT_PROFILES_DIR=/opt/dmp/dbt

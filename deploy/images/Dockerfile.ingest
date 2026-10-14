@@ -1,4 +1,5 @@
-# Go Collector：多階段建置，distroless 執行
+# dmp-ingest：Go Collector（/v1/events 神策相容、/sa、/ga4 GTM Server-side）；多階段建置，distroless 執行
+# CDC（Debezium）不自建映像，由 Strimzi KafkaConnect 以官方 connector 映像執行（kafka.connect in values）
 FROM golang:1.23 AS build
 WORKDIR /src
 COPY apps/collector/ .

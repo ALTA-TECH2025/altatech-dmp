@@ -34,9 +34,10 @@ deploy/
   helm/altatech-dmp/            umbrella chart：依賴 strimzi、flink-kubernetes-operator、clickhouse-operator、cloudnative-pg（機房）
     values.yaml                 預設（機房）
     values-gcp.yaml             GCP 覆寫（使用 Cloud SQL / Memorystore / GCS / Workload Identity）
+    values-gcp-6n/4n/3n/3n-xl/5n-noai/5n-lite.yaml   檔位覆寫（docs/13）；3n-xl = 3 台大機型
     values-small.yaml           PoC 單節點
   tofu/gcp/                     OpenTofu：VPC、GKE、Cloud SQL、Memorystore、GCS、KMS、IAM、Artifact Registry
-  images/                       Dockerfile（UBI 9 minimal 基底）：collector、api、semantic、agent-runtime、tool-gateway、web、flink-jobs、spark-jobs
+  images/                       Dockerfile 6 個（v0.6 整併）：ingest（Go/distroless）、core（UBI 9：API+語意層+分群+OneID+同步+推送）、agent（MCP 閘道+Runtime）、batch（Airflow+dbt+Spark+dlt）、flink-jobs、web
   Makefile                      make gcp-up / make deploy ENV=gcp / make smoke
 ```
 - 一鍵流程：`tofu apply` → `helm dependency update` → `helm upgrade --install dmp ./helm/altatech-dmp -f values-gcp.yaml` → `make smoke`（寫入 1 萬測試事件並查詢）。
