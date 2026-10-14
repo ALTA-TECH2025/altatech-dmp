@@ -188,9 +188,9 @@ def data_flow():
     # flink chain
     for i in range(3): s.arrow(669, 175 + i * 78, 669, 193 + i * 78, color=C["teal"])
     s.arrow(786, 145 + 2 * 78, 814, 145, "", curve=True)
-    s.parts.append(f'<text x="800" y="128" font-family="{FONT}" font-size="10.5" font-weight="700" fill="{C["teal"]}" text-anchor="middle">dmp.events</text>')
+    s.parts.append(f'<text x="800" y="111" font-family="{FONT}" font-size="10.5" font-weight="700" fill="{C["teal"]}" text-anchor="middle">dmp.events →</text>')
     s.arrow(786, 145 + 3 * 78, 814, 145, curve=True)
-    s.parts.append(f'<text x="{786+6}" y="{145 + 4 * 78 + 4}" font-family="{FONT}" font-size="10.5" font-weight="700" fill="{C["teal"]}">→ ⑥ MA / App（dmp.triggers，秒級）</text>')
+    s.parts.append(f'<text x="556" y="{115 + 4 * 78 + 71}" font-family="{FONT}" font-size="10" font-weight="700" fill="{C["teal"]}">↳ dmp.triggers（秒級）→ ⑥ MA / 營業員 App / AI Coach</text>')
     s.arrow(786, 145 + 5 * 78, 814, 145 + 5 * 78, "")
     # storage internal
     for i in range(2): s.arrow(931, 175 + i * 78, 931, 193 + i * 78, color=C["yellow"])
@@ -204,8 +204,8 @@ def data_flow():
     s.arrow(1310, 145 + 3 * 78, 1338, 145 + 1 * 78, "", curve=True)
     s.arrow(1310, 145 + 4 * 78, 1338, 145 + 1 * 78, "", curve=True)
     s.arrow(1310, 145 + 1 * 78, 1338, 145 + 5 * 78, "", curve=True, dash=True)
-    s.parts.append(f'<text x="{1048+6}" y="{145 + 4 * 78 + 4}" font-family="{FONT}" font-size="10.5" font-weight="700" fill="{C["yellow"]}">→ ⑥ 數倉（Iceberg 雙向映射）</text>')
-    s.parts.append(f'<text x="{1310+4}" y="{145 + 1 * 78 + 36}" font-family="{FONT}" font-size="10" fill="{C["muted"]}">audit ↘ ⑥ 稽核</text>')
+    s.parts.append(f'<text x="818" y="{115 + 4 * 78 + 71}" font-family="{FONT}" font-size="10" font-weight="700" fill="{C["yellow"]}">↳ Iceberg 雙向映射 → ⑥ 數倉 / 神策</text>')
+    s.parts.append(f'<text x="1080" y="{115 + 1 * 78 + 71}" font-family="{FONT}" font-size="10" fill="{C["muted"]}">↳ 每次授權寫 audit → ⑥ 稽核 / Grafana</text>')
     # notes
     s.group(28, 610, 1544, 150, "關鍵規則")
     notes = ["• 同一事件模型承接 GA 行為事件與交易事件；event_id 冪等、ReplacingMergeTree 最終去重；日批（GA360 Daily）覆蓋即時雙寫（GTM SS）。",
