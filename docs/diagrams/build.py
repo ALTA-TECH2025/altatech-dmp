@@ -56,7 +56,7 @@ def system_architecture():
     L = 28; W = 1230; colx = lambda i, n, pad=12: L + 14 + i * ((W - 28) // n) + pad * 0
     # 體驗層
     s.group(L, 80, W, 110, "體驗層  Experience")
-    for i, (t, ls) in enumerate([("DMP Web（React + ECharts）", ["總覽／事件／漏斗／路徑／歸因／用戶列表", "標籤分群／即時觸發／數據整合／權限中心／日誌統計"]), ("AI 洞察助理", ["洞察串流、選擇題式問答", "Agents、工具目錄"]), ("外部系統與受眾推送", ["MA、客服、營業員 App（Webhook）", "GA4 受眾 → Google Ads 再行銷"]), ("外部 AI 客戶端", ["Claude Code / Cursor", "以 MCP 連工具閘道"])]):
+    for i, (t, ls) in enumerate([("DMP Web（React + ECharts）", ["總覽／事件／漏斗／路徑／歸因／用戶列表", "標籤分群／即時觸發／數據整合／權限中心／日誌統計"]), ("AI 洞察助理", ["洞察串流、選擇題式問答", "Agents、工具目錄"]), ("外部系統與受眾推送", ["MA、客服、CRM、數倉（Webhook）", "GA4 受眾 → Google Ads 再行銷"]), ("外部 AI 客戶端", ["Claude Code / Cursor", "以 MCP 連工具閘道"])]):
         s.box(L + 14 + i * 300, 110, 285, 66, t, ls, "brand")
     # Agent 層
     s.group(L, 205, W, 120, "Agent 層  AI Agent Layer（docs/03、05）")
