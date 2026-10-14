@@ -29,14 +29,22 @@ resource "google_container_cluster" "gke" {
 }
 
 # 節點池：預設為 docs/13 的「標準配置」（3 年 300 億事件、每日 1,000 標籤、50 人同時上線）
-variable "profile" { type = string  default = "20b" }   # 20b（預設，7 台）| 30b | large
+variable "profile" { type = string  default = "6n" }   # 6n（預設，6 台）| 4n | 3n | 30b | large
 locals {
   profiles = {
-    "20b" = {   # docs/13 §4.1：3 個節點池 7 台 + 臨時 Spot
-      olap     = { machine = "c3-highmem-22",  min = 2, max = 3,  disk = 100 }   # ClickHouse 1×2；資料盤 Hyperdisk Balanced 4 TB PVC
-      general  = { machine = "n2-standard-16", min = 3, max = 4,  disk = 200 }   # Kafka/Keeper/Flink/Airflow/Collector/CDC/Keycloak/Prometheus/Grafana
-      app      = { machine = "n2-standard-8",  min = 2, max = 3,  disk = 100 }   # API/語意層/分群/OneID/閘道/Agent/TagSync/Web
-      spot     = { machine = "n2-standard-8",  min = 0, max = 4,  disk = 100 }   # 舊資料導入、大批匯入、模型（Spot）
+    "6n" = {   # A. 標準 HA：olap × 2 + general × 4（docs/13 §4.2）
+      olap     = { machine = "c3-highmem-22",  min = 2, max = 2,  disk = 100 }
+      general  = { machine = "n2-standard-16", min = 4, max = 4,  disk = 200 }
+      spot     = { machine = "n2-standard-8",  min = 0, max = 4,  disk = 100 }
+    }
+    "4n" = {   # B. 平衡：olap × 2 + general × 2（n2-standard-32）
+      olap     = { machine = "c3-highmem-22",  min = 2, max = 2,  disk = 100 }
+      general  = { machine = "n2-standard-32", min = 2, max = 2,  disk = 200 }
+      spot     = { machine = "n2-standard-8",  min = 0, max = 4,  disk = 100 }
+    }
+    "3n" = {   # C. 最小：3 台同構 n2-highmem-32，每台 Hyperdisk 4 TB PVC 由 Operator 佈建
+      all      = { machine = "n2-highmem-32",  min = 3, max = 3,  disk = 200 }
+      spot     = { machine = "n2-standard-8",  min = 0, max = 4,  disk = 100 }
     }
     "30b" = {
       ingest   = { machine = "n2-standard-4",  min = 2, max = 6,  disk = 100 }

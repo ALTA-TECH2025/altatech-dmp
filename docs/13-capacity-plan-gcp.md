@@ -1,6 +1,6 @@
-# GCP 容量規劃：3 年 200 億事件（首年 100 億含舊資料導入、年增 50 億）、每日 1,000 個標籤、API 同步、50 人同時上線
+# GCP 容量規劃：3 年 200 億事件（首年 100 億含舊資料導入、年增 50 億）、每日 1,000 個標籤、API 同步、50 人同時上線（常駐 3–6 台）
 
-> 版本 v0.4（2026-10-14）。本版依新假設縮小事件量，並把模組合併到 **3 個節點池、7 台機器**（極簡 6 台）。價格為粗估，以 GCP Pricing Calculator 為準。舊版（300 億、18 台）保留於 §10 供對照。
+> 版本 v0.5（2026-10-14）。本版依新假設縮小事件量，並把常駐機器限制在 **3–6 台**：6 台（完整 HA，建議）、4 台（平衡）、3 台（最小）。價格為粗估，以 GCP Pricing Calculator 為準。舊版（300 億、18 台）保留於 §10 供對照。
 
 ## 1. 需求換算
 
@@ -33,40 +33,58 @@
 
 寫入：平均 160 事件/秒、尖峰 7,000/秒，單一 ClickHouse 節點上限 > 10 萬列/秒，寫入不是瓶頸。
 
-## 3. 模組合併原則
+## 3. 模組合併原則（3–6 台）
 
 | 原則 | 說明 |
 |---|---|
-| OLAP 獨立 | ClickHouse 吃記憶體與磁碟 IO，與其他服務分開，避免查詢被排程作業擠壓 |
-| 「資料 + 平台」合併 | Kafka、Keeper、Flink、Airflow／dbt、Collector、CDC、Keycloak、Prometheus、Grafana 都是中低負載，合併到一個 **general 池**；以 Pod 反親和把 Kafka broker 與 Keeper 分散到 3 台 |
-| 「應用」合併 | API、語意層、分群標籤、OneID、工具閘道、Agent Runtime、Tag Sync、Web 全是無狀態 Python/Go/靜態服務，合併到 **app 池**；50 人負載下 2 台即可，HPA 再長 |
-| 磁碟各自 PVC | Kafka、Prometheus 的資料盤為獨立 PVC（pd-balanced），不與系統盤爭 IO |
-| 臨時運算用 Spot | 舊資料導入與 BigQuery 大批匯入用 Spot 節點池，用完歸零 |
+| 成本跟 vCPU 走，不跟台數走 | 4 台 n2-standard-16 與 2 台 n2-standard-32 價格相同；減少台數主要是減少維運面與授權面，省錢靠「減副本、縮機型、用 Spot」 |
+| ClickHouse 永遠 2 副本 | 分析倉是唯一不能單點的服務；2 副本放在 2 台不同機器 |
+| 有狀態服務用「3 的倍數」才有 quorum | Kafka（KRaft）與 ClickHouse Keeper 各 3 個 Pod；6 台與 3 台可一機一 Pod；4 台時有一台放 2 個，該台故障會短暫失去 quorum（1–2 分鐘內重新排程） |
+| 無狀態服務全部可混跑 | API、語意層、分群標籤、OneID、閘道、Agent、Tag Sync、Web、Collector、CDC、Keycloak、Prometheus、Grafana 以 PriorityClass（online > batch）與 ResourceQuota 共存 |
+| 磁碟各自 PVC | Kafka、Prometheus、ClickHouse 的資料盤獨立 PVC；節點故障時 PD／Hyperdisk 可掛到其他節點 |
+| 臨時運算用 Spot，不算常駐 | 舊資料導入 50 億、BigQuery 大批匯入、模型訓練：Spot 池 0–4 台，用完歸零 |
+| 託管服務不占台數 | Cloud SQL、Memorystore、GCS 為託管；若要再省，可改在叢集內跑 CloudNativePG 與 Valkey（各省約 US$250、80／月，但增加維運） |
 
-## 4. 建議配置
+## 4. 建議配置（常駐 3–6 台）
 
-### 4.1 精簡標準配置（建議）：3 個節點池、**7 台**
+### 4.1 三個檔位總覽
+
+| 檔位 | 常駐台數 | 機器 | vCPU / RAM | HA | 隨需月費 | 1 年 CUD |
+|---|---|---|---|---|---|---|
+| **A. 標準 HA（建議）** | **6** | c3-highmem-22 × 2（olap）+ n2-standard-16 × 4（general，含 app） | 120 / 608 GB | 完整：任一台故障不中斷 | ≈ US$ 6,500 | ≈ 4,900 |
+| **B. 平衡** | **4** | c3-highmem-22 × 2（olap）+ n2-standard-32 × 2（general） | 108 / 608 GB | ClickHouse 完整；Kafka／Keeper 一台放 2 個 Pod，該台故障短暫失去 quorum | ≈ US$ 6,500 | ≈ 4,900 |
+| **C. 最小** | **3** | n2-highmem-32 × 3（同構，每台都可跑任何服務） | 96 / 768 GB | ClickHouse 2 副本在 2 台；Kafka／Keeper 一機一 Pod；任一台故障仍可服務 | ≈ US$ 6,150 | ≈ 4,600 |
+| C-經濟 | 3 | n2-highmem-16 × 3 | 48 / 384 GB | 同 C | ≈ US$ 4,000 | ≈ 3,100 |
+
+四個檔位都滿足：3 年 200 億事件全熱、每日 1,000 標籤、50 人同時上線。C-經濟 的代價是標籤日批約 90 分鐘、30 天漏斗 P95 約 15 秒、尖峰時段查詢與批次互相影響較明顯。
+
+### 4.2 A. 標準 HA：6 台（建議）
 
 | 節點池 | 機型 × 數量 | 每台 vCPU / RAM | 磁碟 | 放什麼 |
 |---|---|---|---|---|
-| **olap** | **c3-highmem-22 × 2**（1 shard × 2 replica） | 22 / 176 GB | **Hyperdisk Balanced 4 TB**（12,000 IOPS、800 MB/s） | ClickHouse（3 年全熱 3.9 TB/副本） |
-| **general** | **n2-standard-16 × 3** | 16 / 64 GB | 系統盤 200 GB；Kafka PVC 500 GB ×3；Prometheus PVC 150 GB | Kafka ×3（各 3 vCPU/12 GB）、Keeper ×3（1/2）、Flink JM 1/2 + TM ×2（4/16）、Airflow + dbt（2/8）、Collector ×2（1/1）、Debezium（1/2）、Keycloak ×2（1/2）、Prometheus（2/8）、Grafana（0.5/1）、OTel（1/2）→ 約 32 vCPU / 100 GB，占 3 台 2/3 |
-| **app** | **n2-standard-8 × 2** | 8 / 32 GB | 系統盤 100 GB | API ×3（2/4）、語意層 ×2（1/2）、分群標籤 ×2（2/4）、OneID ×2（1/2）、工具閘道 ×2（1/2）、Agent Runtime ×2（1/2）、Tag Sync ×2（2/4）、Web ×2（0.5/0.5）→ 約 20 vCPU / 40 GB，HPA 可長到 3 台 |
-| spot（臨時） | n2-standard-8 × 0–4（Spot） | 8 / 32 GB | — | 舊資料導入、BigQuery 大批匯入、模型標籤訓練 |
-| **Cloud SQL for PostgreSQL 16** | db-custom-2-8192（區域 HA） | 2 / 8 GB | SSD 200 GB | 控制面、Insight Store |
-| **Memorystore for Valkey** | 8 GB（Standard HA） | — | — | 快取 |
-| **Cloud Storage** | 8 TB（Standard；備份與 raw 90 天後 Nearline） | — | — | 原始、Iceberg、備份、WORM |
-| **合計** | **7 台常駐**（+ 臨時 Spot） | **≈ 108 vCPU / 608 GB** | ≈ 10.5 TB 區塊 + 8 TB GCS | |
+| **olap** | c3-highmem-22 × 2 | 22 / 176 GB | Hyperdisk Balanced 4 TB（12,000 IOPS） | ClickHouse 1 shard × 2 replica（3 年全熱 3.9 TB/副本） |
+| **general** | n2-standard-16 × 4 | 16 / 64 GB | 系統盤 200 GB；Kafka PVC 500 GB × 3；Prometheus PVC 150 GB | Kafka × 3、Keeper × 3（反親和分散）、Flink JM + TM × 2、Airflow + dbt、Collector × 2、CDC、Keycloak × 2、Prometheus、Grafana、OTel，**以及全部應用**（API × 3、語意層 × 2、分群標籤 × 2、OneID × 2、閘道 × 2、Agent × 2、Tag Sync × 2、Web × 2）→ 約 52 vCPU / 140 GB，占 4 台的 80% |
+| spot | n2-standard-8 × 0–4 | — | — | 舊資料導入、大批匯入、模型 |
+| 託管 | Cloud SQL db-custom-2-8192 HA、Memorystore Valkey 8 GB、GCS 8 TB | — | — | — |
 
-### 4.2 極簡配置：**6 台**
-app 池併入 general 池 → **general n2-standard-16 × 4**，其餘不變。少 1 台、月費再降約 5%；代價是使用者介面延遲受日批影響的風險略增（以 Pod 優先級與 ResourceQuota 緩解）。
+### 4.3 B. 平衡：4 台
+olap 同 A；general 改 **n2-standard-32 × 2**（32 vCPU / 128 GB）。Kafka 3 個 broker 與 Keeper 3 個 Pod 分佈為 2 + 1，PriorityClass 保證 online 服務先排程。適合「台數有限但 vCPU 不想縮」。
 
-### 4.3 為什麼 ClickHouse 不再分 2 shard
-200 億事件單副本 3.9 TB，單節點可穩定承載（ClickHouse 單機百億列常見）；50 人併發下重查詢同時 5–8 個，2 台 × 22 vCPU 足夠。分片帶來的平行加速對 30 天漏斗（約 5 億事件掃描）影響在 2–4 秒內，不值得多 2 台。日後事件量翻倍再加分片（Operator 支援線上擴分片，需重分佈一次）。
+### 4.4 C. 最小：3 台（同構）
 
-### 4.4 非正式環境
-- SIT：values-small，2 台 n2-standard-8（ClickHouse 單節點 + 其餘全擠在一台），資料 1/100。
-- UAT／效能驗證：與正式同拓撲但 olap 改 c3-highmem-8 × 2，用 200 億合成資料跑基準，驗證後縮回。
+| 台 | n2-highmem-32（32 vCPU / 256 GB） | 磁碟 |
+|---|---|---|
+| node-1 | ClickHouse replica-1（20 vCPU / 160 GB）+ Kafka-1 + Keeper-1 + Collector + API/閘道/Agent 各 1 | Hyperdisk 4 TB + Kafka PVC 500 GB |
+| node-2 | ClickHouse replica-2（20 vCPU / 160 GB）+ Kafka-2 + Keeper-2 + Collector + API/閘道/Agent 各 1 | Hyperdisk 4 TB + Kafka PVC 500 GB |
+| node-3 | Kafka-3 + Keeper-3 + Flink JM/TM + Airflow + dbt + CDC + Keycloak + Prometheus + Grafana + 語意層/分群/OneID/Tag Sync/Web | Kafka PVC 500 GB + Prometheus PVC 150 GB + 預留 Hyperdisk 4 TB（可作 ClickHouse 第三副本或故障接手） |
+
+- 任一台故障：ClickHouse 另一副本續服、Kafka 2/3 仍有 quorum、無狀態 Pod 重新排程到剩餘兩台（記憶體 256 GB 足夠）。
+- 日批時段 node-3 跑批次、node-1/2 跑查詢，互不干擾。
+- 事件量翻倍：先把 node-3 升級成 ClickHouse 第三副本或第二分片。
+
+### 4.5 非正式環境
+- SIT：n2-standard-8 × 2（ClickHouse 單節點 + 其餘一台），資料 1/100。
+- UAT／效能驗證：與正式同檔位，驗證後縮回。
 
 ## 5. 每日 1,000 個標籤的運算
 
@@ -102,28 +120,26 @@ app 池併入 general 池 → **general n2-standard-16 × 4**，其餘不變。�
 
 ## 8. 月費粗估（asia-east1，隨需，未稅，USD）
 
-| 項目 | 精簡標準（7 台） | 極簡（6 台） |
-|---|---|---|
-| c3-highmem-22 × 2（≈ $1.5/hr） | ≈ 2,200 | ≈ 2,200 |
-| Hyperdisk Balanced 8 TB + 佈建 IOPS | ≈ 950 | ≈ 950 |
-| n2-standard-16 × 3（≈ $0.78/hr）／× 4 | ≈ 1,700 | ≈ 2,280 |
-| n2-standard-8 × 2（≈ $0.39/hr） | ≈ 570 | — |
-| 區塊磁碟（Kafka 1.5 TB + Prometheus + 系統盤） | ≈ 250 | ≈ 250 |
-| Cloud SQL HA 2 vCPU/8 GB + 200 GB | ≈ 250 | ≈ 250 |
-| Memorystore Valkey 8 GB | ≈ 80 | ≈ 80 |
-| GCS 8 TB（含 Nearline 分層） | ≈ 160 | ≈ 160 |
-| 網路、Cloud Armor、KMS、Logging | ≈ 300 | ≈ 300 |
-| 臨時 Spot（舊資料導入，攤 3 年） | ≈ 20 | ≈ 20 |
-| **合計** | **≈ 6,500 / 月**（≈ 21 萬 TWD） | **≈ 6,500 / 月**（4 台 n2-standard-16 ≈ 3 台 + 2 台 n2-8，費用相近） |
-| 1 年 CUD（運算 −37%） | **≈ 4,900 / 月** | ≈ 4,900 / 月 |
+| 項目 | A. 6 台 | B. 4 台 | C. 3 台 | C-經濟 3 台 |
+|---|---|---|---|---|
+| 運算（常駐） | c3-highmem-22 × 2 ≈ 2,200 + n2-standard-16 × 4 ≈ 2,280 | 2,200 + n2-standard-32 × 2 ≈ 2,280 | n2-highmem-32 × 3 ≈ 4,260 | n2-highmem-16 × 3 ≈ 2,130 |
+| Hyperdisk Balanced（4 TB × 2）+ 佈建 IOPS | ≈ 950 | ≈ 950 | ≈ 950 | ≈ 950 |
+| 其他區塊磁碟（Kafka、Prometheus、系統盤） | ≈ 250 | ≈ 200 | ≈ 150 | ≈ 150 |
+| Cloud SQL HA 2 vCPU/8 GB + 200 GB | ≈ 250 | ≈ 250 | ≈ 250 | ≈ 250 |
+| Memorystore Valkey 8 GB | ≈ 80 | ≈ 80 | ≈ 80 | ≈ 80 |
+| GCS 8 TB | ≈ 160 | ≈ 160 | ≈ 160 | ≈ 160 |
+| 網路、Cloud Armor、KMS、Logging | ≈ 300 | ≈ 300 | ≈ 300 | ≈ 300 |
+| 臨時 Spot（舊資料導入，攤 3 年） | ≈ 20 | ≈ 20 | ≈ 20 | ≈ 20 |
+| **合計（隨需）** | **≈ 6,500** | **≈ 6,450** | **≈ 6,150** | **≈ 4,050** |
+| **1 年 CUD（運算 −37%）** | **≈ 4,900** | **≈ 4,850** | **≈ 4,600** | **≈ 3,100** |
 
-對比舊版（300 億、18 台）約 10,900 / 月：**少 11 台、月費降約 40%**。
+台數從 6 降到 3 省得有限（約 5%），因為成本主要在 vCPU 與磁碟；要明顯省錢請選 C-經濟（縮機型）並接受效能折衷。對比舊版（300 億、18 台）約 10,900 / 月，A 檔降約 40%。
 
 ## 9. 風險與緩解
 | 風險 | 緩解 |
 |---|---|
-| general 池混跑 Kafka 與 Flink，磁碟 IO 互相影響 | Kafka 獨立 PVC；Flink 狀態小（< 10 GB）；Prometheus 獨立 PVC |
-| 單一節點故障影響多個服務 | 3 台 general 以反親和分散 Kafka／Keeper／Keycloak；Flink JM 由 Operator 自動重啟（< 1 分鐘） |
+| 同一台混跑多種服務，磁碟 IO 與記憶體互相影響 | 資料盤各自 PVC；PriorityClass online > batch；ResourceQuota 與 LimitRange；ClickHouse 設記憶體上限 160 GB |
+| 單一節點故障影響多個服務 | Kafka／Keeper／Keycloak 反親和分散；ClickHouse 2 副本在不同台；Flink JM 由 Operator 自動重啟（< 1 分鐘）；4 台檔位接受 Kafka 短暫失去 quorum |
 | ClickHouse 單分片，未來事件量翻倍 | 磁碟可線上擴到 8 TB；超過再加分片 |
 | 舊資料導入 50 億一次灌入 | 用 Spot 池 + `INSERT ... SELECT` 分區批次；導入期間暫停日批 |
 
@@ -131,6 +147,6 @@ app 池併入 general 池 → **general n2-standard-16 × 4**，其餘不變。�
 ClickHouse 2×2 c3-highmem-22（4 TB）、Kafka n2-standard-4 ×3、Flink n2-standard-8 ×2、批次 n2-standard-8 ×2、接入 n2-standard-4 ×2、應用 n2-standard-8 ×3、平台 n2-standard-4 ×2、Keeper e2 ×3；≈ 170 vCPU / 1.1 TB；月費 ≈ 10,900（CUD ≈ 8,200）。對應 `values-gcp-30b.yaml` 與 tofu profile `large-30b`，保留供未來擴張。
 
 ## 11. 對應檔案
-- `deploy/helm/altatech-dmp/values-gcp-20b.yaml`：3 個節點池的配置（預設）。
-- `deploy/tofu/gcp/main.tf`：profile `20b`（預設）、`30b`、`large`。
+- `deploy/helm/altatech-dmp/values-gcp-6n.yaml`（A，預設）、`values-gcp-4n.yaml`（B）、`values-gcp-3n.yaml`（C）。
+- `deploy/tofu/gcp/main.tf`：profile `6n`（預設）、`4n`、`3n`、`30b`、`large`。
 - `backend/openapi.yaml`：`/v1/sync/*`。

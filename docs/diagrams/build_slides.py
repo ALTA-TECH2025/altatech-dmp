@@ -146,29 +146,30 @@ def s3():
 
 # ------------------------------------------------------------------ 4. GCP 部署與規模
 def s4():
-    s = Slide("GCP 部署架構與規模：3 年 200 億事件、每日 1,000 標籤、50 人同時上線", "模組合併為 3 個節點池、7 台機器；容器化部署套件（Docker 映像 + Helm）同一套件可部署機房；資料全程留在 asia-east1", 4)
+    s = Slide("GCP 部署架構與規模：3 年 200 億事件、每日 1,000 標籤、50 人同時上線", "常駐 3–6 台三個檔位；容器化部署套件（Docker 映像 + Helm）同一套件可部署機房；資料全程留在 asia-east1", 4)
     s.rect(96, 215, 1160, 560, "#FBFCFE", C["brandline"], 20)
-    s.text(120, 252, "GKE 私有叢集（asia-east1）— 3 個節點池 + 臨時 Spot", 24, 800, C["brand"])
-    pools = [("分析倉 olap", ["ClickHouse 1 shard × 2 replica", "3 年全熱 3.9 TB / 副本"], "c3-highmem-22 × 2 · Hyperdisk 4 TB", "yellow"),
-             ("資料與平台 general", ["Kafka ×3、Keeper ×3、Flink、Airflow / dbt", "Collector、CDC、Keycloak、Prometheus、Grafana"], "n2-standard-16 × 3", "teal"),
-             ("應用 app", ["API、語意層、分群標籤、OneID", "工具閘道、Agent、Tag Sync、Web"], "n2-standard-8 × 2", "brand"),
-             ("臨時 spot", ["舊資料導入 50 億、BigQuery 大批匯入", "模型標籤訓練；用完歸零"], "n2-standard-8 × 0–4（Spot）", "gray")]
+    s.text(120, 252, "A. 標準 HA（建議）— GKE 私有叢集 6 台 + 臨時 Spot", 24, 800, C["brand"])
+    pools = [("分析倉 olap", ["ClickHouse 1 shard × 2 replica，3 年全熱 3.9 TB / 副本", "任一台故障另一副本續服"], "c3-highmem-22 × 2 · Hyperdisk 4 TB", "yellow"),
+             ("資料・平台・應用 general", ["Kafka ×3、Keeper ×3、Flink、Airflow / dbt、Collector、CDC", "Keycloak、Prometheus、Grafana、API、語意層、分群、OneID、Agent、Web"], "n2-standard-16 × 4", "teal"),
+             ("臨時 spot（不算常駐）", ["舊資料導入 50 億、BigQuery 大批匯入、模型訓練", "用完歸零"], "n2-standard-8 × 0–4（Spot）", "gray"),
+             ("託管服務（不占台數）", ["Cloud SQL PostgreSQL 16 HA · Memorystore Valkey 8 GB", "Cloud Storage 8 TB · KMS/HSM · Artifact Registry"], "", "brand")]
     for i, (t, ls, m, c) in enumerate(pools):
         x = 120 + (i % 2) * 560; y = 280 + (i // 2) * 150
         s.rect(x, y, 540, 130, C[c + "soft"], C[c], 14)
-        s.text(x + 18, y + 36, t, 22, 800); s.text(x + 18, y + 64, ls[0], 17, 400, C["gray"]); s.text(x + 18, y + 88, ls[1], 17, 400, C["gray"]); s.text(x + 18, y + 116, m, 17, 700, C[c])
+        s.text(x + 18, y + 36, t, 22, 800); s.text(x + 18, y + 64, ls[0], 16, 400, C["gray"]); s.text(x + 18, y + 88, ls[1], 16, 400, C["gray"])
+        if m: s.text(x + 18, y + 116, m, 17, 700, C[c])
     s.rect(120, 600, 1110, 60, C["redsoft"], C["red"], 12)
     s.text(144, 638, "安全：私有節點、Workload Identity、Binary Authorization、CMEK、Cloud Armor WAF、IAP、NetworkPolicy、UBI 映像", 18, 600)
     s.rect(120, 680, 1110, 70, C["graysoft"], C["gray"], 12)
-    s.text(144, 708, "託管服務：Cloud SQL PostgreSQL 16（HA 2 vCPU）· Memorystore Valkey 8 GB · Cloud Storage 8 TB（原始、Iceberg、備份、WORM）", 18, 600)
-    s.text(144, 736, "Cloud KMS/HSM · Secret Manager · Artifact Registry（SBOM、持續弱掃）· Cloud Logging", 18, 400, C["gray"])
+    s.text(144, 708, "B. 平衡 4 台：olap × 2 + n2-standard-32 × 2　　C. 最小 3 台：n2-highmem-32 × 3 同構，ClickHouse 2 副本固定在其中 2 台", 18, 600)
+    s.text(144, 736, "三檔位皆滿足 200 億事件全熱、1,000 標籤日批、50 人上線；台數減少省錢有限（約 5%），成本主要在 vCPU 與磁碟", 17, 400, C["gray"])
     s.rect(1300, 215, 524, 560, C["brandsoft"], C["brand"], 20)
-    s.text(1324, 252, "規模與成本（精簡標準配置）", 24, 800, C["brand"])
-    nums = [("7 台", "常駐 GKE 節點（舊版 18 台 → 少 11 台）"), ("108 vCPU / 608 GB", "運算與記憶體"), ("10.5 TB + 8 TB", "區塊磁碟 + GCS"), ("約 50 分鐘", "1,000 個標籤全量日批"), ("US$ 4.9–6.5 k / 月", "1 年 CUD vs 隨需；粗估未稅，較舊版降約 40%")]
+    s.text(1324, 252, "規模與成本（A 檔 6 台）", 24, 800, C["brand"])
+    nums = [("6 台", "常駐 GKE 節點（舊版 18 台）"), ("120 vCPU / 608 GB", "運算與記憶體"), ("10.5 TB + 8 TB", "區塊磁碟 + GCS"), ("約 50 分鐘", "1,000 個標籤全量日批"), ("US$ 4.9–6.5 k / 月", "1 年 CUD vs 隨需；3 台約 4.6–6.2 k；粗估未稅")]
     for i, (a, b) in enumerate(nums):
         y = 300 + i * 92
         s.text(1324, y + 30, a, 34, 800, C["ink"]); s.text(1324, y + 58, b, 17, 400, C["gray"])
-    s.text(96, 830, "極簡配置：app 池併入 general（n2-standard-16 × 4）→ 6 台；事件量翻倍時 ClickHouse 線上擴磁碟或加分片。", 19, 600, C["ink"])
+    s.text(96, 830, "3 台經濟版（n2-highmem-16 × 3）約 US$ 3.1–4.0 k / 月：標籤日批約 90 分鐘、30 天漏斗 P95 約 15 秒。", 19, 600, C["ink"])
     s.text(96, 866, "弱點與授權：所有元件 OSI 寬鬆授權（Grafana OSS 僅內部使用）、LTS 版本、CI 自動 SBOM／Grype／Trivy／授權白名單；修補 SLA Critical 7 天。", 19, 400, C["gray"])
     s.save("slide-4-gcp-deployment.svg")
 

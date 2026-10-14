@@ -1,5 +1,5 @@
-# GCP 正式環境（預設）：3 年 200 億事件、每日 1,000 標籤、50 人同時上線；3 個節點池 7 台（docs/13 §4.1）
-# helm upgrade --install dmp ./helm/altatech-dmp -f values.yaml -f values-gcp.yaml -f values-gcp-20b.yaml
+# GCP 正式環境 A 檔（預設）：3 年 200 億事件、每日 1,000 標籤、50 人同時上線；常駐 6 台 = olap × 2 + general × 4（docs/13 §4.2）
+# helm upgrade --install dmp ./helm/altatech-dmp -f values.yaml -f values-gcp.yaml -f values-gcp-6n.yaml
 kafka: { replicas: 3, storageGi: 500, partitions: { events: 12, tag_updates: 12 }, retentionDays: 7, nodeSelector: { pool: general }, antiAffinity: required, resources: { cpu: 3, memoryGi: 12 } }
 flink: { jobmanagers: 1, taskmanagers: 2, slotsPerTm: 4, memoryGi: 16, nodeSelector: { pool: general }, checkpointDir: gs://dmp-checkpoints }
 clickhouse:
@@ -24,15 +24,16 @@ spark: { enabled: true, onDemand: true, spot: true, nodeSelector: { pool: spot }
 apps:
   collector:    { replicas: 2, cpu: 1, memoryGi: 1, hpa: { min: 2, max: 4, targetCpu: 60 }, nodeSelector: { pool: general } }
   cdc:          { replicas: 1, cpu: 1, memoryGi: 2, nodeSelector: { pool: general } }
-  api:          { replicas: 3, cpu: 2, memoryGi: 4, nodeSelector: { pool: app } }
-  semantic:     { replicas: 2, cpu: 1, memoryGi: 2, nodeSelector: { pool: app } }
-  segment:      { replicas: 2, cpu: 2, memoryGi: 4, nodeSelector: { pool: app } }
-  oneid:        { replicas: 2, cpu: 1, memoryGi: 2, nodeSelector: { pool: app } }
-  gateway:      { replicas: 2, cpu: 1, memoryGi: 2, nodeSelector: { pool: app } }
-  agentRuntime: { replicas: 2, cpu: 1, memoryGi: 2, nodeSelector: { pool: app } }
-  tagSync:      { replicas: 2, cpu: 2, memoryGi: 4, nodeSelector: { pool: app }, kafkaBatch: 5000, topics: { tags: dmp.tag_updates, segments: dmp.segment_updates }, gcsPrefix: gs://dmp-sync/ }
-  web:          { replicas: 2, cpu: 0.5, memoryGi: 0.5, nodeSelector: { pool: app } }
+  api:          { replicas: 3, cpu: 2, memoryGi: 4, nodeSelector: { pool: general } }
+  semantic:     { replicas: 2, cpu: 1, memoryGi: 2, nodeSelector: { pool: general } }
+  segment:      { replicas: 2, cpu: 2, memoryGi: 4, nodeSelector: { pool: general } }
+  oneid:        { replicas: 2, cpu: 1, memoryGi: 2, nodeSelector: { pool: general } }
+  gateway:      { replicas: 2, cpu: 1, memoryGi: 2, nodeSelector: { pool: general } }
+  agentRuntime: { replicas: 2, cpu: 1, memoryGi: 2, nodeSelector: { pool: general } }
+  tagSync:      { replicas: 2, cpu: 2, memoryGi: 4, nodeSelector: { pool: general }, kafkaBatch: 5000, topics: { tags: dmp.tag_updates, segments: dmp.segment_updates }, gcsPrefix: gs://dmp-sync/ }
+  web:          { replicas: 2, cpu: 0.5, memoryGi: 0.5, nodeSelector: { pool: general } }
 platform: { keycloak: { replicas: 2, antiAffinity: preferred }, prometheus: { retentionDays: 30, storageGi: 150 }, grafana: { replicas: 1 }, nodeSelector: { pool: general } }
-priorityClasses: { online: 1000, batch: 100 }    # app 與 Collector 用 online；Airflow/dbt/Spark 用 batch
+priorityClasses: { online: 1000, batch: 100 }    # 應用與 Collector 用 online；Airflow/dbt/Spark 用 batch
+resourceQuota: { general: { cpu: 56, memoryGi: 220 } }
 postgres: { inCluster: false, external: { tier: db-custom-2-8192, ha: true, storageGi: 200 } }
 valkey: { inCluster: false, external: { sizeGi: 8, tier: standard-ha } }
