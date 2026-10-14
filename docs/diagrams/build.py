@@ -80,7 +80,7 @@ def system_architecture():
         s.box(L + 14 + i * 300, 755, 285, 68, t, ls, c)
     # 來源
     s.group(L, 850, W, 110, "資料來源  Sources")
-    for i, (t, ls) in enumerate([("GA360（Web / App 埋點）", ["gtag / Firebase → 境內 GTM 容器"]), ("證券交易系統", ["委託、成交、出入金、開戶、基金"]), ("CRM / 客戶主檔 / 營業員", ["客戶、帳戶、分公司、商品"]), ("MA / 客服 / 神策歷史", ["推播、工單；神策事件一次性匯入"])]):
+    for i, (t, ls) in enumerate([("GA360（Web / App 埋點）", ["gtag / Firebase → 境內 GTM 容器"]), ("證券交易系統", ["委託、成交、出入金、開戶、基金"]), ("CRM / 客戶主檔 / 營業員", ["客戶、帳戶、分公司、商品"]), ("MA / 神策歷史", ["推播；神策事件一次性匯入"])]):
         s.box(L + 14 + i * 300, 880, 285, 56, t, ls, "gray")
     # 縱向流向
     for y1, y2 in [(936, 823), (755, 698), (630, 573), (505, 448), (370, 313), (235, 176)]:
@@ -142,7 +142,7 @@ def component_deployment():
         s.box(1294, 110 + i * 80, 264, 64, t, ls, "gray", small=True)
     # downstream (right bottom)
     s.group(1280, 620, 292, 230, "下游系統  Consumers")
-    for i, (t, ls) in enumerate([("內部系統 Webhook / Kafka", ["MA、CRM、營業員 App、客服；受眾包與標籤"]), ("GA4 受眾 → Google Ads", ["匿名 ID 回流，再行銷"]), ("數倉", ["GCS Parquet、Iceberg 雙向映射"])]):
+    for i, (t, ls) in enumerate([("內部系統 Webhook / Kafka", ["MA、CRM、數倉；受眾包與標籤"]), ("GA4 受眾 → Google Ads", ["匿名 ID 回流，再行銷"]), ("數倉", ["GCS Parquet、Iceberg 雙向映射"])]):
         s.box(1294, 650 + i * 64, 264, 56, t, ls, "brand", small=True)
     # arrows
     s.arrow(264, 300, 316, 300, ""); s.note(268, 292, "CDC")
@@ -163,7 +163,7 @@ def data_flow():
         s.parts.append(f'<text x="{x}" y="92" font-family="{FONT}" font-size="13" font-weight="800" fill="{C["brand"]}">{html.escape(t)}</text>')
         s.parts.append(f'<line x1="{x}" y1="100" x2="{x+234}" y2="100" stroke="{C["line"]}" stroke-width="2"/>')
     # column 1 sources
-    src = [("GA360 Web/App 埋點", ["gtag / Firebase"]), ("GTM Server-side", ["境內，個資閘門"]), ("交易主機（委託/成交/出入金）", ["MSSQL 狀態表"]), ("CRM / 開戶 / 基金", ["PostgreSQL、API"]), ("神策歷史（一次性匯入）", ["查詢 API / Parquet 匯出"]), ("MA / 客服", ["推播、工單"])]
+    src = [("GA360 Web/App 埋點", ["gtag / Firebase"]), ("GTM Server-side", ["境內，個資閘門"]), ("交易主機（委託/成交/出入金）", ["MSSQL 狀態表"]), ("CRM / 開戶 / 基金", ["PostgreSQL、API"]), ("神策歷史（一次性匯入）", ["查詢 API / Parquet 匯出"]), ("MA", ["推播"])]
     for i, (t, ls) in enumerate(src): s.box(28, 115 + i * 78, 234, 60, t, ls, "gray", small=True)
     # column 2 ingestion
     ing = [("BigQuery Importer（日批/Fresh）", ["Storage Read API → Iceberg raw"]), ("Collector /ga4 /v1/events /sa", ["校驗、禁止欄位、event_id 冪等"]), ("Debezium / Flink CDC", ["列變更 → raw.trade_cdc"]), ("dlt / SeaTunnel 批次", ["raw.crm、profile_set"]), ("神策歷史匯入（一次性）", ["協議 1:1 映射 → Iceberg"]), ("Kafka raw.* topics", ["原文保留 7–30 天；可回放"])]
@@ -178,7 +178,7 @@ def data_flow():
     sv = [("Semantic Compiler", ["語意查詢 JSON → SQL + 成本 + 血緣"]), ("Policy Engine", ["模組→行級→欄位隱碼→審批→審計"]), ("Analytics / Segment / Profile API", ["事件、漏斗、路徑、歸因、用戶列表、標籤"]), ("Tool Gateway（MCP）", ["27 工具；委託身份；預算；脫敏"]), ("Insight Agents", ["anomaly-watch、funnel-doctor、", "churn-radar、analyst-copilot…"]), ("dbt / Airflow 日批", ["標籤、聚合、ID 校正、快照"])]
     for i, (t, ls) in enumerate(sv): s.box(1076, 115 + i * 78, 234, 60, t, ls, "purple" if i in (3, 4) else "brand", small=True)
     # column 6 consumers
-    cs = [("DMP Web / AI 洞察助理", ["看板、分析、問答、權限中心"]), ("Webhook / MA / 營業員 App", ["受眾包增量推送（簽章、重試）"]), ("GA4 受眾 → Google Ads", ["Measurement Protocol 匿名回流"]), ("Grafana 看板", ["資料品質、效能、審計統計"]), ("數倉", ["Iceberg 雙向映射讀取"]), ("稽核 / 法遵", ["audit_log WORM、DSAR 證明"])]
+    cs = [("DMP Web / AI 洞察助理", ["看板、分析、問答、權限中心"]), ("Webhook / Kafka → MA / CRM", ["受眾包增量推送（簽章、重試）"]), ("GA4 受眾 → Google Ads", ["Measurement Protocol 匿名回流"]), ("Grafana 看板", ["資料品質、效能、審計統計"]), ("數倉", ["Iceberg 雙向映射讀取"]), ("稽核 / 法遵", ["audit_log WORM、DSAR 證明"])]
     for i, (t, ls) in enumerate(cs): s.box(1338, 115 + i * 78, 234, 60, t, ls, "gray", small=True)
     # arrows source→ingest
     for i, j in [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 1)]:
@@ -190,7 +190,7 @@ def data_flow():
     s.arrow(786, 145 + 2 * 78, 814, 145, "", curve=True)
     s.parts.append(f'<text x="800" y="111" font-family="{FONT}" font-size="10.5" font-weight="700" fill="{C["teal"]}" text-anchor="middle">dmp.events →</text>')
     s.arrow(786, 145 + 3 * 78, 814, 145, curve=True)
-    s.parts.append(f'<text x="556" y="{115 + 4 * 78 + 71}" font-family="{FONT}" font-size="10" font-weight="700" fill="{C["teal"]}">↳ dmp.triggers（秒級）→ ⑥ MA / 營業員 App</text>')
+    s.parts.append(f'<text x="556" y="{115 + 4 * 78 + 71}" font-family="{FONT}" font-size="10" font-weight="700" fill="{C["teal"]}">↳ dmp.triggers（秒級）→ ⑥ MA / 內部系統</text>')
     s.arrow(786, 145 + 5 * 78, 814, 145 + 5 * 78, "")
     # storage internal
     for i in range(2): s.arrow(931, 175 + i * 78, 931, 193 + i * 78, color=C["yellow"])

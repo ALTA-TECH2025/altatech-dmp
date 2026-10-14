@@ -130,7 +130,7 @@ tools:
     input: { question: string, initial_config: object, final_config: object, note: string }
     scope: write
   - name: campaign.execute
-    description: 執行已審批的策略（推送分群到 MA／營業員 App）。僅在 approval_id 有效時可呼叫。
+    description: 執行已審批的策略（推送分群到 MA／內部系統 Webhook）。僅在 approval_id 有效時可呼叫。
     input: { approval_id: string, segment_id: string, channel: string }
     scope: execute
     approval: required

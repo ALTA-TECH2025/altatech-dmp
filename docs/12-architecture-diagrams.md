@@ -38,7 +38,7 @@
 ```mermaid
 flowchart TB
   subgraph EXP[體驗層]
-    WEB[DMP Web<br/>React + ECharts] --- AIUI[AI 洞察助理] --- EXT[外部系統<br/>MA / 客服 / 營業員 App] --- MCPC[外部 AI 客戶端<br/>Claude Code / Cursor]
+    WEB[DMP Web<br/>React + ECharts] --- AIUI[AI 洞察助理] --- EXT[外部系統<br/>MA / 內部系統 Webhook] --- MCPC[外部 AI 客戶端<br/>Claude Code / Cursor]
   end
   subgraph AGENT[Agent 層]
     RT[Insight Agent Runtime<br/>Planner→Executor→Verifier→Narrator] --- GW[Agent Tool Gateway MCP<br/>權限·預算·脫敏·審計] --- IS[Insight Store + Knowledge Pack<br/>PostgreSQL + pgvector] --- LLM[LLM Gateway]
@@ -93,11 +93,11 @@ flowchart LR
     SQL[(Cloud SQL PG16)] ; MEM[(Memorystore Valkey)] ; GCS[(Cloud Storage CMEK)] ; KMS[Cloud KMS / Secret Manager] ; AR[Artifact Registry]
   end
   subgraph DOWN[下游]
-    MA[MA] ; APP[營業員 App] ; DW[數倉 / 客服]
+    MA[MA] ; DW[數倉 / CRM]
   end
   BQ --> C1 ; GTM --> C1 ; MS --> C2 ; CRM --> C2 ; SA --> D1
   C1 --> K1 --> F1 --> CH1 ; D1 --> CH1 ; CH1 --> API --> MCP --> LLMG
-  API --> SQL ; API --> MEM ; CH1 --> GCS ; K1 --> MA ; MCP --> APP ; GCS --> DW
+  API --> SQL ; API --> MEM ; CH1 --> GCS ; K1 --> MA ; MCP --> MA ; GCS --> DW
   ING --> C1 ; ING --> API ; ING --> WEB
 ```
 
@@ -109,7 +109,7 @@ flowchart LR
   S3[CRM / MA] --> I3[dlt 批次] --> R
   S4[神策歷史事件 一次性] -.匯入.-> ICE
   R --> N[normalize] --> E[eventize 狀態機<br/>HMAC/FPE 代碼化] --> O[oneid-resolve] --> SS[sessionize] --> EV[(dmp.events)]
-  SS --> RR[rt-rules CEP / rt-tags] --> TR[(dmp.triggers)] --> MA[MA / 營業員 App]
+  SS --> RR[rt-rules CEP / rt-tags] --> TR[(dmp.triggers)] --> MA[MA / 內部系統 Webhook]
   EV --> L0[(ClickHouse L0 events)] --> L1[(L1/L2 MV)] --> L3[(L3 觸點 / L4 Bitmap 標籤)]
   EV --> ICE[(Iceberg on GCS 冷層)] -.雙向映射.-> DW[數倉]
   L0 --> SEM[Semantic Compiler] --> PE[Policy Engine] --> API[Analytics / Segment / Profile API] --> UI[DMP Web]

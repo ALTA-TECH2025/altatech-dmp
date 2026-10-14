@@ -20,7 +20,7 @@
 
 | 類型 | 用途 | 識別子 | 傳輸 | 隱碼 |
 |---|---|---|---|---|
-| **Webhook（內部系統）** | CRM、客服、營業員 App、行銷系統、數倉 | `customer_code`（HMAC 代碼化）+ `one_id`；可選附帶標籤值 | HTTPS POST、HMAC-SHA256 簽章、冪等、重試、DLQ | 依目的地合約：L2 數值區間化或排除 |
+| **Webhook（內部系統）** | CRM、行銷系統（MA）、數倉 | `customer_code`（HMAC 代碼化）+ `one_id`；可選附帶標籤值 | HTTPS POST、HMAC-SHA256 簽章、冪等、重試、DLQ | 依目的地合約：L2 數值區間化或排除 |
 | Kafka | 內部即時消費 | 同上 | `dmp.audience_updates`、`dmp.tag_updates`（Avro） | 同上 |
 | GCS Parquet | 數倉、大量 | 同上 | `gs://dmp-sync/audiences/<id>/dt=…/` + manifest | 同上 |
 | **GA4 受眾（→ Google Ads 再行銷）** | 把受眾包回流到 GA4，讓 GA4 受眾同步到已連結的 Google Ads 做再行銷 | `client_id`（Web）／`app_instance_id`（App），來自 GA360 匯出的 `user_pseudo_id`；可附 `user_id`（HMAC 代碼） | **GA4 Measurement Protocol**：送事件 `dmp_audience` + user property `dmp_audience_<id>=1`（移除時設為 0），GA4 端以該 user property 建立受眾並勾選「Google Ads 連結」 | **不含任何個資**：只用 GA 自己的匿名 ID；省去 Customer Match 的個資上傳問題 |

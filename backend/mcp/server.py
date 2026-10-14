@@ -1,6 +1,6 @@
 """Agent Tool Gateway — MCP server 骨架。
 
-把 tools.yaml 登記的工具暴露給任何 MCP client（Insight Agent Runtime、Claude Code、營業員 App…）。
+把 tools.yaml 登記的工具暴露給任何 MCP client（Insight Agent Runtime、Claude Code…）。
 每次呼叫：套身份與權限 → 檢查預算 → 執行 handler → 列級遮罩 → 寫審計事件。
 正式版以 FastMCP 或官方 mcp SDK 實作；此檔為可讀的最小骨架。
 """

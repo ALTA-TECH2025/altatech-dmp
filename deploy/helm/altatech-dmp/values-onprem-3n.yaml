@@ -1,0 +1,44 @@
+# 機房測試環境（對應 C 檔，3 台同構實體機／VM；docs/13 §11.2）。託管服務改為叢集內元件。
+# helm upgrade --install dmp ./helm/altatech-dmp -f values.yaml -f values-onprem-3n.yaml
+kafka: { replicas: 3, storageGi: 500, partitions: { events: 12, tag_updates: 12 }, retentionDays: 7, nodeSelector: { pool: all }, antiAffinity: required, resources: { cpu: 3, memoryGi: 12 } }
+flink: { jobmanagers: 1, taskmanagers: 2, slotsPerTm: 4, memoryGi: 16, nodeSelector: { pool: all }, checkpointDir: s3://dmp-checkpoints }
+clickhouse:
+  shards: 1
+  replicas: 2
+  cpu: 20
+  memoryGi: 160
+  storage: { class: local-nvme, sizeTi: 3.5 }   # OpenEBS LocalPV / local-path，NVMe 直掛
+  keeper: { replicas: 3, nodeSelector: { pool: all }, antiAffinity: required, cpu: 1, memoryGi: 2 }
+  nodeSelector: { pool: all }
+  nodeAffinity: { requiredHosts: [node-1, node-2] }
+  settings:
+    max_concurrent_queries: 100
+    workloads:
+      human: { max_memory_usage: 12000000000, max_execution_time: 60, max_threads: 8 }
+      agent: { max_memory_usage: 8000000000, max_execution_time: 40, max_threads: 6, max_bytes_to_read: 20000000000 }
+      batch: { priority: 10, max_threads: 10 }
+    query_cache: { enabled: true, ttlSeconds: 300 }
+    tiers: { hotMonths: 36, cold: { type: s3, endpoint: http://seaweedfs-s3:8333, bucket: dmp-cold, enabled: false } }
+airflow: { enabled: true, workers: 2, nodeSelector: { pool: all }, resources: { cpu: 2, memoryGi: 8 } }
+dbt: { nodeSelector: { pool: all }, tagBatch: { parallelism: 6, schedule: "0 2 * * *", versionsKept: 7 } }
+spark: { enabled: true, onDemand: true, spot: false, nodeSelector: { pool: all }, executors: { max: 2, cpu: 4, memoryGi: 16 }, schedule: night }
+apps:
+  collector:    { replicas: 2, cpu: 1, memoryGi: 1, hpa: { min: 2, max: 4, targetCpu: 60 }, nodeSelector: { pool: all } }
+  cdc:          { replicas: 1, cpu: 1, memoryGi: 2, nodeSelector: { pool: all } }
+  api:          { replicas: 3, cpu: 2, memoryGi: 4, nodeSelector: { pool: all } }
+  semantic:     { replicas: 2, cpu: 1, memoryGi: 2, nodeSelector: { pool: all } }
+  segment:      { replicas: 2, cpu: 2, memoryGi: 4, nodeSelector: { pool: all } }
+  oneid:        { replicas: 2, cpu: 1, memoryGi: 2, nodeSelector: { pool: all } }
+  gateway:      { replicas: 2, cpu: 1, memoryGi: 2, nodeSelector: { pool: all } }
+  agentRuntime: { replicas: 2, cpu: 1, memoryGi: 2, nodeSelector: { pool: all } }
+  tagSync:      { replicas: 2, cpu: 2, memoryGi: 4, nodeSelector: { pool: all }, kafkaBatch: 5000, topics: { tags: dmp.tag_updates, segments: dmp.segment_updates }, gcsPrefix: s3://dmp-sync/ }
+  web:          { replicas: 2, cpu: 0.5, memoryGi: 0.5, nodeSelector: { pool: all } }
+platform: { keycloak: { replicas: 2, antiAffinity: preferred }, prometheus: { retentionDays: 30, storageGi: 150 }, grafana: { replicas: 1 }, nodeSelector: { pool: all } }
+priorityClasses: { online: 1000, batch: 100 }    # 應用與 Collector 用 online；Airflow/dbt/Spark 用 batch
+resourceQuota: { general: { cpu: 56, memoryGi: 220 } }
+postgres: { inCluster: true, instances: 1, storageGi: 200, storageClass: local-nvme, backup: { s3: s3://dmp-backup/pg, schedule: "0 1 * * *" }, nodeSelector: { pool: all } }
+valkey: { inCluster: true, replicas: 3, memoryGi: 8, nodeSelector: { pool: all } }
+objectStorage: { type: seaweedfs, replicas: 3, volumeDisks: 2, diskSizeTi: 4, nodeSelector: { pool: all } }
+secrets: { provider: openbao }
+ingress: { class: nginx, metallb: { vip: 10.0.0.100 } }
+observability: { dashboards: grafana-oss, logs: opensearch, prometheus: true }

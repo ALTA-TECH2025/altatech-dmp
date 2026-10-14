@@ -154,13 +154,13 @@ export const SEGMENTS = [
 /* ------------------------------------------------------------------ triggers */
 export const TRIGGERS = [
   { id: 'tr1', name: '看盤未下單 30 分鐘', dsl: 'quote_view ≥ 3 in 10m → NOT order_submit in 30m', audience: 'sg3', throttle: '1/人/24h', out: 'dmp.triggers → MA 推播', fires24h: 3812, status: 'on' },
-  { id: 'tr2', name: '新戶核准未入金 3 天', dsl: 'account_open_approved → NOT fund_deposit in 72h', audience: 'sg2', throttle: '1/人', out: 'dmp.triggers → 營業員 App 待辦', fires24h: 612, status: 'on' },
-  { id: 'tr3', name: '委託失敗（系統原因）', dsl: 'order_rejected(reason_code LIKE "SYS%")', audience: '全體', throttle: '1/人/1h', out: 'dmp.triggers → 客服工單 + anomaly-watch', fires24h: 1940, status: 'on' },
-  { id: 'tr4', name: '高價值客登入（營業員 App 提示）', dsl: 'login AND fee_tier ∈ {P1}', audience: '全體', throttle: '1/人/日', out: 'dmp.triggers → 營業員 App 提示', fires24h: 2206, status: 'on' },
+  { id: 'tr2', name: '新戶核准未入金 3 天', dsl: 'account_open_approved → NOT fund_deposit in 72h', audience: 'sg2', throttle: '1/人', out: 'dmp.triggers → MA 推播', fires24h: 612, status: 'on' },
+  { id: 'tr3', name: '委託失敗（系統原因）', dsl: 'order_rejected(reason_code LIKE "SYS%")', audience: '全體', throttle: '1/人/1h', out: 'dmp.triggers → anomaly-watch + 交易系統值班', fires24h: 1940, status: 'on' },
+  { id: 'tr4', name: '高價值客登入（MA 即時訊息）', dsl: 'login AND fee_tier ∈ {P1}', audience: '全體', throttle: '1/人/日', out: 'dmp.triggers → MA 即時訊息', fires24h: 2206, status: 'on' },
   { id: 'tr5', name: 'iOS 開戶中斷即時挽回（agent 提議）', dsl: 'account_open_start(platform=iOS, app_version=23.4) → NOT account_open_submit in 2h', audience: 'sg4', throttle: '1/人', out: 'dmp.triggers → MA', fires24h: 0, status: 'pending_approval' },
 ];
 export const TRIGGER_FEED = (() => {
-  const names = ['看盤未下單 30 分鐘', '委託失敗（系統原因）', '高價值客登入（營業員 App 提示）', '新戶核准未入金 3 天'];
+  const names = ['看盤未下單 30 分鐘', '委託失敗（系統原因）', '高價值客登入（MA 即時訊息）', '新戶核准未入金 3 天'];
   const out = []; let t = new Date(2026, 9, 14, 14, 32, 10);
   for (let i = 0; i < 14; i++) { t = new Date(t.getTime() - ri(4, 40) * 1000); out.push({ t: `${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}`, rule: pick(names), one: `oid_${ri(100000, 999999).toString(36)}`, payload: pick(['symbol=2330', 'symbol=2454', 'order_no=A…8812 reason=SYS02', 'fee_tier=P1', 'account_type=證券']) }); }
   return out;
@@ -273,7 +273,7 @@ export const ASK_SCRIPTS = [
   { q: '幫我找出高價值但 30 天沒登入的客戶', match: ['高價值', '沒登入'],
     plan: '以 fee_tier 標籤（P1,P2）與 login 事件組規則；segment.preview 估人數與畫像；不輸出個人名單，提議分群交由主管審批。',
     calls: [['semantic.search', '"高價值 登入"', '0 B'], ['segment.preview', 'fee_tier ∈ {P1,P2} AND login=0 in 30d', '3.4 GB'], ['segment.propose', 'name=高價值沉睡客 status=pending_approval', '0 B']],
-    ans: '<b>符合條件 11,420 人（占 P1+P2 的 8.1%）。</b><p>畫像：45–54 歲占 41%，偏好市場 US 38%、TSE 35%；64% 近 60 天仍有定期定額扣款。已提議分群「高價值沉睡客」，待陳柏宇審批後可推送給營業員 App。</p>',
+    ans: '<b>符合條件 11,420 人（占 P1+P2 的 8.1%）。</b><p>畫像：45–54 歲占 41%，偏好市場 US 38%、TSE 35%；64% 近 60 天仍有定期定額扣款。已提議分群「高價值沉睡客」，待陳柏宇審批後可推送給 MA 與 CRM。</p>',
     warn: '此工具不回傳個人識別資料；分群生效前需審批。',
     acts: ['查看分群草稿', '提議觸發規則'] },
   { q: '王小明最近做了什麼？', match: ['王小明', '最近做了'],
@@ -396,7 +396,7 @@ export const MASK_RULES = [
   { field: '看板聚合數字', level: 'L0', plain: '所有人', others: '—', how: '' },
 ];
 export const APPROVALS = [
-  { id: 'ap_1042', type: '分群推送', who: '林雅婷', what: '新戶未入金（7 天）→ 營業員 App', n: '8,930 人', at: '今天 13:40', status: 'pending', approver: '陳柏宇' },
+  { id: 'ap_1042', type: '分群推送', who: '林雅婷', what: '新戶未入金（7 天）→ MA + CRM', n: '8,930 人', at: '今天 13:40', status: 'pending', approver: '陳柏宇' },
   { id: 'ap_1041', type: 'agent 提議', who: 'churn-radar', what: '分群「高價值沉睡客」', n: '11,420 人 · 信心 72%', at: '今天 07:04', status: 'pending', approver: '陳柏宇' },
   { id: 'ap_1040', type: '欄位揭露', who: '王信宏', what: 'oid_7k3a9q · 帳號尾碼（L3）', n: '理由：客戶來電對帳', at: '今天 11:20', status: 'pending', approver: '陳柏宇 + 稽核' },
   { id: 'ap_1039', type: '匯出', who: '林雅婷', what: '用戶列表（定期定額活躍客）', n: '92,300 列 · 區間化', at: '昨天 17:05', status: 'approved', approver: '陳柏宇' },
@@ -418,20 +418,20 @@ export const AUDIT = {
 /* ================================================================== v0.3.2：受眾推送（Webhook / GA4 受眾 / Google Ads） */
 export const DESTINATIONS = [
   { id: 'd_crm', name: 'CRM 客戶系統', type: 'webhook', cn: 'Webhook（內部）', target: 'https://crm.internal/dmp/webhook', ident: 'customer_code', tags: ['lifecycle', 'fee_tier', 'churn_score_bucket'], status: 'active', ok7d: .998, p95: '420 ms', last: '今天 03:02', note: 'HMAC 簽章、IP 白名單' },
-  { id: 'd_app', name: '營業員 App 待辦', type: 'webhook', cn: 'Webhook（內部）', target: 'https://agentapp.internal/hooks/dmp', ident: 'customer_code', tags: ['lifecycle', 'pref_market'], status: 'active', ok7d: 1, p95: '180 ms', last: '今天 03:05', note: 'mTLS' },
+  { id: 'd_ma', name: '行銷自動化 MA', type: 'webhook', cn: 'Webhook（內部）', target: 'https://ma.internal/hooks/dmp', ident: 'customer_code', tags: ['lifecycle', 'pref_market'], status: 'active', ok7d: 1, p95: '180 ms', last: '今天 03:05', note: 'mTLS' },
   { id: 'd_kafka', name: '數據平台 Kafka', type: 'kafka', cn: 'Kafka', target: 'dmp.audience_updates / dmp.tag_updates', ident: 'customer_code + one_id', tags: ['*'], status: 'active', ok7d: 1, p95: '—', last: '即時', note: 'Avro' },
   { id: 'd_gcs', name: '數倉 Parquet', type: 'gcs', cn: 'GCS Parquet', target: 'gs://dmp-sync/audiences/', ident: 'customer_code', tags: ['*'], status: 'active', ok7d: 1, p95: '—', last: '今天 03:10', note: 'manifest + checksum' },
   { id: 'd_ga4', name: 'GA4 受眾 → Google Ads 再行銷', type: 'ga4_audience', cn: 'GA4 受眾', target: 'G-XXXXXXX（Measurement Protocol）', ident: 'client_id / app_instance_id', tags: [], status: 'active', ok7d: .991, p95: '—', last: '今天 03:40（24 小時攤平）', note: '不含個資；需廣告再行銷同意；GA4 ↔ Ads 已連結' },
   { id: 'd_cm', name: 'Google Ads Customer Match', type: 'google_ads_customer_match', cn: 'Customer Match（選配）', target: 'Google Ads API · customer-match-adapter', ident: 'hashed_email / hashed_phone', tags: [], status: 'paused', ok7d: null, p95: '—', last: '—', note: '預設關閉；需法遵核可與客戶同意（境外傳輸）' },
 ];
 export const AUDIENCE_PUSHES = [
-  { seg: 'sg2', dest: ['d_app', 'd_crm'], mode: 'delta', schedule: '日批後 03:00', approved: true },
+  { seg: 'sg2', dest: ['d_ma', 'd_crm'], mode: 'delta', schedule: '日批後 03:00', approved: true },
   { seg: 'sg5', dest: ['d_ga4', 'd_gcs'], mode: 'delta', schedule: '日批後 03:00 · GA4 24 小時攤平', approved: true },
   { seg: 'sg6', dest: ['d_ga4'], mode: 'delta', schedule: '即時', approved: true },
   { seg: 'sg3', dest: ['d_kafka'], mode: 'realtime', schedule: '即時', approved: true },
 ];
 export const DELIVERIES = [
-  { id: 'dlv_01J9…a3', seg: '新戶未入金（7 天）', dest: '營業員 App 待辦', ver: 118, mode: 'delta', n: 612, batches: '1/1', status: 'ok', at: '今天 03:05', resp: '200 · 180 ms' },
+  { id: 'dlv_01J9…a3', seg: '新戶未入金（7 天）', dest: '行銷自動化 MA', ver: 118, mode: 'delta', n: 612, batches: '1/1', status: 'ok', at: '今天 03:05', resp: '200 · 180 ms' },
   { id: 'dlv_01J9…a2', seg: '新戶未入金（7 天）', dest: 'CRM 客戶系統', ver: 118, mode: 'delta', n: 612, batches: '1/1', status: 'ok', at: '今天 03:02', resp: '200 · 410 ms' },
   { id: 'dlv_01J9…9f', seg: '定期定額活躍客', dest: 'GA4 受眾 → Google Ads', ver: 44, mode: 'delta', n: 3_180, batches: '攤平中 61%', status: 'running', at: '今天 03:40', resp: 'MP 204 · 對帳 T+1' },
   { id: 'dlv_01J9…9e', seg: '定期定額活躍客', dest: '數倉 Parquet', ver: 44, mode: 'full', n: 92_300, batches: '19/19', status: 'ok', at: '今天 03:10', resp: 'manifest 已寫入' },

@@ -82,9 +82,15 @@ olap 同 A；general 改 **n2-standard-32 × 2**（32 vCPU / 128 GB）。Kafka 3
 - 日批時段 node-3 跑批次、node-1/2 跑查詢，互不干擾。
 - 事件量翻倍：先把 node-3 升級成 ClickHouse 第三副本或第二分片。
 
-### 4.5 非正式環境
-- SIT：n2-standard-8 × 2（ClickHouse 單節點 + 其餘一台），資料 1/100。
-- UAT／效能驗證：與正式同檔位，驗證後縮回。
+### 4.5 環境指派（已決定）
+
+| 環境 | 檔位 | 常駐 | 說明 |
+|---|---|---|---|
+| **正式** | **A. 標準 HA** | 6 台（c3-highmem-22 × 2 + n2-standard-16 × 4）+ 臨時 Spot | 完整 HA；Cloud SQL HA、Memorystore Valkey、GCS |
+| **測試（SIT／UAT）** | **C. 最小** | 3 台（n2-highmem-32 × 3 同構） | 與正式同一套 Helm chart，只換 values；資料用合成或正式脫敏抽樣（1/10）；效能驗證時可暫時把 ClickHouse 盤擴到 4 TB |
+| 開發 | docker compose 或單節點 | 0–1 台 | 本機或 1 台 n2-standard-8 |
+
+測試環境可在非上班時段縮到 0（GKE 節點池 min=0 + Cloud SQL 停機），月費可再降一半以上。
 
 ## 5. 每日 1,000 個標籤的運算
 
@@ -146,7 +152,61 @@ olap 同 A；general 改 **n2-standard-32 × 2**（32 vCPU / 128 GB）。Kafka 3
 ## 10. 舊版對照（300 億事件、18 台）
 ClickHouse 2×2 c3-highmem-22（4 TB）、Kafka n2-standard-4 ×3、Flink n2-standard-8 ×2、批次 n2-standard-8 ×2、接入 n2-standard-4 ×2、應用 n2-standard-8 ×3、平台 n2-standard-4 ×2、Keeper e2 ×3；≈ 170 vCPU / 1.1 TB；月費 ≈ 10,900（CUD ≈ 8,200）。對應 `values-gcp-30b.yaml` 與 tofu profile `large-30b`，保留供未來擴張。
 
-## 11. 對應檔案
-- `deploy/helm/altatech-dmp/values-gcp-6n.yaml`（A，預設）、`values-gcp-4n.yaml`（B）、`values-gcp-3n.yaml`（C）。
+## 11. 機房方案：實體機／VM 規格（Linux x86_64，不用 GCP 時）
+
+同一套容器化部署套件（Docker 映像 + Helm）改跑在機房 Kubernetes（RKE2）。GCP 託管服務以叢集內元件取代：Cloud SQL → CloudNativePG、Memorystore → Valkey、GCS → SeaweedFS（或既有 NAS／S3 相容儲存）、Cloud KMS → OpenBao + HSM、Cloud Armor／IAP → 既有 WAF／反向代理。
+
+### 11.1 正式（對應 A 檔，6 台）
+
+| 角色 | 台數 | CPU | 記憶體 | 磁碟 | 網路 | 說明 |
+|---|---|---|---|---|---|---|
+| **olap（ClickHouse）** | 2 | 2 × 16 核（32 核／64 執行緒），x86_64，3.0 GHz 以上（Intel Xeon 4th gen Sapphire Rapids 或 AMD EPYC 9004） | **256 GB** DDR5 ECC | 系統 2 × 480 GB SSD（RAID1）；**資料 2 × 3.84 TB NVMe**（RAID1 或 ClickHouse 多盤 JBOD；可用 6.4 TB 單盤）；需 ≥ 100k IOPS、≥ 3 GB/s | 2 × 10 GbE（bond）+ 1 GbE 管理 | 對應 c3-highmem-22 × 1.5 倍餘裕；3 年全熱 3.9 TB／副本 |
+| **general（Kafka、Keeper、Flink、Airflow／dbt、Collector、CDC、Keycloak、Prometheus、Grafana、全部應用、CloudNativePG、Valkey、SeaweedFS）** | 4 | 1 × 16 核／32 執行緒 | **128 GB** ECC | 系統 2 × 480 GB SSD（RAID1）；**資料 1 × 1.92 TB NVMe**（Kafka、PostgreSQL、Prometheus PVC）；**物件儲存 2 × 8 TB HDD**（SeaweedFS，4 台共 64 TB 原始，EC 或 2 副本後約 24–32 TB 可用） | 2 × 10 GbE + 1 GbE 管理 | 比 GCP n2-standard-16 多配 2 倍記憶體與本地 HDD，因為 PostgreSQL／Valkey／物件儲存改在叢集內跑 |
+| 合計 | **6** | 128 核／256 執行緒 | 1,024 GB | NVMe 15 TB + SSD 5.8 TB + HDD 64 TB | 10 GbE 交換器 ×2（冗餘）| |
+
+另需（非運算節點，通常既有）：負載平衡（F5／HAProxy／MetalLB）、備份目標（NAS 20 TB 或既有備份系統）、NTP、DNS、AD／LDAP、WAF；舊資料導入時可借 2–4 台臨時 VM。
+
+### 11.2 測試（對應 C 檔，3 台）
+
+| 角色 | 台數 | CPU | 記憶體 | 磁碟 | 網路 |
+|---|---|---|---|---|---|
+| all（同構） | 3 | 1 × 16 核／32 執行緒 | **256 GB** ECC | 系統 2 × 480 GB SSD；資料 1 × 3.84 TB NVMe（node-1／node-2 跑 ClickHouse 副本，node-3 跑批次與 PostgreSQL／Valkey）；物件儲存 2 × 4 TB HDD（SeaweedFS，3 台 24 TB 原始） | 2 × 10 GbE |
+
+### 11.3 若用 VM（VMware／Proxmox／KVM）
+
+| 項目 | 要求 |
+|---|---|
+| vCPU | 依上表核數配 vCPU（1 vCPU = 1 執行緒）；ClickHouse VM 設 CPU 保留 100%，**不要超額配置** |
+| 記憶體 | 全部保留（reservation = 配置），關閉 ballooning；ClickHouse 與 Kafka VM 關閉透明大頁 |
+| 磁碟 | 資料盤 thick provision；NVMe 直通（PCIe passthrough）或 vSAN／全快閃 datastore，單 VM ≥ 20k IOPS、≥ 1 GB/s；Kafka 與 ClickHouse 不要同一個 datastore |
+| 網路 | VMXNET3／virtio，10 GbE；節點間延遲 < 1 ms |
+| NUMA | ClickHouse VM 落在單一 NUMA 節點或對齊 vNUMA |
+| 反親和 | 同角色 VM 分散在不同實體主機（ClickHouse 兩副本、Kafka 三 broker） |
+| 時間 | 與 NTP 同步；VM 時鐘漂移會影響 Kafka 與 Keeper |
+
+### 11.4 作業系統與軟體
+
+| 項目 | 規格 |
+|---|---|
+| OS | **RHEL 9.4+** 或 **Rocky Linux 9.4+**（x86_64）；最小安裝；SELinux enforcing；RHEL 10／Rocky 10 可用 |
+| 核心參數 | `vm.max_map_count=262144`、`fs.file-max=2097152`、`net.core.somaxconn=65535`、`vm.swappiness=1`、關閉 swap、關閉透明大頁（ClickHouse 節點）；時區 UTC，應用層轉 Asia/Taipei |
+| 檔案系統 | ClickHouse／Kafka 資料盤 XFS（noatime）；LVM 便於擴容 |
+| Kubernetes | **RKE2 v1.30+**（Apache-2.0）；3 個 control-plane 角色與 worker 共存於 6 台（A 檔：general 4 台中選 3 台兼 control-plane；C 檔：3 台皆為 control-plane + worker） |
+| 儲存 | Local Path／OpenEBS LocalPV（NVMe 本地盤，ClickHouse／Kafka）；SeaweedFS（Apache-2.0）提供 S3 API 給 Iceberg、備份、同步輸出；若有既有 S3 相容儲存（NetApp／Dell ECS／MinIO 企業版除外）可直接用 |
+| 資料庫／快取 | CloudNativePG（PostgreSQL 16，2 實例 + 每日備份到 S3）；Valkey 8（3 節點 sentinel 或 cluster） |
+| 密鑰 | OpenBao（MPL-2.0）+ 既有 HSM 或 PKCS#11；TLS 由內部 CA 簽發 |
+| 入口 | Ingress-NGINX 或既有 F5／WAF；MetalLB 提供 VIP |
+| 映像 | 離線映像倉（Harbor，Apache-2.0）鏡像所有 UBI／distroless 基底與平台映像；弱掃用 Trivy |
+| 備份 | ClickHouse `BACKUP TO S3`（每日增量、每週全量）；PostgreSQL WAL 歸檔；Kafka 不備份（可從 Iceberg 回放）；備份桶 Object Lock 或離線磁帶 |
+| 監控 | Prometheus + Grafana OSS（叢集內）；告警到既有 Email／LINE |
+
+### 11.5 與 GCP 的差異
+- 機房 A 檔的 general 節點比 GCP 版大一倍記憶體並多 HDD，是因為把 Cloud SQL、Memorystore、GCS 收進叢集。
+- 沒有 Spot：舊資料導入用臨時 VM 或在夜間用 general 節點閒置資源分批跑（約 3–5 天）。
+- 硬體一次性採購（6 台約 NT$ 300–450 萬視品牌與保固）＋ 3 年維保；相較 GCP A 檔 3 年約 NT$ 560–750 萬（CUD 後約 NT$ 570 萬）。
+
+## 12. 對應檔案
+- `deploy/helm/altatech-dmp/values-gcp-6n.yaml`（A，正式，預設）、`values-gcp-4n.yaml`（B）、`values-gcp-3n.yaml`（C，測試）。
+- `deploy/helm/altatech-dmp/values-onprem-6n.yaml`（機房正式）、`values-onprem-3n.yaml`（機房測試）：叢集內 CloudNativePG／Valkey／SeaweedFS、LocalPV。
 - `deploy/tofu/gcp/main.tf`：profile `6n`（預設）、`4n`、`3n`、`30b`、`large`。
 - `backend/openapi.yaml`：`/v1/sync/*`。

@@ -18,7 +18,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│ 體驗層   DMP Web（原型 /prototype）│ AI 洞察助理（Chat）│ 營運觸發 │ 外部 MA / 客服 / 營業員 App │
+│ 體驗層   DMP Web（原型 /prototype）│ AI 洞察助理（Chat）│ 營運觸發 │ 外部 MA / 內部系統 Webhook / GA4 受眾 │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │ Agent 層 Insight Agent Runtime（排程 / 問答 / 事件驅動 agent）                             │
 │          Agent Tool Gateway（MCP Server：query_metric / run_funnel / … 權限、預算、脫敏）   │
@@ -97,7 +97,7 @@ Agent 工具 ──┘        │                                               
 ## 7. 即時路徑
 
 ```
-Kafka dmp.events ─► Flink CEP（規則）─► dmp.triggers ─► 訂閱者（MA / 客服 / 營業員 App / Insight Agent）
+Kafka dmp.events ─► Flink CEP（規則）─► dmp.triggers ─► 訂閱者（MA / 內部系統 Webhook / Insight Agent）
                  └► Flink 即時標籤 ─► Redis + ClickHouse user_tags(rt)
                  └► 異常偵測 agent（分鐘級聚合 → 偏離門檻 → 建立洞察 → 通知）
 ```

@@ -78,7 +78,7 @@ def s1():
     s.text(144, 796, "法遵：資料境內（asia-east1 或機房）、KMS/HSM 金鑰、WORM 審計、DSAR；對應金管會委外辦法與個資法", 18, 400, C["gray"])
     # 應用
     s.text(1480, 215, "應用與輸出", 20, 800, C["muted"])
-    for i, (t, ls, c) in enumerate([("DMP Web", ["看板、分析、用戶列表", "權限中心、日誌統計"], "brand"), ("AI 洞察助理", ["問答、洞察串流", "外部 MCP 客戶端"], "purple"), ("內部系統 Webhook・MA・營業員 App", ["受眾包／標籤簽章推送、即時觸發", "重試、DLQ、審計"], "teal"), ("GA4 受眾 → Google Ads 再行銷", ["匿名 client_id 回流，不傳個資", "Customer Match 選配（需同意）"], "gray")]):
+    for i, (t, ls, c) in enumerate([("DMP Web", ["看板、分析、用戶列表", "權限中心、日誌統計"], "brand"), ("AI 洞察助理", ["問答、洞察串流", "外部 MCP 客戶端"], "purple"), ("內部系統 Webhook・MA・CRM・數倉", ["受眾包／標籤簽章推送、即時觸發", "重試、DLQ、審計"], "teal"), ("GA4 受眾 → Google Ads 再行銷", ["匿名 client_id 回流，不傳個資", "Customer Match 選配（需同意）"], "gray")]):
         s.box(1480, 230 + i * 150, 344, 128, t, ls, c, 22, 17)
     # 箭頭
     for i in range(3): s.arrow(284 + i * 400, 326, 284 + i * 400, 368, sw=3)
@@ -93,7 +93,7 @@ def s2():
              ("打通", ["事件化：狀態表 → 業務事件", "OneID：客戶・帳戶・裝置", "個資在此代碼化，不進分析倉"], "teal"),
              ("儲存與聚合", ["ClickHouse 熱 13 個月", "GCS 冷層仍可查", "人日／日聚合層：九成查詢不碰明細"], "yellow"),
              ("分析與標籤", ["事件・漏斗・路徑・歸因・用戶列表", "1,000 標籤 45 分鐘內算完", "Bitmap 分群秒級"], "brand"),
-             ("洞察與行動", ["AI agent：異常、診斷、建議", "受眾包 Webhook → 內部系統", "GA4 受眾 → Google Ads 再行銷"], "purple")]
+             ("洞察與行動", ["AI agent：異常、診斷、建議", "受眾包 Webhook → MA / CRM / 數倉", "GA4 受眾 → Google Ads 再行銷"], "purple")]
     for i, (t, ls, c) in enumerate(steps):
         x = 96 + i * 350
         s.chevron(x, 230, 340, 70, f"{i+1}  {t}", c, first=(i == 0))
@@ -124,7 +124,7 @@ def s3():
             ("工具閘道（MCP）", "27 個工具；以委託身份執行；預算、隱碼、審計；外部 AI 客戶端也走這裡", "purple"),
             ("語意層 → ClickHouse", "與 UI 同一個查詢編譯器；數字必來自工具回傳", "brand"),
             ("Verifier → 洞察物件", "交叉驗證、樣本量、口徑注意事項；證據可重跑、信心度、回饋", "purple"),
-            ("行動（需審批）", "提議分群／規則 → 主管審批 → 推送 MA／營業員 App → 效果復盤", "red")]
+            ("行動（需審批）", "提議分群／規則 → 主管審批 → 推送 MA／內部系統 Webhook → 效果復盤", "red")]
     for i, (t, d, c) in enumerate(flow):
         y = 215 + i * 112
         s.circle_num(120, y + 34, i + 1, c)
@@ -169,7 +169,7 @@ def s4():
     for i, (a, b) in enumerate(nums):
         y = 300 + i * 92
         s.text(1324, y + 30, a, 34, 800, C["ink"]); s.text(1324, y + 58, b, 17, 400, C["gray"])
-    s.text(96, 830, "3 台經濟版（n2-highmem-16 × 3）約 US$ 3.1–4.0 k / 月：標籤日批約 90 分鐘、30 天漏斗 P95 約 15 秒。", 19, 600, C["ink"])
+    s.text(96, 830, "正式環境採 A 檔 6 台；測試環境採 C 檔 3 台（同一套 Helm 只換 values，非上班時段可縮到 0）。機房方案：6 台實體機／VM（2 × 32 核 256 GB NVMe 8 TB + 4 × 16 核 128 GB），RKE2 + Rocky/RHEL 9。", 19, 600, C["ink"])
     s.text(96, 866, "弱點與授權：所有元件 OSI 寬鬆授權（Grafana OSS 僅內部使用）、LTS 版本、CI 自動 SBOM／Grype／Trivy／授權白名單；修補 SLA Critical 7 天。", 19, 400, C["gray"])
     s.save("slide-4-gcp-deployment.svg")
 
