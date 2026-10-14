@@ -371,7 +371,7 @@ export const ROLES = [
 export const MODULES = [['overview', '總覽'], ['events', '事件／漏斗／路徑／歸因'], ['users', '用戶列表'], ['profile', '用戶細查'], ['segments', '標籤與分群'], ['triggers', '即時觸發'], ['integration', '數據整合'], ['ai_ask', 'AI 洞察'], ['ai_admin', 'Agent 設定'], ['governance', '資料治理'], ['audit', '日誌統計'], ['iam', '權限中心']];
 // 動作：v 可見 u 可用 e 匯出 a 審批 d 設定
 export const MATRIX = {
-  platform_admin: { overview: 'vuead', events: 'vuead', users: 'vuead', profile: 'u', segments: 'vuead', triggers: 'vuead', integration: 'vuead', ai_ask: 'vuea', ai_admin: 'd', governance: 'vued', audit: 'v', iam: 'd' },
+  platform_admin: { overview: 'vuead', events: 'vuead', users: 'vuead', profile: 'u', segments: 'vuead', triggers: 'vuead', integration: 'vuead', ai_ask: 'vuea', ai_admin: 'vd', governance: 'vued', audit: 'v', iam: 'vd' },
   data_engineer: { overview: 'vu', events: 'vu', users: '', profile: '', segments: '', triggers: 'v', integration: 'vuead', ai_ask: 'u', ai_admin: '', governance: 'vud', audit: 'v', iam: '' },
   analyst: { overview: 'vu', events: 'vue', users: 'vu', profile: 'u', segments: 'vu', triggers: 'v', integration: 'v', ai_ask: 'u', ai_admin: '', governance: 'v', audit: 'v', iam: '' },
   ops_manager: { overview: 'vu', events: 'vue', users: 'vue', profile: 'u', segments: 'vua', triggers: 'vua', integration: 'v', ai_ask: 'ua', ai_admin: '', governance: 'v', audit: 'v', iam: '' },

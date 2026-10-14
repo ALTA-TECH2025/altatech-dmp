@@ -17,6 +17,7 @@ tags:
   - { name: Insights }
   - { name: Agents }
   - { name: Governance }
+  - { name: IAM }
 paths:
   /v1/events:
     post:
@@ -105,6 +106,16 @@ paths:
       responses: { '200': { description: text/event-stream } }
   /v1/agents/runs/{run_id}:
     get: { tags: [Agents], summary: 執行紀錄（計畫、工具呼叫、成本）, parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/iam/roles:
+    get: { tags: [IAM], summary: 角色列表（內建 + 自訂，含模組權限矩陣與範圍）, responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Role' } } } } } } }
+    post: { tags: [IAM], summary: 建立自訂角色（需 iam.admin；寫入審計 role.changed，正式環境需雙人複核）, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } } }, responses: { '201': { description: created } } }
+  /v1/iam/roles/{key}:
+    put: { tags: [IAM], summary: 更新角色名稱、說明、範圍、權限勾選, parameters: [{ name: key, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } } }, responses: { '200': { description: ok } } }
+    delete: { tags: [IAM], summary: 刪除自訂角色（內建角色不可刪；仍有使用者指派時拒絕）, parameters: [{ name: key, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
+  /v1/iam/roles/{key}/copy:
+    post: { tags: [IAM], summary: 複製角色為新草稿, parameters: [{ name: key, in: path, required: true, schema: { type: string } }], responses: { '201': { description: created } } }
+  /v1/iam/assignments:
+    post: { tags: [IAM], summary: 指派角色給使用者（可帶範圍與到期日）, responses: { '201': { description: created } } }
   /v1/dictionary/events:
     get: { tags: [Governance], summary: 事件字典（含未登記隔離事件）, responses: { '200': { description: ok } } }
   /v1/lineage/{entity}:
@@ -155,6 +166,21 @@ components:
         lineage: { type: array, items: { type: string } }
         cost: { type: object, properties: { scan_bytes: { type: number }, ms: { type: number } } }
         warnings: { type: array, items: { type: string } }
+    Role:
+      type: object
+      required: [name, scope, grants]
+      properties:
+        key: { type: string, description: 系統產生（custom_*），內建角色為固定值 }
+        name: { type: string, description: 自訂名稱 }
+        description: { type: string }
+        scope: { type: string, enum: [global, branch, agent, aggregate_only] }
+        lookback_days: { type: integer, description: 0 = 不限 }
+        grants:
+          type: object
+          description: 模組 → 動作集合（v 可見 u 可用 e 匯出 a 審批 d 設定）
+          additionalProperties: { type: array, items: { type: string, enum: [view, use, export, approve, admin] } }
+        masking_profile: { type: string, enum: [default, stricter], default: default }
+        builtin: { type: boolean, readOnly: true }
     Insight:
       type: object
       required: [kind, title, summary]

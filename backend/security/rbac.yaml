@@ -11,6 +11,13 @@ roles:
   sales_agent:      { cn: 營業員, scope: agent, grants: { overview: [view], users: [view, use], profile: [use], ai_ask: [use], audit: [view] }, lookback_days: 90 }
   auditor:          { cn: 稽核／法遵, scope: global, grants: { "*": [view], audit: [view, use, export, approve], iam: [view] }, read_only: true }
   svc_insight:      { cn: AI 服務身份, scope: aggregate_only, grants: { events: [use], funnel: [use], path: [use], attribution: [use], segments: [view], ai_ask: [use] }, deny: { profile: [use], users: [export] } }
+# 自訂角色：由 UI / API（POST /v1/iam/roles）建立，存於 PostgreSQL iam_roles，與本檔內建角色合併載入；
+# 規則：u 蘊含 v、e 蘊含 u；內建角色可調整權限但不可刪除；自訂角色仍有指派時不可刪除；變更寫審計 role.changed 並需雙人複核。
+custom_roles:
+  enabled: true
+  key_prefix: custom_
+  example:
+    custom_wealth_advisor: { cn: 財管顧問, scope: branch, lookback_days: 180, grants: { overview: [view], events: [view, use], users: [view, use], profile: [use], segments: [view], ai_ask: [use], audit: [view] } }
 combination:
   grants: union              # 多角色：功能權限取聯集
   masking: strictest         # 欄位權限取最嚴格

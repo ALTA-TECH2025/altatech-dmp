@@ -8,8 +8,8 @@ import { ACCOUNTS, SOURCES, EVENTS, TS, PLATFORM_SPLIT, CHANNEL_SPLIT, UTM_SPLIT
          PATHS, ATTRIBUTION, USERS, CONNECTIONS, MODEL_EXAMPLE, CONFIG_CARDS,
          ROLES, MODULES, MATRIX, DATA_SCOPES, MASK_RULES, APPROVALS, AUDIT } from './data.js?v=20261014.3';
 
-const VERSION = 'v0.3.0';
-const BUILD = '20261014.3';
+const VERSION = 'v0.3.1';
+const BUILD = '20261014.4';
 
 /* ------------------------------------------------------------------ state */
 const S = {
@@ -21,7 +21,7 @@ const S = {
   seg: { tab: 'segments' }, segDrawer: null,
   ai: { tab: 'insights', kind: 'all', status: 'open', open: {}, chat: [], busy: false, prefill: '' },
   gov: { tab: 'dictionary' },
-  iam: { tab: 'roles' },
+  iam: { tab: 'roles' }, roleEdit: null, customRoles: {}, customMatrix: {},
   path: { steps: 4 }, attr: { model: 'position' }, users: { q: '', lc: 'all', tier: 'all', page: 0, sel: {} }, integ: { tab: 'connections', step: 4 },
   sqlDrawer: null, toast: null,
   approved: {},                                // 原型：審批狀態
@@ -166,7 +166,7 @@ const ROUTE_MODULE = { overview: 'overview', events: 'events', funnel: 'events',
 const RK = () => (S.user && S.user.rk) || 'analyst';
 const perm = (mod) => (MATRIX[RK()] || {})[mod] || '';
 const has = (mod, act) => perm(mod).includes(act);
-const canRoute = (name) => { const m = ROUTE_MODULE[name.split('/')[0]] || 'overview'; const p = perm(m); return name === 'settings' ? p.includes('d') || p.includes('v') : p.includes('v') || p.includes('u'); };
+const canRoute = (name) => { const m = ROUTE_MODULE[name.split('/')[0]] || 'overview'; return perm(m).length > 0; };
 const LOCK = '<svg class="lock" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 11V7a4 4 0 018 0v4" stroke="currentColor" stroke-width="2"/></svg>';
 const PLAIN_ID = ['platform_admin', 'auditor'];
 const idMasked = () => !PLAIN_ID.includes(RK());
@@ -198,14 +198,71 @@ function viewSubNav() {
 }
 function pageForbidden() { return `<div class="card" style="max-width:640px;margin:60px auto"><div class="card-h"><h3>沒有這個模組的權限</h3></div><div class="note">你的角色「${esc(S.user.role)}」對此模組沒有可見或可用權限（模組權限矩陣由平台管理員在權限中心維護）。如需使用，請向主管申請角色或臨時提權（需審批並自動到期）。</div><div class="acts" style="margin-top:12px;display:flex;gap:8px"><button class="btn-ghost" data-act="goto" data-arg="#/overview">回總覽</button><button class="btn-ghost" data-act="toast" data-arg="已送出臨時提權申請（4 小時，需管理員＋稽核審批）">申請臨時提權</button></div></div>`; }
 
+/* ================================================================== v0.3.1：自訂角色（名稱、說明、範圍、勾選權限） */
+const ACTS = [['v', '可見'], ['u', '可用'], ['e', '匯出'], ['a', '審批'], ['d', '設定']];
+const SCOPES = [['global', '全域'], ['branch', '所屬分公司'], ['agent', '所屬客戶（營業員）'], ['aggregate_only', '僅聚合（AI 服務身份）']];
+const allRoles = () => [...ROLES, ...Object.values(S.customRoles)];
+const matrixOf = key => S.customMatrix[key] || MATRIX[key] || {};
+const slug = s => { const a = String(s).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24); return 'custom_' + (a || Date.now().toString(36)); };
+function openRoleEditor(key, mode) {
+  const base = key ? allRoles().find(r => r.key === key) : null;
+  const grants = {}; MODULES.forEach(m => { grants[m[0]] = base ? (matrixOf(base.key)[m[0]] || '') : ''; });
+  S.roleEdit = { mode, origKey: mode === 'edit' ? key : null, custom: !!(base && S.customRoles[base.key]) || mode !== 'edit',
+    cn: base ? (mode === 'copy' ? base.cn + '（副本）' : base.cn) : '', desc: base ? base.desc : '', scope: base ? (base.scopeKey || (base.scope.startsWith('全域') ? 'global' : base.scope.includes('分公司') ? 'branch' : base.scope.includes('客戶') ? 'agent' : 'aggregate_only')) : 'global',
+    lookback: base && base.lookback ? base.lookback : 0, grants, err: '' };
+  render();
+}
+function roleToggle(mod, act) {
+  const e = S.roleEdit; let g = e.grants[mod] || '';
+  const has = g.includes(act);
+  if (has) { g = g.replace(act, ''); if (act === 'v') g = g.replace('u', '').replace('e', ''); if (act === 'u') g = g.replace('e', ''); }
+  else { g += act; if (act === 'u' && !g.includes('v')) g += 'v'; if (act === 'e') { if (!g.includes('v')) g += 'v'; if (!g.includes('u')) g += 'u'; } }
+  e.grants[mod] = ACTS.map(a => a[0]).filter(a => g.includes(a)).join(''); render();
+}
+function roleRowAll(mod) { const e = S.roleEdit; const full = 'vuead'; e.grants[mod] = e.grants[mod] === full ? '' : full; render(); }
+function roleColAll(act) { const e = S.roleEdit; const allOn = MODULES.every(m => (e.grants[m[0]] || '').includes(act)); MODULES.forEach(m => { const has = (e.grants[m[0]] || '').includes(act); if (allOn && has) roleToggleSilent(m[0], act); if (!allOn && !has) roleToggleSilent(m[0], act); }); render(); }
+function roleToggleSilent(mod, act) { const r = render; render = () => {}; try { roleToggle(mod, act); } finally { render = r; } }
+function roleSave() {
+  const e = S.roleEdit; if (!e.cn.trim()) { e.err = '請輸入角色名稱'; render(); return; }
+  if (!MODULES.some(m => e.grants[m[0]])) { e.err = '至少勾選一個模組權限'; render(); return; }
+  const key = e.mode === 'edit' ? e.origKey : slug(e.cn);
+  const scopeCn = SCOPES.find(s => s[0] === e.scope)[1] + (e.lookback ? ` · 回溯 ${e.lookback} 天` : '');
+  const existing = allRoles().find(r => r.key === key);
+  S.customRoles[key] = { key, cn: e.cn.trim(), desc: e.desc.trim(), scope: scopeCn, scopeKey: e.scope, lookback: e.lookback, users: existing ? existing.users : 0, custom: true };
+  S.customMatrix[key] = { ...e.grants };
+  S.roleEdit = null; S.iam.tab = 'roles';
+  toast(`角色「${e.cn.trim()}」已儲存（role.changed 已審計；正式版需雙人複核）`);
+}
+function roleDelete() { const e = S.roleEdit; const k = e.origKey; if (!k || !S.customRoles[k]) return; delete S.customRoles[k]; delete S.customMatrix[k]; S.roleEdit = null; toast('角色已刪除（已審計）'); }
+function roleDrawer() {
+  const e = S.roleEdit; if (!e) return ''; const ro = !has('iam', 'd');
+  const title = e.mode === 'new' ? '新增角色' : e.mode === 'copy' ? '複製角色' : ro ? '檢視角色' : '編輯角色';
+  const builtin = e.mode === 'edit' && !e.custom;
+  return `<div class="drawer-bg" data-act="roleclose"></div><div class="drawer wide"><div class="hd"><b>${title}</b>${builtin ? '<span class="pill gray">內建角色：可調整權限</span>' : '<span class="pill custom">自訂角色</span>'}<button class="icon-btn x" data-act="roleclose">✕</button></div>
+  <div class="bd stack">
+    <div class="form">
+      <label>角色名稱 *</label><input class="inp" data-act="rolecn" value="${esc(e.cn)}" placeholder="例：財管顧問、客服主管、資安稽核" ${ro ? 'disabled' : ''}>
+      <label>說明</label><textarea data-act="roledesc" ${ro ? 'disabled' : ''}>${esc(e.desc)}</textarea>
+      <label>數據範圍</label><select class="sel" data-act="rolescope" ${ro ? 'disabled' : ''}>${SCOPES.map(s => `<option value="${s[0]}" ${e.scope === s[0] ? 'selected' : ''}>${s[1]}</option>`).join('')}</select>
+      <label>回溯天數</label><div style="display:flex;gap:8px;align-items:center"><input class="inp" style="width:120px" type="number" min="0" data-act="rolelookback" value="${e.lookback || ''}" placeholder="0 = 不限" ${ro ? 'disabled' : ''}><span class="note">限制可查詢的事件日期範圍；K 匿名門檻（20 人）一律套用</span></div>
+      ${e.err ? `<label></label><div class="err">${esc(e.err)}</div>` : ''}
+    </div>
+    <div><div class="note" style="margin-bottom:8px"><b>模組權限</b>（勾「可用」會自動勾「可見」；「匯出」需先有「可用」；匯出一律走審批＋浮水印）</div>
+    <table class="rm"><tr><th>模組</th>${ACTS.map(a => `<th>${a[1]}<br><span class="all" data-act="rolecol" data-arg="${a[0]}">全選</span></th>`).join('')}<th><span class="all">整列</span></th></tr>
+    ${MODULES.map(m => { const g = e.grants[m[0]] || ''; return `<tr><td>${esc(m[1])}<span class="sub mono">${m[0]}</span></td>${ACTS.map(a => `<td><button class="chk ${g.includes(a[0]) ? 'on' : ''} ${ro ? 'dis' : ''}" data-act="rolechk" data-arg="${m[0]}:${a[0]}" aria-label="${a[1]}" ${ro ? 'disabled' : ''}></button></td>`).join('')}<td><button class="chk ${g === 'vuead' ? 'on' : ''} ${ro ? 'dis' : ''}" data-act="rolerow" data-arg="${m[0]}" ${ro ? 'disabled' : ''}></button></td></tr>`; }).join('')}</table></div>
+    <div class="grid c21"><div class="card" style="padding:12px 14px"><div class="note"><b>欄位隱碼</b>：依 masking.yaml 的敏感等級套用；自訂角色預設「其他角色」顯示（L3 尾碼遮罩、L2 區間化）。需要明文請在欄位隱碼頁將角色加入 plain_roles（需稽核核可）。</div></div><div class="card" style="padding:12px 14px"><div class="note"><b>生效規則</b>：儲存後寫入審計 role.changed，正式版需雙人複核；指派給使用者時可設到期日。</div></div></div>
+  </div>
+  <div class="ft">${e.mode === 'edit' && e.custom && !ro ? `<button class="btn-ghost danger" data-act="roledelete">刪除角色</button>` : ''}<div class="right"><button class="btn-ghost" data-act="roleclose">${ro ? '關閉' : '取消'}</button>${ro ? '' : `<button class="btn-primary" data-act="rolesave">儲存</button>`}</div></div></div>`;
+}
+
 /* ---- 權限中心 ---- */
 function pageIAM() {
   const t = S.iam.tab; const tabs = [['roles', '角色'], ['modules', '模組權限'], ['data', '數據權限'], ['masking', '欄位隱碼'], ['approvals', '審批']];
   const act = { v: ['v', '可見'], u: ['u', '可用'], e: ['e', '匯出'], a: ['a', '審批'], d: ['d', '設定'] };
   let body = '';
-  if (t === 'roles') body = `<div class="card flush"><table class="tbl"><tr><th>角色</th><th>範圍</th><th>說明</th><th class="num">使用者</th><th></th></tr>${ROLES.map(r => `<tr><td><b>${esc(r.cn)}</b><span class="sub mono">${esc(r.key)}</span></td><td><span class="pill ${r.scope.startsWith('全域') ? 'blue' : 'amber'}">${esc(r.scope)}</span></td><td style="color:var(--body)">${esc(r.desc)}</td><td class="num mono">${n0(r.users)}</td><td class="num">${has('iam', 'd') ? `<button class="btn-ghost sm" data-act="toast" data-arg="原型：角色編輯（變更需雙人複核）">編輯</button> <button class="btn-ghost sm" data-act="toast" data-arg="已複製角色草稿">複製</button>` : '<span class="note">唯讀</span>'}</td></tr>`).join('')}</table></div>
+  if (t === 'roles') body = `<div class="card flush"><table class="tbl"><tr><th>角色</th><th>範圍</th><th>說明</th><th class="num">使用者</th><th>權限摘要</th><th></th></tr>${allRoles().map(r => { const g = matrixOf(r.key); const nMod = MODULES.filter(m => (g[m[0]] || '').includes('v') || (g[m[0]] || '').includes('u')).length; const nE = MODULES.filter(m => (g[m[0]] || '').includes('e')).length; const nA = MODULES.filter(m => (g[m[0]] || '').includes('a')).length; return `<tr class="click" data-act="roleopen" data-arg="${r.key}"><td><b>${esc(r.cn)}</b>${r.custom ? ' <span class="pill custom">自訂</span>' : ''}<span class="sub mono">${esc(r.key)}</span></td><td><span class="pill ${r.scope.startsWith('全域') || r.scope.startsWith('僅聚合') ? 'blue' : 'amber'}">${esc(r.scope)}</span></td><td style="color:var(--body)">${esc(r.desc)}</td><td class="num mono">${n0(r.users)}</td><td style="font-size:11.5px;color:var(--body)">${nMod} 個模組 · 匯出 ${nE} · 審批 ${nA}</td><td class="num" style="white-space:nowrap"><button class="btn-ghost sm" data-act="roleopen" data-arg="${r.key}">${has('iam', 'd') ? '編輯' : '檢視'}</button> ${has('iam', 'd') ? `<button class="btn-ghost sm" data-act="rolecopy" data-arg="${r.key}">複製</button>` : ''}</td></tr>`; }).join('')}</table></div>
     <div class="grid c3" style="margin-top:16px"><div class="card"><div class="card-h"><h3>多角色組合規則</h3></div><div class="note">功能權限取<b>聯集</b>；欄位隱碼取<b>最嚴格</b>（避免以多角色繞過）；數據範圍取聯集。</div></div><div class="card"><div class="card-h"><h3>指派時效</h3></div><div class="note">角色指派可設到期日；臨時提權（break-glass）需管理員＋稽核審批，最長 4 小時自動到期。</div></div><div class="card"><div class="card-h"><h3>身分來源</h3></div><div class="note">SSO（OIDC／AD）；組織樹同步每日；客戶重分配以 items(agent) 版本化。</div></div></div>`;
-  else if (t === 'modules') body = `<div class="card flush" style="overflow-x:auto"><table class="matrix"><tr><th>模組 ＼ 角色</th>${ROLES.map(r => `<th>${esc(r.cn)}</th>`).join('')}</tr>${MODULES.map(m => `<tr><td>${esc(m[1])}</td>${ROLES.map(r => { const p = (MATRIX[r.key] || {})[m[0]] || ''; return `<td><span class="a">${Object.keys(act).map(k => `<i class="${p.includes(k) ? (k === 'a' ? 'ap' : k === 'd' ? 'ad' : '') : 'x'}" title="${act[k][1]}">${k}</i>`).join('')}</span></td>`; }).join('')}</tr>`).join('')}</table></div>
+  else if (t === 'modules') body = `<div class="card flush" style="overflow-x:auto"><table class="matrix"><tr><th>模組 ＼ 角色</th>${allRoles().map(r => `<th>${esc(r.cn)}${r.custom ? '<br><span class="pill custom" style="font-size:9px">自訂</span>' : ''}</th>`).join('')}</tr>${MODULES.map(m => `<tr><td>${esc(m[1])}</td>${allRoles().map(r => { const p = matrixOf(r.key)[m[0]] || ''; return `<td><span class="a">${Object.keys(act).map(k => `<i class="${p.includes(k) ? (k === 'a' ? 'ap' : k === 'd' ? 'ad' : '') : 'x'}" title="${act[k][1]}">${k}</i>`).join('')}</span></td>`; }).join('')}</tr>`).join('')}</table></div>
     <div class="note" style="margin-top:10px">v 可見 · u 可用 · e 匯出（一律審批＋浮水印）· a 審批 · d 設定。UI、REST API 與 AI 工具閘道共用同一個 authorize()；AI 以委託身份執行，權限與人相同。</div>`;
   else if (t === 'data') body = `<div class="card flush"><table class="tbl"><tr><th>維度</th><th>規則</th><th>實作</th><th>適用</th></tr>${DATA_SCOPES.map(d => `<tr><td><b>${esc(d.k)}</b></td><td class="mono" style="font-size:11.5px">${esc(d.rule)}</td><td style="color:var(--body)">${esc(d.how)}</td><td>${esc(d.who)}</td></tr>`).join('')}</table></div>
     <div class="grid c2" style="margin-top:16px"><div class="card"><div class="card-h"><h3>你目前的行級條件</h3></div><div class="code">${S.user.scope === 'all' ? '-- 全域：無行級條件' : "branch_id IN ('TPE01') OR agent_id IN ('A001')\nAND event_date >= today()-90"}\n-- K 匿名：分組人數 < 20 → 顯示「< 20」</div></div><div class="card"><div class="card-h"><h3>範圍來源</h3></div><div class="note">範圍綁在「使用者 × 角色」：同一角色可指派不同組織範圍。查詢可選「當前歸屬」或「事件當下歸屬」。</div></div></div>`;
@@ -213,7 +270,7 @@ function pageIAM() {
     <div class="grid c3" style="margin-top:16px"><div class="card"><div class="card-h"><h3>揭露申請</h3></div><div class="note">理由必填、時效 24 小時、L3 需主管＋稽核；揭露期間每次查看都寫審計（mask.revealed）。</div></div><div class="card"><div class="card-h"><h3>匯出</h3></div><div class="note">比 UI 更嚴一級（L2 → 區間化）、浮水印（使用者／時間／單號）、上限 10 萬列。</div></div><div class="card"><div class="card-h"><h3>AI agent</h3></div><div class="note">工具回傳前先套遮罩；敘事層正規式攔截身分證／手機／Email；profile.* 必填理由。</div></div></div>
     <div class="card" style="margin-top:16px"><div class="card-h"><h3>你的視角示範</h3><span class="sub">${esc(S.user.role)}</span></div><table class="tbl"><tr><th>one_id</th><th>客戶代碼</th><th class="num">90 天手續費</th><th class="num">流失分</th></tr><tr><td>${mId('oid_7k3a9q')}</td><td>${mId('cust_00007281')}</td><td class="num">${mMoney(48000)}</td><td class="num">${mScore(23)}</td></tr><tr><td>${mId('oid_2m8x1c')}</td><td>${mId('cust_00000412')}</td><td class="num">${mMoney(312000)}</td><td class="num">${mScore(81)}</td></tr></table>${idMasked() ? `<div class="acts" style="margin-top:10px"><button class="btn-ghost sm" data-act="reveal" data-arg="one_id">申請揭露 one_id（24h）</button></div>` : ''}</div>`;
   else body = `<div class="card flush"><table class="tbl"><tr><th>單號</th><th>類型</th><th>申請者</th><th>內容</th><th>附註</th><th>時間</th><th>審批者</th><th>狀態</th><th></th></tr>${APPROVALS.map(a => { const st = S.approved[a.id] ? 'approved' : a.status; return `<tr><td class="mono">${a.id}</td><td><span class="pill ${({ '分群推送': 'blue', 'agent 提議': 'purple', '欄位揭露': 'amber', '匯出': 'teal', '臨時提權': 'red' })[a.type] || 'gray'}">${esc(a.type)}</span></td><td>${a.who.includes('-') ? `${svg(I.spark, 11)} ${esc(a.who)}` : esc(a.who)}</td><td>${esc(a.what)}</td><td style="color:var(--body)">${esc(a.n)}</td><td style="color:var(--muted)">${esc(a.at)}</td><td>${esc(a.approver)}</td><td>${({ pending: '<span class="pill amber">待審</span>', approved: '<span class="pill green">核准</span>', rejected: '<span class="pill red">駁回</span>', expired: '<span class="pill gray">已到期</span>' })[st]}</td><td class="num">${st === 'pending' && S.user.can.approve ? `<button class="btn-ghost sm" data-act="approve" data-arg="${a.id}">核准</button> <button class="btn-ghost sm danger" data-act="toast" data-arg="已駁回並通知申請者">駁回</button>` : ''}</td></tr>`; }).join('')}</table></div>`;
-  return `<div class="page-h"><div><h1>權限中心</h1><p>角色權限（RBAC + 範圍）、模組權限矩陣、數據權限（行級）、欄位隱碼（列級）、審批流程。UI、API 與 AI 工具閘道共用同一套 Policy Engine。</p></div><div class="right">${has('iam', 'd') ? '<button class="btn-primary" data-act="toast" data-arg="原型：新增角色（複製既有角色後調整）">＋ 新增角色</button>' : '<span class="pill gray">唯讀</span>'}</div></div>
+  return `<div class="page-h"><div><h1>權限中心</h1><p>角色權限（RBAC + 範圍）、模組權限矩陣、數據權限（行級）、欄位隱碼（列級）、審批流程。UI、API 與 AI 工具閘道共用同一套 Policy Engine。</p></div><div class="right">${has('iam', 'd') ? '<button class="btn-primary" data-act="rolenew">＋ 新增角色</button>' : '<span class="pill gray">唯讀</span>'}</div></div>
   <div class="filters"><div class="seg">${tabs.map(x => `<button class="${t === x[0] ? 'on' : ''}" data-act="iamtab" data-arg="${x[0]}">${x[1]}${x[0] === 'approvals' ? ` ${APPROVALS.filter(a => a.status === 'pending' && !S.approved[a.id]).length}` : ''}</button>`).join('')}</div></div>${body}`;
 }
 
@@ -505,13 +562,13 @@ function askSubmit(q) {
 function scrollChat() { const el = document.getElementById('chatlog'); if (el) el.scrollTop = el.scrollHeight; }
 
 /* ------------------------------------------------------------------ render */
-function render() {
+let render = function () {
   const root = document.getElementById('root');
   if (!S.user) { root.innerHTML = viewGate(); return; }
   const pages = { overview: pageOverview, events: pageEvents, funnel: pageFunnel, path: pagePath, attribution: pageAttribution, users: pageUsers, integration: pageIntegration, retention: pageRetention, iam: pageIAM, audit: pageAudit, profile: pageProfile, segments: pageSegments, triggers: pageTriggers, ai: pageAI, governance: pageGovernance, settings: pageSettings };
   const page = canRoute(S.route.name) ? (pages[S.route.name] || pageOverview)() : pageForbidden();
   const active = document.activeElement; const keep = active && active.dataset && active.dataset.act; const selStart = active && active.selectionStart;
-  root.innerHTML = `<div class="app">${viewTopNav()}${viewSubNav()}<main class="content"><div class="wrap">${page}</div></main></div>${sqlDrawer()}${segDrawer()}${S.toast ? `<div class="toast">${esc(S.toast)}</div>` : ''}`;
+  root.innerHTML = `<div class="app">${viewTopNav()}${viewSubNav()}<main class="content"><div class="wrap">${page}</div></main></div>${sqlDrawer()}${segDrawer()}${roleDrawer()}${S.toast ? `<div class="toast">${esc(S.toast)}</div>` : ''}`;
   if (keep) { const el = root.querySelector(`[data-act="${keep}"]`); if (el && el.focus) { el.focus(); try { if (selStart != null) el.setSelectionRange(selStart, selStart); } catch (e) { /* non-text */ } } }
 }
 
@@ -543,6 +600,10 @@ document.addEventListener('click', e => {
     uprofile: () => { S.profile.sel = PROFILES.some(p => p.one_id === arg) ? arg : PROFILES[0].one_id; go('#/profile'); },
     integtab: () => { S.integ.tab = arg; render(); },
     iamtab: () => { S.iam.tab = arg; go('#/iam/' + arg); },
+    rolenew: () => openRoleEditor(null, 'new'), roleopen: () => openRoleEditor(arg, 'edit'), rolecopy: () => openRoleEditor(arg, 'copy'),
+    roleclose: () => { S.roleEdit = null; render(); }, rolesave: () => roleSave(), roledelete: () => roleDelete(),
+    rolechk: () => { if (!has('iam', 'd')) return; const [m, a] = arg.split(':'); roleToggle(m, a); },
+    rolerow: () => { if (has('iam', 'd')) roleRowAll(arg); }, rolecol: () => { if (has('iam', 'd')) roleColAll(arg); },
     reveal: () => toast('揭露申請已送出：' + arg + '，時效 24 小時，需主管＋稽核審批；揭露期間每次查看都會寫入審計'),
     integstep: () => { S.integ.tab = 'modeling'; S.integ.step = Number(arg); render(); },
     toast: () => toast(arg),
@@ -553,12 +614,14 @@ document.addEventListener('change', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   if (el.dataset.act === 'evmetric') { S.ev.metric = el.value; render(); }
   if (el.dataset.act === 'evgroup') { S.ev.group = el.value; render(); }
+  if (el.dataset.act === 'rolescope' && S.roleEdit) { S.roleEdit.scope = el.value; render(); }
   if (el.dataset.act === 'ulc') { S.users.lc = el.value; S.users.page = 0; render(); }
   if (el.dataset.act === 'utier') { S.users.tier = el.value; S.users.page = 0; render(); }
 });
 document.addEventListener('input', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   if (el.dataset.act === 'pq') { S.profile.q = el.value; render(); }
+  if (S.roleEdit) { if (el.dataset.act === 'rolecn') S.roleEdit.cn = el.value; if (el.dataset.act === 'roledesc') S.roleEdit.desc = el.value; if (el.dataset.act === 'rolelookback') S.roleEdit.lookback = Number(el.value) || 0; }
   if (el.dataset.act === 'uq') { S.users.q = el.value; S.users.page = 0; render(); }
   if (el.dataset.act === 'preason') S.profile.reason = el.value;
   if (el.dataset.act === 'askinput') S.ai.prefill = el.value;
