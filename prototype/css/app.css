@@ -608,3 +608,27 @@ a { color: inherit; }
   .insight > div { min-width: 0; }
   .insight .ev .pill, .insight .ft .pill { white-space: normal; max-width: 100%; }
 }
+
+/* ---------------------------------------------------------------- v0.4.1：行為路徑／歸因／留存 */
+.ev-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; border: 1px solid var(--line2); border-radius: 10px; padding: 6px; }
+.ev-pick { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; font-size: 12.5px; }
+.ev-pick.on { background: var(--brand-soft); }
+.ev-pick > span { flex: 1; min-width: 0; }
+.ev-pick small { display: block; font-size: 10.5px; color: var(--muted); }
+.ev-pick .btn-ghost.sm { padding: 2px 8px; font-size: 11px; }
+.inp.grow { flex: 1 1 120px; min-width: 0; }
+.sankey .nd { cursor: pointer; }
+.sankey .nd:hover .node { opacity: .8; }
+.sankey .nd.sel .node { stroke: var(--ink); stroke-width: 2; }
+.sankey .nd.sel text { font-weight: 700; fill: var(--ink); }
+.sankey .node.other { fill: #B9C3CA; }
+.sankey .link.other { stroke: #B9C3CA; }
+.sankey .link.hl { opacity: .6; }
+.tbl tr.sel td { background: var(--brand-soft); }
+.heat td.click { cursor: pointer; }
+.heat td.click:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
+.heat tr.avg td { font-weight: 700; }
+.heat tr.avg td.nm { color: var(--ink); }
+.tbl td.num, .tbl th.num { white-space: nowrap; }
+.tbl td .btn-ghost.sm { white-space: nowrap; }
+@media (max-width: 900px) { .sankey text { font-size: 15px; } .sankey text.n { font-size: 13px; } .sankey text.col { font-size: 14px; } }
