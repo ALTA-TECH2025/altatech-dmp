@@ -8,6 +8,24 @@
 | 元件組成圖（GKE 部署視圖） | `diagrams/component-deployment.svg` / `.png` | 基礎設施與資安評審：節點池、Pod、託管服務、Ingress、邊界 |
 | 數據流圖 | `diagrams/data-flow.svg` / `.png` | 工程與資料治理：六段資料流、關鍵規則、延遲 SLA |
 
+## 提案簡報版（16:9，`diagrams/slides/`，由 `build_slides.py` 產生）
+
+一頁一個訊息、每頁不超過 12 個方塊、字級 20px 以上，可直接貼進 Google Slides 或 PowerPoint：
+
+| 頁 | 檔案 | 訊息 |
+|---|---|---|
+| 1 系統架構 | `slides/slide-1-architecture.png` | 一個中台承接 GA360 行為軌跡與證券交易事件；四大能力 + 基礎 + 治理 |
+| 2 數據流 | `slides/slide-2-data-flow.png` | 五個步驟、五個延遲承諾 |
+| 3 AI Agent | `slides/slide-3-ai-agent.png` | 選擇題式 agent 流程、六個內建 agent、金融業守門 |
+| 4 GCP 部署與規模 | `slides/slide-4-gcp-deployment.png` | 節點池、託管服務、安全、18 台／月費 |
+
+![簡報 1](diagrams/slides/slide-1-architecture.png)
+![簡報 2](diagrams/slides/slide-2-data-flow.png)
+![簡報 3](diagrams/slides/slide-3-ai-agent.png)
+![簡報 4](diagrams/slides/slide-4-gcp-deployment.png)
+
+## 工程版（詳細）
+
 ![系統架構圖](diagrams/system-architecture.png)
 
 ![元件組成圖](diagrams/component-deployment.png)
