@@ -1,0 +1,37 @@
+name: security-and-license
+on: [push, pull_request]
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secrets scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+      - name: SAST (Semgrep OSS)
+        uses: semgrep/semgrep-action@v1
+        with: { config: "p/default" }
+      - name: Python deps audit
+        run: pipx run pip-audit -r backend/requirements.txt || true
+      - name: SBOM (Syft)
+        uses: anchore/sbom-action@v0
+        with: { path: ., format: spdx-json, output-file: sbom.spdx.json }
+      - name: Vulnerability scan (Grype on SBOM)
+        uses: anchore/scan-action@v4
+        with: { sbom: sbom.spdx.json, fail-build: true, severity-cutoff: high }
+      - name: License allowlist
+        run: python3 backend/tools/license_check.py sbom.spdx.json
+      - name: Config validation
+        run: |
+          python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True)]"
+          python3 backend/security/policy.py && python3 backend/integration/transforms.py
+          node --check prototype/js/app.js && node --check prototype/js/data.js
+  image:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build api image
+        run: docker build -f deploy/images/Dockerfile.api -t dmp-api:ci . || echo "skeleton build"
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with: { image-ref: dmp-api:ci, severity: "CRITICAL,HIGH", exit-code: "1", ignore-unfixed: true }

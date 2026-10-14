@@ -10,8 +10,8 @@
 | Collector（高吞吐入口） | **Go 1.23** | net/http + franz-go（Kafka，BSD-3）、sonic/jsoniter | 每節點 5 萬 req/s、低記憶體、單一二進位 |
 | API / 語意層 / 分群標籤服務 / 治理 | **Python 3.12** | FastAPI、Pydantic v2、SQLGlot（SQL 生成與方言）、clickhouse-connect、asyncpg | 與 agent 同語言、資料團隊熟悉、SQL 生成邏輯易測 |
 | Agent Runtime / Tool Gateway | Python 3.12 | 官方 `mcp` SDK、LangGraph（選配）、httpx、pgvector | MCP 生態以 Python/TS 最完整 |
-| 串流作業（標準化、事件化、OneID、Session、CEP、即時標籤） | **Java 17**（Flink）＋ **Flink SQL** | Flink 1.19、Flink CDC、Debezium、RoaringBitmap | 效能與狀態管理成熟；Flink SQL 讓規則類作業低程式碼 |
-| 批次作業（標籤、ID 校正、觸點表、匯入） | Python（PySpark）＋ SQL | Spark 3.5、dbt-core（Apache-2.0，管理 ClickHouse/Trino SQL 模型） | 標籤與聚合多為 SQL；dbt 提供版本化與血緣 |
+| 串流作業（標準化、事件化、OneID、Session、CEP、即時標籤） | **Flink SQL ＋ Flink CDC 3 YAML pipeline**（主）；Java 17 僅 OneID 合併一個 job | Flink 1.19、Flink CDC、Debezium、RoaringBitmap | SQL-first：LLM 寫 SQL 正確率高、弱點面小；見 docs/11 |
+| 批次作業（標籤、ID 校正、觸點表、匯入） | **ClickHouse SQL ＋ dbt-core**（主）；PySpark 僅 BigQuery 匯入與 ML | dbt-core、Spark 3.5 | 減少 JVM 面；dbt 提供版本化、測試與血緣 |
 | 基礎設施 | HCL / YAML | OpenTofu、Helm、Kustomize、Ansible（機房） | — |
 | 測試 | — | Vitest/Playwright（前端）、pytest（Python）、JUnit（Java）、k6（負載）、Great Expectations（資料） | — |
 

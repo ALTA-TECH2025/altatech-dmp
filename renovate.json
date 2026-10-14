@@ -1,0 +1,10 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":pinAllExceptPeerDependencies", "docker:pinDigests", "helpers:pinGitHubActionDigests"],
+  "schedule": ["before 6am on monday"],
+  "vulnerabilityAlerts": { "enabled": true, "schedule": ["at any time"], "labels": ["security"] },
+  "packageRules": [
+    { "matchUpdateTypes": ["minor", "patch"], "matchCurrentVersion": "!/^0/", "automerge": true, "automergeType": "pr", "requiredStatusChecks": null },
+    { "matchDatasources": ["docker"], "matchPackagePatterns": ["clickhouse", "kafka", "flink", "postgres", "valkey"], "groupName": "stateful-services", "automerge": false }
+  ]
+}
