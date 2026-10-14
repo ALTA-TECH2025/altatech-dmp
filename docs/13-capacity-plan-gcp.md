@@ -200,10 +200,34 @@ ClickHouse 2×2 c3-highmem-22（4 TB）、Kafka n2-standard-4 ×3、Flink n2-sta
 | 備份 | ClickHouse `BACKUP TO S3`（每日增量、每週全量）；PostgreSQL WAL 歸檔；Kafka 不備份（可從 Iceberg 回放）；備份桶 Object Lock 或離線磁帶 |
 | 監控 | Prometheus + Grafana OSS（叢集內）；告警到既有 Email／LINE |
 
+
+### 11.6 Dell PowerEdge 採購預估（正式 6 台 + 測試 3 台 = 9 台）
+
+> 以 2026 年台灣 Dell 通路常見價位推估（含 3 年 ProSupport 次工作日到府、iDRAC9 Enterprise、雙電源），**未稅**；實際以經銷商正式報價為準，誤差約 ±20%。
+
+| 角色 | 機型 | 建議配置 | 台數 | 單價（NT$） | 小計（NT$） |
+|---|---|---|---|---|---|
+| 正式 OLAP（ClickHouse） | **PowerEdge R760**（2U） | 2 × Xeon Gold 16 核（如 6526Y）、256 GB DDR5（8 × 32 GB）、BOSS-N1 2 × 480 GB、2 × 3.84 TB NVMe U.2 Mixed Use、Broadcom 雙埠 10/25GbE、2 × 1,100 W | 2 | 48–65 萬 | 96–130 萬 |
+| 正式 general | **PowerEdge R660**（1U） | 1 × Xeon Gold 16 核、128 GB DDR5（8 × 16 GB）、BOSS-N1 2 × 480 GB、1 × 1.92 TB NVMe、2 × 8 TB NL-SAS HDD（HBA355 直通）、雙埠 10/25GbE、2 × 800 W | 4 | 28–38 萬 | 112–152 萬 |
+| 測試（同構） | **PowerEdge R760**（2U） | 1 × Xeon Gold 16 核、256 GB DDR5、BOSS-N1 2 × 480 GB、1 × 3.84 TB NVMe、2 × 4 TB NL-SAS HDD、雙埠 10GbE | 3 | 38–48 萬 | 114–144 萬 |
+| **9 台主機小計** | | | **9** | | **322–426 萬** |
+| 網路 | 2 × 10/25GbE ToR 交換器（Dell S5248F 或同級，含光模組／DAC） | | 2 | 8–15 萬 | 16–30 萬 |
+| 機櫃／PDU／線材 | 若無既有機櫃 | | 1 | 5–10 萬 | 5–10 萬 |
+| **硬體合計（未稅）** | | | | | **約 343–466 萬** |
+| 營業稅 5% | | | | | 17–23 萬 |
+| **含稅合計** | | | | | **約 360–490 萬** |
+
+選配與注意：
+- 作業系統：Rocky Linux 9 免費；若客戶要求 RHEL 9，約 NT$ 2.5–3.5 萬／台／年，9 台 3 年再加約 70–95 萬。
+- 保固升級為 4 小時 Mission Critical：主機價 +10–15%。
+- 第 4 年起維保約為硬體價的 8–12%／年。
+- 若 general 節點的物件儲存改用既有 NAS／S3，可拿掉每台 2 × 8 TB HDD，約省 1.5–2 萬／台。
+- 美國 Dell 官網配置器與第三方經銷的參考：2 × Xeon Gold 6430、256 GB DDR5、2 × 1.92 TB NVMe 的 R760 約 US$ 8,500–10,500（不含台灣通路保固加價）。
+
 ### 11.5 與 GCP 的差異
 - 機房 A 檔的 general 節點比 GCP 版大一倍記憶體並多 HDD，是因為把 Cloud SQL、Memorystore、GCS 收進叢集。
 - 沒有 Spot：舊資料導入用臨時 VM 或在夜間用 general 節點閒置資源分批跑（約 3–5 天）。
-- 硬體一次性採購（6 台約 NT$ 300–450 萬視品牌與保固）＋ 3 年維保；相較 GCP A 檔 3 年約 NT$ 560–750 萬（CUD 後約 NT$ 570 萬）。
+- 硬體一次性採購：正式 6 台約 NT$ 210–280 萬、含測試 3 台共 9 台約 NT$ 320–430 萬（未稅，含 3 年保固；見 §11.6）；相較 GCP A 檔 3 年約 NT$ 560–750 萬（CUD 後約 NT$ 570 萬），測試環境另計。
 
 ## 12. 對應檔案
 - `deploy/helm/altatech-dmp/values-gcp-6n.yaml`（A，正式，預設）、`values-gcp-4n.yaml`（B）、`values-gcp-3n.yaml`（C，測試）。
