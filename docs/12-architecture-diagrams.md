@@ -38,7 +38,7 @@
 ```mermaid
 flowchart TB
   subgraph EXP[體驗層]
-    WEB[DMP Web<br/>React + ECharts] --- AIUI[AI 洞察助理] --- EXT[外部系統<br/>MA / 客服 / 營業員 App / AI Coach] --- MCPC[外部 AI 客戶端<br/>Claude Code / Cursor]
+    WEB[DMP Web<br/>React + ECharts] --- AIUI[AI 洞察助理] --- EXT[外部系統<br/>MA / 客服 / 營業員 App] --- MCPC[外部 AI 客戶端<br/>Claude Code / Cursor]
   end
   subgraph AGENT[Agent 層]
     RT[Insight Agent Runtime<br/>Planner→Executor→Verifier→Narrator] --- GW[Agent Tool Gateway MCP<br/>權限·預算·脫敏·審計] --- IS[Insight Store + Knowledge Pack<br/>PostgreSQL + pgvector] --- LLM[LLM Gateway]
@@ -53,9 +53,9 @@ flowchart TB
     KF[(Kafka)] --- CH[(ClickHouse)] --- PG[(PostgreSQL + pgvector)] --- VK[(Valkey)] --- OBJ[(GCS / 物件儲存<br/>Iceberg 冷層)]
   end
   subgraph ING[接入層]
-    COL[Collector Go<br/>/v1/events /sa /ga4] --- GA[GA360 Importer<br/>BigQuery + GTM SS] --- CDC[Debezium / Flink CDC] --- BAT[dlt / SeaTunnel / 神策連接器]
+    COL[Collector Go<br/>/v1/events /sa /ga4] --- GA[GA360 Importer<br/>BigQuery + GTM SS] --- CDC[Debezium / Flink CDC] --- BAT[dlt / SeaTunnel 批次匯入<br/>神策歷史一次性]
   end
-  SRC[資料來源：GA360 · 交易系統 · CRM · 神策 · MA · AI Coach] --> ING --> STO --> CMP --> SVC --> AGENT --> EXP
+  SRC[資料來源：GA360 · 交易系統 · CRM · MA · 神策歷史（一次性匯入）] --> ING --> STO --> CMP --> SVC --> AGENT --> EXP
   SEC[安全：Keycloak · RBAC · 隱碼 · KMS · 審計 WORM]:::x -.-> SVC
   OBS[觀測：Prometheus · OTel · Grafana OSS]:::x -.-> CMP
   DEP[部署：Docker 套件 · Helm · GKE/RKE2 · OpenTofu]:::x -.-> STO
@@ -66,7 +66,7 @@ flowchart TB
 ```mermaid
 flowchart LR
   subgraph EXTS[外部]
-    BQ[GA360 / BigQuery] ; GTM[GTM Server-side] ; MS[交易主機 MSSQL] ; CRM[CRM PostgreSQL] ; SA[神策] ; LLMG[LLM Gateway]
+    BQ[GA360 / BigQuery] ; GTM[GTM Server-side] ; MS[交易主機 MSSQL] ; CRM[CRM PostgreSQL] ; SA[神策歷史 一次性] ; LLMG[LLM Gateway]
   end
   subgraph GKE[GKE asia-east1 / RKE2]
     subgraph P1[ingest pool]
@@ -93,9 +93,9 @@ flowchart LR
     SQL[(Cloud SQL PG16)] ; MEM[(Memorystore Valkey)] ; GCS[(Cloud Storage CMEK)] ; KMS[Cloud KMS / Secret Manager] ; AR[Artifact Registry]
   end
   subgraph DOWN[下游]
-    MA[MA] ; APP[營業員 App / AI Coach] ; DW[數倉 / 客服]
+    MA[MA] ; APP[營業員 App] ; DW[數倉 / 客服]
   end
-  BQ --> C1 ; GTM --> C1 ; MS --> C2 ; CRM --> C2 ; SA --> K1
+  BQ --> C1 ; GTM --> C1 ; MS --> C2 ; CRM --> C2 ; SA --> D1
   C1 --> K1 --> F1 --> CH1 ; D1 --> CH1 ; CH1 --> API --> MCP --> LLMG
   API --> SQL ; API --> MEM ; CH1 --> GCS ; K1 --> MA ; MCP --> APP ; GCS --> DW
   ING --> C1 ; ING --> API ; ING --> WEB
@@ -106,11 +106,12 @@ flowchart LR
 flowchart LR
   S1[GA360 / GTM SS] --> I1[Collector / Importer] --> R[(Kafka raw.*)]
   S2[交易主機 MSSQL] --> I2[Debezium CDC] --> R
-  S3[CRM / 神策 / MA] --> I3[dlt / 神策連接器] --> R
+  S3[CRM / MA] --> I3[dlt 批次] --> R
+  S4[神策歷史事件 一次性] -.匯入.-> ICE
   R --> N[normalize] --> E[eventize 狀態機<br/>HMAC/FPE 代碼化] --> O[oneid-resolve] --> SS[sessionize] --> EV[(dmp.events)]
-  SS --> RR[rt-rules CEP / rt-tags] --> TR[(dmp.triggers)] --> MA[MA / 營業員 App / AI Coach]
+  SS --> RR[rt-rules CEP / rt-tags] --> TR[(dmp.triggers)] --> MA[MA / 營業員 App]
   EV --> L0[(ClickHouse L0 events)] --> L1[(L1/L2 MV)] --> L3[(L3 觸點 / L4 Bitmap 標籤)]
-  EV --> ICE[(Iceberg on GCS 冷層)] -.雙向映射.-> DW[數倉 / 神策]
+  EV --> ICE[(Iceberg on GCS 冷層)] -.雙向映射.-> DW[數倉]
   L0 --> SEM[Semantic Compiler] --> PE[Policy Engine] --> API[Analytics / Segment / Profile API] --> UI[DMP Web]
   API --> GW[Tool Gateway MCP] --> AG[Insight Agents] --> IS[(Insight Store PG)] --> UI
   PE -.audit.-> AU[(audit_log + WORM)] --> GRA[Grafana 日誌統計]

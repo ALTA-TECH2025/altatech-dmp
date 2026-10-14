@@ -56,7 +56,7 @@ def system_architecture():
     L = 28; W = 1230; colx = lambda i, n, pad=12: L + 14 + i * ((W - 28) // n) + pad * 0
     # 體驗層
     s.group(L, 80, W, 110, "體驗層  Experience")
-    for i, (t, ls) in enumerate([("DMP Web（React + ECharts）", ["總覽／事件／漏斗／路徑／歸因／用戶列表", "標籤分群／即時觸發／數據整合／權限中心／日誌統計"]), ("AI 洞察助理", ["洞察串流、選擇題式問答", "Agents、工具目錄"]), ("外部系統", ["MA 行銷自動化、客服工單", "營業員 App、AI Coach"]), ("外部 AI 客戶端", ["Claude Code / Cursor", "以 MCP 連工具閘道"])]):
+    for i, (t, ls) in enumerate([("DMP Web（React + ECharts）", ["總覽／事件／漏斗／路徑／歸因／用戶列表", "標籤分群／即時觸發／數據整合／權限中心／日誌統計"]), ("AI 洞察助理", ["洞察串流、選擇題式問答", "Agents、工具目錄"]), ("外部系統", ["MA 行銷自動化、客服工單", "營業員 App"]), ("外部 AI 客戶端", ["Claude Code / Cursor", "以 MCP 連工具閘道"])]):
         s.box(L + 14 + i * 300, 110, 285, 66, t, ls, "brand")
     # Agent 層
     s.group(L, 205, W, 120, "Agent 層  AI Agent Layer（docs/03、05）")
@@ -76,11 +76,11 @@ def system_architecture():
         s.box(L + 14 + i * 300, 630, 285, 68, t, ls, c)
     # 接入層
     s.group(L, 725, W, 110, "接入層  Ingestion（docs/06 可視化建模）")
-    for i, (t, ls, c) in enumerate([("Collector（Go）", ["/v1/events、/sa 神策相容、/ga4", "校驗、個資閘門、冪等、寫 Kafka"], "green"), ("GA360 Importer", ["BigQuery Daily / Fresh（權威）", "GTM Server-side 即時雙寫"], "green"), ("CDC：Debezium / Flink CDC", ["MSSQL 交易主機、PostgreSQL CRM", "Outbox → raw.trade_cdc"], "green"), ("批次整合：dlt / SeaTunnel", ["神策 Kafka 訂閱 + 查詢 API", "檔案、Kafka、GCS"], "green")]):
+    for i, (t, ls, c) in enumerate([("Collector（Go）", ["/v1/events、/ga4、/sa（匯入用）", "校驗、個資閘門、冪等、寫 Kafka"], "green"), ("GA360 Importer", ["BigQuery Daily / Fresh（權威）", "GTM Server-side 即時雙寫"], "green"), ("CDC：Debezium / Flink CDC", ["MSSQL 交易主機、PostgreSQL CRM", "Outbox → raw.trade_cdc"], "green"), ("批次整合：dlt / SeaTunnel", ["神策 Kafka 訂閱 + 查詢 API", "檔案、Kafka、GCS"], "green")]):
         s.box(L + 14 + i * 300, 755, 285, 68, t, ls, c)
     # 來源
     s.group(L, 850, W, 110, "資料來源  Sources")
-    for i, (t, ls) in enumerate([("GA360（Web / App 埋點）", ["gtag / Firebase → 境內 GTM 容器"]), ("證券交易系統", ["委託、成交、出入金、開戶、基金"]), ("CRM / 客戶主檔 / 營業員", ["客戶、帳戶、分公司、商品"]), ("神策 / MA / 客服 / AI Coach", ["歷史事件、推播、工單、對練"])]):
+    for i, (t, ls) in enumerate([("GA360（Web / App 埋點）", ["gtag / Firebase → 境內 GTM 容器"]), ("證券交易系統", ["委託、成交、出入金、開戶、基金"]), ("CRM / 客戶主檔 / 營業員", ["客戶、帳戶、分公司、商品"]), ("MA / 客服 / 神策歷史", ["推播、工單；神策事件一次性匯入"])]):
         s.box(L + 14 + i * 300, 880, 285, 56, t, ls, "gray")
     # 縱向流向
     for y1, y2 in [(936, 823), (755, 698), (630, 573), (505, 448), (370, 313), (235, 176)]:
@@ -111,7 +111,7 @@ def component_deployment():
     s = SVG(1600, 980, "元件組成圖：GKE 部署視圖（機房 RKE2 同構）")
     # 外部來源（左）
     s.group(28, 80, 250, 520, "外部來源  External")
-    for i, (t, ls) in enumerate([("GA360 / BigQuery", ["Storage Read API", "Private Google Access"]), ("GTM Server-side", ["境內容器，個資閘門", "gtag → /ga4"]), ("交易主機 MSSQL", ["Debezium CDC / Outbox"]), ("CRM PostgreSQL", ["pgoutput CDC + 日批"]), ("神策（私有化）", ["Kafka 訂閱 + 查詢 API"]), ("LLM Gateway", ["企業閘道；agent 不持金鑰"])]):
+    for i, (t, ls) in enumerate([("GA360 / BigQuery", ["Storage Read API", "Private Google Access"]), ("GTM Server-side", ["境內容器，個資閘門", "gtag → /ga4"]), ("交易主機 MSSQL", ["Debezium CDC / Outbox"]), ("CRM PostgreSQL", ["pgoutput CDC + 日批"]), ("神策（歷史，一次性匯入）", ["查詢 API / Parquet"]), ("LLM Gateway", ["企業閘道；agent 不持金鑰"])]):
         s.box(42, 110 + i * 80, 222, 64, t, ls, "gray", small=True)
     # GKE
     s.group(300, 80, 960, 770, "GKE 區域叢集  asia-east1（私有節點、Workload Identity、Binary Authorization）", fill="#FBFCFE")
@@ -142,7 +142,7 @@ def component_deployment():
         s.box(1294, 110 + i * 80, 264, 64, t, ls, "gray", small=True)
     # downstream (right bottom)
     s.group(1280, 620, 292, 230, "下游系統  Consumers")
-    for i, (t, ls) in enumerate([("MA 行銷自動化", ["dmp.triggers、分群推送"]), ("營業員 App / AI Coach", ["提示、洞察、對練事件回寫"]), ("客服工單 / 數倉", ["觸發、Iceberg 雙向映射"])]):
+    for i, (t, ls) in enumerate([("MA 行銷自動化", ["dmp.triggers、分群推送"]), ("營業員 App", ["提示、待辦、洞察"]), ("客服工單 / 數倉", ["觸發、Iceberg 雙向映射"])]):
         s.box(1294, 650 + i * 64, 264, 56, t, ls, "brand", small=True)
     # arrows
     s.arrow(264, 300, 316, 300, ""); s.note(268, 292, "CDC")
@@ -163,10 +163,10 @@ def data_flow():
         s.parts.append(f'<text x="{x}" y="92" font-family="{FONT}" font-size="13" font-weight="800" fill="{C["brand"]}">{html.escape(t)}</text>')
         s.parts.append(f'<line x1="{x}" y1="100" x2="{x+234}" y2="100" stroke="{C["line"]}" stroke-width="2"/>')
     # column 1 sources
-    src = [("GA360 Web/App 埋點", ["gtag / Firebase"]), ("GTM Server-side", ["境內，個資閘門"]), ("交易主機（委託/成交/出入金）", ["MSSQL 狀態表"]), ("CRM / 開戶 / 基金", ["PostgreSQL、API"]), ("神策歷史與增量", ["Kafka、查詢 API"]), ("MA / 客服 / AI Coach", ["推播、工單、對練"])]
+    src = [("GA360 Web/App 埋點", ["gtag / Firebase"]), ("GTM Server-side", ["境內，個資閘門"]), ("交易主機（委託/成交/出入金）", ["MSSQL 狀態表"]), ("CRM / 開戶 / 基金", ["PostgreSQL、API"]), ("神策歷史（一次性匯入）", ["查詢 API / Parquet 匯出"]), ("MA / 客服", ["推播、工單"])]
     for i, (t, ls) in enumerate(src): s.box(28, 115 + i * 78, 234, 60, t, ls, "gray", small=True)
     # column 2 ingestion
-    ing = [("BigQuery Importer（日批/Fresh）", ["Storage Read API → Iceberg raw"]), ("Collector /ga4 /v1/events /sa", ["校驗、禁止欄位、event_id 冪等"]), ("Debezium / Flink CDC", ["列變更 → raw.trade_cdc"]), ("dlt / SeaTunnel 批次", ["raw.crm、profile_set"]), ("神策連接器", ["協議 1:1 映射"]), ("Kafka raw.* topics", ["原文保留 7–30 天；可回放"])]
+    ing = [("BigQuery Importer（日批/Fresh）", ["Storage Read API → Iceberg raw"]), ("Collector /ga4 /v1/events /sa", ["校驗、禁止欄位、event_id 冪等"]), ("Debezium / Flink CDC", ["列變更 → raw.trade_cdc"]), ("dlt / SeaTunnel 批次", ["raw.crm、profile_set"]), ("神策歷史匯入（一次性）", ["協議 1:1 映射 → Iceberg"]), ("Kafka raw.* topics", ["原文保留 7–30 天；可回放"])]
     for i, (t, ls) in enumerate(ing): s.box(290, 115 + i * 78, 234, 60, t, ls, "green", small=True)
     # column 3 flink
     fl = [("normalize", ["GA4 → 統一事件（ga. 前綴）", "時區、去重、遲到標記"]), ("eventize（狀態機）", ["NEW→order_submit、F→order_filled…", "敏感欄位代碼化 HMAC/FPE"]), ("oneid-resolve", ["identities → one_id / one_id_uint", "優先級合併、共用裝置限制"]), ("sessionize", ["30 分鐘閒置切 Session"]), ("rt-rules（CEP）/ rt-tags", ["MATCH_RECOGNIZE → dmp.triggers", "近 N 分鐘標籤 → Valkey"]), ("audit / insights topics", ["agent.tool_called、role.changed"])]
@@ -178,7 +178,7 @@ def data_flow():
     sv = [("Semantic Compiler", ["語意查詢 JSON → SQL + 成本 + 血緣"]), ("Policy Engine", ["模組→行級→欄位隱碼→審批→審計"]), ("Analytics / Segment / Profile API", ["事件、漏斗、路徑、歸因、用戶列表、標籤"]), ("Tool Gateway（MCP）", ["27 工具；委託身份；預算；脫敏"]), ("Insight Agents", ["anomaly-watch、funnel-doctor、", "churn-radar、analyst-copilot…"]), ("dbt / Airflow 日批", ["標籤、聚合、ID 校正、快照"])]
     for i, (t, ls) in enumerate(sv): s.box(1076, 115 + i * 78, 234, 60, t, ls, "purple" if i in (3, 4) else "brand", small=True)
     # column 6 consumers
-    cs = [("DMP Web", ["看板、分析、用戶列表、權限中心"]), ("AI 洞察助理 / 外部 MCP 客戶端", ["問答、洞察串流"]), ("MA / 營業員 App / AI Coach", ["dmp.triggers、分群推送（審批）"]), ("Grafana 看板", ["資料品質、效能、審計統計"]), ("數倉 / 神策（雙軌）", ["Iceberg 讀取、/v1/export/sensors"]), ("稽核 / 法遵", ["audit_log WORM、DSAR 證明"])]
+    cs = [("DMP Web", ["看板、分析、用戶列表、權限中心"]), ("AI 洞察助理 / 外部 MCP 客戶端", ["問答、洞察串流"]), ("MA / 營業員 App", ["dmp.triggers、分群推送（審批）"]), ("Grafana 看板", ["資料品質、效能、審計統計"]), ("數倉", ["Iceberg 雙向映射讀取"]), ("稽核 / 法遵", ["audit_log WORM、DSAR 證明"])]
     for i, (t, ls) in enumerate(cs): s.box(1338, 115 + i * 78, 234, 60, t, ls, "gray", small=True)
     # arrows source→ingest
     for i, j in [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 1)]:
@@ -190,7 +190,7 @@ def data_flow():
     s.arrow(786, 145 + 2 * 78, 814, 145, "", curve=True)
     s.parts.append(f'<text x="800" y="111" font-family="{FONT}" font-size="10.5" font-weight="700" fill="{C["teal"]}" text-anchor="middle">dmp.events →</text>')
     s.arrow(786, 145 + 3 * 78, 814, 145, curve=True)
-    s.parts.append(f'<text x="556" y="{115 + 4 * 78 + 71}" font-family="{FONT}" font-size="10" font-weight="700" fill="{C["teal"]}">↳ dmp.triggers（秒級）→ ⑥ MA / 營業員 App / AI Coach</text>')
+    s.parts.append(f'<text x="556" y="{115 + 4 * 78 + 71}" font-family="{FONT}" font-size="10" font-weight="700" fill="{C["teal"]}">↳ dmp.triggers（秒級）→ ⑥ MA / 營業員 App</text>')
     s.arrow(786, 145 + 5 * 78, 814, 145 + 5 * 78, "")
     # storage internal
     for i in range(2): s.arrow(931, 175 + i * 78, 931, 193 + i * 78, color=C["yellow"])
@@ -204,7 +204,7 @@ def data_flow():
     s.arrow(1310, 145 + 3 * 78, 1338, 145 + 1 * 78, "", curve=True)
     s.arrow(1310, 145 + 4 * 78, 1338, 145 + 1 * 78, "", curve=True)
     s.arrow(1310, 145 + 1 * 78, 1338, 145 + 5 * 78, "", curve=True, dash=True)
-    s.parts.append(f'<text x="818" y="{115 + 4 * 78 + 71}" font-family="{FONT}" font-size="10" font-weight="700" fill="{C["yellow"]}">↳ Iceberg 雙向映射 → ⑥ 數倉 / 神策</text>')
+    s.parts.append(f'<text x="818" y="{115 + 4 * 78 + 71}" font-family="{FONT}" font-size="10" font-weight="700" fill="{C["yellow"]}">↳ Iceberg 雙向映射 → ⑥ 數倉</text>')
     s.parts.append(f'<text x="1080" y="{115 + 1 * 78 + 71}" font-family="{FONT}" font-size="10" fill="{C["muted"]}">↳ 每次授權寫 audit → ⑥ 稽核 / Grafana</text>')
     # notes
     s.group(28, 610, 1544, 150, "關鍵規則")

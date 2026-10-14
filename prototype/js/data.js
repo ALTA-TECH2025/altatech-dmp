@@ -52,7 +52,6 @@ export const EVENTS = [
   { name: 'fund_subscribe', cn: '基金申購', entity: 'account', source: '基金平台', kind: 'trade', status: 'live', daily: 41000, props: ['fund_code', 'amount', 'plan_type'], owner: '財富管理' },
   { name: 'push_opened', cn: '推播開啟', entity: 'user', source: 'MA', kind: 'marketing', status: 'live', daily: 980000, props: ['campaign_id', 'push_id'], owner: '數位行銷' },
   { name: 'campaign_clicked', cn: '活動點擊', entity: 'user', source: 'GA360', kind: 'marketing', status: 'live', daily: 214000, props: ['campaign_id', 'creative_id'], owner: '數位行銷' },
-  { name: 'coach_session_completed', cn: 'AI 對練完成', entity: 'agent', source: 'AI Coach', kind: 'business', status: 'live', daily: 412, props: ['scenario_id', 'score'], owner: '通路訓練' },
   { name: 'ga.ab_exposure', cn: 'AB 實驗曝光', entity: 'user', source: 'GA360', kind: 'behavior', status: 'quarantine', daily: 1200000, props: ['exp_id', 'variant'], owner: '—', note: '未登記事件：進隔離區，待產品團隊登記' },
   { name: 'option_apply', cn: '期權申請', entity: 'user', source: '業務系統', kind: 'business', status: 'draft', daily: 0, props: ['product', 'status'], owner: '衍生性商品' },
 ];
@@ -142,7 +141,6 @@ export const TAGS = [
   { id: 'churn_score', cn: '流失風險分', type: '模型', vals: ['0–100'], cover: 1412000, upd: '每日 07:30', owner: '數據科學', rt: false },
   { id: 'rt_hot_quotes', cn: '近 10 分鐘看盤 ≥ 3 檔', type: '即時', vals: ['是', '否'], cover: 38200, upd: '即時（Flink）', owner: '數位營運', rt: true },
   { id: 'digital_self', cn: '數位自助率', type: '統計', vals: ['0–100%'], cover: 1380000, upd: '每日', owner: '通路管理', rt: false },
-  { id: 'coach_agent_score', cn: '營業員對練平均分', type: '匯入', vals: ['0–100'], cover: 1240, upd: '每週', owner: '通路訓練', rt: false },
 ];
 export const SEGMENTS = [
   { id: 'sg1', name: '高價值沉睡客（agent 提議）', n: 11420, rule: '手續費貢獻分級 ∈ {P1,P2} AND 近 30 天 login = 0', by: 'churn-radar', status: 'pending_approval', upd: '今天 07:04', rt: false },
@@ -158,11 +156,11 @@ export const TRIGGERS = [
   { id: 'tr1', name: '看盤未下單 30 分鐘', dsl: 'quote_view ≥ 3 in 10m → NOT order_submit in 30m', audience: 'sg3', throttle: '1/人/24h', out: 'dmp.triggers → MA 推播', fires24h: 3812, status: 'on' },
   { id: 'tr2', name: '新戶核准未入金 3 天', dsl: 'account_open_approved → NOT fund_deposit in 72h', audience: 'sg2', throttle: '1/人', out: 'dmp.triggers → 營業員 App 待辦', fires24h: 612, status: 'on' },
   { id: 'tr3', name: '委託失敗（系統原因）', dsl: 'order_rejected(reason_code LIKE "SYS%")', audience: '全體', throttle: '1/人/1h', out: 'dmp.triggers → 客服工單 + anomaly-watch', fires24h: 1940, status: 'on' },
-  { id: 'tr4', name: '高價值客登入（AI Coach 提示）', dsl: 'login AND fee_tier ∈ {P1}', audience: '全體', throttle: '1/人/日', out: 'dmp.triggers → AI Coach 營業員提示', fires24h: 2206, status: 'on' },
+  { id: 'tr4', name: '高價值客登入（營業員 App 提示）', dsl: 'login AND fee_tier ∈ {P1}', audience: '全體', throttle: '1/人/日', out: 'dmp.triggers → 營業員 App 提示', fires24h: 2206, status: 'on' },
   { id: 'tr5', name: 'iOS 開戶中斷即時挽回（agent 提議）', dsl: 'account_open_start(platform=iOS, app_version=23.4) → NOT account_open_submit in 2h', audience: 'sg4', throttle: '1/人', out: 'dmp.triggers → MA', fires24h: 0, status: 'pending_approval' },
 ];
 export const TRIGGER_FEED = (() => {
-  const names = ['看盤未下單 30 分鐘', '委託失敗（系統原因）', '高價值客登入（AI Coach 提示）', '新戶核准未入金 3 天'];
+  const names = ['看盤未下單 30 分鐘', '委託失敗（系統原因）', '高價值客登入（營業員 App 提示）', '新戶核准未入金 3 天'];
   const out = []; let t = new Date(2026, 9, 14, 14, 32, 10);
   for (let i = 0; i < 14; i++) { t = new Date(t.getTime() - ri(4, 40) * 1000); out.push({ t: `${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}`, rule: pick(names), one: `oid_${ri(100000, 999999).toString(36)}`, payload: pick(['symbol=2330', 'symbol=2454', 'order_no=A…8812 reason=SYS02', 'fee_tier=P1', 'account_type=證券']) }); }
   return out;
@@ -338,7 +336,7 @@ export const CONNECTIONS = [
   { id: 'trade_core', type: 'MSSQL', cn: '交易主機（SQL Server 2019）', mode: 'CDC（Debezium）', tables: 6, models: 3, lag: '1.4 秒', status: 'ok', rows24h: 18_240_902 },
   { id: 'ga_bq', type: 'BigQuery', cn: 'GA360 匯出（analytics_3012…）', mode: 'Storage Read API（Daily + Fresh）', tables: 2, models: 2, lag: '55 分', status: 'ok', rows24h: 182_430_112 },
   { id: 'crm_pg', type: 'PostgreSQL', cn: 'CRM 客戶主檔', mode: 'CDC（pgoutput）+ 日批', tables: 4, models: 2, lag: '3.1 秒', status: 'ok', rows24h: 1_230_119 },
-  { id: 'sensors', type: 'SensorsData', cn: '神策分析（私有化）歷史與增量', mode: 'Kafka 訂閱 + 查詢 API', tables: 1, models: 1, lag: '2.4 秒', status: 'ok', rows24h: 42_118_300 },
+  { id: 'sensors', type: 'SensorsData', cn: '神策分析歷史事件（一次性匯入，已完成）', mode: '查詢 API → Parquet → Iceberg', tables: 1, models: 1, lag: '已完成 10/02', status: 'ok', rows24h: 0, note: '匯入 48.7 億筆，對帳差異 0.4%；之後行為事件全部來自 GA360' },
   { id: 'fund_pg', type: 'PostgreSQL', cn: '基金平台', mode: 'CDC', tables: 2, models: 1, lag: '4.0 秒', status: 'warn', rows24h: 41_000, note: '來源新增欄位 PLAN_FREQ，建議映射到 plan_type' },
 ];
 export const MODEL_EXAMPLE = {

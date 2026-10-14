@@ -35,7 +35,7 @@
 | A8 | **策略輸出** | 策略輸出 | `segment.propose` + `trigger.propose` + 建議文案／渠道；附預估人數與歷史相似策略成效 | v1.5 |
 | A9 | **自動化執行（審批）** | 自動化執行 | 審批後 `campaign.execute` 推送到 MA／營業員 App；agent 不能自行執行 | v2.0 |
 | A10 | **效果復盤** | 效果復盤 | 活動結束事件觸發 `campaign-review`：漏斗、歸因、對照組增量 → 洞察 + 報告 | v1.5 |
-| A11 | **MCP 對外** | MCP Server | 工具閘道以 MCP 協定開放給 Cursor／Claude Desktop／AI Coach；同一權限模型 | v1.0 |
+| A11 | **MCP 對外** | MCP Server | 工具閘道以 MCP 協定開放給 Cursor／Claude Desktop／營業員 App；同一權限模型 | v1.0 |
 | A12 | **證據覆核** | — | reviewer agent 重跑證據、調整信心度（本平台既有） | v1.0 |
 | A13 | **法遵守門** | 算法備案 | 個資輸出攔截、數字必須來自工具、審計；對應金管會「金融業運用 AI 指引」的可解釋、問責與風險管理要求 | v1.0 |
 

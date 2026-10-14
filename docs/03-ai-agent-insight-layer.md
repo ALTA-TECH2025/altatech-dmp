@@ -137,7 +137,7 @@ Insight Store ─► 訂閱通知 / UI / 回饋 ─► 下次 Planner 的 few-sh
 | 新增一個 agent | 寫一個 skill Markdown + 在 `agents.yaml` 設排程／觸發與允許的工具集 |
 | 接新資料源 | 在事件字典登記事件；Collector 自動接受；語意層自動可見 |
 | 換 LLM | 改 LLM Gateway 路由；跑 golden evals |
-| 讓外部系統（AI Coach）用 agent | 呼叫 `POST /v1/agents/ask` 或直接以 MCP client 連 Gateway（同一權限模型） |
+| 讓外部系統（營業員 App、MA）用 agent | 呼叫 `POST /v1/agents/ask` 或直接以 MCP client 連 Gateway（同一權限模型） |
 
 ## 10. 原型對應
 

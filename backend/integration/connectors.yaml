@@ -23,12 +23,12 @@ connectors:
     network: private_google_access
     presets: [ga4_export]
   - type: sensorsdata
-    cn: 神策 SensorsData（私有化）
+    cn: 神策 SensorsData（歷史事件，一次性匯入）
     auth: [api_token]
-    capabilities: { batch: sql_query_api, cdc: kafka_subscription, schema_discovery: "events/properties via API" }
+    capabilities: { batch: sql_query_api_or_parquet, cdc: none, schema_discovery: "events/properties via API" }
+    mode: one_time_import              # 匯入完成後行為事件全部來自 GA360；不接增量、不寫回
     protocol: sensors_json            # type/event/distinct_id/identities/properties/time
-    mapping_preset: sensors_native     # 幾乎 1:1 映射到本平台協議
-    export_back: /v1/export/sensors    # 反向輸出，雙軌過渡
+    mapping_preset: sensors_native     # 幾乎 1:1 映射；事件名對照到 GA 命名（$pageview ↔ ga.page_view）
   - type: kafka
     cn: Apache Kafka
     capabilities: { batch: false, cdc: stream, formats: [json, avro(apicurio)] }

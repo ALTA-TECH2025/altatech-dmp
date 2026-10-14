@@ -4,7 +4,7 @@
 > 對標：火山引擎 VeDI（DataFinder 增長分析 + VeCDP 客戶數據平台）、神策數據（神策分析 + SDP 數據根基平台 + 用戶畫像 + 智能運營）
 > 版本：v0.1（2026-10-14）　狀態：設計提案，待架構評審
 
-> **v0.2 勘誤（授權審查後）**：本文件原選型中的 MinIO（AGPL）、Redis（RSAL/SSPL）、HashiCorp Vault（BSL）、Grafana/Loki（AGPL）已分別改為 GCS／SeaweedFS、Valkey、Cloud KMS／OpenBao、Perses／OpenSearch，詳見 `07-deployment-gcp-license-os.md` 與 `LICENSES.md`；分析模組優先序改依 `04-analysis-modules-p0.md`。
+> **v0.2 勘誤（授權審查後）**：本文件原選型中的 MinIO（AGPL）、Redis（RSAL/SSPL）、HashiCorp Vault（BSL）、Grafana/Loki（AGPL）已分別改為 GCS／SeaweedFS、Valkey、Cloud KMS／OpenBao、Perses／OpenSearch，詳見 `07-deployment-gcp-license-os.md` 與 `LICENSES.md`；分析模組優先序改依 `04-analysis-modules-p0.md`。**範圍修訂**：神策只做一次性歷史匯入（不接增量、不寫回，見 06 文件 §4）；第 14 節「與 AI Coach 的銜接」作廢，平台下游為 MA、客服與營業員 App。
 
 
 ---

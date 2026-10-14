@@ -14,7 +14,7 @@
 | **Microsoft SQL Server** 2016+ | JDBC 增量（時間戳／自增鍵）、分頁拉取 | **Debezium SQL Server 連接器**（需開啟 CDC，`sys.sp_cdc_enable_table`）／Flink CDC SQL Server | Debezium（Apache-2.0）、Flink CDC（Apache-2.0）、mssql-jdbc（MIT） | 交易主機常見；若主機不允許 CDC，退回「回報檔 + 分鐘級拉取」 |
 | **PostgreSQL** 12+ | JDBC 增量 | Debezium PostgreSQL（`pgoutput` 邏輯複寫）／Flink CDC | Debezium、pgjdbc（BSD-2） | 本平台控制面亦為 PostgreSQL |
 | **BigQuery**（GA360 匯出、既有數倉） | **BigQuery Storage Read API**（Arrow，分片平行）；表分片 `events_YYYYMMDD` 自動偵測；增量以分區／日期 | 無 CDC；以 Fresh Daily／Streaming 表近即時 | Spark BigQuery Connector（Apache-2.0，Google）、google-cloud-bigquery（Apache-2.0） | 唯一出站連線；服務帳戶最小權限；GCP 部署時走 Private Google Access，不經公網 |
-| **神策 SensorsData**（私有化） | **查詢 API**（`/api/sql/query`，SQL 匯出事件／用戶表，分日拉取）；批量以 `FormatImporter` 反向格式（JSON 一行一筆） | **Kafka 訂閱**（私有化版提供，topic 內為神策協議 JSON：`type`、`event`、`distinct_id`、`identities`、`properties`、`time`） | 神策 SDK／協議為 Apache-2.0；本平台 Collector 原生相容 | 事件名、屬性名、`identities` 直接映射；`$` 預置屬性對齊 |
+| **神策 SensorsData**（歷史事件，**一次性匯入**） | **查詢 API**（`/api/sql/query`）分日匯出，或由神策工程匯出 Parquet；匯入 Iceberg → ClickHouse | 不接增量：匯入完成後行為事件全部來自 GA360 | 神策協議為 Apache-2.0；映射器為本平台程式 | 事件名、屬性名、`identities` 直接映射；`$` 預置屬性對齊到 GA 事件命名 |
 | 其他（MySQL、Oracle、檔案 GCS/S3、Kafka、HTTP API） | 依連接器 | Debezium 支援 MySQL／Oracle（Oracle 需 LogMiner，注意 Oracle 授權） | — | P1 |
 
 技術底座：
@@ -31,7 +31,7 @@
  MSSQL       dbo.ORDER_HIST  → 事件 order_*    ORD_NO→order_no     trim/upper          100 筆樣本       每 5 分鐘增量
  BigQuery    events_*        → 事件 ga.*       event_params→props  µs→ms, 時區         型別檢查         Fresh/Daily
  PostgreSQL  crm.customer    → 用戶 profile    CUST_ID→login_id    HMAC 代碼化         禁止欄位掃描     每日 02:00
- Sensors     Kafka event     → 事件（同名）     identities 直通      $ 屬性對齊          字典比對         即時
+ Sensors     歷史匯出 Parquet → 事件（同名）     identities 直通      $ 屬性對齊          字典比對         一次性
 ```
 
 ### 3.1 實體對映（Entity Mapping）
@@ -63,11 +63,13 @@
 - 即時：Debezium／Flink CDC 任務由平台以 K8s Operator 建立。
 - 監控：延遲、筆數、隔離率、Schema drift（來源新增欄位 → 告警與建議映射）。
 
-## 4. 神策資料的特別處理
-- 事件、用戶屬性、`identities` 與本平台協議同構，映射幾乎 1:1；差異在 `distinct_id`／`login_id` 語意 → 轉為 `$identity_login_id`。
-- 神策 `item_set` → `item`；`track_signup`／`track_id_bind` → OneID 綁定指令。
-- 歷史遷移：以神策查詢 API 分日匯出（或請神策工程匯出 Parquet），批次灌入 Iceberg → ClickHouse；增量以 Kafka 訂閱。
-- 反向：本平台事件可以神策協議格式輸出（`/v1/export/sensors`）供既有神策分析繼續使用，支援雙軌過渡。
+## 4. 神策歷史資料的一次性匯入
+
+- 範圍：神策分析既有的歷史行為事件與使用者屬性，**只匯入一次**；匯入完成後行為事件全部改由 GA360（日批 + GTM 即時雙寫）供應，不再接神策增量，也不寫回神策。
+- 流程：神策查詢 API 分日匯出（或請神策工程直接匯出 Parquet）→ GCS 暫存桶 → Spot 節點以 dlt／Spark 批次寫入 Iceberg raw → 映射器轉成本平台事件（事件名、屬性名、`identities` 幾乎 1:1；`$` 預置屬性對齊到 GA 事件命名）→ ClickHouse。
+- 對齊：神策事件名與 GA360 事件名需在事件字典建立對照（例：神策 `$pageview` ↔ `ga.page_view`、`$AppViewScreen` ↔ `ga.screen_view`），讓歷史與新資料能在同一漏斗中銜接；`distinct_id`／`login_id` 轉為 `$identity_login_id`，`track_signup`／`track_id_bind` 轉為 OneID 綁定指令。
+- 驗證：匯入後以每日事件量、去重人數與神策既有報表對帳（差異 < 1%），通過後刪除暫存桶。
+- 時程與資源：約 50 億事件，Spot 池 4 台 1–2 天完成；期間暫停標籤日批。
 
 ## 5. 後端骨架對應
 - `backend/integration/connectors.yaml`：來源連接器定義（類型、認證方式、能力：batch/cdc、預設轉換）。

@@ -74,8 +74,3 @@ events:
     entity: user
     source: ma
     required: [campaign_id, push_id]
-  - name: coach_session_completed
-    cn: AI 對練完成
-    entity: agent
-    source: ai_coach
-    required: [scenario_id, score]
