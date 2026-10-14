@@ -117,7 +117,7 @@ Kafka dmp.events ─► Flink CEP（規則）─► dmp.triggers ─► 訂閱�
 
 - Helm umbrella chart；Operators：Strimzi（Kafka）、Flink K8s Operator、ClickHouse Operator、CloudNativePG。
 - LLM：預設走企業內 LLM Gateway（可接 Claude／本地模型）；agent 不直接持有外部金鑰。
-- 本機開發：`backend/docker-compose.yml`（Kafka、ClickHouse、PostgreSQL+pgvector、Redis、MinIO）。
+- 本機開發：`backend/docker-compose.yml`（Kafka、ClickHouse、PostgreSQL+pgvector、Valkey、SeaweedFS；授權見 07 文件）。
 
 ## 10. 與商用產品的替換關係
 
