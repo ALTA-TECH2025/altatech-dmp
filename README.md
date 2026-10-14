@@ -22,7 +22,7 @@ docs/
   10-enterprise-security-rbac-masking-audit.md     企業級安全：角色／模組／數據權限、欄位隱碼、審批、審計與日誌統計可視化
   11-oss-risk-scorecard-and-maintainability.md     開源元件評分（弱點掃描風險／可用性／主流性／vibe coding 維護性）與選型修訂
   12-architecture-diagrams.md  diagrams/         系統架構圖、元件組成圖、數據流圖（SVG/PNG 由 build.py 產生 + Mermaid）
-  13-capacity-plan-gcp-30b.md                      GCP 容量規劃：3 年 300 億事件、每日 1,000 標籤、API 同步、50 人同時上線（機器數量／規格／月費）
+  13-capacity-plan-gcp.md                          GCP 容量規劃：3 年 200 億事件（首年含舊資料）、每日 1,000 標籤、API 同步、50 人上線；3 個節點池 7 台
 prototype/                                          可直接開啟的前端原型（純靜態，無建置步驟）
   index.html  css/app.css  js/app.js  js/data.js  vercel.json
 backend/                                            後端骨架（可讀、可跑的最小實作與設定）
@@ -36,7 +36,7 @@ backend/                                            後端骨架（可讀、可�
   clickhouse/schema.sql  clickhouse/insight_store.sql      熱層 DDL、Insight Store（PostgreSQL + pgvector）
   docker-compose.yml                               本機開發環境（Kafka、ClickHouse、PostgreSQL、Valkey、物件儲存）
 deploy/                                             部署套件
-  helm/altatech-dmp/   umbrella chart（values.yaml 機房、values-gcp.yaml GCP、values-gcp-30b.yaml 正式容量、values-small.yaml PoC）
+  helm/altatech-dmp/   umbrella chart（values.yaml 機房、values-gcp.yaml GCP、values-gcp-20b.yaml 正式容量（7 台）、values-gcp-30b.yaml 擴張、values-small.yaml PoC）
   tofu/gcp/            OpenTofu：VPC、私有 GKE、節點池、Cloud SQL、GCS、KMS、Artifact Registry
   images/              Dockerfile（UBI 9 minimal / distroless 基底）
   Makefile             gcp-up / deploy / smoke / sbom

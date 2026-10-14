@@ -17,7 +17,7 @@
 | 1 系統架構 | `slides/slide-1-architecture.png` | 一個中台承接 GA360 行為軌跡與證券交易事件；四大能力 + 基礎 + 治理 |
 | 2 數據流 | `slides/slide-2-data-flow.png` | 五個步驟、五個延遲承諾 |
 | 3 AI Agent | `slides/slide-3-ai-agent.png` | 選擇題式 agent 流程、六個內建 agent、金融業守門 |
-| 4 GCP 部署與規模 | `slides/slide-4-gcp-deployment.png` | 節點池、託管服務、安全、18 台／月費 |
+| 4 GCP 部署與規模 | `slides/slide-4-gcp-deployment.png` | 3 個節點池 7 台、託管服務、安全、月費 |
 
 ![簡報 1](diagrams/slides/slide-1-architecture.png)
 ![簡報 2](diagrams/slides/slide-2-data-flow.png)
