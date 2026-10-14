@@ -78,7 +78,7 @@ def s1():
     s.text(144, 796, "法遵：資料境內（asia-east1 或機房）、KMS/HSM 金鑰、WORM 審計、DSAR；對應金管會委外辦法與個資法", 18, 400, C["gray"])
     # 應用
     s.text(1480, 215, "應用與輸出", 20, 800, C["muted"])
-    for i, (t, ls, c) in enumerate([("DMP Web", ["看板、分析、用戶列表", "權限中心、日誌統計"], "brand"), ("AI 洞察助理", ["問答、洞察串流", "外部 MCP 客戶端"], "purple"), ("內部系統 Webhook・MA・CRM・數倉", ["受眾包／標籤簽章推送、即時觸發", "重試、DLQ、審計"], "teal"), ("GA4 受眾 → Google Ads 再行銷", ["匿名 client_id 回流，不傳個資", "Customer Match 選配（需同意）"], "gray")]):
+    for i, (t, ls, c) in enumerate([("DMP Web", ["看板、分析、用戶列表", "權限中心、日誌統計"], "brand"), ("AI 洞察助理", ["問答、洞察串流", "外部 MCP 客戶端"], "purple"), ("內部系統 Webhook・MA・CRM・數倉", ["受眾包／標籤簽章推送、即時觸發", "重試、DLQ、審計"], "teal"), ("GA4 受眾 → Google Ads 再行銷", ["匿名 client_id 回流，不傳個資", "需廣告再行銷同意；T+1 對帳"], "gray")]):
         s.box(1480, 230 + i * 150, 344, 128, t, ls, c, 22, 17)
     # 箭頭
     for i in range(3): s.arrow(284 + i * 400, 326, 284 + i * 400, 368, sw=3)

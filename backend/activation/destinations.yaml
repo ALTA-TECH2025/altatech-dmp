@@ -27,16 +27,7 @@ types:
     rate: { requests_per_second: 200, spread_hours: 24 }
     reconcile: ga4_data_api_audience_size_t1
     pii: none
-  google_ads_customer_match:
-    cn: Google Ads Customer Match（選配，需法遵開啟）
-    enabled: false
-    adapter: customer-match-adapter     # 獨立 Pod；唯一能取 CRM 明文並雜湊的元件
-    identifier: [hashed_email, hashed_phone]
-    normalization: { email: lowercase_trim, phone: e164 }
-    hash: sha256
-    api: google_ads_offline_user_data_job
-    consent_required: [marketing, ads_customer_match]
-    cross_border: true
+  # google_ads_customer_match：本期不做（docs/14 §5）；日後以獨立 adapter 實作
 approval:
   create_destination: [ops_manager]
   external_destination_first_time: [ops_manager, auditor]

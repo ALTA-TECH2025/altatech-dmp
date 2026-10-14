@@ -422,7 +422,6 @@ export const DESTINATIONS = [
   { id: 'd_kafka', name: '數據平台 Kafka', type: 'kafka', cn: 'Kafka', target: 'dmp.audience_updates / dmp.tag_updates', ident: 'customer_code + one_id', tags: ['*'], status: 'active', ok7d: 1, p95: '—', last: '即時', note: 'Avro' },
   { id: 'd_gcs', name: '數倉 Parquet', type: 'gcs', cn: 'GCS Parquet', target: 'gs://dmp-sync/audiences/', ident: 'customer_code', tags: ['*'], status: 'active', ok7d: 1, p95: '—', last: '今天 03:10', note: 'manifest + checksum' },
   { id: 'd_ga4', name: 'GA4 受眾 → Google Ads 再行銷', type: 'ga4_audience', cn: 'GA4 受眾', target: 'G-XXXXXXX（Measurement Protocol）', ident: 'client_id / app_instance_id', tags: [], status: 'active', ok7d: .991, p95: '—', last: '今天 03:40（24 小時攤平）', note: '不含個資；需廣告再行銷同意；GA4 ↔ Ads 已連結' },
-  { id: 'd_cm', name: 'Google Ads Customer Match', type: 'google_ads_customer_match', cn: 'Customer Match（選配）', target: 'Google Ads API · customer-match-adapter', ident: 'hashed_email / hashed_phone', tags: [], status: 'paused', ok7d: null, p95: '—', last: '—', note: '預設關閉；需法遵核可與客戶同意（境外傳輸）' },
 ];
 export const AUDIENCE_PUSHES = [
   { seg: 'sg2', dest: ['d_ma', 'd_crm'], mode: 'delta', schedule: '日批後 03:00', approved: true },

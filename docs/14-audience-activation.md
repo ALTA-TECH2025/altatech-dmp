@@ -1,6 +1,6 @@
 # 受眾推送（Audience Activation）：Webhook 到內部系統、GA4／Google Ads 再行銷受眾包
 
-> 版本 v0.3（2026-10-14）。算好的標籤與受眾包（分群快照）要能主動推送到：① 內部數據系統（Webhook、Kafka、GCS）；② GA4 受眾 → Google Ads 再行銷；③（選配、需同意）Google Ads Customer Match。推送一律經審批、套隱碼、寫審計。
+> 版本 v0.4（2026-10-14）。算好的標籤與受眾包（分群快照）要能主動推送到：① 內部數據系統（Webhook、Kafka、GCS）；② GA4 受眾 → Google Ads 再行銷。推送一律經審批、套隱碼、寫審計。**Google Ads Customer Match 不在本期範圍**（見 §5）。
 
 ## 1. 物件模型
 
@@ -8,9 +8,9 @@
 受眾包 Audience Package
   ├─ 來源：分群（規則／上傳／即時）或「標籤值組合」
   ├─ 版本：每次日批或即時更新產生 version；保留 7 版，可算 delta（加入／移除）
-  ├─ 識別子對應：one_id → customer_code（代碼化）／ GA client_id・app_instance_id／（Customer Match 代理才會碰 hashed email/phone）
+  ├─ 識別子對應：one_id → customer_code（代碼化）／ GA client_id・app_instance_id
   ├─ 同意過濾：僅含「同意行銷」且（對外目的地）「同意廣告再行銷」的客戶
-  ├─ 目的地 Destination（多個）：webhook | kafka | gcs | ga4_audience | google_ads_customer_match
+  ├─ 目的地 Destination（多個）：webhook | kafka | gcs | ga4_audience
   ├─ 排程：日批完成後自動、固定時間、即時（分群成員進出即推）、手動
   ├─ 審批：首次綁定目的地與每次全量推送需營運主管核准；增量推送依既核准的排程自動執行
   └─ 交付紀錄 Delivery：批次、筆數、狀態、重試、下游回應；審計 sync.delivered
@@ -24,13 +24,12 @@
 | Kafka | 內部即時消費 | 同上 | `dmp.audience_updates`、`dmp.tag_updates`（Avro） | 同上 |
 | GCS Parquet | 數倉、大量 | 同上 | `gs://dmp-sync/audiences/<id>/dt=…/` + manifest | 同上 |
 | **GA4 受眾（→ Google Ads 再行銷）** | 把受眾包回流到 GA4，讓 GA4 受眾同步到已連結的 Google Ads 做再行銷 | `client_id`（Web）／`app_instance_id`（App），來自 GA360 匯出的 `user_pseudo_id`；可附 `user_id`（HMAC 代碼） | **GA4 Measurement Protocol**：送事件 `dmp_audience` + user property `dmp_audience_<id>=1`（移除時設為 0），GA4 端以該 user property 建立受眾並勾選「Google Ads 連結」 | **不含任何個資**：只用 GA 自己的匿名 ID；省去 Customer Match 的個資上傳問題 |
-| Google Ads Customer Match（選配） | 不依賴 GA 匿名 ID 的再行銷、相似受眾 | SHA-256 正規化後的 email／手機 | Google Ads API `OfflineUserDataJobService`（或新版 Data Manager API）上傳 `UserList` | 由**隔離的 Customer Match 代理**向 CRM 取明文並即時雜湊，DMP 本身不存不傳明文；需客戶同意與法遵核可（境外傳輸） |
 
 ### 2.1 為什麼 GA4 受眾回流是預設做法
 - GA360 匯出已經有每個事件的 `user_pseudo_id`（即 `client_id`／`app_instance_id`），DMP 的 OneID 本來就把它與客戶打通，所以可以**以匿名 ID 回推**，不需要任何個資。
 - GA4 受眾與 Google Ads 連結後自動同步，可直接用於再行銷、排除、相似受眾（Ads 端功能），也可在 GA4 做成效報表。
 - 限制：Measurement Protocol 的 user property 名稱上限（自訂 25 個）→ 以 `dmp_audience_<id>` 命名時，同時活躍的受眾包建議 ≤ 20 個，或改用單一 user property `dmp_audiences` 存逗號清單並在 GA4 以「包含」條件建受眾；GA4 受眾成員資格最長 540 天；MP 事件不會回填歷史；需 GA4 `api_secret`（存 Secret Manager）。
-- 若客戶沒有 Google Ads 與 GA4 連結，或需要跨裝置／未裝 GA 的客戶，才啟用 Customer Match。
+- 若客戶沒有 Google Ads 與 GA4 連結，或需要觸及未裝 GA 的客戶，才需要 Customer Match（本期不做，見 §5）。
 
 ## 3. Webhook 規格（內部系統）
 
@@ -90,10 +89,9 @@ def verify(secret: bytes, timestamp: str, body: bytes, signature: str) -> bool:
 ```
 速率：MP 建議每秒 ≤ 數百請求／每個 client；1.5 億變更的受眾包分 24 小時攤平；大型全量以「只送 add、靠 GA4 成員資格到期自然移除」降低量。
 
-## 5. Customer Match（選配）
-- 元件：`customer-match-adapter`（獨立 Pod，獨立服務帳戶，只有它能呼叫 CRM 的明文查詢 API 與 Google Ads API）。DMP 只傳 `one_id` 清單與受眾包 ID。
-- 流程：取 email／手機 → 正規化（小寫、去空白、E.164）→ SHA-256 → Google Ads `OfflineUserDataJobService` 建立／更新 `UserList`；記憶體內處理不落地；上傳後只保留筆數與結果。
-- 法遵：需「廣告用途同意」、境外傳輸評估（金管會委外／個資法）、Google 的 Customer Match 政策與帳戶資格；預設關閉，由法遵開啟。
+## 5. Google Ads Customer Match：本期不做
+- 本期只用 GA4 受眾回流（匿名 ID，無個資）。Customer Match 需上傳雜湊 email／手機到 Google（境外傳輸），涉及客戶同意、金管會委外評估與 Google 帳戶資格，列為未來擴充項目。
+- 若日後啟用，設計原則：獨立的 adapter 服務向 CRM 取明文、記憶體內正規化與 SHA-256 後呼叫 Google Ads API，DMP 本身不存不傳明文；需法遵開啟與稽核核可。
 
 ## 6. 權限、審批與審計
 - 建立目的地、綁定受眾包、首次／全量推送：需 `segments.approve`（營運主管）；對外目的地（GA4／Ads）另需稽核核可一次。

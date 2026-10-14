@@ -137,7 +137,7 @@ paths:
   /v1/sync/subscriptions:
     get: { tags: [Sync], summary: 下游訂閱清單（Kafka consumer group、Webhook、GCS），含最後同步時間與落後量, responses: { '200': { description: ok } } }
   /v1/destinations:
-    get: { tags: [Activation], summary: 目的地清單（webhook / kafka / gcs / ga4_audience / google_ads_customer_match）, responses: { '200': { description: ok } } }
+    get: { tags: [Activation], summary: 目的地清單（webhook / kafka / gcs / ga4_audience）, responses: { '200': { description: ok } } }
     post: { tags: [Activation], summary: 建立目的地（需 segments.approve；對外目的地首次另需稽核）, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Destination' } } } }, responses: { '201': { description: created } } }
   /v1/destinations/{id}/test:
     post: { tags: [Activation], summary: 送測試事件（audience.test，3 筆假資料）並回傳接收端回應, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
@@ -225,9 +225,9 @@ components:
       properties:
         id: { type: string }
         name: { type: string }
-        type: { type: string, enum: [webhook, kafka, gcs, ga4_audience, google_ads_customer_match] }
+        type: { type: string, enum: [webhook, kafka, gcs, ga4_audience] }
         url: { type: string, description: webhook 專用 }
-        identifier: { type: string, enum: [customer_code, one_id, client_id, hashed_email] }
+        identifier: { type: string, enum: [customer_code, one_id, client_id] }
         allowed_tags: { type: array, items: { type: string } }
         masking_level: { type: string, enum: [L1, L2], default: L2 }
         ip_allowlist: { type: array, items: { type: string } }
