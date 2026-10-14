@@ -1,0 +1,37 @@
+# 資料連接器定義（可視化建模的「① 連線」）。全部連接器為 Apache-2.0 / MIT / BSD 授權元件。
+connectors:
+  - type: mssql
+    cn: Microsoft SQL Server
+    versions: ["2016+"]
+    auth: [password, kerberos, azure_ad]
+    capabilities: { batch: jdbc_incremental, cdc: debezium_sqlserver, schema_discovery: true }
+    driver: { name: mssql-jdbc, license: MIT }
+    cdc_requirements: ["sys.sp_cdc_enable_db", "sys.sp_cdc_enable_table per table", "SQL Server Agent running"]
+    default_transforms: { datetime2: to_ms_utc, money: to_decimal, nvarchar: trim }
+  - type: postgresql
+    cn: PostgreSQL
+    versions: ["12+"]
+    auth: [password, iam, cert]
+    capabilities: { batch: jdbc_incremental, cdc: debezium_postgres_pgoutput, schema_discovery: true }
+    driver: { name: pgjdbc, license: BSD-2 }
+    cdc_requirements: ["wal_level=logical", "publication per table", "replication slot"]
+  - type: bigquery
+    cn: Google BigQuery
+    auth: [workload_identity, service_account]
+    capabilities: { batch: storage_read_api, cdc: none, schema_discovery: true, sharded_tables: "events_YYYYMMDD" }
+    driver: { name: spark-bigquery-connector, license: Apache-2.0 }
+    network: private_google_access
+    presets: [ga4_export]
+  - type: sensorsdata
+    cn: 神策 SensorsData（私有化）
+    auth: [api_token]
+    capabilities: { batch: sql_query_api, cdc: kafka_subscription, schema_discovery: "events/properties via API" }
+    protocol: sensors_json            # type/event/distinct_id/identities/properties/time
+    mapping_preset: sensors_native     # 幾乎 1:1 映射到本平台協議
+    export_back: /v1/export/sensors    # 反向輸出，雙軌過渡
+  - type: kafka
+    cn: Apache Kafka
+    capabilities: { batch: false, cdc: stream, formats: [json, avro(apicurio)] }
+  - type: gcs
+    cn: Google Cloud Storage / 檔案
+    capabilities: { batch: files, formats: [csv, jsonl, parquet] }

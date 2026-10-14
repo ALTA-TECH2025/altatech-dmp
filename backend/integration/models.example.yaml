@@ -1,0 +1,45 @@
+# 可視化建模產物範例（UI 存檔格式）。平台由此生成 Flink CDC 或 Spark/Airflow 作業。
+model:
+  id: mdl_order_hist
+  name: 交易主機委託表 → 委託/成交事件
+  source: { connector: mssql, connection: trade_core, table: dbo.ORDER_HIST, mode: cdc }
+  entity: event
+  eventize:                         # 狀態表 → 事件（狀態機）
+    key: ORD_NO
+    status_field: STATUS
+    transitions:
+      - { on: insert, to: NEW,       event: order_submit }
+      - { from: NEW,  to: PARTIAL,   event: order_partial_filled }
+      - { to: FILLED,                event: order_filled }
+      - { to: CANCELLED,             event: order_cancelled }
+      - { to: REJECTED,              event: order_rejected }
+  time: { field: ORD_TIME, type: datetime2, tz: Asia/Taipei, to: ms_utc }
+  identities:
+    - { target: $identity_login_id,  from: CUST_ID,  transform: hmac_sha256(k_idm) }
+    - { target: $identity_account_no, from: ACCT_NO, transform: fpe(k_acct), multi: true }
+  entity_ref: { type: account, id_from: ACCT_NO, transform: fpe(k_acct) }
+  fields:
+    - { target: order_no,  from: ORD_NO }
+    - { target: symbol,    from: STK_CODE, transform: trim }
+    - { target: market,    from: MKT, transform: "map({T: TSE, O: OTC, U: US, H: HK})" }
+    - { target: side,      from: BS_FLAG, transform: "map({B: buy, S: sell})" }
+    - { target: order_type, from: ORD_TYPE, transform: lower }
+    - { target: price,     from: PRICE, transform: to_decimal(2) }
+    - { target: qty,       from: QTY, transform: to_int }
+    - { target: amount,    expr: "PRICE * QTY" }
+    - { target: channel,   from: CHANNEL, transform: "map({A: app, W: web, S: agent, I: ivr})" }
+    - { target: filled_qty, from: FILL_QTY, when: "event in (order_partial_filled, order_filled)" }
+    - { target: fee,       from: FEE }
+    - { target: tax,       from: TAX }
+    - { target: reason_code, from: RJ_CODE, when: "event = order_rejected" }
+  drop_fields: [CUST_NAME, ID_NO, PHONE]            # 個資：永不進入平台
+  cleansing:
+    - { rule: required, fields: [order_no, symbol, side, qty], on_fail: quarantine }
+    - { rule: enum, field: market, values: [TSE, OTC, US, HK, FUND], on_fail: quarantine }
+    - { rule: range, field: amount, min: 0, on_fail: quarantine }
+    - { rule: time_window, field: time, days: 7, on_fail: quarantine }
+    - { rule: pii_scan, on_fail: reject_and_alert }
+  dedupe: { event_id: "sha256(source|ORD_NO|STATUS|lsn)" }
+  schedule: { mode: realtime }
+  owner: 交易系統
+  sla: { latency_p95_s: 10 }

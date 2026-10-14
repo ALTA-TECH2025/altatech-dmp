@@ -1,0 +1,25 @@
+# 預設 = 機房 Kubernetes（RKE2 / kubeadm，Rocky 9 / RHEL 9 節點）
+global:
+  project: altatech_dmp
+  region: on-prem
+  imageRegistry: registry.internal/altatech
+  imageTag: 0.2.0
+  storageClass: fast-nvme
+kafka: { operator: { enabled: true }, replicas: 3, storageGi: 2000, partitions: { events: 48 } }
+flink: { operator: { enabled: true }, taskmanagers: 6, slotsPerTm: 4, memoryGi: 64, checkpointDir: s3://dmp-checkpoints }
+clickhouse: { operator: { enabled: true }, shards: 2, replicas: 2, cpu: 32, memoryGi: 256, storageTi: 8, keeper: 3, coldStorage: { type: s3, bucket: dmp-cold } }
+postgres: { inCluster: true, instances: 2, storageGi: 500, extensions: [pgvector] }
+valkey: { inCluster: true, replicas: 3 }
+objectStorage: { type: seaweedfs, endpoint: http://seaweedfs-s3:8333 }   # 機房：SeaweedFS（Apache-2.0）；GCP 覆寫為 GCS
+secrets: { provider: openbao }                                            # 機房：OpenBao（MPL-2.0）；GCP 覆寫為 Secret Manager
+apps:
+  collector: { replicas: 3, cpu: 2, memoryGi: 2, hpa: { min: 3, max: 20, targetCpu: 60 } }
+  api: { replicas: 3, cpu: 2, memoryGi: 4 }
+  semantic: { replicas: 2 }
+  segment: { replicas: 2 }
+  gateway: { replicas: 3 }
+  agentRuntime: { replicas: 2, llmGateway: http://llm-gateway.internal }
+  web: { replicas: 2 }
+airflow: { enabled: true, workers: 3 }
+observability: { prometheus: true, otel: true, dashboards: perses, logs: opensearch }
+security: { podSecurityStandard: restricted, readOnlyRootFs: true, runAsNonRoot: true, networkPolicies: true }

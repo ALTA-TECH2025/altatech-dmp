@@ -1,0 +1,6 @@
+# PoC：單節點或 3 節點小叢集
+kafka: { replicas: 1, storageGi: 200 }
+flink: { taskmanagers: 2, memoryGi: 8 }
+clickhouse: { shards: 1, replicas: 1, cpu: 8, memoryGi: 32, storageTi: 1, keeper: 1 }
+postgres: { instances: 1, storageGi: 50 }
+apps: { collector: { replicas: 1 }, api: { replicas: 1 }, gateway: { replicas: 1 }, agentRuntime: { replicas: 1 }, web: { replicas: 1 } }

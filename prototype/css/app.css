@@ -327,3 +327,39 @@ a { color: inherit; }
 .insight .ft { flex-wrap: wrap; row-gap: 6px; }
 .insight.compact { cursor: pointer; }
 .insight.compact:hover { border-color: var(--brand-line); }
+
+/* ---------------------------------------------------------------- v0.2：路徑 / 歸因 / 用戶列表 / 數據整合 / 配置卡 */
+.sankey { display: block; width: 100%; height: auto; overflow: visible; }
+.sankey .node { fill: var(--s1); }
+.sankey .node.trade { fill: var(--s2); }
+.sankey .node.exit { fill: var(--axis); }
+.sankey .link { fill: none; stroke: var(--s1); opacity: .22; }
+.sankey .link.trade { stroke: var(--s2); }
+.sankey .link.exit { stroke: var(--axis); opacity: .45; }
+.sankey .link:hover { opacity: .6; }
+.sankey text { font-size: 11px; fill: var(--ink2); }
+.sankey text.n { fill: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
+.sankey text.col { fill: var(--muted); font-weight: 700; font-size: 10.5px; }
+.pathlist .p { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.pathlist .p i { color: var(--faint); font-style: normal; }
+.cfg { border: 1px solid var(--brand-line); background: var(--brand-soft); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+.cfg .hd { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 6px; }
+.cfg .hd b { font-size: 12.5px; }
+.cfg dl { display: grid; grid-template-columns: 64px 1fr; gap: 3px 10px; font-size: 12px; }
+.cfg dt { color: var(--muted); } .cfg dd { color: var(--ink2); font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; }
+.cfg .alt { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+.cfg .acts { margin-top: 8px; display: flex; gap: 6px; }
+.stepper { display: flex; gap: 0; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+.stepper button { flex: 1; padding: 9px 6px; font-size: 12px; font-weight: 600; color: var(--muted); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.stepper button:last-child { border-right: none; }
+.stepper button b { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--faint); }
+.stepper button.on { background: var(--brand-soft); color: var(--brand); }
+.stepper button.done { color: var(--ink2); }
+.stepper button.done b { color: var(--st-good); }
+.chk { width: 15px; height: 15px; border: 1.5px solid var(--axis); border-radius: 4px; display: inline-block; vertical-align: middle; }
+.chk.on { background: var(--brand); border-color: var(--brand); position: relative; }
+.chk.on::after { content: ''; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.pager { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line2); }
+.pager .right { margin-left: auto; display: flex; gap: 6px; }
+.conn-type { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 9px; font-size: 10px; font-weight: 800; color: #fff; flex-shrink: 0; }
+.tbl td.map-arrow { color: var(--faint); text-align: center; width: 30px; }

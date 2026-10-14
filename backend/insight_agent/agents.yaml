@@ -44,3 +44,25 @@ agents:
     identity: svc-insight-readonly
     tools: [metric.query, funnel.run, retention.run, semantic.describe]
     budget: { scan_bytes: 40e9, llm_tokens: 10000 }
+  # ---- v0.2 新增（對標神策 Copilot / AI 智能分析師 / 智能體閉環）----
+  - id: analyst-copilot
+    cn: 分析 Copilot
+    skill: skills/analyst-copilot.md
+    trigger: { type: question }
+    identity: on_behalf_of_user
+    tools: [semantic.search, semantic.describe, analysis.configure, analysis.run, metric.query, funnel.run, path.run, attribution.run, users.list, anomaly.scan, knowledge.search, knowledge.relations, insight.search, insight.create, feedback.record, segment.preview, segment.propose]
+    budget: { scan_bytes: 100e9, llm_tokens: 50000 }
+  - id: dashboard-reporter
+    cn: 看板解讀
+    skill: skills/dashboard-reporter.md
+    trigger: { type: schedule, cron: "15 7 * * 1-5" }
+    identity: svc-insight-readonly
+    tools: [dashboard.explain, metric.query, anomaly.scan, knowledge.relations, insight.create, report.compose]
+    budget: { scan_bytes: 80e9, llm_tokens: 40000 }
+  - id: strategy-loop
+    cn: 策略閉環
+    skill: skills/strategy-loop.md
+    trigger: { type: event, topic: dmp.insights, match: { status: acknowledged } }
+    identity: on_behalf_of_user
+    tools: [segment.preview, segment.propose, trigger.propose, campaign.execute, funnel.run, attribution.run, insight.create, report.compose]
+    budget: { scan_bytes: 60e9, llm_tokens: 30000 }

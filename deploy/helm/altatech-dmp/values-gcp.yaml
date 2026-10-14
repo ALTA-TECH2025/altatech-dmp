@@ -1,0 +1,12 @@
+# GCP 覆寫：GKE + Cloud SQL + Memorystore (Valkey) + GCS + Secret Manager/KMS + Workload Identity
+global: { region: asia-east1, imageRegistry: asia-east1-docker.pkg.dev/PROJECT/dmp, storageClass: hyperdisk-balanced }
+postgres: { inCluster: false, external: { host: "10.0.0.5", port: 5432, db: dmp, secretRef: cloudsql-dmp } }
+valkey: { inCluster: false, external: { host: "10.0.0.9", port: 6379 } }
+objectStorage: { type: gcs, bucket: dmp-cold-asia-east1, workloadIdentity: true }
+secrets: { provider: gcp-secret-manager, kmsKeyRing: projects/PROJECT/locations/asia-east1/keyRings/dmp }
+clickhouse: { coldStorage: { type: gcs, bucket: dmp-cold-asia-east1 }, nodeSelector: { pool: olap } }
+flink: { checkpointDir: gs://dmp-checkpoints, nodeSelector: { pool: stream } }
+kafka: { nodeSelector: { pool: data } }
+apps: { collector: { nodeSelector: { pool: ingest } }, api: { nodeSelector: { pool: app } } }
+observability: { dashboards: cloud-monitoring, logs: cloud-logging, managedPrometheus: true }
+ingress: { class: gce, cloudArmorPolicy: dmp-waf, iap: true }

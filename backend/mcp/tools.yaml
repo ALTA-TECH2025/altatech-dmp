@@ -101,3 +101,36 @@ tools:
     description: 把多個洞察組成日報／週報草稿。
     input: { insight_ids: [string], audience: string }
     scope: read
+
+  # ---- v0.2：參考神策 Copilot / AI 智能分析師 / 智能體 新增 ----
+  - name: analysis.configure
+    description: 自然語言 → 分析模型配置卡（選擇題式：在既有分析模型與語意層指標上做選擇，不生成任意 SQL）。只回傳配置與信心度，不執行。
+    input: { question: string, context: object }
+    output: { config: { model: "events|funnel|path|attribution|users", params: object }, candidates: list, confidence: number, explanation: string }
+    scope: read
+  - name: analysis.run
+    description: 以配置卡執行分析（內部分派到 metric.query / funnel.run / path.run / attribution.run / users.list），回傳與 UI 相同的結果結構。
+    input: { config: object }
+    scope: read
+  - name: users.list
+    description: 用戶列表：條件 → 人數預估（Bitmap）與分頁列表（脫敏、行級權限）。
+    input: { rules: object, page: int, page_size: int, columns: list }
+    scope: read
+    masking: column_level
+  - name: dashboard.explain
+    description: 看板解讀：對看板每張卡片做趨勢、異常、對比摘要，產出診斷報告草稿。
+    input: { dashboard_id: string, time: object }
+    scope: read
+  - name: knowledge.relations
+    description: 取指標關聯圖（證券行業知識庫：指標 ↔ 關聯指標 ↔ 關聯維度 ↔ 常見原因）。
+    input: { metric: string }
+    scope: read
+  - name: feedback.record
+    description: 記錄使用者對配置卡／回答的修正（question → final_config），作為 few-shot 與排序依據。
+    input: { question: string, initial_config: object, final_config: object, note: string }
+    scope: write
+  - name: campaign.execute
+    description: 執行已審批的策略（推送分群到 MA／營業員 App）。僅在 approval_id 有效時可呼叫。
+    input: { approval_id: string, segment_id: string, channel: string }
+    scope: execute
+    approval: required

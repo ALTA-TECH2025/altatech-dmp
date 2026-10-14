@@ -240,6 +240,9 @@ export const AGENTS = [
   { id: 'churn-radar', cn: '流失預警', trigger: '每日 07:00', tools: 9, runs24h: 1, insights7d: 3, budget: .44, status: 'on', identity: 'svc-insight-readonly' },
   { id: 'campaign-review', cn: '活動復盤', trigger: '活動結束事件', tools: 6, runs24h: 0, insights7d: 2, budget: .12, status: 'on', identity: 'svc-insight-readonly' },
   { id: 'ask', cn: '洞察問答', trigger: '使用者提問', tools: 18, runs24h: 37, insights7d: 9, budget: .22, status: 'on', identity: '代表提問者' },
+  { id: 'analyst-copilot', cn: '分析 Copilot', trigger: '使用者提問', tools: 17, runs24h: 52, insights7d: 11, budget: .27, status: 'on', identity: '代表提問者' },
+  { id: 'dashboard-reporter', cn: '看板解讀', trigger: '工作日 07:15', tools: 6, runs24h: 1, insights7d: 4, budget: .18, status: 'on', identity: 'svc-insight-readonly' },
+  { id: 'strategy-loop', cn: '策略閉環', trigger: '洞察確認後', tools: 8, runs24h: 2, insights7d: 1, budget: .11, status: 'on', identity: '代表確認者' },
   { id: 'reviewer', cn: '證據覆核', trigger: '洞察建立後', tools: 4, runs24h: 21, insights7d: 0, budget: .09, status: 'on', identity: 'svc-insight-readonly' },
 ];
 
@@ -250,6 +253,8 @@ export const TOOLS = [
   ['segment.preview', '分群預估', 'read'], ['segment.propose', '提議分群（需審批）', 'propose'], ['trigger.propose', '提議即時規則（需審批）', 'propose'],
   ['profile.get', '單人畫像（脫敏，需理由）', 'sensitive'], ['profile.timeline', '行為序列（脫敏，需理由）', 'sensitive'],
   ['insight.search', '檢索歷史洞察', 'read'], ['insight.create', '建立洞察', 'write'], ['knowledge.search', '字典／詞彙／SOP', 'read'], ['report.compose', '組成日報／週報', 'read'],
+  ['analysis.configure', 'NL → 分析模型配置卡（選擇題式，不執行）', 'read'], ['analysis.run', '以配置卡執行分析（與 UI 同結果）', 'read'], ['users.list', '用戶列表：人數預估 + 分頁（脫敏）', 'read'],
+  ['dashboard.explain', '看板解讀：趨勢／異常／對比摘要', 'read'], ['knowledge.relations', '指標關聯圖（證券行業知識庫）', 'read'], ['feedback.record', '記錄使用者修正（學習）', 'write'], ['campaign.execute', '執行已審批策略', 'execute'],
 ];
 
 /* 問答示範腳本：問題 → 計畫 → 工具呼叫 → 回答 */
@@ -279,3 +284,73 @@ export const ASK_SCRIPTS = [
     warn: '個資守門：姓名、手機、身分證字號不在分析倉中；細查需理由並審計。',
     acts: ['前往用戶細查'] },
 ];
+
+/* ================================================================== v0.2：P0 模組與資料整合 */
+/* 行為路徑（起點 quote_view 之後 4 步，抽樣 1/10） */
+export const PATHS = {
+  anchor: 'quote_view', sample: '1/10', users: 29600,
+  nodes: [
+    [{ k: 'quote_view', cn: '看盤', n: 29600 }],
+    [{ k: 'order_submit', cn: '委託', n: 12140 }, { k: 'quote_view', cn: '看盤（其他）', n: 8880 }, { k: 'watchlist_add', cn: '加入自選', n: 3550 }, { k: 'ga.screen_view:news', cn: '新聞', n: 2370 }, { k: 'exit', cn: '離開', n: 2660 }],
+    [{ k: 'order_filled', cn: '成交', n: 9710 }, { k: 'order_rejected', cn: '委託失敗', n: 1210 }, { k: 'order_submit', cn: '委託', n: 4210 }, { k: 'quote_view', cn: '看盤', n: 5330 }, { k: 'exit', cn: '離開', n: 9140 }],
+    [{ k: 'quote_view', cn: '看盤', n: 7110 }, { k: 'ga.screen_view:inventory', cn: '庫存', n: 4320 }, { k: 'order_submit', cn: '委託', n: 2920 }, { k: 'exit', cn: '離開', n: 15250 }],
+  ],
+  links: [
+    [0, 0, 1, 0, 12140], [0, 0, 1, 1, 8880], [0, 0, 1, 2, 3550], [0, 0, 1, 3, 2370], [0, 0, 1, 4, 2660],
+    [1, 0, 2, 0, 9710], [1, 0, 2, 1, 1210], [1, 0, 2, 4, 1220], [1, 1, 2, 2, 2900], [1, 1, 2, 3, 3400], [1, 1, 2, 4, 2580], [1, 2, 2, 2, 1310], [1, 2, 2, 3, 1930], [1, 2, 2, 4, 310], [1, 3, 2, 4, 2370],
+    [2, 0, 3, 0, 4600], [2, 0, 3, 1, 3200], [2, 0, 3, 3, 1910], [2, 1, 3, 2, 820], [2, 1, 3, 3, 390], [2, 2, 3, 0, 1100], [2, 2, 3, 2, 2100], [2, 2, 3, 3, 1010], [2, 3, 3, 0, 1410], [2, 3, 3, 1, 1120], [2, 3, 3, 3, 2800],
+  ],
+  top: [
+    { p: ['看盤', '委託', '成交', '看盤'], n: 4600, t: '3 分 12 秒' }, { p: ['看盤', '委託', '成交', '庫存'], n: 3200, t: '2 分 48 秒' }, { p: ['看盤', '看盤', '看盤', '離開'], n: 2800, t: '4 分 05 秒' },
+    { p: ['看盤', '離開'], n: 2660, t: '41 秒' }, { p: ['看盤', '新聞', '離開'], n: 2370, t: '1 分 36 秒' }, { p: ['看盤', '委託', '委託失敗', '委託'], n: 820, t: '1 分 02 秒' },
+  ],
+};
+
+/* 歸因：轉化 = order_filled（首筆），回溯 14 天 */
+export const ATTRIBUTION = {
+  conversion: 'order_filled（首筆成交）', window: '14 天', conversions: 6120, value: 9_140_000,
+  touches: [
+    { k: 'LINE 推播開啟', first: 1840, last: 1420, linear: 1612, position: 1688, decay: 1544, avgTouches: 2.3 },
+    { k: 'Google 搜尋', first: 1420, last: 760, linear: 1050, position: 1180, decay: 905, avgTouches: 1.8 },
+    { k: '營業員接觸', first: 690, last: 1710, linear: 1240, position: 1210, decay: 1522, avgTouches: 1.4 },
+    { k: '官網 ETF 專區', first: 980, last: 640, linear: 802, position: 826, decay: 712, avgTouches: 2.1 },
+    { k: 'Facebook 廣告', first: 760, last: 420, linear: 598, position: 640, decay: 520, avgTouches: 1.9 },
+    { k: 'App 推薦卡片', first: 430, last: 1170, linear: 818, position: 576, decay: 917, avgTouches: 1.6 },
+  ],
+};
+
+/* 用戶列表（合成 40 人） */
+export const USERS = (() => {
+  const lc = ['新客', '成長', '成熟', '沉睡', '流失'], tiers = ['P1', 'P2', 'P3', 'P4', 'P5'], mk = ['TSE', 'OTC', 'US', 'HK', 'FUND'], br = ['TPE01', 'TPE02', 'TCH01', 'KHH01'], ag = ['王信宏', '李佳穎', '張志豪', '周美玲'], ages = ['<25', '25-34', '35-44', '45-54', '55-64', '65+'];
+  const out = [];
+  for (let i = 0; i < 40; i++) {
+    const b = br[i % 4];
+    out.push({ one_id: 'oid_' + (0x2f3a9 + i * 7919).toString(36), cust: 'cust_•••' + String(1000 + ri(0, 8999)), branch: b, agent: b === 'TPE01' ? '王信宏' : ag[(i + 1) % 4], lifecycle: pick(lc), tier: pick(tiers), market: pick(mk), age: pick(ages), churn: ri(3, 97), last: `10-${pad2(ri(1, 14))}`, fee90: ri(0, 420) * 1000, orders30: ri(0, 60), platform: pick(['iOS', 'Android', 'Web']) });
+  }
+  out[0] = { ...out[0], one_id: 'oid_7k3a9q', cust: 'cust_•••7281', branch: 'TPE01', agent: '王信宏', lifecycle: '成長', tier: 'P2', market: 'TSE', age: '35-44', churn: 23, last: '10-14', fee90: 48000, orders30: 14, platform: 'iOS' };
+  out[1] = { ...out[1], one_id: 'oid_2m8x1c', cust: 'cust_•••0412', branch: 'TPE01', agent: '王信宏', lifecycle: '沉睡', tier: 'P1', market: 'US', age: '45-54', churn: 81, last: '08-12', fee90: 312000, orders30: 0, platform: 'Android' };
+  return out;
+})();
+
+/* 資料整合：連線、建模、清洗 */
+export const CONNECTIONS = [
+  { id: 'trade_core', type: 'MSSQL', cn: '交易主機（SQL Server 2019）', mode: 'CDC（Debezium）', tables: 6, models: 3, lag: '1.4 秒', status: 'ok', rows24h: 18_240_902 },
+  { id: 'ga_bq', type: 'BigQuery', cn: 'GA360 匯出（analytics_3012…）', mode: 'Storage Read API（Daily + Fresh）', tables: 2, models: 2, lag: '55 分', status: 'ok', rows24h: 182_430_112 },
+  { id: 'crm_pg', type: 'PostgreSQL', cn: 'CRM 客戶主檔', mode: 'CDC（pgoutput）+ 日批', tables: 4, models: 2, lag: '3.1 秒', status: 'ok', rows24h: 1_230_119 },
+  { id: 'sensors', type: 'SensorsData', cn: '神策分析（私有化）歷史與增量', mode: 'Kafka 訂閱 + 查詢 API', tables: 1, models: 1, lag: '2.4 秒', status: 'ok', rows24h: 42_118_300 },
+  { id: 'fund_pg', type: 'PostgreSQL', cn: '基金平台', mode: 'CDC', tables: 2, models: 1, lag: '4.0 秒', status: 'warn', rows24h: 41_000, note: '來源新增欄位 PLAN_FREQ，建議映射到 plan_type' },
+];
+export const MODEL_EXAMPLE = {
+  id: 'mdl_order_hist', name: '交易主機委託表 → 委託/成交事件', source: 'trade_core · dbo.ORDER_HIST', entity: '事件（狀態機事件化）',
+  src: [['ORD_NO', 'varchar(20)', '0.0%', 'A2026101400012345'], ['CUST_ID', 'varchar(12)', '0.0%', '00007281'], ['ACCT_NO', 'varchar(10)', '0.0%', '9801234567'], ['STK_CODE', 'char(6)', '0.0%', '2330  '], ['MKT', 'char(1)', '0.0%', 'T'], ['BS_FLAG', 'char(1)', '0.0%', 'B'], ['PRICE', 'decimal(12,2)', '0.0%', '1050.00'], ['QTY', 'int', '0.0%', '1000'], ['STATUS', 'char(1)', '0.0%', 'F'], ['ORD_TIME', 'datetime2', '0.0%', '2026-10-14 13:57:02'], ['CHANNEL', 'char(1)', '0.4%', 'A'], ['CUST_NAME', 'nvarchar(50)', '0.0%', '（個資）'], ['PHONE', 'varchar(15)', '2.1%', '（個資）']],
+  map: [['ORD_NO', 'order_no', '—'], ['CUST_ID', '$identity_login_id', 'hmac_sha256(k_idm)'], ['ACCT_NO', '$identity_account_no', 'fpe(k_acct)'], ['STK_CODE', 'symbol', 'trim'], ['MKT', 'market', 'map{T:TSE,O:OTC,U:US,H:HK}'], ['BS_FLAG', 'side', 'map{B:buy,S:sell}'], ['PRICE', 'price', 'to_decimal(2)'], ['QTY', 'qty', 'to_int'], ['PRICE×QTY', 'amount', 'expr'], ['STATUS', 'event', '狀態機：N→order_submit, F→order_filled, C→order_cancelled, R→order_rejected'], ['ORD_TIME', 'time', 'to_ms_utc(Asia/Taipei)'], ['CHANNEL', 'channel', 'map{A:app,W:web,S:agent}'], ['CUST_NAME', '（丟棄）', '個資不進平台'], ['PHONE', '（丟棄）', '個資不進平台']],
+  rules: [['必填', 'order_no, symbol, side, qty', '隔離'], ['枚舉', 'market ∈ {TSE,OTC,US,HK,FUND}', '隔離'], ['範圍', 'amount ≥ 0', '隔離'], ['時間', 'time 在 ±7 天', '隔離'], ['個資掃描', '身分證／手機／Email 正規式', '拒絕＋告警'], ['去重', 'event_id = sha256(source|ORD_NO|STATUS|lsn)', '最終去重']],
+  preview: { sample: 1000, ok: 994, quarantined: 6, reasons: ['market 值 "X" ×4', 'time 超出 7 天 ×2'], pii: 0, newProps: 0, estDaily: '790 萬' },
+};
+
+/* 智能分析：選擇題式配置卡示範 */
+export const CONFIG_CARDS = {
+  '上週開戶到入金的轉化率？跟前一週比': { model: '漏斗分析', conf: .91, params: [['步驟', 'account_open_approved → fund_deposit'], ['視窗', '30 天'], ['時間', '上週（10/06–10/12）'], ['對比', '前一週'], ['分組', '—']], alt: ['事件分析：open_to_fund_rate 日趨勢'] },
+  '哪個平台的委託失敗率最高？': { model: '事件分析', conf: .88, params: [['指標', 'order_reject_rate（委託失敗率）'], ['時間', '近 7 天'], ['分組', 'platform'], ['篩選', '—']], alt: ['事件分析：再按 reason_class 分組'] },
+  '幫我找出高價值但 30 天沒登入的客戶': { model: '用戶列表', conf: .84, params: [['條件 1', 'fee_tier ∈ {P1, P2}'], ['條件 2', 'login 近 30 天 = 0 次'], ['輸出', '人數預估 + 畫像（不含個人名單）']], alt: ['分群：另存為「高價值沉睡客」'] },
+};

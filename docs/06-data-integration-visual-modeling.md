@@ -1,0 +1,75 @@
+# 可視化建模與資料整合：MSSQL、BigQuery、PostgreSQL、神策（SensorsData）
+
+> 版本 v0.2（2026-10-14）。定義「資料連結 → 可視化建模 → 欄位整合與清洗 → 載入事件／用戶／物品模型」的產品與技術設計。全部元件採 Apache-2.0／MIT／BSD／PostgreSQL 等寬鬆授權（見 07 文件授權審查）。
+
+## 1. 目標
+- 業務／資料工程師在 UI 上以**拖拉與表單**完成來源連結、實體對映、欄位映射與清洗規則，不寫程式。
+- 與神策一樣「與資料建模域解耦」：來源怎麼接與事件模型長什麼樣分開；同一來源表可映射到多個實體。
+- 倉表**雙向映射**：既有數倉的事實表可直接註冊為事件來源（不複製），本平台的事件表亦可被數倉以 Iceberg 讀取（只存一份）。
+
+## 2. 支援的來源與接法
+
+| 來源 | 批次（全量／增量） | 即時（CDC） | 連接器（授權） | 備註 |
+|---|---|---|---|---|
+| **Microsoft SQL Server** 2016+ | JDBC 增量（時間戳／自增鍵）、分頁拉取 | **Debezium SQL Server 連接器**（需開啟 CDC，`sys.sp_cdc_enable_table`）／Flink CDC SQL Server | Debezium（Apache-2.0）、Flink CDC（Apache-2.0）、mssql-jdbc（MIT） | 交易主機常見；若主機不允許 CDC，退回「回報檔 + 分鐘級拉取」 |
+| **PostgreSQL** 12+ | JDBC 增量 | Debezium PostgreSQL（`pgoutput` 邏輯複寫）／Flink CDC | Debezium、pgjdbc（BSD-2） | 本平台控制面亦為 PostgreSQL |
+| **BigQuery**（GA360 匯出、既有數倉） | **BigQuery Storage Read API**（Arrow，分片平行）；表分片 `events_YYYYMMDD` 自動偵測；增量以分區／日期 | 無 CDC；以 Fresh Daily／Streaming 表近即時 | Spark BigQuery Connector（Apache-2.0，Google）、google-cloud-bigquery（Apache-2.0） | 唯一出站連線；服務帳戶最小權限；GCP 部署時走 Private Google Access，不經公網 |
+| **神策 SensorsData**（私有化） | **查詢 API**（`/api/sql/query`，SQL 匯出事件／用戶表，分日拉取）；批量以 `FormatImporter` 反向格式（JSON 一行一筆） | **Kafka 訂閱**（私有化版提供，topic 內為神策協議 JSON：`type`、`event`、`distinct_id`、`identities`、`properties`、`time`） | 神策 SDK／協議為 Apache-2.0；本平台 Collector 原生相容 | 事件名、屬性名、`identities` 直接映射；`$` 預置屬性對齊 |
+| 其他（MySQL、Oracle、檔案 GCS/S3、Kafka、HTTP API） | 依連接器 | Debezium 支援 MySQL／Oracle（Oracle 需 LogMiner，注意 Oracle 授權） | — | P1 |
+
+技術底座：
+- **CDC**：Debezium Server 或 Flink CDC（皆 Apache-2.0）→ Kafka `raw.<source>` → Flink 事件化。
+- **批次**：Apache Spark（JDBC、BigQuery 連接器）或 Apache SeaTunnel（Apache-2.0，含 JDBC／Kafka／ClickHouse 連接器）；小表用 Python `dlt`（Apache-2.0）。**不採用 Airbyte**（平台 ELv2，部分連接器 ELv2）。
+- **排程**：Apache Airflow（Apache-2.0）。
+- **資料品質**：Great Expectations 或 Soda Core（皆 Apache-2.0）。
+- **中繼資料／血緣**：OpenMetadata（Apache-2.0）或自建於 PostgreSQL + OpenLineage。
+
+## 3. 可視化建模（UI 流程）
+
+```
+① 連線      ② 選表/查詢     ③ 實體對映        ④ 欄位映射          ⑤ 清洗規則        ⑥ 預覽驗證      ⑦ 排程/發佈
+ MSSQL       dbo.ORDER_HIST  → 事件 order_*    ORD_NO→order_no     trim/upper          100 筆樣本       每 5 分鐘增量
+ BigQuery    events_*        → 事件 ga.*       event_params→props  µs→ms, 時區         型別檢查         Fresh/Daily
+ PostgreSQL  crm.customer    → 用戶 profile    CUST_ID→login_id    HMAC 代碼化         禁止欄位掃描     每日 02:00
+ Sensors     Kafka event     → 事件（同名）     identities 直通      $ 屬性對齊          字典比對         即時
+```
+
+### 3.1 實體對映（Entity Mapping）
+- 來源表／主題 → `event`（含狀態機事件化）、`user`（profile_set／set_once）、`item`（帳戶、商品、營業員…）、`identity`（ID 綁定）。
+- 事件化規則（狀態表 → 事件）：以 UI 設定「狀態欄位 + 轉移 → 事件名」，例：`STATUS: NEW→FILLED ⇒ order_filled`。
+- 一張表可產生多個實體：`ORDER_HIST` 同時產 `order_submit` 事件與 `item(account)` 的最近交易日屬性。
+
+### 3.2 欄位映射（Field Mapping）
+- 左側來源欄位（型別、樣本值、空值率），右側目標屬性（來自事件字典，含必填標記）；拖拉連線或自動建議（名稱相似度 + 型別 + 歷史映射）。
+- 轉換函式庫（純函式，可組合）：型別轉換、時間（時區、µs/ms/s）、字串（trim/upper/regex）、數值（單位、四捨五入）、對照表（代碼 → 名稱）、條件（CASE）、合併／拆分欄位、JSON 展開（`event_params` UNNEST）、常數、來源標記。
+- 目標屬性不存在 → 直接在此新增到事件字典（走審核）。
+
+### 3.3 清洗規則（Cleansing）
+| 類別 | 規則 | 違反處理 |
+|---|---|---|
+| 完整性 | 必填屬性非空、時間戳在 ±7 天內 | 進隔離表 `events_quarantine`，不丟 |
+| 一致性 | 型別、枚舉值域（market ∈ TSE/OTC/US/HK/FUND）、金額 ≥ 0 | 修正（可配置預設值）或隔離 |
+| 去重 | `event_id` 規則（來源主鍵 + 版本） | ReplacingMergeTree 最終去重 |
+| 個資 | 禁止欄位掃描（身分證／手機／Email 正規式）、代碼化（HMAC／FPE）、分桶（年齡→年齡層） | **入站即拒絕**，告警 |
+| 標準化 | 事件／屬性命名 snake_case、`$` 預置屬性對齊 | 自動轉換 |
+| 參考完整性 | `account_no` 必須能解析到 one_id（或建立待解析） | 標記 `unresolved`，OneID 日批補 |
+
+### 3.4 預覽與驗證
+- 以 100–1,000 筆樣本跑完整管線，顯示：映射結果、被隔離筆數與原因、新事件／屬性、個資掃描結果、估算每日量。
+- 發佈前自動產生「資料契約」（來源、實體、欄位、規則、負責人、SLA），存入中繼資料並進血緣。
+
+### 3.5 排程與監控
+- 批次：Airflow DAG 由模型定義自動生成（不手寫 DAG）；增量游標（時間戳／LSN）由平台保存。
+- 即時：Debezium／Flink CDC 任務由平台以 K8s Operator 建立。
+- 監控：延遲、筆數、隔離率、Schema drift（來源新增欄位 → 告警與建議映射）。
+
+## 4. 神策資料的特別處理
+- 事件、用戶屬性、`identities` 與本平台協議同構，映射幾乎 1:1；差異在 `distinct_id`／`login_id` 語意 → 轉為 `$identity_login_id`。
+- 神策 `item_set` → `item`；`track_signup`／`track_id_bind` → OneID 綁定指令。
+- 歷史遷移：以神策查詢 API 分日匯出（或請神策工程匯出 Parquet），批次灌入 Iceberg → ClickHouse；增量以 Kafka 訂閱。
+- 反向：本平台事件可以神策協議格式輸出（`/v1/export/sensors`）供既有神策分析繼續使用，支援雙軌過渡。
+
+## 5. 後端骨架對應
+- `backend/integration/connectors.yaml`：來源連接器定義（類型、認證方式、能力：batch/cdc、預設轉換）。
+- `backend/integration/models.example.yaml`：一個可視化建模產物的 YAML（UI 存檔格式；Flink／Spark 作業由此生成）。
+- `backend/integration/transforms.py`：轉換函式庫（純函式，單元測試）。

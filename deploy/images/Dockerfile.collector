@@ -1,0 +1,9 @@
+# Go Collector：多階段建置，distroless 執行
+FROM golang:1.23 AS build
+WORKDIR /src
+COPY apps/collector/ .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/collector ./cmd/collector
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/collector /collector
+EXPOSE 8081
+ENTRYPOINT ["/collector"]

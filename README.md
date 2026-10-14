@@ -13,6 +13,12 @@ docs/
   01-research-volcano-sensors-and-dtp-design.md   調研（火山引擎／神策／GA360／法遵）與中台總體設計
   02-backend-architecture.md                       後端架構（分層、元件、API、查詢路徑、部署）
   03-ai-agent-insight-layer.md                     AI agent 洞察擴展層（語意層、工具目錄、agent、洞察物件、治理）
+  04-analysis-modules-p0.md                        P0 模組規格：事件、漏斗、行為路徑、歸因、用戶列表、標籤（含 ClickHouse 實作與效能目標）
+  05-agent-capabilities-sensors-benchmark.md       以神策 Copilot／AI 智能分析師／智能體為參考的 agent 能力設計
+  06-data-integration-visual-modeling.md           可視化建模與資料整合：MSSQL／BigQuery／PostgreSQL／神策，欄位映射與清洗
+  07-deployment-gcp-license-os.md                  GCP 容器化一鍵部署、開源授權審查（無需額外商業授權）、OS 支援矩陣
+  08-engineering-plan.md                           語言與框架、團隊分工、版本規劃、10 個月時程
+  09-scale-10b-events-performance.md               百億事件量級：稠密 ID、多層聚合、Bitmap 標籤引擎、查詢效能策略
 prototype/                                          可直接開啟的前端原型（純靜態，無建置步驟）
   index.html  css/app.css  js/app.js  js/data.js  vercel.json
 backend/                                            後端骨架（可讀、可跑的最小實作與設定）
@@ -20,8 +26,15 @@ backend/                                            後端骨架（可讀、可�
   semantic/{events,metrics,dimensions,ga4_mapping}.yaml   語意層定義（agent 的資料地圖）
   mcp/tools.yaml  mcp/server.py                    Agent Tool Gateway（工具目錄 + 權限/預算/脫敏/審計骨架）
   insight_agent/agents.yaml  skills/*.md  evals/golden.yaml  runtime.py   agent 註冊、skill、評測、執行迴圈
+  integration/connectors.yaml  models.example.yaml  transforms.py        連接器定義、可視化建模產物、轉換函式庫
   clickhouse/schema.sql  clickhouse/insight_store.sql      熱層 DDL、Insight Store（PostgreSQL + pgvector）
-  docker-compose.yml                               本機開發環境（Kafka、ClickHouse、PostgreSQL、Redis、MinIO）
+  docker-compose.yml                               本機開發環境（Kafka、ClickHouse、PostgreSQL、Valkey、物件儲存）
+deploy/                                             部署套件
+  helm/altatech-dmp/   umbrella chart（values.yaml 機房、values-gcp.yaml GCP、values-small.yaml PoC）
+  tofu/gcp/            OpenTofu：VPC、私有 GKE、節點池、Cloud SQL、GCS、KMS、Artifact Registry
+  images/              Dockerfile（UBI 9 minimal / distroless 基底）
+  Makefile             gcp-up / deploy / smoke / sbom
+LICENSES.md                                         第三方元件授權清單（白名單制）
 ```
 
 ## 原型
@@ -30,7 +43,7 @@ backend/                                            後端骨架（可讀、可�
 cd prototype && python3 -m http.server 8080   # 或直接部署到 Vercel（root = prototype）
 ```
 
-頁面：總覽、事件分析、漏斗、留存、用戶細查／OneID、標籤與分群、即時觸發、**AI 洞察**（洞察串流／問答／Agents／工具目錄）、資料治理、平台設定。
+頁面（P0 優先）：總覽、事件分析、漏斗分析、行為路徑、歸因分析、用戶列表、標籤與分群、即時觸發、數據整合（可視化建模）、用戶細查／OneID、留存（P1）、**AI 洞察**（洞察串流／選擇題式問答／Agents／工具目錄）、資料治理、平台設定。
 四種示範身分（分析師、營運主管、營業員、管理員）展示權限差異：SQL 檢視、審批 agent 提議、僅能細查所屬客戶、細查需理由並審計。
 
 ## 後端骨架
@@ -39,7 +52,9 @@ cd prototype && python3 -m http.server 8080   # 或直接部署到 Vercel（root
 pip install pyyaml
 python3 backend/mcp/server.py              # 工具閘道：semantic.search 範例呼叫 + 審計事件
 python3 backend/insight_agent/runtime.py   # agent 執行迴圈：plan → execute → verify → narrate
+python3 backend/integration/transforms.py  # 欄位轉換函式庫自測
 docker compose -f backend/docker-compose.yml up -d   # 本機基礎設施
+cd deploy && make gcp-up PROJECT=<gcp-project> && make deploy ENV=gcp   # GCP 一鍵部署（需 tofu/helm/kubectl）
 ```
 
 ## AI agent 擴展能力（設計重點）

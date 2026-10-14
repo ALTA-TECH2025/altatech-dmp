@@ -1,0 +1,11 @@
+apiVersion: v2
+name: altatech-dmp
+description: AltaTech DMP umbrella chart（機房 K8s 與 GKE 共用）
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+dependencies:
+  - { name: strimzi-kafka-operator, version: "0.43.x", repository: "https://strimzi.io/charts/", condition: kafka.operator.enabled }
+  - { name: flink-kubernetes-operator, version: "1.10.x", repository: "https://downloads.apache.org/flink/flink-kubernetes-operator-1.10.0/", condition: flink.operator.enabled }
+  - { name: altinity-clickhouse-operator, version: "0.24.x", repository: "https://docs.altinity.com/clickhouse-operator/", condition: clickhouse.operator.enabled }
+  - { name: cloudnative-pg, version: "0.22.x", repository: "https://cloudnative-pg.github.io/charts", condition: postgres.inCluster }

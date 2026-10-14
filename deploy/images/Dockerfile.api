@@ -1,0 +1,11 @@
+# Python 服務（api / semantic / segment / gateway / agent-runtime）共用基底：Red Hat UBI 9 minimal（免費再散布，與 RHEL 9 同源）
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.4 AS base
+RUN microdnf install -y python3.12 python3.12-pip shadow-utils && microdnf clean all \
+ && useradd -r -u 10001 -s /sbin/nologin app
+WORKDIR /app
+COPY backend/ ./backend/
+RUN python3.12 -m pip install --no-cache-dir -r backend/requirements.txt
+USER 10001
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8080
+ENTRYPOINT ["python3.12", "-m", "uvicorn", "backend.api.main:app", "--host", "0.0.0.0", "--port", "8080"]

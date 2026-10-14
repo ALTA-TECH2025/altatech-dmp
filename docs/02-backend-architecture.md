@@ -30,7 +30,7 @@
 │ 計算層   Flink（標準化、事件化、OneID、Session、即時規則、即時標籤）                         │
 │          Spark / Trino（日批、標籤、ID 校正、嵌入特徵）  Airflow（排程）                     │
 ├─────────────────────────────────────────────────────────────────────────────────┤
-│ 儲存層   Kafka │ ClickHouse（熱）│ Iceberg on MinIO（冷）│ PostgreSQL + pgvector │ Redis      │
+│ 儲存層   Kafka │ ClickHouse（熱）│ Iceberg on GCS（機房：SeaweedFS）（冷）│ PostgreSQL + pgvector │ Valkey      │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │ 接入層   GA360 Importer │ GTM Server-side 雙寫 │ Collector API（神策相容）│ Debezium CDC │ 匯入 │
 └─────────────────────────────────────────────────────────────────────────────────┘
