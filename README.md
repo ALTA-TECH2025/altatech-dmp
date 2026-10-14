@@ -23,6 +23,7 @@ docs/
   11-oss-risk-scorecard-and-maintainability.md     開源元件評分（弱點掃描風險／可用性／主流性／vibe coding 維護性）與選型修訂
   12-architecture-diagrams.md  diagrams/         系統架構圖、元件組成圖、數據流圖（SVG/PNG 由 build.py 產生 + Mermaid）
   14-audience-activation.md                        受眾推送：簽章 Webhook 到內部系統、GA4 受眾 → Google Ads 再行銷（Customer Match 本期不做）
+  16-github-collaboration-with-claude.md          6 人分工（目錄即邊界）、Claude 三種用法與邊界、GitHub 協同（trunk-based、squash、branch protection、CODEOWNERS、CI 分層、@claude 指派）
   15-vibe-coding-plan.md                           Vibe coding 開發計畫：6 人分工、測試協同、Epic/Story 拆解（154 人日）、代碼級第一版第 8 週、AI 洞察 v1 第 16 週
   13-capacity-plan-gcp.md                          GCP 容量規劃：3 年 200 億事件（首年含舊資料）、每日 500–1,000 標籤、API 同步、50 人上線；正式 A 檔 6 台或 D 檔 3 台大機型／測試 3 台；Docker 模組整併（6 個映像）；機房實體機／VM 規格與 Dell 估價
 prototype/                                          可直接開啟的前端原型（純靜態，無建置步驟）
@@ -44,7 +45,8 @@ deploy/                                             部署套件
   images/              Dockerfile 6 個（ingest / core / agent / batch / flink-jobs / web；UBI 9 minimal / distroless 基底）
   Makefile             gcp-up / deploy / smoke / sbom
 LICENSES.md                                         第三方元件授權清單（白名單制）
-SECURITY.md  AGENTS.md  renovate.json  .github/workflows/security.yml   弱點管理、AI 協作開發規則、自動更新、CI 掃描（SBOM / Grype / Trivy / Semgrep / 授權）
+SECURITY.md  AGENTS.md  CLAUDE.md  renovate.json                      弱點管理、AI 協作規則（目錄邊界／驗證指令）、Claude Code 開工／收工流程、自動更新
+.github/  CODEOWNERS  pull_request_template.md  ISSUE_TEMPLATE/story.md  workflows/{ci,claude,security}.yml   協同：擁有者審查、PR／Story 模板、分層 CI、Claude 自動審查與 @claude 指派、安全掃描
 ```
 
 ## 原型
