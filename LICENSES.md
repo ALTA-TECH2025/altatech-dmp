@@ -18,7 +18,8 @@
 | SeaweedFS | 3.x | Apache-2.0 | 機房物件儲存 | 取代 MinIO（AGPL）；GCP 用 GCS |
 | OpenBao / OpenTofu | 2.x / 1.8 | MPL-2.0 | 密鑰／IaC | 取代 Vault / Terraform（BSL） |
 | Keycloak | 25 | Apache-2.0 | 身分 | — |
-| Prometheus / OpenTelemetry / Perses / OpenSearch | — | Apache-2.0 | 觀測 | 取代 Grafana/Loki（AGPL）、Elastic |
+| Prometheus / OpenTelemetry / OpenSearch | — | Apache-2.0 | 觀測 | — |
+| Grafana OSS | 11.x | AGPL-3.0（例外：僅內部使用、不散布、不修改） | 看板與告警 | 法務核可之白名單例外；不得嵌入產品對外提供 |
 | Apache Superset | 4.x | Apache-2.0 | 選配 BI | 取代 Metabase（AGPL） |
 | FastAPI / Pydantic / SQLGlot / clickhouse-connect | — | MIT / MIT / MIT / Apache-2.0 | 後端 | — |
 | React / Vite / TypeScript / Apache ECharts / React Flow | — | MIT / MIT / Apache-2.0 / Apache-2.0 / MIT | 前端 | — |

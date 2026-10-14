@@ -21,6 +21,7 @@ docs/
   09-scale-10b-events-performance.md               百億事件量級：稠密 ID、多層聚合、Bitmap 標籤引擎、查詢效能策略
   10-enterprise-security-rbac-masking-audit.md     企業級安全：角色／模組／數據權限、欄位隱碼、審批、審計與日誌統計可視化
   11-oss-risk-scorecard-and-maintainability.md     開源元件評分（弱點掃描風險／可用性／主流性／vibe coding 維護性）與選型修訂
+  12-architecture-diagrams.md  diagrams/         系統架構圖、元件組成圖、數據流圖（SVG/PNG 由 build.py 產生 + Mermaid）
 prototype/                                          可直接開啟的前端原型（純靜態，無建置步驟）
   index.html  css/app.css  js/app.js  js/data.js  vercel.json
 backend/                                            後端骨架（可讀、可跑的最小實作與設定）

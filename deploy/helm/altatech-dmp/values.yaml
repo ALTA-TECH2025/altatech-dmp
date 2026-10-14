@@ -21,5 +21,5 @@ apps:
   agentRuntime: { replicas: 2, llmGateway: http://llm-gateway.internal }
   web: { replicas: 2 }
 airflow: { enabled: true, workers: 3 }
-observability: { prometheus: true, otel: true, dashboards: perses, logs: opensearch }
+observability: { prometheus: true, otel: true, dashboards: grafana-oss, logs: opensearch }
 security: { podSecurityStandard: restricted, readOnlyRootFs: true, runAsNonRoot: true, networkPolicies: true }

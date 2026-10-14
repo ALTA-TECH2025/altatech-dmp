@@ -38,7 +38,7 @@
 | 密鑰 | Cloud KMS + Secret Manager（雲）／ OpenBao（機房） | 5 / 4 | 5 / 4 | 5 / 3 | 5 / 4 | 5.0 / 3.8 | OpenBao 為 Linux Foundation 專案，API 與 Vault 相容，LLM 可沿用 Vault 知識 |
 | 身分 | Keycloak 25 | 3 | 4 | 5 | 4 | 4.0 | 採用；CVE 較頻繁，需跟緊版本；GCP 可改 Cloud Identity + IAP |
 | 觀測 | Prometheus + OpenTelemetry | 4 | 4 | 5 | 4 | 4.3 | 採用 |
-| 觀測看板 | Cloud Monitoring（雲）／ Perses（機房）；**Grafana OSS（AGPL）若法務接受內部使用** | 5 / 3 / 4 | 5 / 3 / 4 | 5 / 2 / 5 | 5 / 3 / 5 | 5.0 / 2.8 / 4.5 | Perses 年輕（CNCF sandbox），主流性弱；機房建議法務評估 Grafana OSS 內部使用（不散布不觸發 AGPL 義務） |
+| 觀測看板 | **Grafana OSS**（雲與機房皆用；AGPL 內部使用已獲接受） | 4 | 4 | 5 | 5 | 4.5 | 決定採用；Managed Prometheus／Prometheus 為資料源；不修改原始碼、不對外散布 |
 | 日誌 | Cloud Logging（雲）／ OpenSearch（機房） | 5 / 3 | 5 / 4 | 5 / 4 | 5 / 3 | 5.0 / 3.5 | 機房日誌量大時 OpenSearch 需專人維運 |
 | 容器 | UBI 9 minimal / distroless | 5 | — | 5 | 4 | 4.7 | Red Hat 安全公告與 CVE feed 完整；金融業弱掃友善 |
 | K8s | GKE（雲）／ RKE2（機房） | 5 / 4 | 5 / 4 | 5 / 4 | 5 / 4 | 5.0 / 4.0 | 採用 |

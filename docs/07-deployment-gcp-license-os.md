@@ -70,7 +70,7 @@ deploy/
 | 資料品質 | Great Expectations、Soda Core | Apache-2.0 | 無 | — |
 | 中繼資料／血緣 | OpenMetadata、OpenLineage | Apache-2.0 | 無 | Collibra／Alation 商業 |
 | BI／看板（選配） | Apache Superset | Apache-2.0 | 無 | **Metabase（AGPL）**、**Grafana（AGPL-3.0 自 8.0）**、Tableau／Power BI 商業 |
-| 觀測 | Prometheus、OpenTelemetry、Loki 替代：**OpenSearch**（Apache-2.0）或 Cloud Logging；儀表板：**Perses**（Apache-2.0）或 Cloud Monitoring | Apache-2.0 | 低 | Grafana／Loki／Tempo（AGPL-3.0）排除；Elastic（SSPL／ELv2／AGPL 三選一）排除 |
+| 觀測 | Prometheus、OpenTelemetry；儀表板 **Grafana OSS**（AGPL-3.0，僅內部使用、不散布、不修改，法務已接受）；日誌 **OpenSearch**（Apache-2.0）或 Cloud Logging | Apache-2.0 / AGPL-3.0（內部使用） | 低 | Loki／Tempo 改用 OpenSearch／Cloud Trace；Elastic（SSPL／ELv2／AGPL 三選一）排除 |
 | 密鑰 | Cloud KMS／Secret Manager；機房：**OpenBao**（MPL-2.0） | MPL-2.0 | 無 | **HashiCorp Vault／Terraform（BSL 1.1）**：排除 → **OpenTofu**（MPL-2.0） |
 | 身分 | Keycloak | Apache-2.0 | 無 | Okta／Auth0 商業 |
 | API／閘道 | FastAPI、Uvicorn；Envoy／Kong OSS | MIT／BSD；Apache-2.0 | 無 | Kong Enterprise 商業 |
