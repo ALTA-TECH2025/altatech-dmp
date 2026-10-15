@@ -57,6 +57,30 @@ def local_ddl(schema_sql: str) -> list[str]:
     return [st.strip() for st in s.split(";") if st.strip()]
 
 
+def read_dbapi(src: dict[str, Any], connect: Callable[[], Any], watermark: str | None, batch_size: int = 50_000) -> list[dict[str, Any]]:
+    """DB-API 2.0 來源（MSSQL 走 pyodbc／pymssql，PostgreSQL 走 psycopg；connect 由部署注入，密鑰從 secret_ref 解析）。
+    增量：WHERE <incremental_field> > ? ORDER BY <incremental_field>；以 fetchmany 串流，不把整表讀進記憶體。"""
+    inc = src.get("incremental_field"); table = src["table"]
+    cols = src.get("columns", "*")
+    sql = f"SELECT {cols} FROM {table}"
+    params: tuple = ()
+    if inc and watermark is not None:
+        sql += f" WHERE {inc} > {src.get('paramstyle', '?')}"; params = (watermark,)
+    if inc:
+        sql += f" ORDER BY {inc}"
+    conn = connect()
+    try:
+        cur = conn.cursor(); cur.execute(sql, params)
+        names = [d[0] for d in cur.description]; out = []
+        while True:
+            chunk = cur.fetchmany(batch_size)
+            if not chunk: break
+            out.extend(dict(zip(names, r)) for r in chunk)
+        return out
+    finally:
+        conn.close()
+
+
 def read_source(src: dict[str, Any]) -> list[dict[str, Any]]:
     p = Path(src["path"])
     if src.get("kind", "csv") == "jsonl":
@@ -66,8 +90,10 @@ def read_source(src: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 class LocalRunner:
-    def __init__(self, ch: ClickHouseHTTP | None, project: str = "altatech_dmp", sem: modeling.Semantic | None = None):
+    def __init__(self, ch: ClickHouseHTTP | None, project: str = "altatech_dmp", sem: modeling.Semantic | None = None,
+                 db_connections: dict[str, Callable[[], Any]] | None = None):
         self.ch, self.project, self.sem = ch, project, sem
+        self.db_connections = db_connections or {}     # connection id（connectors.yaml 的連線）→ DB-API connect 工廠
 
     def run(self, task: dict[str, Any], *, watermark: str | None, batch_id: str, known_fields: set[str] | None,
             now: datetime, log: Callable[[str], None]) -> RunResult:
@@ -76,10 +102,14 @@ class LocalRunner:
         if errs:
             raise ValueError("模型未通過驗證：" + "; ".join(errs))
         src = task["source"]
-        rows = read_source(src)
         inc = src.get("incremental_field")
+        if src.get("kind") == "dbapi":
+            rows = read_dbapi(src, self.db_connections[src["connection"]], watermark if task["mode"] == "incremental" else None)
+            rows = [{k: ("" if v is None else v) for k, v in r.items()} for r in rows]
+        else:
+            rows = read_source(src)
         if task["mode"] == "incremental" and inc:
-            if watermark is not None:
+            if watermark is not None and src.get("kind") != "dbapi":
                 rows = [r for r in rows if str(r.get(inc, "")) > watermark]
             wm_to = max((str(r.get(inc, "")) for r in rows), default=watermark)
         else:

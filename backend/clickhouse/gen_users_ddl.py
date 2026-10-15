@@ -52,8 +52,8 @@ def ddl(local: bool = False) -> str:
            + col_lines + ",\n    props_extra          JSON,\n    first_seen           DateTime64(3, 'UTC'),\n    updated_at           DateTime64(3, 'UTC')\n)\n"
            + f"ENGINE = {eng('users', 'updated_at')}\nORDER BY one_id;",
            "",
-           "-- 即時零星更新（profile_set／set_once／increment／unset）：每屬性一列，微批合併進 users\nCREATE TABLE IF NOT EXISTS dmp.user_prop_log\n(\n    one_id   String,\n    prop     LowCardinality(String),\n    value    String,\n    op       LowCardinality(String),\n    ts       DateTime64(3, 'UTC')\n)\n"
-           + ("ENGINE = MergeTree" if local else "ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.user_prop_log', '{replica}')") + "\nPARTITION BY toYYYYMMDD(ts)\nORDER BY (one_id, prop, ts)\nTTL toDateTime(ts) + INTERVAL 30 DAY;",
+           "-- 即時零星更新（profile_set／set_once／increment／unset）：每屬性一列，微批合併進 users\nCREATE TABLE IF NOT EXISTS dmp.user_prop_log\n(\n    one_id   String,\n    prop     LowCardinality(String),\n    value    String,\n    op       LowCardinality(String),\n    ts       DateTime64(3, 'UTC'),\n    ingested_at DateTime DEFAULT now()\n)\n"
+           + ("ENGINE = MergeTree" if local else "ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.user_prop_log', '{replica}')") + "\nPARTITION BY toYYYYMMDD(ts)\nORDER BY (one_id, prop, ts)\nTTL ingested_at + INTERVAL 30 DAY;   -- 以載入時間計：歷史檔的 profile_set 事件時間可能很舊",
            "",
            f"-- 事件查詢關聯用戶屬性：可篩選／可分組的熱欄位（≤ {MAX_HOT} 個）載成 dictionary，dictGet 不 JOIN；其餘屬性走 users FINAL JOIN\nCREATE DICTIONARY IF NOT EXISTS dmp.users_dict\n(\n    one_id_uint UInt64,\n"
            + ",\n".join(f"    {k:<20} {t}" for k, t, _ in hot_cols) + "\n)\nPRIMARY KEY one_id_uint\n"

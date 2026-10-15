@@ -12,6 +12,8 @@
 | `runner.py` | `LocalRunner`：檔案來源 → 模型 → ClickHouse（JSONEachRow）→ 隔離區 `dmp.quarantine` → 對帳 `dmp.ingest_recon`；`local_ddl()` 把 schema.sql 轉單機版 |
 | `e2e_clickhouse.py` | 端到端：啟動單機 ClickHouse、建表、合成 2 萬筆委託 + 300 筆商品、排程器跑三個增量窗口、驗證筆數／隔離／對帳／水位／依賴／關聯屬性 JOIN／漏斗樣板，再以 `compile_sql` 路徑比對 event_id |
 | `cli.py` | 命令列：validate／preview／compile；sched add／tick／status／runs／run／enable／disable |
+| `sensors_format.py` | 神策資料格式檔（FormatImporter 的輸入）→ DMP：Python 串流預處理（登入 ID 代碼化、去 `$ip`／L4、壞行隔離）→ ClickHouse `file()` 讀入 `raw_sensors` → track → events（別名轉正式名）、profile_* → user_prop_log、track_signup → id_map；對帳 |
+| `runner.read_dbapi` | DB-API 2.0 來源（MSSQL 用 pyodbc／pymssql、PostgreSQL 用 psycopg）：增量 `WHERE inc > 水位 ORDER BY inc`、fetchmany 串流；connect 工廠由部署注入 |
 
 ## 跑
 
@@ -30,6 +32,29 @@ CLICKHOUSE_BIN=/path/to/clickhouse python3 -m backend.integration.e2e_clickhouse
 - **三方對帳**：每批 `rows_in → rows_ok → rows_loaded`（以 `batch_id` 回查 ClickHouse），差異寫 `dmp.ingest_recon` 並告警。
 - **排序鍵含 event_id**：`dmp.events` 是 ReplacingMergeTree，排序鍵 `(project, event_date, event, one_id_uint, time, event_id)` 加 `SAMPLE BY one_id_uint`（按用戶分桶、一致抽樣）；e2e 實測少了 `event_id` 時，同客戶同事件同秒的兩筆會在合併時被去重成一筆。
 - **Schema 變更**：runner 回報來源新欄位；任務策略 `pause` 會停用任務並告警，`auto_map` 記錄後照跑。
+
+## 交易資料的兩條導入路（都已在 e2e 驗證）
+
+**A. 神策格式檔（原本餵 FormatImporter 的每日 3.8 GB）**
+
+```python
+from backend.integration.sensors_format import SensorsLoader
+loader = SensorsLoader(ch)                                   # 建 raw_sensors
+r = loader.run_file(Path('/stage/sa_20261016.jsonl'), user_files_dir, batch_id='sa_20261016', key_ref='k_idm')
+# r['recon_ok']、r['stage']（行數／通過／壞行／代碼化數／各型別）、r['raw']、r['events']、r['prop_log']、r['id_map']
+```
+實測 20 萬行／48 MB：10.6 s（預處理佔大半；ClickHouse 載入與標準化約 1 s）→ 3.8 GB 約 14 分鐘單核，分檔平行可壓到 5 分鐘內。壞行 1% 進隔離檔、登入 ID 100% 代碼化、`$ip` 與 L4 欄位 0 筆入倉、別名 0 筆殘留。
+
+**B. MSSQL（或數據中台任何 DB-API 來源）排程抽取 + 清洗**
+
+```python
+import pyodbc                                                 # MIT；正式環境由 deploy 安裝，連線字串與密鑰由 auth.py 解析 secret_ref
+runner = LocalRunner(ch, db_connections={'dwh_trade': lambda: pyodbc.connect(conn_str)})
+s = Scheduler('/var/dmp/sched.db', runner)
+s.add_task('sync_orders', 'models.example.yaml', cron='*/15 * * * *', mode='incremental', retries=3, backoff_s=60, schema_change='auto_map',
+           source={'kind': 'dbapi', 'connection': 'dwh_trade', 'table': 'dbo.fact_order_hist', 'incremental_field': 'UPDATED_AT', 'paramstyle': '?'})
+```
+e2e 以 sqlite 當 MSSQL 替身（同為 DB-API）：兩個 15 分鐘窗口各抽 12,000／8,000 列，水位接續、三方對帳一致；模型即 `models.example.yaml`（狀態機事件化、代碼化、清洗、隔離）。MSSQL 鑑權順序與最小權限見 `connectors.yaml`（mssql）。
 
 ## 用戶表規模測試（`e2e_clickhouse.py` 的 users bench 段）
 

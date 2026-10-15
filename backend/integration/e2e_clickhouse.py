@@ -116,6 +116,8 @@ def main() -> int:
         q_total = sum(x["rows_quarantined"] for x in results)
         print(f"orders: in={in_total} ok={ok_py} quarantined={q_total} rejected={sum(x['rows_rejected'] for x in results)} loaded={loaded_py} (3 windows)")
         print("instrument:", {k: s.runs("sync_instrument", 1)[0][k] for k in ("rows_in", "rows_ok", "rows_quarantined", "rows_loaded")})
+        if ch is None:
+            dbapi_stage(None, work, all_rows)
         if ch:
             n_ev = ch.scalar("SELECT count() FROM dmp.events WHERE source='mdl_order_hist'")
             assert n_ev == loaded_py, (n_ev, loaded_py)
@@ -153,6 +155,8 @@ def main() -> int:
             same_ids = ch.scalar("SELECT count() FROM dmp.events e INNER JOIN dmp.events_sql s ON e.event_id = s.event_id AND e.event = s.event")
             assert same_ids == n_ev, (same_ids, n_ev)   # Python 路徑的每一筆都能在 SQL 路徑找到同 event_id 同事件名
             print(f"compile_sql path: {n_sql} rows (superset before enum/range cleansing); event_id/event match with python path: {same_ids}/{n_ev}")
+            sensors_stage(ch, work, int(os.environ.get("E2E_SENSORS_LINES", "200000")))
+            dbapi_stage(ch, work, all_rows)
             if os.environ.get("E2E_USERS", "1") != "0":
                 main_users_bench(ch)
         print("status:", json.dumps([{k: x[k] for k in ('id', 'enabled', 'last', 'watermark')} for x in s.status(t0 + timedelta(hours=1))], ensure_ascii=False, default=str)[:600])
@@ -166,6 +170,69 @@ def main() -> int:
             except subprocess.TimeoutExpired: proc.kill()
         shutil.rmtree(work, ignore_errors=True)
 
+
+
+# ---------------------------------------------------------------- 神策格式檔（FormatImporter 的輸入）→ DMP；MSSQL（DB-API）排程抽取 → DMP
+def sensors_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3) -> None:
+    import time as _t
+    from .sensors_format import SensorsLoader
+    rnd = random.Random(rnd_seed); src = work / "sa_20261016.jsonl"
+    base = 1_792_000_000_000   # 2026-10-15 前後
+    with src.open("w", encoding="utf-8") as f:
+        for i in range(n_lines):
+            cust = f"C{rnd.randint(1, 50000):06d}"; anon = f"ck-{rnd.randint(1, 80000)}"
+            kind = rnd.choices(["track_login", "track_anon", "profile_set", "track_signup", "bad"], [60, 25, 10, 4, 1])[0]
+            if kind == "bad":
+                f.write("{broken json\n"); continue
+            if kind == "track_login":
+                ev = rnd.choice(["order_submit", "order_filled", "bond_order", "hq_stockdetail_view", "quote_view", "sip_purchase"])
+                f.write(json.dumps({"type": "track", "event": ev, "distinct_id": cust, "time": base + i * 10, "project": "sbp_family",
+                                    "properties": {"$is_login_id": True, "$lib": "iOS", "$ip": "10.0.0.1", "$track_id": i, "symbol": str(2300 + rnd.randint(0, 299)), "side": rnd.choice(["buy", "sell"]), "amount": rnd.randint(1000, 900000), "channel": "app"}}, ensure_ascii=False) + "\n")
+            elif kind == "track_anon":
+                f.write(json.dumps({"type": "track", "event": rnd.choice(["$pageview", "$WebClick", "search_symbol"]), "distinct_id": anon, "time": base + i * 10, "project": "sbp_family",
+                                    "properties": {"$is_login_id": False, "$lib": "js", "$url": "https://sbp/x", "$utm_source": rnd.choice(["google", "line", ""]), "$track_id": i}}) + "\n")
+            elif kind == "profile_set":
+                f.write(json.dumps({"type": "profile_set", "distinct_id": cust, "time": base + i * 10, "properties": {"$is_login_id": True, "lifecycle": rnd.choice(["新客", "成長", "沉睡"]), "aum": rnd.randint(0, 5_000_000), "name": "王小明", "mobile": "0912345678"}}, ensure_ascii=False) + "\n")
+            else:
+                f.write(json.dumps({"type": "track_signup", "event": "$SignUp", "distinct_id": cust, "original_id": anon, "time": base + i * 10, "properties": {}}) + "\n")
+    size_mb = src.stat().st_size / 1048576
+    loader = SensorsLoader(ch, local=True)
+    t0 = _t.perf_counter(); r = loader.run_file(src, work / "user_files", "sa_20261016", "k_idm"); dt = _t.perf_counter() - t0
+    st = r["stage"]
+    assert r["recon_ok"], r
+    assert st["bad"] == st["lines"] - st["ok"] and st["bad"] > 0
+    assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND event IN ('order_submit','order_filled','quote_view','search_symbol')") == 0    # 別名已轉正式名
+    assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND one_id LIKE 'C0%'") == 0                                                     # 登入 ID 全部代碼化
+    assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND one_id LIKE 'ck-%'") == ch.scalar("SELECT count() FROM dmp.raw_sensors WHERE batch_id='sa_20261016' AND type='track' AND is_login=0")  # 匿名保留
+    assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND JSONHas(toString(props), '$ip')") == 0                                       # $ip 不入倉
+    assert ch.scalar("SELECT count() FROM dmp.user_prop_log WHERE prop IN ('name','mobile')") == 0                                                                  # L4 不入倉
+    assert r["id_map"] == r["signup_anon_ids"], (r["id_map"], r["signup_anon_ids"])   # 同一匿名 ID 多次綁定只留最新（ReplacingMergeTree by (id_type, id_hash)）
+    by_ev = ch.query("SELECT event, count() FROM dmp.events WHERE batch_id='sa_20261016' GROUP BY event ORDER BY 2 DESC FORMAT TSV").strip().replace("\n", " | ")
+    print(f"sensors format: {st['lines']:,} lines / {size_mb:.0f} MB → ok {st['ok']:,} bad {st['bad']} tokenized {st['tokenized']:,} → raw {r['raw']:,} events {r['events']:,} prop_log {r['prop_log']:,} id_map {r['id_map']:,} in {dt:.1f}s "
+          f"(≈ {3800 / max(size_mb, 1) * dt / 60:.0f} min per 3.8 GB)")
+    print("  events by name:", by_ev)
+
+
+def dbapi_stage(ch: ClickHouseHTTP | None, work: Path, rows: list[dict[str, Any]]) -> None:
+    """MSSQL 的替身：sqlite（同樣是 DB-API 2.0）；正式環境 db_connections={'dwh_trade': lambda: pyodbc.connect(...)}。"""
+    import sqlite3
+    db = work / "mssql_stand_in.db"; conn = sqlite3.connect(db)
+    cols = list(rows[0].keys())
+    conn.execute(f"CREATE TABLE fact_order_hist ({', '.join(c + ' TEXT' for c in cols)})")
+    conn.executemany(f"INSERT INTO fact_order_hist VALUES ({', '.join('?' * len(cols))})", [[r[c] for c in cols] for r in rows[:12000]]); conn.commit(); conn.close()
+    runner = LocalRunner(ch, db_connections={"dwh_trade": lambda: sqlite3.connect(db)})
+    s = Scheduler(work / "sched_db.db", runner)
+    t0 = datetime(2026, 10, 16, 1, 0, tzinfo=timezone.utc)
+    s.add_task("sync_orders_mssql", str(ROOT / "integration" / "models.example.yaml"), cron="*/15 * * * *", mode="incremental", retries=2, backoff_s=60, schema_change="auto_map",
+               source={"kind": "dbapi", "connection": "dwh_trade", "table": "fact_order_hist", "incremental_field": "UPDATED_AT", "paramstyle": "?"}, now=t0)
+    r1 = s.tick(t0 + timedelta(minutes=15)); assert r1[0]["status"] == "success", r1
+    run1 = s.runs("sync_orders_mssql", 1)[0]
+    conn = sqlite3.connect(db); conn.executemany(f"INSERT INTO fact_order_hist VALUES ({', '.join('?' * len(cols))})", [[r[c] for c in cols] for r in rows[12000:20000]]); conn.commit(); conn.close()
+    r2 = s.tick(t0 + timedelta(minutes=30)); assert r2[0]["status"] == "success", r2
+    run2 = s.runs("sync_orders_mssql", 1)[0]
+    assert run1["rows_in"] == 12000 and run2["rows_in"] == 8000 and run2["watermark_from"] == run1["watermark_to"], (run1["rows_in"], run2["rows_in"])
+    assert all(x["rows_loaded"] == x["rows_ok"] for x in (run1, run2))
+    print(f"dbapi (sqlite stand-in for MSSQL): window1 in={run1['rows_in']} ok={run1['rows_ok']} loaded={run1['rows_loaded']}; window2 in={run2['rows_in']} ok={run2['rows_ok']} loaded={run2['rows_loaded']}; watermark={run2['watermark_to']}")
 
 
 # ---------------------------------------------------------------- 用戶表規模測試：N 萬用戶 × 300 屬性（寬表），日批快照覆蓋、即時微批、dictionary、事件關聯、SAMPLE

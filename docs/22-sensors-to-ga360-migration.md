@@ -97,6 +97,8 @@
 | Impala JDBC／HDFS Parquet 直讀（`sensors_export.impala_kerberos`）— **採用** | 私有化，客戶已同意開放 | 70 億約 2–3 天（distcp 到暫存 + 載入） | Parquet schema 與 DMP 欄位映射；Kudu 近期資料走 Impala 查詢導出 |
 | 查詢 API `/api/sql/query`（`sensors_export.api_token`） | 只做抽樣校驗（T4 口徑比對） | — | 按 `date` 切片；token 遷移後撤銷 |
 | 神策導出工具 | 若客戶有 | 視版本 | 格式確認 |
+| **神策資料格式檔（FormatImporter 的輸入 JSON lines）** — `backend/integration/sensors_format.py` | 線下每日 3.8 GB 的批次檔，以及歷史若已是此格式 | 單核預處理約 14 分鐘／3.8 GB，ClickHouse 載入約 1 分鐘 | 預處理：登入 ID → 客戶代碼、丟 `$ip` 與 L4、壞行隔離；track → events（別名轉正式名）、profile_* → user_prop_log、track_signup → id_map；對帳行數 → 通過 → raw → 目標 |
+| **MSSQL／任何 DB-API 來源排程抽取** — `runner.read_dbapi` + 建模引擎 + 排程器 | 數據中台或業務系統提供資料庫視圖時 | 增量 `WHERE updated_at > 水位`，fetchmany 串流 | 鑑權依 `connectors.yaml`（Kerberos > Entra ID > 帳密，密鑰只以參照）；清洗規則與隔離同建模引擎 |
 
 導出以「日 × 資料集」為分片，每片記錄來源筆數、導出筆數、檔案校驗（md5、列數），載入後記錄載入筆數。差異 > 0.1% 的分片自動重跑；三次仍差則標記待人工。
 

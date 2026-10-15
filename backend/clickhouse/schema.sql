@@ -102,12 +102,13 @@ CREATE TABLE IF NOT EXISTS dmp.user_prop_log
     prop     LowCardinality(String),
     value    String,
     op       LowCardinality(String),
-    ts       DateTime64(3, 'UTC')
+    ts       DateTime64(3, 'UTC'),
+    ingested_at DateTime DEFAULT now()
 )
 ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.user_prop_log', '{replica}')
 PARTITION BY toYYYYMMDD(ts)
 ORDER BY (one_id, prop, ts)
-TTL toDateTime(ts) + INTERVAL 30 DAY;
+TTL ingested_at + INTERVAL 30 DAY;   -- 以載入時間計：歷史檔的 profile_set 事件時間可能很舊
 
 -- 事件查詢關聯用戶屬性：可篩選／可分組的熱欄位（≤ 50 個）載成 dictionary，dictGet 不 JOIN；其餘屬性走 users FINAL JOIN
 CREATE DICTIONARY IF NOT EXISTS dmp.users_dict
