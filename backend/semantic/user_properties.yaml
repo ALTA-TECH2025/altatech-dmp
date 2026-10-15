@@ -7,7 +7,7 @@ user_properties:
   - { key: gender, cn: 性別, type: enum, source: crm.cdc, update: daily, sensitivity: L2, filterable: true, groupable: true }
   - { key: branch_id, cn: 所屬分公司, type: string, source: crm.cdc, update: daily, sensitivity: L1, filterable: true, groupable: true, row_level_key: true }
   - { key: agent_id, cn: 所屬營業員, type: string, source: crm.cdc, update: daily, sensitivity: L3, filterable: true, groupable: false, row_level_key: true }
-  - { key: first_utm_source, cn: 首次來源, type: string, source: event.derived(first ga.page_view), update: set_once, sensitivity: L1, filterable: true, groupable: true }
+  - { key: first_utm_source, cn: 首次來源, type: string, source: event.derived(first $pageview), update: set_once, sensitivity: L1, filterable: true, groupable: true }
   - { key: signup_date, cn: 開戶日期, type: date, source: account_system, update: realtime, sensitivity: L1, filterable: true, groupable: false }
   - { key: account_age_days, cn: 開戶天數, type: number, source: computed, update: daily, sensitivity: L1, filterable: true, groupable: true, buckets: [0, 7, 30, 90, 365] }
   - { key: aum_bucket, cn: 資產區間, type: enum, source: ledger.batch(bucket), update: "daily 05:00", sensitivity: L2, filterable: true, groupable: true, note: 只存區間 }

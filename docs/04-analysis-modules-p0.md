@@ -24,6 +24,55 @@
 
 ---
 
+## 0a. 事件命名：對齊客戶神策專案的模擬事件清單（2026-10-15）
+
+客戶提供了神策專案 `sbp_family` 的模擬事件清單（112 個元事件：事件名、顯示名、平台、觸發時機）。本系統的事件字典 `backend/semantic/events.yaml` v4 與原型「元事件管理」改以該清單為準（117 個 = 112 + 交易／帳務 CDC 補充 `fund_deposit`、`order_rejected`、`order_cancelled` + 示範用隔離／草稿事件），依前綴歸為業務線。本專案各文件中原本使用的事件名改為 **alias**（語意層查詢時等價），對照如下：
+
+| 文件舊名（alias） | 事件名（客戶清單） | 顯示名 |
+|---|---|---|
+| `ga.page_view` | `$pageview` | Web 瀏覽頁面 |
+| `ga.screen_view` | `$AppViewScreen` | App 瀏覽頁面 |
+| `quote_view` | `hq_stockdetail_view` | 行情_個股明細瀏覽 |
+| `search_symbol` | `search_submit` | 搜索_送出搜索請求 |
+| `watchlist_add` | `deal_opt_mani` | 交易_自選操作 |
+| `login` | `app_login_success` | APP登入成功 |
+| `account_open_start` | `kh_entry_khpg_pv` | 開戶_開戶首頁瀏覽 |
+| `account_open_submit` | `kh_apply` | 開戶_完成開戶申請 |
+| `account_open_approved` | `kh_review_pass` | 開戶_審核成功 |
+| `order_submit` | `bond_order` | 證券_委託 |
+| `order_filled` | `bond_deal` | 證券_成交 |
+| `fund_subscribe` | `sip_purchase` | 定期定額_申購結果 |
+| `push_opened` | `push_click` | Push點擊 |
+| `campaign_clicked` | `act_click` | 活動_活動頁按鈕點擊 |
+
+| 業務線 | 事件數 | 例 |
+|---|---|---|
+| 智能運營（MA） | 16 | `PlanEDMClick`、`PlanEDMShow`、`$PlanSMSArrived`、`$PlanAudienceMarked`、`$JourneyExit`、`$JourneyComponentEnter` … |
+| 短鏈 | 2 | `ShortUrlRedirect`、`$ShortUrlRedirect` |
+| 業務資料（服務端） | 5 | `Market_Data`、`operation_target`、`market_deal_profile`、`cancel_profile`、`option_apply` |
+| 廣告渠道 | 3 | `campaign_callBack`、`act_ad_view`、`act_ad_cost` |
+| 登入與導航 | 6 | `test_login`、`my_agreement_sign`、`mainlogin_button_click`、`lower_button_click`、`home_click`、`app_login_success` |
+| 交易（App） | 3 | `stock_order_submit`、`deal_opt_mani`、`deal_commision_check` |
+| 定期定額 | 8 | `sip_stockpage_view`、`sip_resultpage_button_click`、`sip_purchase`、`sip_listpage_view`、`sip_change_confirm`、`sip_cancel_order` … |
+| 搜索 | 3 | `search_submit`、`search_result_click`、`search_box_click` |
+| 證券（交易主機） | 9 | `realtime_bond_order`、`realtime_bond_deal`、`bond_portfolio_income`、`bond_portfolio`、`bond_order`、`bond_deal` … |
+| Push | 3 | `push_received`、`push_click`、`$AppPushClick` |
+| LINE | 6 | `line_unfollow`、`line_sendline_message`、`line_message`、`line_follow`、`line_account_unlink`、`line_account_link` |
+| 開戶 | 27 | `kh_steppg_pv`、`kh_steppg_click`、`kh_sign_result`、`kh_sign`、`kh_set_sbank_result`、`kh_set_sbank` … |
+| 資訊與資源位 | 4 | `info_report_view`、`info_recomstock_click`、`info_detail_view`、`i_mkt_click` |
+| 行情 | 3 | `hq_stockdetail_view`、`hq_stockdetail_click`、`hq_ai_choose` |
+| 申購／競拍 | 8 | `auc_stockpage_view`、`auc_resultpage_view`、`auc_purchase_result`、`auc_purchase`、`auc_listpage_view`、`auc_cancel_order` … |
+| 活動 | 2 | `act_pageview`、`act_click` |
+| App 基礎 | 5 | `AppInstall`、`$AppViewScreen`、`$AppStart`、`$AppEnd`、`$AppClick` |
+| Web 基礎 | 2 | `$pageview`、`$WebClick` |
+| 帳務（CDC） | 1 | `fund_deposit` |
+| 未登記 | 1 | `ga.ab_exposure` |
+
+說明：
+- 清單裡的 `$`開頭事件是神策預置事件（`$pageview`、`$AppViewScreen`、`$AppStart`…）與智能運營系統事件（`$Plan*`、`$Journey*`）；本系統保留原名，來源分別對應 GA360（Web／App）與 MA 系統事件。
+- 證券交易（`bond_order`／`bond_deal`／`realtime_bond_*`）與市場資料（`Market_Data`）是服務端事件，本系統由交易主機 CDC 事件化產生；App 端的 `stock_order_submit`（交易_委託送出）是行為事件，兩者不逐筆對應（docs/20）。
+- 開戶流程 `kh_*` 共 27 個事件，是開戶漏斗的素材；`kh_review_pass` 對應原「開戶核准」，是留存與 LTV 的 cohort 事件。
+
 ## 1. 事件分析
 
 ### 1.1 功能

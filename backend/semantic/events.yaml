@@ -1,76 +1,1085 @@
 # 事件字典（語意層）— agent 與 UI 共用。新增事件只需在此登記。
-version: 3
+# v4：事件命名對齊客戶神策專案（sbp_family）的模擬事件清單（112 個），另含本系統交易／帳務 CDC 補充事件；aliases 為本專案文件中的舊名（查詢時等價）。
+version: 4
 project: altatech_dmp
+naming: { client_list: sensors_sbp_family_2026-10-15, alias_resolution: true }
 events:
-  - name: ga.page_view
-    cn: 頁面瀏覽
+  - name: "PlanEDMClick"
+    cn: "EDM郵件點擊"
+    group: "智能運營（MA）"
     entity: user
-    source: ga360
-    required: [$page_url, page_group]
-    optional: [$referrer, $utm_source, $utm_medium, $utm_campaign]
-    description: Web 頁面瀏覽，由 GA360 BigQuery 匯出（日批 + 串流 intraday）匯入。
-    example_questions: ["開戶頁每天多少人看", "哪個渠道帶來最多開戶頁流量"]
-  - name: ga.screen_view
-    cn: 畫面瀏覽
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "服務端"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "PlanEDMShow"
+    cn: "EDM開信"
+    group: "智能運營（MA）"
     entity: user
-    source: ga360
-    required: [$screen_name, $app_version]
-  - name: quote_view
-    cn: 看盤
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "服務端"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "ShortUrlRedirect"
+    cn: "ShortUrlRedirect"
+    group: "短鏈"
     entity: user
-    source: ga360
-    required: [symbol, market]
-    optional: [duration_ms, from_screen]
-    description: 使用者打開個股／商品報價頁。
-  - name: login
-    cn: 登入
+    source: "短鏈服務"
+    kind: marketing
+    status: live
+    platforms: "其它,iOS,Android"
+    required: ["short_url", "target"]
+  - name: "$ShortUrlRedirect"
+    cn: "短鏈跳轉"
+    group: "短鏈"
     entity: user
-    source: app
-    required: [channel, auth_method]
-  - name: account_open_start
-    cn: 開戶開始
+    source: "短鏈服務"
+    kind: marketing
+    status: live
+    platforms: "其它"
+    required: ["short_url", "target"]
+  - name: "Market_Data"
+    cn: "市場交易數據"
+    group: "業務資料（服務端）"
     entity: user
-    source: account_system
-    required: [channel]
-  - name: account_open_submit
-    cn: 開戶送件
+    source: "服務端（CDC／批次）"
+    kind: business
+    status: live
+    platforms: "服務端"
+    required: ["symbol", "market", "close", "volume"]
+    trigger: "每日排程導入市場交易數據"
+  - name: "$PlanSMSArrived"
+    cn: "短信已送達"
+    group: "智能運營（MA）"
     entity: user
-    source: account_system
-    required: [channel, account_types]
-  - name: account_open_approved
-    cn: 開戶核准
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "服務端"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "$PlanAudienceMarked"
+    cn: "受眾標記"
+    group: "智能運營（MA）"
     entity: user
-    source: account_system
-    required: [account_no, account_type, branch_id, agent_id]
-  - name: fund_deposit
-    cn: 入金
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "服務端"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "$JourneyExit"
+    cn: "旅程退出"
+    group: "智能運營（MA）"
+    entity: user
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "服務端"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "$JourneyComponentEnter"
+    cn: "旅程組件進入"
+    group: "智能運營（MA）"
+    entity: user
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "服務端"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "$PlanEDMClick"
+    cn: "郵件點擊"
+    group: "智能運營（MA）"
+    entity: user
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "其它,iOS,Android"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "$PlanEDMShow"
+    cn: "郵件開啟"
+    group: "智能運營（MA）"
+    entity: user
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "其它,iOS,Android"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "operation_target"
+    cn: "業務目標"
+    group: "業務資料（服務端）"
+    entity: user
+    source: "服務端（CDC／批次）"
+    kind: business
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["symbol", "market", "account_type"]
+  - name: "market_deal_profile"
+    cn: "市場交易詳情"
+    group: "業務資料（服務端）"
+    entity: user
+    source: "服務端（CDC／批次）"
+    kind: business
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["symbol", "market", "account_type"]
+  - name: "cancel_profile"
+    cn: "銷戶資訊"
+    group: "業務資料（服務端）"
+    entity: user
+    source: "服務端（CDC／批次）"
+    kind: business
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["symbol", "market", "account_type"]
+  - name: "campaign_callBack"
+    cn: "廣告_渠道回傳"
+    group: "廣告渠道"
+    entity: user
+    source: "渠道回傳（服務端）"
+    kind: marketing
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["campaign_id", "$utm_source", "cost_bucket"]
+  - name: "$PlanConverted"
+    cn: "已轉化完成"
+    group: "智能運營（MA）"
+    entity: user
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "服務端"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "$PlanAudienceEnter"
+    cn: "受眾用戶進入"
+    group: "智能運營（MA）"
+    entity: user
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "服務端"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "$PlanMsgSendPrepare"
+    cn: "消息準備發出"
+    group: "智能運營（MA）"
+    entity: user
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "服務端"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "$PlanMsgWouldNotSend"
+    cn: "消息未發送"
+    group: "智能運營（MA）"
+    entity: user
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "服務端"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "test_login"
+    cn: "測試體驗登入成功"
+    group: "登入與導航"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "auth_method"]
+  - name: "stock_order_submit"
+    cn: "交易_委託送出"
+    group: "交易（App）"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["symbol", "side", "order_type"]
+  - name: "sip_stockpage_view"
+    cn: "定期定額_申購詳情頁瀏覽"
+    group: "定期定額"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["symbol", "amount", "plan_type"]
+  - name: "sip_resultpage_button_click"
+    cn: "定期定額_申購結果頁面按鈕點擊"
+    group: "定期定額"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["symbol", "amount", "plan_type"]
+  - name: "sip_purchase"
+    cn: "定期定額_申購結果"
+    group: "定期定額"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    aliases: ["fund_subscribe"]
+    required: ["fund_code", "amount", "plan_type"]
+  - name: "sip_listpage_view"
+    cn: "定期定額_申購列表頁瀏覽"
+    group: "定期定額"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["symbol", "amount", "plan_type"]
+  - name: "sip_change_confirm"
+    cn: "定期定額_確認變更申購"
+    group: "定期定額"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["symbol", "amount", "plan_type"]
+  - name: "sip_cancel_order"
+    cn: "定期定額_終止申購"
+    group: "定期定額"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["symbol", "amount", "plan_type"]
+  - name: "sip_calculate"
+    cn: "定期定額_報酬率試算"
+    group: "定期定額"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["symbol", "amount", "plan_type"]
+  - name: "sip_button_click"
+    cn: "定期定額_首頁按鈕點擊"
+    group: "定期定額"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["symbol", "amount", "plan_type"]
+  - name: "search_submit"
+    cn: "搜索_送出搜索請求"
+    group: "搜索"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    aliases: ["search_symbol"]
+    required: ["keyword", "result_count"]
+  - name: "search_result_click"
+    cn: "搜索_搜索結果點擊"
+    group: "搜索"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["keyword", "result_count"]
+  - name: "search_box_click"
+    cn: "搜索_搜尋框點擊"
+    group: "搜索"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["keyword", "result_count"]
+  - name: "realtime_bond_order"
+    cn: "即時_證券_委託"
+    group: "證券（交易主機）"
     entity: account
-    source: ledger_cdc
-    required: [amount, method]
-  - name: order_submit
-    cn: 委託
+    source: "交易 CDC"
+    kind: trade
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["order_no", "symbol", "market", "side", "amount"]
+  - name: "realtime_bond_deal"
+    cn: "即時_證券_成交"
+    group: "證券（交易主機）"
     entity: account
-    source: trade_cdc
-    required: [order_no, symbol, market, side, order_type, price, qty, amount, channel]
-    optional: [trade_kind, time_in_force]
+    source: "交易 CDC"
+    kind: trade
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["order_no", "symbol", "market", "side", "amount"]
+  - name: "push_received"
+    cn: "Push送達"
+    group: "Push"
+    entity: user
+    source: "MA"
+    kind: marketing
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["campaign_id", "push_id"]
+  - name: "push_click"
+    cn: "Push點擊"
+    group: "Push"
+    entity: user
+    source: "MA"
+    kind: marketing
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    aliases: ["push_opened"]
+    required: ["campaign_id", "push_id"]
+  - name: "my_agreement_sign"
+    cn: "我的_線上憑證簽署"
+    group: "登入與導航"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "auth_method"]
+  - name: "mainlogin_button_click"
+    cn: "主登入頁按鈕點擊"
+    group: "登入與導航"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "auth_method"]
+  - name: "lower_button_click"
+    cn: "導航欄按鈕點擊"
+    group: "登入與導航"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "auth_method"]
+  - name: "line_unfollow"
+    cn: "Line 封鎖"
+    group: "LINE"
+    entity: user
+    source: "LINE（MA）"
+    kind: marketing
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["line_uid_hash", "message_id"]
+  - name: "line_sendline_message"
+    cn: "Line官方推送"
+    group: "LINE"
+    entity: user
+    source: "LINE（MA）"
+    kind: marketing
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["line_uid_hash", "message_id"]
+  - name: "line_message"
+    cn: "Line 用戶傳送訊息"
+    group: "LINE"
+    entity: user
+    source: "LINE（MA）"
+    kind: marketing
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["line_uid_hash", "message_id"]
+  - name: "line_follow"
+    cn: "Line 加好友"
+    group: "LINE"
+    entity: user
+    source: "LINE（MA）"
+    kind: marketing
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["line_uid_hash", "message_id"]
+  - name: "line_account_unlink"
+    cn: "Line 解除綁定"
+    group: "LINE"
+    entity: user
+    source: "LINE（MA）"
+    kind: marketing
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["line_uid_hash", "message_id"]
+  - name: "line_account_link"
+    cn: "Line 帳號綁定"
+    group: "LINE"
+    entity: user
+    source: "LINE（MA）"
+    kind: marketing
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["line_uid_hash", "message_id"]
+  - name: "kh_steppg_pv"
+    cn: "開戶_開戶三步頁瀏覽"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_steppg_click"
+    cn: "開戶_開戶三步頁點擊"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_sign_result"
+    cn: "開戶_文件簽署结果"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_sign"
+    cn: "開戶_文件簽署"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_set_sbank_result"
+    cn: "開戶_複委託交割銀行設定結果"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_set_sbank"
+    cn: "開戶_複委託交割銀行設定"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_set_bank_result_fh"
+    cn: "開戶_出入金銀行設定結果"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_set_bank_result"
+    cn: "開戶_一般交割銀行設定結果"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_set_bank_fh"
+    cn: "開戶_出入金銀行設定"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_set_bank"
+    cn: "開戶_一般交割銀行設定"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_review_pass"
+    cn: "開戶_審核成功"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: business
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    aliases: ["account_open_approved"]
+    required: ["account_no", "account_type", "branch_id", "agent_id"]
+  - name: "kh_review_fail"
+    cn: "開戶_審核失敗"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: business
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_profile_upload_result"
+    cn: "開戶_基本資料上傳結果"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_otp_result"
+    cn: "開戶_OTP驗證結果"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_otp_get"
+    cn: "開戶_OTP驗證碼取得"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_kyc_self"
+    cn: "開戶_KYC自填徵信表"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_kyc"
+    cn: "開戶_KYC聯絡時間調查"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_idphoto_upload_result"
+    cn: "開戶_證件上傳結果"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_idphoto_upload"
+    cn: "開戶_證件上傳"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_entry_khpg_pv"
+    cn: "開戶_開戶首頁瀏覽"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    aliases: ["account_open_start"]
+    required: ["channel"]
+  - name: "kh_entry_khpg_click"
+    cn: "開戶_開戶首頁點擊"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_enter_signpg"
+    cn: "開戶_進入文件簽署頁"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_enter_sbank"
+    cn: "開戶_進入交割銀行頁"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_enter_profilepg"
+    cn: "開戶_進入基本資料填寫頁"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_enter_jskhpg"
+    cn: "開戶_繼續開戶成功"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_enter_idphotouploadpg"
+    cn: "開戶_進入證件上傳頁"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "step", "kyc_level"]
+  - name: "kh_apply"
+    cn: "開戶_完成開戶申請"
+    group: "開戶"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    aliases: ["account_open_submit"]
+    required: ["channel", "account_types"]
+  - name: "info_report_view"
+    cn: "資訊_研究報告瀏覽"
+    group: "資訊與資源位"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["article_id", "category"]
+  - name: "info_recomstock_click"
+    cn: "資訊_推薦標的點擊"
+    group: "資訊與資源位"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["article_id", "category"]
+  - name: "info_detail_view"
+    cn: "資訊_文章詳情瀏覽"
+    group: "資訊與資源位"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["article_id", "category"]
+  - name: "i_mkt_click"
+    cn: "資源位點擊"
+    group: "資訊與資源位"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["article_id", "category"]
+  - name: "hq_stockdetail_view"
+    cn: "行情_個股明細瀏覽"
+    group: "行情"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    aliases: ["quote_view"]
+    required: ["symbol", "market"]
+    optional: ["duration_ms", "from_screen"]
+    description: "使用者打開個股／商品報價頁。"
+  - name: "hq_stockdetail_click"
+    cn: "行情_個股明細點擊"
+    group: "行情"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["symbol", "market"]
+  - name: "hq_ai_choose"
+    cn: "行情_智慧選股"
+    group: "行情"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["symbol", "market"]
+  - name: "home_click"
+    cn: "首頁按钮點擊"
+    group: "登入與導航"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["channel", "auth_method"]
+  - name: "deal_opt_mani"
+    cn: "交易_自選操作"
+    group: "交易（App）"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    aliases: ["watchlist_add"]
+    required: ["symbol", "action"]
+  - name: "deal_commision_check"
+    cn: "交易_委託查詢"
+    group: "交易（App）"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["symbol", "side", "order_type"]
+  - name: "bond_portfolio_income"
+    cn: "證券_持有損益"
+    group: "證券（交易主機）"
+    entity: account
+    source: "交易 CDC"
+    kind: trade
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["order_no", "symbol", "market", "side", "amount"]
+  - name: "bond_portfolio"
+    cn: "證券_持有詳情"
+    group: "證券（交易主機）"
+    entity: account
+    source: "交易 CDC"
+    kind: trade
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["order_no", "symbol", "market", "side", "amount"]
+  - name: "bond_order"
+    cn: "證券_委託"
+    group: "證券（交易主機）"
+    entity: account
+    source: "交易 CDC"
+    kind: trade
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    aliases: ["order_submit"]
+    required: ["order_no", "symbol", "market", "side", "order_type", "price", "qty", "amount", "channel"]
+    optional: ["trade_kind", "time_in_force"]
     caveats: ["委託不等於成交；成交金額請用 order_filled"]
-  - name: order_filled
-    cn: 成交
+  - name: "bond_deal"
+    cn: "證券_成交"
+    group: "證券（交易主機）"
     entity: account
-    source: trade_cdc
-    required: [order_no, filled_qty, filled_price, filled_amount, fee, tax]
-  - name: order_rejected
-    cn: 委託失敗
+    source: "交易 CDC"
+    kind: trade
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    aliases: ["order_filled"]
+    required: ["order_no", "filled_qty", "filled_price", "filled_amount", "fee", "tax"]
+  - name: "bond_charge_income"
+    cn: "證券_手續費收入"
+    group: "證券（交易主機）"
     entity: account
-    source: trade_cdc
-    required: [order_no, reason_code]
-  - name: fund_subscribe
-    cn: 基金申購
-    entity: account
-    source: fund_cdc
-    required: [fund_code, amount, plan_type]
-  - name: push_opened
-    cn: 推播開啟
+    source: "交易 CDC"
+    kind: trade
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["fee", "tax"]
+  - name: "auc_stockpage_view"
+    cn: "申購/競拍_申購詳情頁瀏覽"
+    group: "申購／競拍"
     entity: user
-    source: ma
-    required: [campaign_id, push_id]
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["symbol", "amount"]
+  - name: "auc_resultpage_view"
+    cn: "申購/競拍_申購結果頁瀏覽"
+    group: "申購／競拍"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["symbol", "amount"]
+  - name: "auc_purchase_result"
+    cn: "申購/競拍_完成申購"
+    group: "申購／競拍"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["symbol", "amount"]
+  - name: "auc_purchase"
+    cn: "申購/競拍_我要申購"
+    group: "申購／競拍"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["symbol", "amount"]
+  - name: "auc_listpage_view"
+    cn: "申購/競拍_申購列表頁瀏覽"
+    group: "申購／競拍"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["symbol", "amount"]
+  - name: "auc_cancel_order"
+    cn: "申購/競拍_終止申購"
+    group: "申購／競拍"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["symbol", "amount"]
+  - name: "auc_calculate"
+    cn: "申購/競拍_保證金試算"
+    group: "申購／競拍"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["symbol", "amount"]
+  - name: "auc_button_click"
+    cn: "申購/競拍_申購列表頁點擊"
+    group: "申購／競拍"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["symbol", "amount"]
+  - name: "app_login_success"
+    cn: "APP登入成功"
+    group: "登入與導航"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    aliases: ["login"]
+    required: ["channel", "auth_method"]
+  - name: "act_pageview"
+    cn: "活動_活動頁瀏覽"
+    group: "活動"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: marketing
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["campaign_id", "$page_url"]
+  - name: "act_click"
+    cn: "活動_活動頁按鈕點擊"
+    group: "活動"
+    entity: user
+    source: "GA360（App／Web 埋點）"
+    kind: marketing
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    aliases: ["campaign_clicked"]
+    required: ["campaign_id", "creative_id"]
+  - name: "act_ad_view"
+    cn: "活動_廣告觀看"
+    group: "廣告渠道"
+    entity: user
+    source: "渠道回傳（服務端）"
+    kind: marketing
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["campaign_id", "$utm_source", "cost_bucket"]
+  - name: "act_ad_cost"
+    cn: "活動_廣告成本"
+    group: "廣告渠道"
+    entity: user
+    source: "渠道回傳（服務端）"
+    kind: marketing
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["campaign_id", "$utm_source", "cost_bucket"]
+  - name: "AppInstall"
+    cn: "App 激活"
+    group: "App 基礎"
+    entity: user
+    source: "GA360（App）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["$screen_name", "$app_version"]
+  - name: "$pageview"
+    cn: "Web 瀏覽頁面"
+    group: "Web 基礎"
+    entity: user
+    source: "GA360（Web）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    aliases: ["ga.page_view"]
+    required: ["$page_url", "page_group"]
+    optional: ["$referrer", "$utm_source", "$utm_medium", "$utm_campaign"]
+    description: "Web 頁面瀏覽，由 GA360 BigQuery 匯出（日批 + 串流 intraday）匯入。"
+    example_questions: ["開戶頁每天多少人看", "哪個渠道帶來最多開戶頁流量"]
+  - name: "$WebClick"
+    cn: "Web 元素點擊"
+    group: "Web 基礎"
+    entity: user
+    source: "GA360（Web）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["$page_url", "page_group", "$referrer"]
+  - name: "$AppViewScreen"
+    cn: "App 瀏覽頁面"
+    group: "App 基礎"
+    entity: user
+    source: "GA360（App）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    aliases: ["ga.screen_view"]
+    required: ["$screen_name", "$app_version"]
+  - name: "$AppStart"
+    cn: "App啟動"
+    group: "App 基礎"
+    entity: user
+    source: "GA360（App）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["$screen_name", "$app_version"]
+  - name: "$AppEnd"
+    cn: "App退出"
+    group: "App 基礎"
+    entity: user
+    source: "GA360（App）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,iOS,Android"
+    required: ["$screen_name", "$app_version"]
+  - name: "$AppClick"
+    cn: "App 元素點擊"
+    group: "App 基礎"
+    entity: user
+    source: "GA360（App）"
+    kind: behavior
+    status: live
+    platforms: "JavaScript,服務端,Android,iOS"
+    required: ["$screen_name", "$app_version"]
+  - name: "$PlanPopupDisplay"
+    cn: "弹窗展示"
+    group: "智能運營（MA）"
+    entity: user
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "服務端"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "$PlanMsgSendDone"
+    cn: "消息已發出"
+    group: "智能運營（MA）"
+    entity: user
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "服務端,其它,iOS,Android"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "$PlanMsgArrived"
+    cn: "消息同步終態信息"
+    group: "智能運營（MA）"
+    entity: user
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "其它,iOS,Android,服務端"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "$AppPushClick"
+    cn: "App 推送點擊"
+    group: "Push"
+    entity: user
+    source: "MA"
+    kind: marketing
+    status: live
+    platforms: "服務端"
+    required: ["campaign_id", "push_id"]
+  - name: "$PlanPopupClick"
+    cn: "點擊行為"
+    group: "智能運營（MA）"
+    entity: user
+    source: "MA 系統事件"
+    kind: marketing
+    status: live
+    platforms: "服務端"
+    required: ["plan_id", "journey_id", "msg_id"]
+  - name: "fund_deposit"
+    cn: "入金"
+    group: "帳務（CDC）"
+    entity: account
+    source: "帳務 CDC"
+    kind: trade
+    status: live
+    platforms: "服務端"
+    required: ["amount", "method"]
+    note: "清單外：帳務主機 CDC 新增"
+  - name: "order_rejected"
+    cn: "委託失敗"
+    group: "證券（交易主機）"
+    entity: account
+    source: "交易 CDC"
+    kind: trade
+    status: live
+    platforms: "服務端"
+    required: ["order_no", "reason_code"]
+    note: "清單外：交易主機狀態機事件化新增"
+  - name: "order_cancelled"
+    cn: "刪單"
+    group: "證券（交易主機）"
+    entity: account
+    source: "交易 CDC"
+    kind: trade
+    status: live
+    platforms: "服務端"
+    required: ["order_no", "cancel_qty"]
+    note: "清單外：交易主機狀態機事件化新增"
+  - name: "ga.ab_exposure"
+    cn: "AB 實驗曝光"
+    group: "未登記"
+    entity: user
+    source: "GA360"
+    kind: behavior
+    status: quarantine
+    platforms: "JavaScript,iOS,Android"
+    required: ["exp_id", "variant"]
+    note: "未登記事件：進隔離區，待產品團隊登記"
+  - name: "option_apply"
+    cn: "期權申請"
+    group: "業務資料（服務端）"
+    entity: user
+    source: "業務系統"
+    kind: business
+    status: draft
+    platforms: "服務端"
+    required: ["product", "status"]

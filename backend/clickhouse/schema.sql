@@ -104,5 +104,5 @@ FROM dmp.events GROUP BY project, event_date, event, platform, channel, utm_sour
 
 -- 漏斗範例（開戶 → 入金 → 首筆成交，30 天）
 -- SELECT level, count() FROM (
---   SELECT one_id, windowFunnel(2592000)(time, event='account_open_approved', event='fund_deposit', event='order_filled') AS level
+--   SELECT one_id, windowFunnel(2592000)(time, event='kh_review_pass', event='fund_deposit', event='bond_deal') AS level
 --   FROM dmp.events WHERE event_date >= today()-45 GROUP BY one_id) GROUP BY level ORDER BY level;
