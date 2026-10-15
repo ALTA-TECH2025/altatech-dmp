@@ -87,9 +87,66 @@ paths:
     post: { tags: [Segments], summary: 建立分群（agent 提議者為 pending_approval）, responses: { '201': { description: created } } }
   /v1/segments/{id}/preview:
     post: { tags: [Segments], summary: 預估人數與畫像, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/segments/{id}:
+    get: { tags: [Segments], summary: 分群詳情（基礎資訊、規則、最新版本、更新方式、存儲設定）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    put: { tags: [Segments], summary: '編輯分群（結果保存分群不可改規則；手動分群不可改更新方式；例行分群可改時間範圍與最早計算時間，不可改頻率）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/segments/{id}/versions:
+    get: { tags: [Segments], summary: 歷史版本（basetime、人數、計算狀態；可下鑽用戶、另存新分群、下載）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/segments/{id}/versions/{basetime}/members:
+    get: { tags: [Segments], summary: 某版本的用戶列表（下載需審批與浮水印）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: basetime, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/segments/{id}/compute:
+    post: { tags: [Segments], summary: '手動更新（以今日 00:00 為基準時間，覆蓋原版本）或例行分群回溯', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: queued } } }
+  /v1/segments/{id}/pause:
+    post: { tags: [Segments], summary: 暫停／啟動例行分群, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/segments/{id}/copy:
+    post: { tags: [Segments], summary: 複製規則建立新分群, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '201': { description: created } } }
+  /v1/segments/{id}/lineage:
+    get: { tags: [Segments], summary: 血緣關係（上游標籤／分群／事件／屬性；下游推送、規則、分析）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/segments/{id}/recycle:
+    post: { tags: [Segments], summary: 移入回收站（有下游依賴時回 409 需確認；支援批量）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok }, '409': { description: has_dependents } } }
+  /v1/segments/{id}/restore:
+    post: { tags: [Segments], summary: 從回收站恢復, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/segments/{id}/purge:
+    delete: { tags: [Segments], summary: 徹底刪除（系統管理員；不可恢復；回收站保留天數到期自動執行）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
+  /v1/segments/estimate:
+    post: { tags: [Segments], summary: '規則預估人數（預設 1/16 抽樣，比例可後台配置）', responses: { '200': { description: ok } } }
+  /v1/segments/import:
+    post: { tags: [Segments], summary: '導入創建：上傳 txt／csv，指定匹配屬性（任一 ID 欄位或用戶屬性）、是否保留未匹配 ID；先做 L4 欄位掃描', responses: { '202': { description: queued } } }
   /v1/tags:
     get: { tags: [Segments], summary: 標籤目錄, responses: { '200': { description: ok } } }
     post: { tags: [Segments], summary: 建立標籤, responses: { '201': { description: created } } }
+  /v1/tags/{id}:
+    get: { tags: [Segments], summary: 標籤詳情（基礎資訊、所屬目錄、創建方式、規則、更新方式、存儲、審批、自定義欄位）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    put: { tags: [Segments], summary: 編輯標籤（基礎資訊、規則或重新上傳、存儲設定；留變更記錄）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/tags/{id}/distribution:
+    get: { tags: [Segments], summary: 標籤值分布（最新可用版本或指定 basetime；經數據權限過濾；排序與顯示數量）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: basetime, in: query, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/tags/{id}/versions:
+    get: { tags: [Segments], summary: 歷史詳情（每個計算結果的分布與人數）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/tags/{id}/lineage:
+    get: { tags: [Segments], summary: 血緣（含某計算結果依賴的上游 basetime）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/tags/{id}/pause:
+    post: { tags: [Segments], summary: 停用／啟用（有下游依賴時提醒）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/tags/{id}/backfill:
+    post: { tags: [Segments], summary: '回溯指定 basetime 區間重算；終止計算用 DELETE /v1/tags/{id}/runs/current', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: queued } } }
+  /v1/tags/{id}/approve:
+    post: { tags: [Segments], summary: '審批（通過／退回／拒絕）；數位經營或系統管理員', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/tags/{id}/recycle:
+    post: { tags: [Segments], summary: 移入回收站（保留 N 天後自動徹底刪除）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/tags/custom-fields:
+    get: { tags: [Segments], summary: 標籤自定義欄位定義（字串／日期；文字框、單選、多選、日期）, responses: { '200': { description: ok } } }
+  /v1/sql/tables:
+    get: { tags: [SQL], summary: 自定義 SQL 可用的數據庫表與欄位（依數據表權限；含中間表）, responses: { '200': { description: ok } } }
+  /v1/sql/query:
+    post: { tags: [SQL], summary: '執行 SQL（唯讀；脫敏預校驗，涉及脫敏欄位直接報錯；行級規則與列級遮罩；每人最多 5 條同時；掃描與逾時上限；結果預覽 1000 列）', responses: { '200': { description: ok }, '400': { description: masked_field_or_non_select }, '429': { description: too_many_running } } }
+  /v1/sql/query/{run_id}/download:
+    get: { tags: [SQL], summary: 下載查詢結果（Excel／CSV；上限 10 萬列；L2 區間化、浮水印；審計 export）, parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/sql/saved:
+    get: { tags: [SQL], summary: 已存查詢目錄（分組）, responses: { '200': { description: ok } } }
+    post: { tags: [SQL], summary: 添加到查詢／保存至概覽或書籤（含動態參數與可視化設定）, responses: { '201': { description: created } } }
+  /v1/sql/history:
+    get: { tags: [SQL], summary: 查詢記錄（最近 30 天內最近 100 條；成功者可重新下載）, responses: { '200': { description: ok } } }
+  /v1/sql/mid-tables:
+    post: { tags: [SQL], summary: '保存到中間表：建立 SQL 任務（名稱、調度週期、授權）→ 任務管理與數據表管理各一筆', responses: { '201': { description: created } } }
   /v1/triggers:
     get: { tags: [Triggers], summary: 即時規則, responses: { '200': { description: ok } } }
     post: { tags: [Triggers], summary: 建立規則, responses: { '201': { description: created } } }
@@ -124,7 +181,7 @@ paths:
     post: { tags: [IAM], summary: 建立自訂角色（需 iam.admin；寫入審計 role.changed，正式環境需雙人複核）, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } } }, responses: { '201': { description: created } } }
   /v1/iam/roles/{key}:
     put: { tags: [IAM], summary: 更新角色名稱、說明、範圍、權限勾選, parameters: [{ name: key, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } } }, responses: { '200': { description: ok } } }
-    delete: { tags: [IAM], summary: 刪除自訂角色（內建角色不可刪；仍有使用者指派時拒絕）, parameters: [{ name: key, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
+    delete: { tags: [IAM], summary: '刪除角色（系統管理員；admin 角色本身不可刪；仍有指派時需帶 reassign_to 改派，否則 409；審計 role.deleted，雙人複核）', parameters: [{ name: key, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
   /v1/iam/roles/{key}/copy:
     post: { tags: [IAM], summary: 複製角色為新草稿, parameters: [{ name: key, in: path, required: true, schema: { type: string } }], responses: { '201': { description: created } } }
   /v1/iam/assignments:

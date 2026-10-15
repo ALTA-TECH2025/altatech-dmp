@@ -10,7 +10,7 @@ roles:
   it_admin:     { cn: 資訊管理,   scope: global, grants: { overview: [view, use], events: [view, use], funnel: [view, use], path: [view, use], attribution: [view, use], segments: [view], triggers: [view], integration: [view, use, export, approve, admin], ai_ask: [use], ai_admin: [view, admin], governance: [view, use, export, admin], audit: [view, use, export], iam: [view] }, deny: { profile: [use], users: [view, use, export] }, note: 數據整合、資料流與效能、元事件／用戶表／維度表治理、平台技術設定、審計日誌；不看個人 }
   svc_insight:      { cn: AI 服務身份, scope: aggregate_only, grants: { events: [use], funnel: [use], path: [use], attribution: [use], segments: [view], ai_ask: [use] }, deny: { profile: [use], users: [export] } }
 # 自訂角色：由 UI / API（POST /v1/iam/roles）建立，存於 PostgreSQL iam_roles，與本檔內建角色合併載入；
-# 規則：u 蘊含 v、e 蘊含 u；內建角色可調整權限但不可刪除；自訂角色仍有指派時不可刪除；變更寫審計 role.changed 並需雙人複核。
+# 規則：u 蘊含 v、e 蘊含 u；系統管理員可新增、修改、刪除任何角色（admin 角色本身除外）；刪除仍有指派的角色須指定改派角色；變更寫審計 role.changed／role.deleted 並需雙人複核。
 custom_roles:
   enabled: true
   key_prefix: custom_

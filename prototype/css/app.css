@@ -669,3 +669,37 @@ a { color: inherit; }
 .tbl tr.warnrow td { background: #FFF8EE; }
 .btn-ghost.danger { color: var(--st-serious); }
 @media (max-width: 900px) { .pipe { flex-direction: column; } .pipe-arrow { transform: rotate(90deg); align-self: center; } }
+
+/* ================================================================== v0.6：分群／標籤精靈、自定義 SQL */
+.drawer.wide { width: 780px; }
+.drawer .ft { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); }
+.drawer .hd .sub .on { color: var(--brand); font-weight: 700; }
+.rulegrp { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--bg); }
+.rule { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12.5px; flex-wrap: wrap; }
+.rule + .rule { border-top: 1px dashed var(--line); }
+.rule .inp.grow { flex: 1 1 200px; min-width: 0; }
+.distbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--line); gap: 1px; }
+.distbar i { display: block; height: 100%; }
+.seg.xs button { padding: 2px 8px; font-size: 11px; }
+.pill.xs { font-size: 10px; padding: 1px 6px; }
+.tile.on { outline: 2px solid var(--brand); }
+button.tile { text-align: left; cursor: pointer; font: inherit; color: inherit; }
+button.tile:disabled { opacity: .45; cursor: not-allowed; }
+.form textarea.inp { width: 100%; resize: vertical; }
+.sqllayout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
+.sqlcat { position: sticky; top: 72px; max-height: calc(100vh - 90px); overflow: auto; }
+.sqltb { padding: 4px 0; border-bottom: 1px solid var(--line); }
+.sqltb .row { gap: 6px; flex-wrap: nowrap; }
+.sqltb .row > .btn-ghost { white-space: nowrap; padding: 2px 6px; }
+.sqltb .row > .note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.sqlcols { padding: 4px 0 6px 18px; font-size: 11.5px; }
+.sqlcols .row { gap: 8px; padding: 2px 0; flex-wrap: nowrap; }
+.sqlcols code { font-size: 11px; }
+.sqled { width: 100%; font-size: 12.5px; line-height: 1.5; resize: vertical; }
+.filters input.inp { font-size: 12.5px; }
+.tbl a { color: var(--brand); }
+@media (max-width: 900px) {
+  .sqllayout { grid-template-columns: 1fr; }
+  .sqlcat { position: static; max-height: none; }
+  .drawer.wide { width: 100vw; }
+}

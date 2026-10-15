@@ -65,6 +65,7 @@
 | 5.11 標籤與分群 | 標籤類型（規則／統計／SQL／模型）、日批 Bitmap（版本 7）、分群交並差、審批、Tag Sync API（REST／Kafka／GCS） | `/v1/segments*`、`/v1/sync/*` | segments | 500 標籤日批 < 20 分鐘 | docs/04 §6、09 |
 | 5.12 即時觸發／受眾名單推送 | Flink 規則引擎；目的地皆為內部系統（Webhook 簽章／批次／重試／DLQ、Kafka、GCS）；推送單審批、交付紀錄；廣告平台不在範圍 | `/v1/triggers*`、`/v1/destinations*`、`/v1/audiences/*/push` | triggers、segments a | 即時 < 5 s；批次 15 分鐘 | docs/14 |
 | 5.13 AI 洞察（第二階段可延後） | 工具閘道（tools.yaml：權限／預算／脫敏／審計）、agent（異常偵測、漏斗診斷、流失雷達）、選擇題式問答、洞察物件、提議需審批、golden evals | `/v1/insights*`、`/v1/agents*`、MCP | ai_ask、ai_admin | 工具呼叫 5 s；預算 20 GB/呼叫 | docs/03、05 |
+| 5.13b 自定義 SQL | 數據庫表目錄、SQL 編輯（格式化／解釋／動態參數）、脫敏預校驗、結果預覽與可視化、查詢記錄、已存查詢、中間表（docs/21） | `/v1/sql/*` |
 | 5.14 權限中心 | 角色（五種：系統管理員、行銷、數據分析、數位經營、資訊管理 + 自訂、勾選權限）、使用者指派（多角色、範圍、到期、SSO 群組、臨時提權）、模組矩陣（v/u/e/a/d）、數據權限（專案／分群限制／回溯／K 匿名；組織範圍保留給自訂角色）與行級模擬、欄位隱碼、審批 | `/v1/iam/*` | iam v/d | authorize() < 5 ms | docs/10 |
 | 5.15 日誌統計／審計 | 全部人與 agent 的讀寫寫審計；看板：使用概況、敏感存取、審批、異常 | `/v1/governance/audit*` | audit | — | docs/10 §7–8 |
 | 5.16 資料流與效能 | 端到端資料流（吞吐／延遲／狀態）、各模組讀寫、資料品質、查詢效能（P50/P95/P99 對 SLA、掃描、快取）、批次作業、儲存、告警 | `/v1/ops/*` | governance v | Prometheus 供數 | docs/09、13 |
