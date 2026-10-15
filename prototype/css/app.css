@@ -566,8 +566,8 @@ a { color: inherit; }
   .card-h { flex-wrap: wrap; }
   .card-h { flex-wrap: wrap; }
   .card-h h3 { overflow-wrap: anywhere; white-space: normal; }
-  .card-h .right { margin-left: 0; width: 100%; }
-  .card-h .right .seg { flex-wrap: wrap; }
+  .card-h .right { margin-left: 0; width: 100%; flex-wrap: wrap; }
+  .card-h .right .seg, .seg.xs { flex-wrap: wrap; }
   .qbody .row .sel.grow, .qbody .sel.grow { flex: 1 1 120px; min-width: 0; max-width: 100%; }
   .sel, .inp { max-width: 100%; }
   .tile .val { font-size: 21px; }
@@ -703,3 +703,8 @@ button.tile:disabled { opacity: .45; cursor: not-allowed; }
   .sqlcat { position: static; max-height: none; }
   .drawer.wide { width: 100vw; }
 }
+.fb-nest { margin: 0 0 8px 28px; border-left: 2px solid var(--line); padding-left: 8px; }
+.fb-nest .fb { padding: 6px 8px; }
+button.chip { cursor: pointer; font: inherit; }
+.chip.off { background: transparent; color: var(--muted); border-color: var(--line); }
+.heat td.sel { outline: 2px solid var(--brand); }

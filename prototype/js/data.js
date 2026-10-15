@@ -596,6 +596,7 @@ export const DELIVERIES = [
 export const PROPS = [
   // 事件屬性（$ 開頭為 SDK/GA 預置屬性）
   { k: 'platform', cn: '平台', scope: 'event', type: 'string', vals: ['iOS', 'Android', 'Web'] },
+  { k: '$event_hour', cn: '事件發生時間（時段 0–23）', scope: 'event', type: 'number' },
   { k: 'channel', cn: '渠道', scope: 'event', type: 'string', vals: ['App', '官網', 'LINE', '營業員', '活動頁'] },
   { k: '$utm_source', cn: 'UTM 來源', scope: 'event', type: 'string', vals: ['google', 'facebook', 'line', 'direct', 'edm'] },
   { k: '$utm_campaign', cn: 'UTM 活動', scope: 'event', type: 'string', vals: ['q4_open_bonus', 'etf_dca', 'us_stock_launch', 'brand'] },
@@ -631,19 +632,23 @@ export const PROPS = [
   { k: 'tag.trade_style', cn: '交易風格', scope: 'tag', type: 'string', vals: ['當沖', '波段', '長期', 'ETF 定期定額'] },
   { k: 'tag.pref_market', cn: '偏好市場', scope: 'tag', type: 'string', vals: ['台股', '美股', 'ETF', '期權'] },
 ];
-export const PROP_SCOPES = [['event', '事件屬性'], ['user', '用戶屬性'], ['tag', '用戶標籤']];
+export const PROP_SCOPES = [['event', '事件屬性'], ['user', '用戶屬性'], ['tag', '用戶標籤'], ['segment', '用戶分群']];
+// 分群條件：屬於／不屬於；值 = 要用哪個版本的結果（最新結果／動態匹配 basetime／自定義版本）
+PROPS.push(...[['sg2', '新戶未入金（7 天）'], ['sg5', '定期定額活躍客'], ['sg6', 'Q4 基金活動曝光者'], ['sg1', '高價值沉睡客']].map(x => ({ k: 'seg.' + x[0], cn: x[1], scope: 'segment', type: 'segment', vals: ['最新結果', '動態匹配（事件日期 = basetime）', '自定義版本 10-14', '自定義版本 10-13'] })));
 export const OPS = {
   string: [['eq', '等於'], ['neq', '不等於'], ['in', '包含於'], ['like', '包含'], ['nlike', '不包含'], ['set', '有值'], ['nset', '無值']],
   number: [['eq', '等於'], ['gt', '大於'], ['lt', '小於'], ['between', '區間'], ['set', '有值'], ['nset', '無值']],
   bool:   [['true', '為真'], ['false', '為假']],
   date:   [['rel', '相對當前時間'], ['between', '絕對時間區間'], ['set', '有值']],
+  segment: [['in', '屬於'], ['nin', '不屬於']],
 };
 export const AGGS = [
   ['total', '總次數', false], ['users', '觸發用戶數', false], ['avg_per_user', '人均次數', false], ['uniq', '去重數', 'prop'],
-  ['sum', '數值求和', 'num'], ['avg', '數值均值', 'num'], ['max', '數值最大值', 'num'], ['min', '數值最小值', 'num'], ['p50', '數值中位數', 'num'], ['p90', '數值 90 分位', 'num'],
+  ['sum', '數值求和', 'num'], ['avg', '數值均值', 'num'], ['avg_val', '數值人均值', 'num'], ['max', '數值最大值', 'num'], ['min', '數值最小值', 'num'], ['p25', '數值下四分位', 'num'], ['p50', '數值中位數', 'num'], ['p75', '數值上四分位', 'num'], ['p90', '數值 P90', 'num'],
+  ['mau', '預定義：當月觸發用戶數（僅按天查詢）', false],
 ];
 export const GRANS = [['minute', '分鐘'], ['hour', '小時'], ['day', '日'], ['week', '週'], ['month', '月'], ['total', '合計']];
-export const CHART_TYPES = [['line', '折線'], ['bar', '柱狀'], ['stack', '堆疊'], ['cum', '累計'], ['table', '表格']];
+export const CHART_TYPES = [['line', '折線'], ['bar', '柱狀'], ['stack', '堆疊'], ['cum', '累計'], ['pie', '餅圖'], ['table', '表格']];
 export const SAVED_REPORTS = [
   { id: 'r1', name: '每日成交客戶 × 平台', kind: 'events', owner: '王小明', updated: '10-12' },
   { id: 'r2', name: '委託失敗率 × 原因碼（近 7 天）', kind: 'events', owner: '王小明', updated: '10-13' },
