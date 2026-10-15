@@ -52,7 +52,7 @@ events:
     entity: account
     source: trade_cdc
     required: [order_no, symbol, market, side, order_type, price, qty, amount, channel]
-    optional: [trade_kind, time_in_force, client_order_ref]   # client_order_ref：App 送單時產生的 UUID，與 GA order_submit 事件對帳（docs/20）
+    optional: [trade_kind, time_in_force]
     caveats: ["委託不等於成交；成交金額請用 order_filled"]
   - name: order_filled
     cn: 成交

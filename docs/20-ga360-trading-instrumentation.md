@@ -15,7 +15,7 @@
 | 未登入 | GA 只有 `user_pseudo_id`（Web：client_id cookie；App：app_instance_id）→ DMP 的 distinct_id → 匿名用戶 |
 | 登入 | 前端設 `user_id` 並送 `login` 事件（同時帶 `user_id` 與 `user_pseudo_id`）→ DMP 歸戶 + 近 7 天匿名事件改寫（docs/19 §2.5） |
 | 登出 | 前端 `user_id = null`，App 另呼叫 `resetAnalyticsData()` 讓 app_instance_id 換新（同裝置換人不互相污染）；Web 保留 cookie，由「最新綁定者取得」規則處理 |
-| 埋點 ↔ 交易事件對帳 | App 下單時產生 `client_order_ref`（UUID v4），同時放進 GA `order_submit` 事件參數與下單 API；交易主機回寫到委託表 → CDC 事件也帶 `client_order_ref` → 兩筆事件可 1:1 對上 |
+| 行為 ↔ 交易的關聯 | 只靠同一個客戶代碼歸到同一個 one_id；**不做逐筆對應**，行為事件與交易事件是兩條獨立的事件流（大多數行為事件沒有對應的交易事件），分析時以 one_id 在漏斗／路徑裡串起來 |
 | 同意 | Consent Mode：`analytics_storage` 拒絕時 GA 仍送無 cookie 的 ping（`privacy_info.analytics_storage='No'`），DMP 不把弱 ID 與客戶代碼關聯、不改寫 |
 
 ## 2. 去識別化規則：GA 端與交易端同款
@@ -33,7 +33,7 @@
 - **一把金鑰、一個函式**。`idsvc` 對外只有一個介面 `tokenize(kind, value) → token`；App 後端（登入）、CDC 事件化（Flink 呼叫 `idsvc` 的 gRPC，批次快取）、CRM 同步任務（同步任務的「代碼化」轉換）都呼叫它。任何一方自己算 HMAC 都是缺陷。
 - **金鑰輪替**：新版金鑰上線時 `idsvc` 同時產生 `v1_`／`v2_` 兩個 token 進 `id_map`（同一 one_id），GA 端在下次登入自然換成 `v2_`；`v1_` 保留 13 個月後從 id_map 移除。
 - **GA 政策**：`user_id` 必須不可直接識別個人（不能是 Email、姓名、電話、身分證、帳號）；HMAC 代碼符合；長度 ≤ 256。Google 的「user-provided data」（SHA-256 的 Email／電話）是給廣告比對用的，本系統**不啟用**（名單推送不走廣告平台，docs/14）。
-- **GA 與交易端一致性驗證**：日批對帳 `GA login 事件的 user_id` ⊆ `id_map 的 login_id`；比例 < 99% 告警（代表 App 端用了錯的金鑰版本或自己算 token）。
+- **GA 與交易端一致性驗證**：每日檢查 `GA login 事件的 user_id` 是否都存在於 `id_map 的 login_id`；比例 < 99% 告警（代表 App 端用了錯的金鑰版本或自己算 token）。
 
 ## 3. GA 端埋點呼叫（Web gtag／GTM 與 App Firebase）
 
@@ -57,16 +57,16 @@
 
 ### 3.2 業務事件參數（埋點規範摘要，完整表在 `backend/semantic/events.yaml`）
 
-| GA 事件 | 必填參數 | 禁止 | 對應交易事件 | 對帳鍵 |
-|---|---|---|---|---|
-| `view_item`（看商品） | `symbol`, `market` | — | — | — |
-| `order_submit`（App 送單） | `client_order_ref`, `symbol`, `side`, `order_type`, `amount_bucket` | `account_no` 明文、金額精確值 | `order_submit`（CDC） | `client_order_ref` |
-| `order_result`（App 收到回報） | `client_order_ref`, `status` | 回報全文 | `order_filled`／`order_rejected` | `client_order_ref` |
-| `fund_deposit_start` | `method`, `amount_bucket` | 銀行帳號 | `fund_deposit`（帳務 CDC） | `txn_ref` |
-| `login`／`logout` | `method` | — | 登入日誌（選配） | — |
-| `account_open_step` | `step`, `kyc_level` | 任何表單值 | `account_open_approved`（CRM） | 無（以客戶代碼關聯） |
+| GA 事件 | 必填參數 | 禁止 | 說明 |
+|---|---|---|---|
+| `view_item`（看商品） | `symbol`, `market` | — | 純行為事件，沒有對應的交易事件 |
+| `order_submit_click`（App 按下送單） | `symbol`, `side`, `order_type`, `amount_bucket` | `account_no` 明文、金額精確值 | 行為事件，命名與交易事件 `order_submit`（CDC）區分；委託是否成立以交易事件為準 |
+| `order_result_view`（App 看到回報） | `status` | 回報全文 | 行為事件；成交／拒絕數字用交易事件 |
+| `fund_deposit_start` | `method`, `amount_bucket` | 銀行帳號 | 行為事件；實際入金用帳務 CDC 的 `fund_deposit` |
+| `login`／`logout` | `method` | — | `login` 是歸戶與登入改寫的觸發點 |
+| `account_open_step` | `step`, `kyc_level` | 任何表單值 | 行為事件；核准以 CRM 的 `account_open_approved` 為準 |
 
-`client_order_ref` 由 App 產生（UUID v4），放進下單 API 的 header `X-Client-Order-Ref`，交易閘道寫進委託表 `CLIENT_REF` 欄位；CDC 事件化規則把它映射成 `props.client_order_ref`。這樣「App 按下送單」到「主機成交」可以逐筆對上，用來量測送單成功率與延遲，也作為埋點完整性的對帳依據（GA `order_submit` 筆數 vs CDC `order_submit` 筆數，差異 > 2% 告警）。
+行為事件與交易事件**不做逐筆對應**：行為事件大多沒有對應的交易事件（看行情、看商品、瀏覽活動頁），有的也不需要一對一（按下送單不等於委託成立）。兩條事件流各自入庫，靠同一個 `$identity_login_id` 歸到同一個 one_id，再由漏斗／路徑／歸因以 one_id 串起「看商品 → 送單 → 成交」。GA 的業務事件只要帶 L0–L2 的維度（symbol、side、區間）供分析分組即可。
 
 ### 3.3 GTM 伺服器端與個資閘門
 
@@ -81,19 +81,17 @@ GA 流量不經本系統（無雙寫，docs/01 勘誤），但建議 GTM 伺服�
 | `event_name='login'` + 兩個 ID 同時存在 | 共現資料 → 歸戶 + 登入改寫 | `events_intraday_` 到達即觸發；`events_` 日批到齊後以 event_id 去重，不重複改寫 |
 | `privacy_info.analytics_storage` | `consent.analytics` | `'No'` → 弱 ID 不綁定、不改寫 |
 | `privacy_info.uses_transient_token` | 標記 | 無 cookie 量測，不建匿名用戶 |
-| `event_params.client_order_ref` | `props.client_order_ref` | 與 CDC 事件對帳 |
 | `device.advertising_id` | DROP | 不收廣告 ID |
 | `user_properties.*` | 只接受登記過的 L0–L2 屬性 | 其他丟棄 |
 
 ## 5. 交易事件端：同一個客戶代碼怎麼來
 
 ```
-交易主機 ORDERS（CUST_ID, ACCT_NO, CLIENT_REF, …）
+交易主機 ORDERS（CUST_ID, ACCT_NO, …）
   └─ Debezium CDC → Kafka raw.trade.orders
        └─ Flink 事件化（docs/06 §7.1 同步任務：狀態機事件化）
             ├─ identities.$identity_login_id  = idsvc.tokenize('customer', CUST_ID)   // 與 GA user_id 同值
             ├─ identities.$identity_account_no = idsvc.tokenize('account', ACCT_NO)   // FPE
-            ├─ props.client_order_ref = CLIENT_REF
             └─ 原始 CUST_ID／ACCT_NO 不進事件表（事件化後即丟棄；隔離區也只存代碼）
 CRM customer_accounts（CUST_ID, ACCT_NO）每日 → 同步任務「OneID 綁定」→ bind {login_id, account_no}
 ```
@@ -106,8 +104,8 @@ CRM customer_accounts（CUST_ID, ACCT_NO）每日 → 同步任務「OneID 綁�
 |---|---|---|---|
 | 08:50 | GA（App） | `view_item` ×3，只有 `user_pseudo_id=D7` | distinct_id=D7 → 匿名用戶 U7 |
 | 09:02 | GA | `login`，`user_id=v1_K3…`，`user_pseudo_id=D7` | 歸戶到客戶 A；D7 改綁到 A；08:50 的 3 筆（7 天內）改寫到 A |
-| 09:05 | GA | `order_submit`，`client_order_ref=0f3e…`，`user_id=v1_K3…` | 歸 A |
-| 09:05 | 交易 CDC | `order_submit`，`login_id=v1_K3…`，`account_no=FPE(…)`，`client_order_ref=0f3e…` | 歸 A（同一代碼）；與 GA 事件對帳成功 |
+| 09:05 | GA | `order_submit_click`，`symbol=2330`，`user_id=v1_K3…` | 歸 A |
+| 09:05 | 交易 CDC | `order_submit`，`login_id=v1_K3…`，`account_no=FPE(…)` | 歸 A（同一代碼，不需逐筆對應） |
 | 09:06 | 交易 CDC | `order_filled` | 歸 A |
 | 09:30 | GA | `logout` → `resetAnalyticsData()` | A 的 D7 綁定保留；新 app_instance_id D8 之後的事件歸匿名用戶 |
 
@@ -119,7 +117,6 @@ CRM customer_accounts（CUST_ID, ACCT_NO）每日 → 同步任務「OneID 綁�
 |---|---|
 | GA `user_id` 政策條文與法遵認定（代碼化客戶 ID 是否符合「不可直接識別」） | 以 HMAC 代碼 + 金鑰在行內 HSM 的說明送法遵；Google 政策原文由客戶 GA 窗口提供最新版 |
 | App 端 token 存放（Keychain／Keystore）與有效期 | 跟 session 同壽命；登出即清 |
-| 交易閘道是否能新增 `CLIENT_REF` 欄位 | 若不能，退而以 (客戶代碼, symbol, side, 分鐘) 近似對帳並在報表標示 |
 | Web 登出是否重置 client_id | 預設不重置（GA 無標準方法），靠「最新綁定者取得」；若客戶要求，可在登出時以 `gtag('config', …, { client_id })` 寫入新值 |
 | 金鑰輪替週期與雙版本並存期 | 年輪替；並存 13 個月 |
 | 既有 GA 歷史（已設過別的 user_id 格式） | 匯入時以對照表轉成 `v1_` token；轉不了的只保留 `user_pseudo_id` |
@@ -127,6 +124,6 @@ CRM customer_accounts（CUST_ID, ACCT_NO）每日 → 同步任務「OneID 綁�
 ## 8. 對應檔案
 
 - `backend/semantic/oneid_rules.yaml`：`alias`、`login_backfill`；`backend/oneid/attribution.py`：`track()` 與登入改寫自測。
-- `backend/semantic/ga4_mapping.yaml`：匯出欄位映射；`backend/semantic/events.yaml`：GA 與交易事件登記（含 `client_order_ref`）。
+- `backend/semantic/ga4_mapping.yaml`：匯出欄位映射；`backend/semantic/events.yaml`：GA 與交易事件登記。
 - `backend/security/masking.yaml`、docs/10：L0–L4 分級與 HMAC／FPE 金鑰管理。
 - 原型：治理 › 用戶表 › OneID 規則（情境 S2／S3 含登入改寫）；數據整合 › 同步任務（代碼化轉換）。
