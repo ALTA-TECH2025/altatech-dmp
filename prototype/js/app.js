@@ -8,10 +8,13 @@ import { ACCOUNTS, SOURCES, EVENTS, TS, PLATFORM_SPLIT, CHANNEL_SPLIT, UTM_SPLIT
          PATHS, ATTRIBUTION, USERS, CONNECTIONS, MODEL_EXAMPLE, CONFIG_CARDS,
          ROLES, MODULES, MATRIX, DATA_SCOPES, MASK_RULES, APPROVALS, AUDIT, DESTINATIONS, AUDIENCE_PUSHES, DELIVERIES,
          PROPS, PROP_SCOPES, OPS, AGGS, GRANS, CHART_TYPES, SAVED_REPORTS, CONNECTOR_AUTH, FIELD_CN, TEST_STEPS, TEST_FIX, ONEID_CASES,
-         META_PROPS, USER_PROPS, ONEID_RULES, DIM_TABLES, DIM_DICTS, VIRTUAL_PROPS, EXT_TABLES, SYNC_TASKS, PIPELINE, QUERY_PERF, BATCH_JOBS, STORAGE, USER_ASSIGNMENTS, VIRTUAL_EVENTS, TAG_KINDS, SEG_RULE_TYPES, SQL_TABLES, SQL_FUNCS, SQL_SAVED, SQL_HISTORY, SQL_DEFAULT } from './data.js?v=20261015.11';
+         META_PROPS, USER_PROPS, ONEID_RULES, DIM_TABLES, DIM_DICTS, VIRTUAL_PROPS, EXT_TABLES, SYNC_TASKS, PIPELINE, QUERY_PERF, BATCH_JOBS, STORAGE, USER_ASSIGNMENTS, VIRTUAL_EVENTS, TAG_KINDS, SEG_RULE_TYPES, SQL_TABLES, SQL_FUNCS, SQL_SAVED, SQL_HISTORY, SQL_DEFAULT,
+         MIG_INVENTORY, MIG_EXPORTS, MIG_PARALLEL, MIG_USERS, MIG_TIMELINE, MIG_PRESET_EVENTS, MIG_PRESET_PROPS, MIG_GA_SOURCES } from './data.js?v=20261016.1';
+// v0.7：第一階段不做 AI（docs/22 §1）。旗標關閉時隱藏 AI 導覽、問答列與總覽洞察卡；契約與頁面程式碼保留給第二階段。
+const FEATURES = { ai: false };
 
-const VERSION = 'v0.6.1';
-const BUILD = '20261015.11';
+const VERSION = 'v0.7.0';
+const BUILD = '20261016.1';
 
 /* ------------------------------------------------------------------ state */
 const S = {
@@ -22,6 +25,7 @@ const S = {
   seg: { tab: 'segments', q: '', filter: 'all' }, segDrawer: null, segDrawerTab: 'info', segState: {}, tagState: {}, tagDrawer: null, tagDrawerTab: 'info', segNew: null, tagNew: null,
   sqlq: { sql: SQL_DEFAULT, tab: 'result', chart: 'table', result: null, history: SQL_HISTORY.map(h => h.slice()), saved: [], open: { events: true }, params: false, explain: '' },
   ai: { tab: 'insights', kind: 'all', status: 'open', open: {}, chat: [], busy: false, prefill: '' },
+  mig: { tab: 'inventory', q: '', kind: 'all' },
   gov: { tab: 'dictionary', q: '', status: 'all' }, meta: null, us: { tab: 'props' }, items: { tab: 'tables', type: 'dim_instrument' }, pipe: { tab: 'flow' },
   iam: { tab: 'roles' }, roleEdit: null, customRoles: {}, customMatrix: {}, deletedRoles: {}, push: null,
   path: null, attr: null, ret: null, conn: null, users: { q: '', lc: 'all', tier: 'all', page: 0, sel: {}, from: null }, integ: { tab: 'connections', step: 4 },
@@ -167,11 +171,11 @@ const NAV_GROUPS = [
   { id: 'analysis', cn: '分析', items: [['events', '事件分析'], ['funnel', '漏斗分析'], ['retention', '留存分析'], ['path', '行為路徑'], ['attribution', '歸因分析'], ['users', '用戶列表'], ['sqlquery', '自定義 SQL']] },
   { id: 'ops', cn: '營運', items: [['segments', '分群與標籤'], ['triggers', '即時觸發']] },
   { id: 'data', cn: '資料', items: [['integration', '數據整合'], ['profile', '用戶細查 / OneID']] },
-  { id: 'ai', cn: 'AI 洞察', items: [['ai/insights', '洞察串流'], ['ai/ask', '問答'], ['ai/agents', 'Agents'], ['ai/tools', '工具目錄']] },
-  { id: 'gov', cn: '數據治理', items: [['governance', '元事件管理'], ['userschema', '用戶表'], ['items', '維度表與字典'], ['pipeline', '資料流與效能']] },
+  ...(FEATURES.ai ? [{ id: 'ai', cn: 'AI 洞察', items: [['ai/insights', '洞察串流'], ['ai/ask', '問答'], ['ai/agents', 'Agents'], ['ai/tools', '工具目錄']] }] : []),
+  { id: 'gov', cn: '數據治理', items: [['governance', '元事件管理'], ['userschema', '用戶表'], ['items', '維度表與字典'], ['migration', '歷史資料遷移'], ['pipeline', '資料流與效能']] },
   { id: 'sys', cn: '系統管理', items: [['iam', '權限中心'], ['audit', '日誌統計'], ['settings', '平台設定']] },
 ];
-const ROUTE_MODULE = { overview: 'overview', sqlquery: 'events', events: 'events', funnel: 'events', path: 'events', attribution: 'events', retention: 'events', users: 'users', profile: 'profile', segments: 'segments', triggers: 'triggers', integration: 'integration', ai: 'ai_ask', governance: 'governance', userschema: 'governance', items: 'governance', pipeline: 'governance', audit: 'audit', iam: 'iam', settings: 'iam' };
+const ROUTE_MODULE = { overview: 'overview', sqlquery: 'events', events: 'events', funnel: 'events', path: 'events', attribution: 'events', retention: 'events', users: 'users', profile: 'profile', segments: 'segments', triggers: 'triggers', integration: 'integration', ai: 'ai_ask', governance: 'governance', userschema: 'governance', items: 'governance', pipeline: 'governance', migration: 'governance', audit: 'audit', iam: 'iam', settings: 'iam' };
 const RK = () => (S.user && S.user.rk) || 'data_analyst';
 const perm = (mod) => (MATRIX[RK()] || {})[mod] || '';
 const has = (mod, act) => perm(mod).includes(act);
@@ -188,15 +192,15 @@ function viewGate() {
   return `<div class="gate"><div class="gate-brand">${LOGO_MARK}<div><b>ALTA TECH<sup>LTD</sup></b><span>AltaTech DMP · 數位軌跡／客戶數據中台 · 原型 ${VERSION}</span></div></div>
   <div class="gate-card"><h1>選擇示範身分</h1><p>原型以五種角色展示企業級權限：模組權限（哪些功能可見／可用／可匯出／可審批）、數據權限（行級範圍）、欄位隱碼（依敏感等級）、審批與審計。資料皆為模擬。</p>
   ${ACCOUNTS.map(a => `<button class="gate-role" data-act="login" data-arg="${a.id}"><span class="av" style="background:${a.col}">${a.init}</span><span><span class="nm">${esc(a.name)}</span><span class="em">${esc(a.email)}</span></span><span class="rl">${esc(a.role)}</span></button>`).join('')}</div>
-  <div class="gate-note">承接 GA360 埋點事件與證券交易事件；OneID 打通；事件／漏斗／路徑／歸因／用戶列表／標籤；數據整合可視化建模；AI agent 透過語意層與工具閘道產生洞察。</div></div>`;
+  <div class="gate-note">神策 → GA360 遷移：依神策事件字典給 GA360 埋點設計建議、神策歷史資料盤點導出載入、新舊資料整合測試、數據中台交易資料導入與結合分析。事件／漏斗／留存／路徑／歸因／用戶列表／自定義 SQL／分群與標籤；AI 洞察為第二階段。</div></div>`;
 }
 function viewTopNav() {
   const u = S.user; const g = activeGroup(); const open = INSIGHTS.filter(i => i.status === 'open').length;
   const groups = NAV_GROUPS.filter(gr => gr.items.some(it => canRoute(it[0]))).map(gr => `<button class="${gr.id === g.id ? 'on' : ''}" data-act="goto" data-arg="#/${gr.items.find(it => canRoute(it[0]))[0]}">${gr.cn}${gr.id === 'ai' ? `<span class="badge">${open}</span>` : ''}</button>`).join('');
   return `<header class="topnav"><div class="tn-in"><button class="icon-btn hamb" data-act="navtoggle" aria-label="選單">${svg(I.menu, 20)}</button><a class="brand" href="#/overview">${LOGO_MARK}<b>ALTA TECH<sup>LTD</sup></b><span class="prod">DMP</span></a><nav class="tn-nav">${groups}</nav>
-    <div class="tn-right"><div class="search">${svg(I.spark, 15)}<input placeholder="問 AI：上週開戶到入金的轉化率？" data-act="askbar" value="" autocomplete="off"><kbd>⏎</kbd></div>
+    <div class="tn-right">${FEATURES.ai ? `<div class="search">${svg(I.spark, 15)}<input placeholder="問 AI：上週開戶到入金的轉化率？" data-act="askbar" value="" autocomplete="off"><kbd>⏎</kbd></div>` : `<span class="pill gray phase" title="第一階段不含 AI 洞察；語意層與工具閘道契約已保留">AI 洞察：第二階段</span>`}
       <button class="org-pick" data-act="noop">證券示範專案<span class="sep">/</span>prod</button>
-      <button class="icon-btn" data-act="goto" data-arg="#/ai/insights" title="洞察通知">${svg(I.bell, 18)}<span class="dot"></span></button>
+      ${FEATURES.ai ? `<button class="icon-btn" data-act="goto" data-arg="#/ai/insights" title="洞察通知">${svg(I.bell, 18)}<span class="dot"></span></button>` : `<button class="icon-btn" data-act="goto" data-arg="#/migration" title="歷史資料遷移">${svg(I.bell, 18)}<span class="dot"></span></button>`}
       <button class="icon-btn" data-act="noop" title="語言">${svg(I.globe, 18)}</button>
       <button class="me" data-act="logout" title="切換身分"><span class="av" style="background:${u.col}">${u.init}</span><span><span class="nm">${esc(u.name)}</span><span class="rl">${esc(u.role)}</span></span></button></div></div></header>`;
 }
@@ -374,14 +378,16 @@ function insightChart(i) {
 
 function pageOverview() {
   const open3 = INSIGHTS.filter(i => i.status === 'open').slice(0, 3);
-  return `<div class="page-h"><div><h1>總覽</h1><p>GA360 行為事件與證券交易事件在同一個事件模型下；右側為 AI agent 近期產出的洞察。</p></div></div>
+  const migCard = () => { const e = MIG_EXPORTS[0]; const u = MIG_USERS; const now = MIG_TIMELINE.find(t => t.status === 'now') || MIG_TIMELINE[0];
+    return `<div class="card"><div class="card-h"><h3>神策 → GA360 遷移</h3><span class="sub">歷史資料銜接進度</span><div class="right"><button class="btn-ghost sm" data-act="goto" data-arg="#/migration">詳細</button></div></div><table class="tbl">${[['歷史事件載入', `${compact(e.load)} / ${compact(e.src)}`, 'ok'], ['分片對帳差異', pct((e.src - e.load) / e.src, 2), 'ok'], ['登入用戶銜接率', pct(u.both / u.login_users, 1), 'ok'], ['並行期量差（中位）', pct(2.1 / 100, 1), 'ok'], ['分群重建', '158 / 183', 'warn']].map(r => `<tr><td>${r[0]}</td><td class="num mono">${r[1]}</td><td><span class="status ${r[2]}"><span class="dot"></span></span></td></tr>`).join('')}</table><div class="note" style="margin-top:8px"><b>${esc(now.t)}</b> ${esc(now.cn)}（${esc(now.date)}）</div></div>`; };
+  return `<div class="page-h"><div><h1>總覽</h1><p>神策歷史行為資料、GA360 新行為事件與數據中台交易事件在同一個事件模型下；${FEATURES.ai ? '右側為 AI agent 近期產出的洞察。' : '右側為遷移進度與資料源健康。'}</p></div></div>
   <div class="grid c5" style="margin-bottom:16px">${tile('日活躍客戶', 'dau', compact)}${tile('成交客戶數', 'traders', compact)}${tile('成交金額', 'turnover', compact, 'TWD')}${tile('新開戶', 'new_accounts', n0)}${tile('委託失敗率', 'reject_rate', v => pct(v, 2))}</div>
   <div class="grid c2"><div class="stack">
-    <div class="card"><div class="card-h"><h3>事件量：行為 vs 交易</h3><span class="sub">每日事件數 · 兩條來源同一事件表</span><div class="right"><button class="btn-ghost sm" data-act="sql" data-arg="events_volume">${svg(I.code, 13)} SQL</button></div></div>${lineChart('ov-vol', [{ name: 'GA360 行為事件', color: SER[0], data: seriesRange('ga_events') }, { name: '交易事件', color: SER[1], data: seriesRange('trade_events') }], { h: 230 })}</div>
+    <div class="card"><div class="card-h"><h3>事件量：行為 vs 交易</h3><span class="sub">每日事件數 · 兩條來源同一事件表</span><div class="right"><button class="btn-ghost sm" data-act="sql" data-arg="events_volume">${svg(I.code, 13)} SQL</button></div></div>${lineChart('ov-vol', [{ name: '行為事件（神策歷史 + GA360）', color: SER[0], data: seriesRange('ga_events') }, { name: '交易事件', color: SER[1], data: seriesRange('trade_events') }], { h: 230 })}</div>
     <div class="grid c21"><div class="card"><div class="card-h"><h3>委託渠道</h3><span class="sub">近 ${S.range} 天</span></div>${hbar(CHANNEL_SPLIT)}</div>
     <div class="card"><div class="card-h"><h3>開戶→首筆成交</h3><span class="sub">30 天視窗</span><div class="right"><button class="btn-ghost sm" data-act="goto" data-arg="#/funnel">展開</button></div></div>${funnelView(FUNNELS[0], { compare: false })}</div></div>
   </div><div class="stack">
-    <div class="card"><div class="card-h"><h3>AI 洞察</h3><span class="sub">待處理 ${INSIGHTS.filter(i => i.status === 'open').length} 則</span><div class="right"><button class="btn-ghost sm" data-act="goto" data-arg="#/ai/insights">全部</button></div></div><div class="stack" style="gap:10px">${open3.map(i => insightCard(i, true)).join('')}</div></div>
+    ${FEATURES.ai ? `<div class="card"><div class="card-h"><h3>AI 洞察</h3><span class="sub">待處理 ${INSIGHTS.filter(i => i.status === 'open').length} 則</span><div class="right"><button class="btn-ghost sm" data-act="goto" data-arg="#/ai/insights">全部</button></div></div><div class="stack" style="gap:10px">${open3.map(i => insightCard(i, true)).join('')}</div></div>` : migCard()}
     <div class="card"><div class="card-h"><h3>資料源健康</h3><div class="right"><button class="btn-ghost sm" data-act="goto" data-arg="#/governance/sources">詳細</button></div></div><table class="tbl">${SOURCES.slice(0, 6).map(s => `<tr><td><span class="status ${s.status}"><span class="dot"></span>${esc(s.name)}</span>${s.note && s.status !== 'ok' ? `<span class="sub">${esc(s.note)}</span>` : ''}</td><td class="num mono" style="color:var(--muted)">${esc(s.lag)}</td></tr>`).join('')}</table></div>
   </div></div>`;
 }
@@ -1055,6 +1061,7 @@ function pageTriggers() {
 }
 
 function pageAI() {
+  if (!FEATURES.ai) return `<div class="card" style="max-width:720px;margin:60px auto"><div class="card-h"><h3>AI 洞察：第二階段</h3></div><div class="note">第一階段不做 AI 功能（docs/22 §1）。語意層、查詢編譯器、工具閘道契約（<code>backend/mcp/tools.yaml</code>、<code>/v1/insights*</code>、<code>/v1/agents*</code>）與本頁程式碼皆保留，第二階段以功能旗標開啟即可接入，不需改分析模組。</div><div class="acts" style="margin-top:12px;display:flex;gap:8px"><button class="btn-ghost" data-act="goto" data-arg="#/overview">回總覽</button><button class="btn-ghost" data-act="goto" data-arg="#/migration">歷史資料遷移</button></div></div>`;
   const t = S.ai.tab;
   const tabs = [['insights', '洞察串流'], ['ask', '問答'], ['agents', 'Agents'], ['tools', '工具目錄']];
   let body = '';
@@ -1208,6 +1215,50 @@ function pagePipeline() {
     <div class="grid c2" style="margin-top:16px"><div class="card"><div class="card-h"><h3>儲存用量</h3></div>${STORAGE.map(s => `<div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line2)"><span><b>${esc(s[0])}</b></span><span><span class="bar-in" style="width:${Math.round(s[1] / s[2] * 120)}px;background:${s[1] / s[2] > .9 ? 'var(--st-serious)' : 'var(--s1)'}"></span><span class="mono">${s[1]} / ${s[2]} ${s[3]}</span></span></div>`).join('')}<div class="note" style="margin-top:8px">ClickHouse 已用 99%：3 年全熱規劃值即為 7.8 TB，第 4 年起啟用冷層（GCS S3 disk）或擴到 8 TB。</div></div><div class="card"><div class="card-h"><h3>告警規則</h3></div><ul class="priv"><li>Kafka 消費延遲 > 60 s、Flink checkpoint 失敗 ×3、ClickHouse 副本延遲 > 5 分鐘。</li><li>日批超過 07:00 未完成；標籤日批 > 40 分鐘。</li><li>隔離率 > 1%、對帳差異 > 1%、Schema drift 新增。</li><li>查詢 P95 超過 SLA 連續 15 分鐘。</li><li>下游推送 DLQ > 0、Webhook 連續失敗 ×5。</li></ul><div class="note">告警到 Grafana OSS → 值班群組；嚴重等級寫審計 ops.alert。</div></div></div>`;
   return `<div class="page-h"><div><h1>資料流與效能</h1><p>端到端資料流、各模組讀寫、查詢效能（P50／P95／P99 對 SLA）、批次作業、儲存與告警。數字為設計目標與原型模擬，正式環境由 Prometheus／Grafana 供數。</p></div><div class="right"><button class="btn-ghost" data-act="toast" data-arg="原型：開啟 Grafana 看板（平台／資料品質／審計）">Grafana</button></div></div>
   <div class="filters"><div class="seg">${[['flow', '資料流'], ['query', '查詢效能'], ['batch', '批次與儲存']].map(x => `<button class="${t === x[0] ? 'on' : ''}" data-act="pipetab" data-arg="${x[0]}">${x[1]}</button>`).join('')}</div></div>${body}`;
+}
+
+/* ================================================================== v0.7：歷史資料遷移（神策 → GA360，docs/22） */
+const migSnake = n => { let s = String(n).replace(/^\$/, '').replace(/(?<=[a-z0-9])([A-Z])/g, '_$1').replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase().replace(/_+/g, '_'); if (!s || !/^[a-z]/.test(s)) s = 'e_' + s; if (/^(firebase_|google_|ga_)/.test(s)) s = 'sa_' + s; return s; };
+function migBridgeRows() {
+  return EVENTS.map(e => {
+    const inGa = MIG_GA_SOURCES.includes(e.source); const pre = MIG_PRESET_EVENTS[e.name];
+    let ga = pre ? pre[0] : migSnake(e.name); let kind = pre ? pre[1] : 'custom';
+    if (!inGa) kind = 'not_ga';
+    const params = (e.props || []).map(p => MIG_PRESET_PROPS[p] ? `${p}→${MIG_PRESET_PROPS[p]}` : migSnake(p));
+    const issues = []; if (inGa && ga.length > 40) issues.push('事件名 > 40'); if (inGa && (e.props || []).filter(p => !MIG_PRESET_PROPS[p]).length > 25) issues.push('參數 > 25');
+    return { ...e, ga, kind, params, issues };
+  });
+}
+function pageMigration() {
+  const t = S.mig.tab; const KIND_CN = { auto: 'GA 自動', recommended: 'GA 建議事件', custom: '自訂事件', not_ga: '不經 GA' };
+  const bridge = migBridgeRows(); const viaGa = bridge.filter(r => r.kind !== 'not_ga');
+  const e0 = MIG_EXPORTS[0]; const U = MIG_USERS;
+  const diffs = MIG_PARALLEL.map(r => Math.abs(r.gav - r.sa) / r.sa).sort((a, b) => a - b); const med = diffs[Math.floor(diffs.length / 2)];
+  const tiles = `<div class="grid c4" style="margin-bottom:16px">${[['歷史事件已載入', `${compact(e0.load)}`, `來源 ${compact(e0.src)} · 差異 ${pct((e0.src - e0.load) / e0.src, 2)}`], ['事件銜接', `${viaGa.length} / ${bridge.length}`, `經 GA 埋點；${bridge.length - viaGa.length} 個由 MA／數據中台／渠道直接接入`], ['並行期量差（中位）', pct(med, 1), `${MIG_PARALLEL.filter(r => Math.abs(r.gav - r.sa) / r.sa > .05).length} 個事件 > 5% 待處理`], ['登入用戶銜接率', pct(U.both / U.login_users, 1), `${compact(U.both)} 人兩邊同一客戶代碼`]].map(x => `<div class="card tile"><div class="lbl">${x[0]}</div><div class="val mono">${x[1]}</div><div class="sub">${x[2]}</div></div>`).join('')}</div>`;
+  let body = '';
+  if (t === 'inventory') body = `<div class="card flush"><div class="tbl-wrap"><table class="tbl"><tr><th>資料集</th><th>神策位置</th><th>範圍</th><th class="num">筆數</th><th>導出方式</th><th>目標</th><th>進度</th><th>備註</th></tr>${MIG_INVENTORY.map(r => `<tr><td style="font-weight:600;white-space:nowrap">${esc(r.ds)}</td><td class="mono" style="font-size:11.5px">${esc(r.loc)}</td><td style="font-size:12px">${esc(r.range)}</td><td class="num mono">${n0(r.rows)}</td><td style="font-size:12px">${esc(r.method)}</td><td style="font-size:12px">${esc(r.target)}</td><td><span class="bar-in" style="width:${Math.round(r.progress * .7)}px;background:${r.status === 'ok' ? 'var(--s3)' : 'var(--st-warn)'}"></span><span class="mono">${r.progress}%</span></td><td style="color:var(--body);font-size:12px">${esc(r.note)}</td></tr>`).join('')}</table></div></div>
+    <div class="grid c3" style="margin-top:16px"><div class="card"><div class="card-h"><h3>載入順序</h3></div><ul class="priv"><li>先 ID 映射與用戶表，再事件：事件載入時客戶代碼已存在。</li><li>事件名保留神策原名；時間轉 UTC、日分區按 Asia/Taipei；<code>$ip</code> 丟棄。</li><li><code>$identity_login_id</code> 以同一把金鑰 HMAC 成 <code>v1_</code> 客戶代碼，與 GA <code>user_id</code> 同款。</li><li>匿名 ID（cookie／device_id）保留為匿名用戶，不與 GA client_id 銜接。</li></ul></div><div class="card"><div class="card-h"><h3>導出方式</h3></div><ul class="priv"><li>私有化：Impala JDBC／HDFS Parquet 直讀（distcp），50 億約 1–2 天。</li><li>雲版：查詢 API 按日切片、分頁，約 1–2 週；token 遷移後撤銷。</li><li>每個「日 × 資料集」分片記錄來源、導出、載入三方筆數與 md5。</li></ul></div><div class="card"><div class="card-h"><h3>待客戶確認</h3></div><ul class="priv"><li>私有化或雲版；能否開放 Impala／HDFS。</li><li>IDM 2.0（first_id／second_id）或 3.0（identities）。</li><li>概覽 41 個重建範圍；新 MA 工具與 LINE 事件來源。</li></ul></div></div>`;
+  else if (t === 'bridge') {
+    const q = S.mig.q.trim().toLowerCase(); const k = S.mig.kind;
+    const rows = bridge.filter(r => (k === 'all' || r.kind === k) && (!q || r.name.toLowerCase().includes(q) || r.ga.includes(q) || (r.cn || '').toLowerCase().includes(q)));
+    const cnt = {}; bridge.forEach(r => { cnt[r.kind] = (cnt[r.kind] || 0) + 1; });
+    body = `<div class="filters"><div class="seg">${[['all', `全部 ${bridge.length}`], ['auto', `GA 自動 ${cnt.auto || 0}`], ['recommended', `建議事件 ${cnt.recommended || 0}`], ['custom', `自訂 ${cnt.custom || 0}`], ['not_ga', `不經 GA ${cnt.not_ga || 0}`]].map(x => `<button class="${k === x[0] ? 'on' : ''}" data-act="migkind" data-arg="${x[0]}">${x[1]}</button>`).join('')}</div><input class="inp" placeholder="搜尋神策事件／GA4 事件名" data-act="migq" value="${esc(S.mig.q)}" style="max-width:260px"><div class="right"><button class="btn-ghost sm" data-act="toast" data-arg="已下載 ga360_tracking_spec.csv（117 列；由 backend/migration/bridge.py 產生）">${svg(I.down, 13)} 下載給導入商</button></div></div>
+    <div class="card flush"><div class="tbl-wrap"><table class="tbl"><tr><th>神策事件（正式事件名）</th><th>中文</th><th>分組</th><th>GA4 事件名</th><th>類型</th><th>參數</th><th>平台</th><th>備註</th></tr>${rows.map(r => `<tr><td class="mono" style="font-weight:600">${esc(r.name)}${r.aliases && r.aliases.length ? `<span class="sub">別名 ${esc(r.aliases.join('、'))}</span>` : ''}</td><td>${esc(r.cn)}</td><td style="font-size:12px">${esc(r.group)}</td><td class="mono" style="color:${r.kind === 'not_ga' ? 'var(--muted)' : 'inherit'}">${r.kind === 'not_ga' ? '—' : esc(r.ga)}</td><td><span class="pill ${r.kind === 'auto' ? 'green' : r.kind === 'custom' ? 'blue' : r.kind === 'recommended' ? 'teal' : 'gray'}">${KIND_CN[r.kind]}</span></td><td class="mono" style="font-size:11px">${esc(r.params.join(', '))}</td><td style="font-size:11.5px">${esc(r.platforms || '')}</td><td style="font-size:12px;color:var(--body)">${r.kind === 'not_ga' ? `來源「${esc(r.source)}」直接接入` : (MIG_PRESET_EVENTS[r.name] ? '神策預置 → GA 對應' : '')}${r.issues.length ? ` <span class="pill red">${esc(r.issues.join('；'))}</span>` : ''}</td></tr>`).join('')}</table></div></div>
+    <div class="grid c2" style="margin-top:16px"><div class="card"><div class="card-h"><h3>轉換規則</h3></div><ul class="priv"><li>正式事件名 = 神策事件名，歷史資料不改名；GA 上報轉換後的名字，接入時以橋接表轉回。</li><li>去 <code>$</code>、CamelCase → snake_case、小寫、只留 a–z 0–9 _、不以數字開頭；避開 firebase_／google_／ga_ 前綴與 GA4 保留事件名（撞到加 sa_）。</li><li>神策預置屬性對 GA 內建欄位（$page_url→page_location、$screen_name→firebase_screen、$utm_*→流量來源）；<code>$ip</code> 不送。</li><li>登入後 user_id = v1_ 客戶代碼；用戶屬性只送 L0–L2。</li></ul></div><div class="card"><div class="card-h"><h3>GA4／360 硬限制（bridge.py 自動檢查）</h3></div><ul class="priv"><li>事件名 ≤ 40 字元；每事件自訂參數 ≤ 25；參數名 ≤ 40、值 ≤ 100 字元。</li><li>user property 名 ≤ 24、值 ≤ 36；每專案 ≤ 25 個。</li><li>360 自訂維度：事件級 125、用戶級 100、指標 125（僅影響 GA 介面報表；BigQuery 匯出不受限）。</li><li>目前 ${viaGa.length} 個經 GA 事件：無碰撞、無超限。</li></ul></div></div>`;
+  } else if (t === 'exports') body = `<div class="card flush"><div class="tbl-wrap"><table class="tbl"><tr><th>任務</th><th>方式</th><th class="num">分片</th><th class="num">來源筆數</th><th class="num">導出筆數</th><th class="num">載入筆數</th><th class="num">差異</th><th>狀態</th><th>最近</th><th>備註</th><th></th></tr>${MIG_EXPORTS.map(j => { const d = j.src ? (j.src - j.load) / j.src : 0; return `<tr><td style="font-weight:600">${esc(j.ds)}</td><td style="font-size:12px">${esc(j.mode)}</td><td class="num mono">${j.done}/${j.slices}</td><td class="num mono">${n0(j.src)}</td><td class="num mono">${n0(j.exp)}</td><td class="num mono">${n0(j.load)}</td><td class="num mono" style="color:${d > .001 ? 'var(--st-serious)' : 'inherit'}">${j.src ? pct(d, 2) : '—'}</td><td><span class="status ${j.status === 'pending' ? 'warn' : j.status}"><span class="dot"></span>${j.status === 'ok' ? '完成' : j.status === 'pending' ? '待執行' : '注意'}</span></td><td class="mono">${esc(j.last)}</td><td style="color:var(--body);font-size:12px">${esc(j.note)}</td><td class="num"><button class="btn-ghost sm" data-act="toast" data-arg="${j.status === 'pending' ? '待神策凍結（T0）後執行' : '已重跑差異分片（審計 migration.export.rerun）'}">${j.status === 'pending' ? '排程' : '重跑差異分片'}</button></td></tr>`; }).join('')}</table></div></div>
+    <div class="card" style="margin-top:16px"><div class="card-h"><h3>載入管線</h3></div><div class="pipe">${[['神策', ['Impala／HDFS Parquet', '或查詢 API 按日切片'], 'ok'], ['Importer sensors_export', ['日 × 資料集分片', 'md5 + 列數校驗'], 'ok'], ['Kafka raw.sensors', ['與 GA 新資料分 topic', '互不干擾'], 'ok'], ['Flink normalize', ['事件名保留 · 時間轉 UTC', 'login_id → HMAC 客戶代碼 · $ip 丟棄'], 'ok'], ['OneID', ['綁定先載 · 登入事件歸客戶', '匿名事件歸匿名用戶'], 'ok'], ['ClickHouse 歷史分區', ['36 個月分區 · OPTIMIZE', 'MV 補算 · 對帳表'], 'ok']].map((s, i) => `${i ? '<div class="pipe-arrow">→</div>' : ''}<div class="pipe-stage ${s[2]}"><div class="hd"><b>${esc(s[0])}</b><span class="status ${s[2]}"><span class="dot"></span></span></div><ul>${s[1].map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>`).join('')}</div><div class="note" style="margin-top:10px">分片差異 > 0.1% 自動重跑，三次仍差標記待人工；載入期間查詢只對已對帳分區開放；歷史資料同樣套用欄位遮罩。</div></div>`;
+  else if (t === 'recon') {
+    const days = 28; const xs = Array.from({ length: days }, (_, i) => dkey(dayOffset(i - days + 1)));
+    const mk = (base, key) => xs.map((d, i) => ({ d, v: Math.round(base / 1 * (0.9 + hf(key + d, 0, .2)) * (i % 7 >= 5 ? .55 : 1)) }));
+    const sel = MIG_PARALLEL[0];
+    body = `<div class="grid c2"><div class="card"><div class="card-h"><h3>並行期：每日量 神策 vs GA360</h3><span class="sub">${esc(sel.ev)} → ${esc(sel.ga)} · 近 ${days} 天</span></div>${lineChart('mig-par', [{ name: '神策', color: SER[0], data: mk(sel.sa, 'sa') }, { name: 'GA360', color: SER[1], data: mk(sel.gav, 'ga') }], { h: 220 })}</div>
+      <div class="card"><div class="card-h"><h3>登入用戶銜接</h3><span class="sub">切換前後各 2 週內出現的客戶代碼</span></div>${hbar([{ k: '兩邊都出現', v: U.both }, { k: '只在神策', v: U.only_sa }, { k: '只在 GA360', v: U.only_ga }], { total: U.login_users })}<div class="note" style="margin-top:8px">銜接率 <b class="mono">${pct(U.both / U.login_users, 1)}</b>（目標 ≥ 95%）。匿名用戶：神策 ${compact(U.anon_sa)} 個匿名 ID、GA ${compact(U.anon_ga)} 個 client_id，不銜接，分析按時期分開看。</div></div></div>
+    <div class="card flush" style="margin-top:16px"><div class="tbl-wrap"><table class="tbl"><tr><th>神策事件</th><th>GA4 事件</th><th class="num">神策／日</th><th class="num">GA360／日</th><th class="num">差異</th><th>判定</th><th>備註</th></tr>${MIG_PARALLEL.map(r => { const d = (r.gav - r.sa) / r.sa; const bad = Math.abs(d) > .05; return `<tr class="${bad ? 'warnrow' : ''}"><td class="mono" style="font-weight:600">${esc(r.ev)}</td><td class="mono">${esc(r.ga)}</td><td class="num mono">${n0(r.sa)}</td><td class="num mono">${n0(r.gav)}</td><td class="num mono" style="color:${bad ? 'var(--st-serious)' : 'inherit'}">${d >= 0 ? '+' : ''}${pct(d, 1)}</td><td><span class="status ${bad ? 'warn' : 'ok'}"><span class="dot"></span>${bad ? '> 5% 查埋點' : '通過'}</span></td><td style="color:var(--body);font-size:12px">${esc(r.note)}</td></tr>`; }).join('')}</table></div></div>
+    <div class="grid c3" style="margin-top:16px"><div class="card"><div class="card-h"><h3>對帳口徑</h3></div><ul class="priv"><li>T2 筆數：每事件每日 神策 → 導出 → 載入，去重後差異 < 0.1%。</li><li>T5 並行：同一事件每日量 神策 vs GA360，差異 ≤ 5%（同意拒絕、攔截、串流延遲）。</li><li>T6 OneID：登入用戶 ≥ 95% 兩邊同一客戶代碼；跨切換日漏斗無斷崖。</li></ul></div><div class="card"><div class="card-h"><h3>口徑差異（已文件化）</h3></div><ul class="priv"><li>會話：DMP 重算，兩邊一致。</li><li>$WebClick vs web_click：GA 只埋主要按鈕，量差屬口徑而非漏埋。</li><li>停留時長：改用 session 口徑。</li></ul></div><div class="card"><div class="card-h"><h3>結合分析驗收案例</h3></div><ul class="priv"><li>開戶 → 首筆成交漏斗，切換前後各一個月。</li><li>行情瀏覽 → 委託，按平台分組。</li><li>定期定額申購後 30／60／90 天成交留存。</li><li>活動／推播 → 成交歸因（五模型）。</li></ul></div></div>`;
+  } else if (t === 'timeline') body = `<div class="card"><div class="card-h"><h3>切換時序</h3><span class="sub">T0 = 神策停止寫入</span></div><div class="tl">${MIG_TIMELINE.map(s => `<div class="tl-step ${s.status}"><div class="t"><b>${esc(s.t)}</b><span class="mono">${esc(s.date)}</span></div><div class="cn">${esc(s.cn)}</div><div class="st"><span class="status ${s.status === 'done' ? 'ok' : s.status === 'now' ? 'warn' : 'gray'}"><span class="dot"></span>${s.status === 'done' ? '完成' : s.status === 'now' ? '進行中' : '待辦'}</span></div></div>`).join('')}</div></div>
+    <div class="grid c2" style="margin-top:16px"><div class="card"><div class="card-h"><h3>分工</h3></div><div class="tbl-wrap"><table class="tbl"><tr><th>誰</th><th>負責</th></tr>${[['AltaTech', '橋接表、導出與載入工具、對帳、整合測試、系統'], ['GA360 導入商', '依橋接表埋點、GTM／Firebase 設定、BigQuery 匯出開通、DebugView 核對'], ['客戶', '神策存取權、數據中台交易測試資料、新 MA 工具決策、驗收']].map(r => `<tr><td style="font-weight:600">${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table></div></div><div class="card"><div class="card-h"><h3>風險</h3></div><ul class="priv"><li>客戶無法開放神策底層 → 改走 API，多 1–2 週。</li><li>導入商不照橋接表埋 → 未知事件名進隔離區，T5 自動抓出。</li><li>MA 事件新來源未定 → 歷史照搬，新計畫待新工具。</li><li>匿名歷史無法銜接 → 事前說明，分析以登入用戶為主。</li></ul></div></div>`;
+  return `<div class="page-h"><div><h1>歷史資料遷移</h1><p>神策 → GA360：依神策事件字典產生 GA 埋點規格、神策歷史資料盤點／導出／載入、新舊資料對帳與切換時序。數字為原型模擬；正式環境由導出工具與對帳表供數（docs/22）。</p></div><div class="right"><button class="btn-ghost" data-act="toast" data-arg="原型：開啟 docs/22 神策 → GA360 遷移與歷史資料銜接">文件</button></div></div>
+  ${tiles}<div class="filters"><div class="seg">${[['inventory', '盤點'], ['bridge', '埋點銜接'], ['exports', '導出與載入'], ['recon', '新舊對帳'], ['timeline', '切換時序']].map(x => `<button class="${t === x[0] ? 'on' : ''}" data-act="migtab" data-arg="${x[0]}">${x[1]}</button>`).join('')}</div></div>${body}`;
 }
 
 /* ---- IAM 補強：使用者指派、範圍指派與行級模擬 */
@@ -1372,7 +1423,7 @@ function scrollChat() { const el = document.getElementById('chatlog'); if (el) e
 let render = function () {
   const root = document.getElementById('root');
   if (!S.user) { root.innerHTML = viewGate(); return; }
-  const pages = { overview: pageOverview, sqlquery: pageSqlQuery, events: pageEvents, funnel: pageFunnel, path: pagePath, attribution: pageAttribution, users: pageUsers, integration: pageIntegration, retention: pageRetention, iam: pageIAM, audit: pageAudit, profile: pageProfile, segments: pageSegments, triggers: pageTriggers, ai: pageAI, governance: pageGovernance, userschema: pageUserSchema, items: pageItems, pipeline: pagePipeline, settings: pageSettings };
+  const pages = { overview: pageOverview, sqlquery: pageSqlQuery, events: pageEvents, funnel: pageFunnel, path: pagePath, attribution: pageAttribution, users: pageUsers, integration: pageIntegration, retention: pageRetention, iam: pageIAM, audit: pageAudit, profile: pageProfile, segments: pageSegments, triggers: pageTriggers, ai: pageAI, governance: pageGovernance, userschema: pageUserSchema, items: pageItems, pipeline: pagePipeline, migration: pageMigration, settings: pageSettings };
   const page = canRoute(S.route.name) ? (pages[S.route.name] || pageOverview)() : pageForbidden();
   const active = document.activeElement; const keep = active && active.dataset && active.dataset.act; const keepArg = active && active.dataset && active.dataset.arg; const selStart = active && active.selectionStart;
   root.innerHTML = `<div class="app">${viewTopNav()}${viewSubNav()}<main class="content"><div class="wrap">${page}</div></main></div>${viewMobileNav()}${sqlDrawer()}${connDrawer()}${metaDrawer()}${segDrawer()}${roleDrawer()}${pushDrawer()}${S.toast ? `<div class="toast">${esc(S.toast)}</div>` : ''}`;
@@ -1421,7 +1472,7 @@ document.addEventListener('click', e => {
     govstatus: () => { S.gov.status = arg; render(); }, metanew: () => { if (!govWrite()) { toast('需要治理設定權限'); return; } openMeta(null); }, metaopen: () => openMeta(arg), metaclose: () => { S.meta = null; render(); },
     metaseg: () => { const [k, v] = arg.split(':'); S.meta[k] = v; render(); }, metapropdel: () => { S.meta.props.splice(Number(arg), 1); render(); },
     metasave: () => { if (!govWrite()) { toast('需要治理設定權限'); return; } metaSave(arg); }, metastatus: () => { const e = EVENTS.find(x => x.name === S.meta.orig); e.status = arg; S.meta = null; toast(`事件 ${e.name} 已停用：不再接收，歷史保留；審計 meta.event.deprecated`); },
-    ustab: () => { S.us.tab = arg; render(); }, itemtype: () => { S.items.type = arg; S.items.tab = 'tables'; render(); }, itemtab: () => { S.items.tab = arg; render(); }, pipetab: () => { S.pipe.tab = arg; render(); },
+    ustab: () => { S.us.tab = arg; render(); }, itemtype: () => { S.items.type = arg; S.items.tab = 'tables'; render(); }, itemtab: () => { S.items.tab = arg; render(); }, pipetab: () => { S.pipe.tab = arg; render(); }, migtab: () => { S.mig.tab = arg; render(); }, migkind: () => { S.mig.kind = arg; render(); },
     // v0.4.2 連線與鑑權
     connnew: () => openConn(null), connopen: () => openConn(arg), connclose: () => { S.conn = null; render(); },
     conntype: () => connSetType(arg), connmethod: () => connSetMethod(arg), connmode: () => { S.conn.mode = arg; S.conn.test = null; render(); }, connsecmode: () => { S.conn.secretMode = arg; S.conn.test = null; render(); },
@@ -1569,6 +1620,7 @@ document.addEventListener('input', e => {
   if (el.dataset.act === 'attrtname') S.attr.touches[Number(el.dataset.arg)].name = el.value;
   if (S.meta && el.dataset.act === 'metaf') S.meta[el.dataset.arg] = el.value;
   if (el.dataset.act === 'govq') { S.gov.q = el.value; render(); }
+  if (el.dataset.act === 'migq') { S.mig.q = el.value; render(); }
   if (S.conn) { const a = el.dataset.act; if (a === 'conncn') S.conn.cn = el.value; if (a === 'connowner') S.conn.owner = el.value; if (a === 'connfield') { S.conn.fields[el.dataset.arg] = el.value; S.conn.test = null; } if (a === 'connseconce') S.conn.secretOnce = el.value; if (a === 'connsecref') S.conn.secretRef = el.value; }
   if (el.dataset.act === 'attrhl') S.attr.halfLife = Number(el.value) || S.attr.halfLife; if (el.dataset.act === 'attrwin') S.attr.window.n = Number(el.value) || S.attr.window.n; if (el.dataset.act === 'retperiods') S.ret.periods = Math.max(1, Math.min(30, Number(el.value) || S.ret.periods));
   if (S.roleEdit) { if (el.dataset.act === 'rolecn') S.roleEdit.cn = el.value; if (el.dataset.act === 'roledesc') S.roleEdit.desc = el.value; if (el.dataset.act === 'rolelookback') S.roleEdit.lookback = Number(el.value) || 0; }

@@ -1,0 +1,169 @@
+# 神策 → GA360 遷移與歷史資料銜接（v1.0，2026-10-16）
+
+> 背景：客戶因政策因素不能再使用神策，行為埋點改用 GA360，但神策累積的歷史行為資料與用戶表必須保留並能與新資料連續分析。AltaTech 曾是客戶的神策導入商，熟悉其事件設計、用戶表與 ID 規則。本案第一階段不做 AI 功能，主軸是下面四件事；AI 洞察（docs/03、05）整體延到第二階段，語意層與工具閘道契約保留，不影響後續接入。
+>
+> 四件事：① 依舊神策事件／用戶表結構，給 GA360 導入商埋點設計建議，讓新舊資料能銜接；② 神策系統內資料盤點、導出、載入新系統；③ 新舊資料整合測試；④ 交易資料導入並與行為資料結合分析。對應原型「數據治理 › 歷史資料遷移」頁、契約 `/v1/migration/*`、工具 `backend/migration/bridge.py`。
+
+## 0. 結論先講
+
+| 問題 | 決定 |
+|---|---|
+| 新舊事件名怎麼統一 | **正式事件名 = 神策事件名**（`kh_apply`、`bond_order`、`$pageview`…）。歷史資料不改名；GA 端用轉換後的 GA4 事件名上報（`$pageview`→`page_view`、`$AppViewScreen`→`screen_view`、其餘 snake_case），接入時以橋接表把 GA 事件名轉回正式事件名。UI、分群、報表只看到一套名字。 |
+| 用戶怎麼接上 | 登入用戶：神策 `$identity_login_id` 與 GA `user_id` 都用同一把金鑰 HMAC 成 `v1_` 客戶代碼（docs/20），OneID 自然打通。匿名用戶：神策 cookie／device_id 與 GA `client_id`／`app_instance_id` 是不同的 ID，**不銜接**，歷史匿名事件保留為匿名用戶；切換後登入時依 docs/19 改寫近 7 天 GA 匿名事件。 |
+| 哪些事件要給 360 導入商埋 | 只有來源是 App／Web 埋點的 72 個（117 中）。MA 智能運營事件（`$Plan*`／`$Journey*`，16 個）、LINE、數據中台業務資料、渠道回傳、短鏈共 45 個不走 GA，由各自接入直接寫入正式事件名；其中 MA 事件的新來源要等客戶決定新的 MA 工具。 |
+| 歷史資料怎麼拿 | 私有化部署優先直讀 Impala／HDFS Parquet（整段搬，最快）；雲版用查詢 API 按日切片。約 50 億事件（docs/13 首年含舊資料），分日分片、每片三方對帳（來源／導出／載入）。 |
+| 切換怎麼做 | 並行期 4 週（GA 上線、神策仍在）逐事件比對每日量；神策停止寫入後凍結、補導最後增量；切換日之後所有分析跨新舊資料一條線。 |
+| 誰負責什麼 | AltaTech：橋接表、導出工具、載入、對帳、測試、系統。GA360 導入商：依橋接表埋點、GTM／Firebase 設定、BigQuery 匯出開通。客戶：神策存取權、資料中台交易測試資料、MA 新工具決策、驗收。 |
+
+## 1. 範圍與階段
+
+| | 第一階段（本案） | 第二階段 |
+|---|---|---|
+| 行為資料 | 神策歷史匯入 + GA360 新資料接入 + 銜接 | — |
+| 交易資料 | 數據中台批次導入 + 結合分析（開戶→成交、行情→委託、活動→成交） | 即時 Kafka |
+| 分析模組 | 事件／漏斗／留存／路徑／歸因／用戶列表／自定義 SQL（docs/04） | — |
+| 營運 | 分群與標籤（含神策分群／標籤結果匯入）、名單推送 | 即時觸發進階 |
+| 治理與系統 | 元事件／用戶表／維度表、歷史資料遷移頁、權限中心、審計 | — |
+| AI | **不做**。保留 `backend/mcp/tools.yaml`、`insight_agent/`、`/v1/insights*`／`/v1/agents*` 契約與原型頁面（功能旗標關閉） | 工具閘道、異常偵測、問答 |
+
+為第二階段留的彈性：所有分析走語意層 + 同一個查詢編譯器（AI 工具只是另一個呼叫者）；權限、預算、審計欄位在契約中已定義；原型以 `FEATURES.ai` 旗標切換，不拆程式碼。
+
+## 2. 工作一：給 GA360 導入商的埋點設計建議
+
+### 2.1 原則
+
+1. **以神策事件字典為基準**（`backend/semantic/events.yaml` v4，來自客戶神策專案的事件清單）。每個事件的 GA4 事件名、參數、平台由 `backend/migration/bridge.py` 產生，輸出 `backend/migration/ga360_tracking_spec.csv`（給導入商）與 `backend/semantic/sensors_ga4_bridge.yaml`（給接入管線）。改字典重跑即可，不手抄。
+2. **事件名轉換規則**：去掉 `$`、CamelCase 轉 snake_case、小寫、只留 `[a-z0-9_]`、不以數字開頭、避開 `firebase_`／`google_`／`ga_` 前綴與 GA4 保留事件名（撞到加 `sa_`）。神策預置事件對到 GA 自動或建議事件（下表）。
+3. **參數即神策屬性**：自訂屬性名同樣轉換；神策預置屬性對到 GA 內建欄位（`$page_url`→`page_location`、`$screen_name`→`firebase_screen`、`$utm_*`→流量來源、`$os`／`$model`→`device.*`、`$city`→`geo.city`）。`$ip` 不送。
+4. **身分**：登入後 `user_id` 設為 `v1_` 客戶代碼（ID 服務簽發，docs/20 §2），登出清空；不送手機、證號、姓名、Email、帳號明文。用戶屬性只送 L0–L2（13 個），L3 以上留在 DMP 用戶表。
+5. **GA4／360 硬限制**（bridge.py 自動檢查）：事件名 ≤ 40 字元、每事件自訂參數 ≤ 25、參數名 ≤ 40、參數值 ≤ 100 字元、user property 名 ≤ 24／值 ≤ 36、每專案 user property ≤ 25、360 自訂維度事件級 125／用戶級 100。超限的屬性改 user property 或合併。
+6. **BigQuery 匯出為準**：BigQuery 會匯出所有送出的參數，不受 GA 介面自訂維度數量限制；但要在 GA 介面做報表的參數仍要登記為自訂維度。DMP 只讀 BigQuery 匯出。
+
+### 2.2 神策預置事件對應
+
+| 神策 | GA4 | 類型 | 說明 |
+|---|---|---|---|
+| `$pageview` | `page_view` | 自動 | gtag 自動；page_location／page_referrer／page_title 自動帶 |
+| `$AppViewScreen` | `screen_view` | 自動 | Firebase 自動；`firebase_screen` 對應 `$screen_name` |
+| `$AppInstall` | `first_open` | 自動 | |
+| `$AppPushClick`／`$AppPushReceived` | `notification_open`／`notification_receive` | 自動 | 僅 FCM；非 FCM 推播改自訂 `push_click` |
+| `$AppCrashed` | `app_exception` | 自動 | Crashlytics |
+| `$SignUp` | `sign_up` | 建議事件 | 帶 `method` |
+| `$WebClick` | `web_click` | 自訂 | GA 的 `click` 只收外連；全站點擊自訂，帶 element_id／element_content／page_group |
+| `$AppStart`／`$AppEnd` | `app_start`／`app_end` | 自訂 | GA `session_start` 是 30 分鐘口徑，與神策「啟動」不同；`app_end` 帶 `event_duration` |
+| `$AppClick` | `app_click` | 自訂 | |
+| `$WebStay` | `user_engagement` | 自動（近似） | 停留時長口徑不同，分析改用 session 口徑 |
+| `$ShortUrlRedirect` | `short_url_redirect` | 服務端 | 短鏈服務以 Measurement Protocol 上報 |
+
+其餘 70 個自訂事件名就是神策名的 snake_case（`kh_apply`、`hq_stockdetail_view`、`sip_purchase`、`stock_order_submit`…），參數照屬性。目前無碰撞、無超限（bridge.py 自測）。
+
+### 2.3 口徑差異要先講清楚
+
+| 項目 | 神策 | GA360 | 處理 |
+|---|---|---|---|
+| 會話 | 30 分鐘無事件切；App 前後台 | `ga_session_id`，30 分鐘；App 以 Firebase session | DMP 以自己的 session 規則（docs/02）重算，兩邊歷史一致 |
+| 時間 | 用戶端時間 + `$receive_time`，Asia/Taipei | `event_timestamp` UTC 微秒 | 統一轉 UTC 毫秒；日分區按 Asia/Taipei |
+| 匿名 ID | cookie／`$device_id` | `user_pseudo_id`（client_id／app_instance_id） | 不銜接；各自為匿名 distinct_id |
+| 去重 | SDK 重送靠 `$track_id` | `event_bundle_sequence_id` | 各自去重；event_id 規則見 `ga4_mapping.yaml` |
+| 停留／時長 | `$WebStay`、`$event_duration` | `engagement_time_msec` | 分析口徑改 session |
+| 同意 | 無 | `privacy_info.analytics_storage` | 拒絕者不做 OneID 合併 |
+| 延遲 | 即時 | 串流匯出分鐘級、日批次日 | 即時觸發用 Kafka 來源，不靠 GA |
+
+### 2.4 交付物與驗收
+
+- 交付：`ga360_tracking_spec.csv`（117 列：神策事件、中文名、分組、來源、平台、GA4 事件名、類型、參數、備註、別名）、埋點呼叫片段（docs/20 §3）、DebugView 核對清單、BigQuery 驗證 SQL（每事件每日筆數、必填參數非空率）。
+- 驗收：導入商在測試 property 上每個事件至少 1 筆進 BigQuery；`event_name` 全部能被橋接表轉回正式事件名（對不上的進隔離區登記）；必填參數非空率 ≥ 99%；`user_id` 格式 `v1_` + 20 字元。
+
+## 3. 工作二：神策資料盤點、導出、載入
+
+### 3.1 盤點清單
+
+| 資料集 | 神策位置 | 內容 | 目標 | 處理 |
+|---|---|---|---|---|
+| 事件明細 | `events`（Kudu 近期 + HDFS Parquet 歷史；Impala） | 3 年，約 50 億；`event`、`time`、`distinct_id`、`user_id`、`$lib`、預置與自訂屬性 | `dmp.events` | 事件名保留；時間轉 UTC；`$ip` 丟棄；`$identity_login_id` HMAC 成客戶代碼 |
+| 用戶表 | `users` | `id`、`first_id`／`second_id`（IDM 2）或 `identities`（IDM 3）、profile 屬性 | `dmp.users` + `id_map` | 屬性依 `user_properties.yaml` 映射；L4 欄位不選 |
+| ID 映射 | IDM 3.0 `id_mapping`／`user_id`→`identities` | login_id、device_id、cookie_id 的綁定關係與時間 | `id_map`（匿名側保留） | 綁定視為共現資料走 docs/19 規則；首次關聯時間保留 |
+| 分群結果 | 用戶分群結果表（按 basetime 版本） | 分群定義（規則 JSON）+ 成員名單 | 分群（匯入型）+ 規則重建 | 規則能對到 DMP 規則類型的重建為規則分群；其餘匯入成員快照 |
+| 標籤 | `user_tag_*` | 標籤定義、值、歷史版本 | 標籤（匯入型） | 保留最近 N 版；例行計算改在 DMP 重建 |
+| 元數據 | 事件／屬性字典、虛擬事件、自訂屬性、概覽與書籤定義 | 事件 112、屬性型別、顯示名 | `events.yaml`（已完成）、概覽（人工重建） | 概覽／書籤數量盤點後決定重建範圍 |
+| 智能運營 | SF 計畫／旅程定義、觸達紀錄 | 計畫、受眾、訊息紀錄 | 事件（`$Plan*`／`$Journey*` 歷史）| 歷史事件照搬；新計畫在新 MA 工具 |
+
+### 3.2 導出方式
+
+| 方式 | 適用 | 速度 | 注意 |
+|---|---|---|---|
+| Impala JDBC／HDFS Parquet 直讀（`sensors_export.impala_kerberos`） | 私有化 | 50 億約 1–2 天（distcp） | 需客戶開放 Impala 與 HDFS 讀權限；Parquet schema 與 DMP 欄位映射 |
+| 查詢 API `/api/sql/query`（`sensors_export.api_token`） | 雲版或無底層權限 | 受併發與列數限制，50 億約 1–2 週 | 按 `date` 切片、分頁；token 遷移後撤銷 |
+| 神策導出工具 | 若客戶有 | 視版本 | 格式確認 |
+
+導出以「日 × 資料集」為分片，每片記錄來源筆數、導出筆數、檔案校驗（md5、列數），載入後記錄載入筆數。差異 > 0.1% 的分片自動重跑；三次仍差則標記待人工。
+
+### 3.3 載入管線
+
+```
+Parquet／JSONL 分片 → Importer（sensors_export）→ Kafka raw.sensors → Flink normalize
+  → 事件名保留、時間轉 UTC、$ip 丟棄、$identity_login_id → HMAC v1_ 客戶代碼、distinct_id 保留
+  → OneID（綁定資料先載入，再載事件，登入事件歸客戶、匿名事件歸匿名用戶）
+  → ClickHouse events（按月分區；歷史分區載入後 OPTIMIZE）→ MV 補算 → 對帳表
+```
+
+- 先載 `users`／ID 映射再載事件，避免事件載入時客戶代碼還沒建。
+- 歷史載入與 GA 新資料分開 Kafka topic，互不干擾；載入期間查詢只對已對帳分區開放。
+- 載入後所有敏感欄位依 `masking.yaml` 同樣遮罩；歷史資料不例外。
+
+## 4. 工作三：新舊資料整合測試
+
+| 編號 | 測試 | 方法 | 通過標準 |
+|---|---|---|---|
+| T1 元數據覆蓋 | 神策事件／屬性字典 vs `events.yaml` | 自動比對名稱、型別、必填 | 100% 事件有對應；屬性型別一致 |
+| T2 筆數對帳 | 每事件每日：神策 → 導出 → 載入 | 對帳表 | 差異 < 0.1%（去重後） |
+| T3 用戶對帳 | 用戶數、登入 ID 覆蓋率、綁定關係數 | 查詢比對 | 用戶數差異 < 0.1%；登入用戶 100% 有客戶代碼 |
+| T4 分析口徑 | 抽 20 個固定查詢（事件分析、漏斗、留存各若干），同一天神策介面結果 vs DMP | golden 答案集 | 差異 ≤ 1%（會話類 ≤ 3%） |
+| T5 並行期雙軌 | GA 上線、神策未停：同一事件每日量神策 vs GA360 | 對帳頁 | 差異 ≤ 5%（GA 同意、攔截、串流延遲造成）；超過者逐事件查埋點 |
+| T6 OneID 銜接 | 登入用戶切換日前後事件連續；跨切換日的漏斗（如開戶→首筆成交）轉化率不出現斷崖 | 漏斗對比切換前後各 2 週 | 跨切換日漏斗無異常；登入用戶 ≥ 95% 在 GA 側出現同一客戶代碼 |
+| T7 權限與遮罩 | 五角色打歷史資料 | 既有權限回歸 | 與新資料同一行為 |
+| T8 效能 | 50 億歷史 + 新資料，40 條固定查詢 | 基準測試 | P95 符合 docs/04 SLA |
+| T9 分群／標籤 | 匯入的分群成員數 vs 神策 | 比對 | 一致；重建的規則分群與神策結果差異 ≤ 1% |
+
+切換時序（T0 = 神策停止寫入）：T-8 週橋接表定稿交導入商；T-6 週歷史首批載入測試環境（T1–T4）；T-4 週 GA 上線並行（T5–T6）；T0 凍結神策、補導最後增量、最終對帳；T+1 週驗收。
+
+## 5. 工作四：交易資料導入與結合分析
+
+- 來源：數據中台／CDP 事實表（docs/06 v0.6、`connectors.yaml` dwh），測試資料由 AltaTech 準備（與事件字典 `bond_*`、`fund_deposit`、`order_*` 口徑一致）。
+- 事件化：委託／成交／失敗／刪單狀態機（Flink），帳戶主檔作為 OneID 綁定共現資料。
+- 結合分析案例（驗收用，跨新舊行為資料）：
+  1. 開戶漏斗 → 首筆成交（`kh_entry_khpg_pv` → `kh_apply` → `kh_review_pass` → `bond_deal`），切換前後各一個月。
+  2. 行情瀏覽 → 委託（`hq_stockdetail_view` → `stock_order_submit` → `bond_order`），按平台分組。
+  3. 定期定額申購留存（`sip_purchase` 後 30／60／90 天 `bond_deal`）。
+  4. 活動歸因（`act_click`／推播 → `bond_deal`，五模型）。
+  5. 用戶列表：成交客戶中切換前只在神策出現、切換後只在 GA 出現、兩邊都出現的人數，作為銜接率指標。
+
+## 6. 時程（第一階段，取代 docs/15 §5 的 AI 相關週次）
+
+| 里程碑 | 範圍 | 週 |
+|---|---|---|
+| M1 盤點與橋接表 | 神策資料盤點、`bridge.py` 產出埋點規格交導入商、環境與 CI、合成資料走通 Collector→ClickHouse | 3 |
+| M2 歷史資料進倉 | 導出工具、首批歷史載入測試環境、T1–T4、事件分析查歷史真資料、五角色 RBAC／隱碼 | 7 |
+| M3 GA360 接入與並行 | BigQuery 匯出接入、橋接轉名、OneID 登入改寫、六模組 + 自定義 SQL、T5–T6 | 11 |
+| M4 交易結合與營運 | 數據中台交易導入、結合分析五案例、分群與標籤（含神策匯入）、推送、T7–T9 | 15 |
+| M5 切換與驗收 | 凍結神策、最終對帳、10 億效能基準、安全強化、機房驗證、驗收 | 18–20 |
+
+## 7. 風險
+
+| 風險 | 影響 | 緩解 |
+|---|---|---|
+| 客戶無法開放神策底層（Impala／HDFS） | 導出改走 API，多 1–2 週 | kick-off 列為前提；API 路徑同時備妥 |
+| 導入商不照橋接表埋、或改名 | 新舊對不上 | 橋接表為合約附件；T5 自動抓出未知事件名進隔離區 |
+| MA 事件新來源未定 | `$Plan*`／`$Journey*` 切換後斷流 | 歷史照搬；新 MA 工具事件先以 Measurement Protocol 或直接寫入補上 |
+| 匿名歷史無法銜接 | 匿名漏斗跨切換日斷層 | 事前說明；分析以登入用戶為主，匿名分析按時期分開看 |
+| GA 同意、廣告攔截造成量差 | T5 差異 > 5% | 口徑文件化；以登入用戶筆數為主要對帳指標 |
+| 神策分群規則無法一比一重建 | 部分分群變匯入快照 | 盤點時分級；快照分群標示「不再更新」 |
+
+## 8. 待確認
+
+1. 客戶神策是私有化還是雲版；能否開放 Impala／HDFS。
+2. IDM 版本（2.0 `first_id`／`second_id` 或 3.0 `identities`）。
+3. 歷史保留年限（3 年全部或只保留登入用戶）。
+4. 概覽／書籤數量與重建範圍。
+5. 新 MA 工具與 LINE 事件來源。
+6. 並行期長度（建議 4 週）與 T0 日期。

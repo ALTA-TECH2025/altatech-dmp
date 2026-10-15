@@ -1,19 +1,22 @@
-# AltaTech DMP 產品規格書（v0.6，2026-10-15）
+# AltaTech DMP 產品規格書（v0.7，2026-10-16）
 
-> 版本：v0.6 — 同步原型 v0.6.1：五種角色（docs/10 v0.4）、事件字典改用客戶模擬事件清單（112 個神策事件 + 別名）、交易／帳務改由數據中台／CDP 批次導入、GA360 去識別化埋點（docs/20）、OneID 登入後改寫（docs/19 v1.1）、分群／標籤／自定義 SQL 對齊神策（docs/21）、五個分析模組對齊神策 v3.0 使用指南（docs/04 §0b）、導覽拆成「數據治理」「系統管理」兩個大模組、系統管理員可新增刪除角色。
+> 版本：v0.7 — 範圍調整：本案主軸改為「神策 → GA360 遷移與歷史資料銜接」四件事（埋點設計建議、神策資料盤點與導出載入、新舊整合測試、交易資料導入與結合分析；docs/22）；**第一階段不做 AI 功能**，契約與原型頁面保留（功能旗標關閉）供第二階段接入；新增模組 5.17 歷史資料遷移、連接器 sensors_export、橋接工具 bridge.py；時程改為 M1–M5（第 20 週驗收）。
+>
+> v0.6 — 同步原型 v0.6.1：五種角色（docs/10 v0.4）、事件字典改用客戶模擬事件清單（112 個神策事件 + 別名）、交易／帳務改由數據中台／CDP 批次導入、GA360 去識別化埋點（docs/20）、OneID 登入後改寫（docs/19 v1.1）、分群／標籤／自定義 SQL 對齊神策（docs/21）、五個分析模組對齊神策 v3.0 使用指南（docs/04 §0b）、導覽拆成「數據治理」「系統管理」兩個大模組、系統管理員可新增刪除角色。
 
-> 本文是總規格：每一節給結論與圖，細節連到對應文件。讀者：客戶 PO／架構／資安／採購、AltaTech 開發團隊。對應原型 v0.6.1（demo）、後端契約 `backend/`、部署套件 `deploy/`。
+> 本文是總規格：每一節給結論與圖，細節連到對應文件。讀者：客戶 PO／架構／資安／採購、AltaTech 開發團隊。對應原型 v0.7.0（demo）、後端契約 `backend/`、部署套件 `deploy/`。
 
 ## 0. 一頁摘要
 
 | 項目 | 內容 |
 |---|---|
-| 產品 | 可私有化部署的數位軌跡／客戶數據中台：承接 GA360 埋點事件（去識別化客戶代碼，docs/20）與數據中台／CDP 批次導入的證券交易／帳務事件，OneID 打通（含登入後 7 天匿名事件改寫，docs/19），提供事件／漏斗／留存／路徑／歸因／用戶列表六個分析模組 + 自定義 SQL、分群與標籤（對齊神策分群／標籤管理，docs/21）、即時觸發與受眾推送、AI 洞察 agent；數據治理（元事件／用戶表／維度表／資料流）與系統管理（權限中心／審計／平台設定）兩個大模組；五種角色（系統管理員、行銷、數據分析、數位經營、資訊管理）＋自訂角色、欄位隱碼、審批與審計 |
+| 本案主軸 | 神策因政策因素停用、行為埋點改 GA360，歷史資料須保留並連續分析：① 依神策事件／用戶表給 GA360 導入商埋點設計建議（正式事件名 = 神策事件名，GA 事件名以橋接表轉回）；② 神策資料盤點、導出、載入；③ 新舊資料整合測試（T1–T9、並行期雙軌對帳）；④ 數據中台交易資料導入與結合分析（docs/22） |
+| 產品 | 可私有化部署的數位軌跡／客戶數據中台：承接 GA360 埋點事件（去識別化客戶代碼，docs/20）與數據中台／CDP 批次導入的證券交易／帳務事件，OneID 打通（含登入後 7 天匿名事件改寫，docs/19），提供事件／漏斗／留存／路徑／歸因／用戶列表六個分析模組 + 自定義 SQL、分群與標籤（對齊神策分群／標籤管理，docs/21）、即時觸發與受眾推送；AI 洞察 agent 列第二階段（第一階段關閉）；數據治理（元事件／用戶表／維度表／資料流／歷史資料遷移）與系統管理（權限中心／審計／平台設定）兩個大模組；五種角色（系統管理員、行銷、數據分析、數位經營、資訊管理）＋自訂角色、欄位隱碼、審批與審計 |
 | 對標 | 神策分析 v3.0（事件／漏斗／留存／路徑／歸因使用指南、分群、標籤管理、自定義查詢）／SDP／用戶畫像、火山引擎 DataFinder／VeCDP（docs/01、04 §0b、05、21） |
 | 規模 | 3 年 200 億事件（首年含舊資料 50 億）、每日 500 個標籤、50 人同時上線、尖峰 7,000 事件/秒（docs/13） |
 | 部署 | 6 個自建映像 + Helm + OpenTofu；正式 GCP A 檔 6 台（或 D 檔 3 台大機型），測試 C-經濟 3 台；機房 RKE2 同一套件（docs/07、13） |
 | 授權 | 全部 OSI 寬鬆授權（Grafana OSS 僅內部使用），金融業無需額外商業授權（docs/07、11、LICENSES.md） |
-| 時程 | 代碼級第一版第 8 週、P0 完整第 12 週、AI 洞察 v1 第 16 週、GA 約 6 個月（docs/15） |
+| 時程 | M1 盤點與橋接表第 3 週、M2 歷史資料進倉第 7 週、M3 GA360 接入與並行第 11 週、M4 交易結合與營運第 15 週、M5 切換與驗收第 18–20 週（docs/22 §6；AI 不在第一階段） |
 
 ## 1. 系統架構圖
 
@@ -33,11 +36,12 @@
 
 | 流 | 路徑 | 延遲目標 |
 |---|---|---|
-| 準即時行為 | GA360（user_id = 去識別化客戶代碼 `v1_…`，登入時由 ID 服務簽發；user_pseudo_id 為匿名 distinct_id）BigQuery 串流匯出（events_intraday_）→ Importer → Kafka raw → Flink（normalize／eventize（別名 → 正式事件名）／OneID／session）→ ClickHouse | 分鐘級（P95 < 15 分鐘，受 GA 串流匯出延遲限制） |
+| 準即時行為 | GA360（user_id = 去識別化客戶代碼 `v1_…`，登入時由 ID 服務簽發；user_pseudo_id 為匿名 distinct_id）BigQuery 串流匯出（events_intraday_）→ Importer → Kafka raw → Flink（normalize／eventize（GA 事件名經橋接表轉回神策正式事件名；別名 → 正式事件名）／OneID／session）→ ClickHouse | 分鐘級（P95 < 15 分鐘，受 GA 串流匯出延遲限制） |
 | 日批行為 | GA360 BigQuery 日批匯出（events_，權威）→ Storage Read API → Kafka raw → 同上；event_id 去重，覆蓋串流 | 前日資料 07:00 前到齊 |
 | 交易／帳務 | 數據中台／CDP 事實表批次導入（每 15 分鐘增量 + 日批校正；數據中台有 Kafka 則流任務）→ Kafka → Flink 狀態機事件化（委託／成交／失敗／刪單）；不直連交易主機 | < 20 分鐘（批次）／< 1 分鐘（Kafka） |
 | 主檔 | CRM／HR／商品主檔 → 建模映射 → users／items | 每日 |
 | 分析查詢 | UI／API／agent → 語意層編譯 → Policy（行級、遮罩）→ ClickHouse（MV 優先）→ 快取 → 審計 | 各模組 P95 SLA 見 §5.9 |
+| 神策歷史資料（一次性） | Impala／HDFS Parquet 直讀或查詢 API 按日切片 → Importer（sensors_export）→ Kafka raw.sensors → Flink（事件名保留、時間轉 UTC、`$ip` 丟棄、登入 ID HMAC 成客戶代碼）→ ClickHouse 歷史分區 → 三方對帳（來源／導出／載入） | 50 億約 1–2 天（直讀）／1–2 週（API）；分片差異 > 0.1% 重跑 |
 | OneID 登入改寫 | 登入／綁定事件 → 查該 distinct_id 近 7 天仍歸匿名用戶的事件 → 寫入 oneid_backfill 覆蓋表（查詢即時生效）→ 每 10 分鐘微批 lightweight update 回寫 events（≤ 8 個日分區）→ 審計 oneid.backfilled；拒絕同意者不改寫 | 覆蓋表即時；回寫 < 10 分鐘 |
 | 標籤與分群 | 例行（日／週／月）或手動計算 → user_tags Bitmap（保留 1–100 版）→ 分群（規則／匯入／結果存檔；交／聯／差；1/16 抽樣估數）→ 審批 → 推送紀錄 | 日批 < 20 分鐘；500 分群估數 < 3 s |
 | 名單推送 | 分群／標籤 → 推送單審批 → Webhook／Kafka／GCS（內部系統）→ deliveries | 增量 15 分鐘送完 |
@@ -51,6 +55,7 @@
 
 - Event–User–Item 模型，神策相容協議（track／profile_*／item_*／identities）與 GA4 匯出映射（docs/01、06）；OneID 歸戶對齊神策 IDM 3.0，匿名用戶也有 distinct_id，登入後改寫近 7 天匿名事件（docs/19 v1.1）。
 - 事件字典 v4（`events.yaml`）：以客戶模擬事件清單為準，112 個神策事件（開戶 kh_*、定期定額 sip_*、申購／競拍 auc_*、行情 hq_*、活動 act_*、證券 bond_*、$App*／$pageview 等基礎事件、$Plan*／$Journey* 智能運營事件、LINE／Push／短鏈）＋ 3 個補充交易事件；每個事件帶 group／platforms／source／aliases，舊名（ga.page_view、quote_view、order_submit…）以別名映射到正式事件名（docs/04 §0a）。
+- 新舊銜接：正式事件名 = 神策事件名；GA 端事件名由 `backend/migration/bridge.py` 由事件字典產生（117 事件：72 經 GA、45 由 MA／數據中台／渠道／短鏈直接接入），接入時以 `sensors_ga4_bridge.yaml` 轉回；登入用戶兩邊同一客戶代碼，匿名 ID 不銜接（docs/22 §2）。
 - 去識別化：一把 HMAC 金鑰（HSM）產生 `v1_` + 20 字元客戶代碼，GA `user_id` 與神策 `$identity_login_id` 同款；手機 HMAC／帳號 FPE 不送 GA；行為事件與交易事件不逐筆對帳，只靠 OneID 歸戶（docs/20）。
 - ClickHouse：`events`（L0，按 project／event_date／event／one_id／time 排序，月分區，13 個月熱層）、MV L1–L3、`oneid_backfill`（登入改寫覆蓋表）、`users`、維度表 `dim_*`（dictionary）、`id_map`、`user_tags`（Bitmap）、`segment_members`、`audit_log`（`backend/clickhouse/*.sql`）。
 - 語意層 YAML：`events.yaml`、`metrics.yaml`、`dimensions.yaml`、`dimension_tables.yaml`（維度表／字典／虛擬屬性）、`user_properties.yaml`、`oneid_rules.yaml`、`ga4_mapping.yaml`；UI、API、agent 工具走同一查詢編譯器。
@@ -72,10 +77,11 @@
 | 5.10 用戶列表／細查 | 條件 → Bitmap 估數 → 分頁；來源條件下鑽（事件／漏斗／留存／路徑／歸因）；存為分群／匯出（審批、浮水印、上限）；細查需理由、身分圖、時間軸 | `/v1/users`、`/v1/profiles/*` | users、profile | 估數 1 s；分頁 2 s；細查 1 s | docs/04 §5 |
 | 5.11 分群與標籤 | 分群：建立方式（規則／匯入／分析結果存檔）、規則類型（屬性／事件／分群／函數／行為序列）、巢狀且／或、規則組交／聯／差、1/16 抽樣估數、排序與截斷、手動／例行更新、版本保留、暫停／複製、血緣、推送紀錄、回收站（還原／清除）、≤500 個；標籤：10 種建立方式（自訂、指標、首末次、偏好、分布、計算、RFM、SQL、生命週期、匯入）、型別（字串／數值／列表／日期／布林）、例行頻率（日／週／月）、保留 1–100 版、審批、自訂欄位、分布、血緣、回填、回收站；Tag Sync API（REST／Kafka／GCS） | `/v1/segments*`、`/v1/tags*`、`/v1/sync/*` | segments、tags v/u/a；審批 → 數位經營 | 估數 < 3 s；500 分群／標籤日批 < 20 分鐘 | docs/21、04 §6、09 |
 | 5.12 即時觸發／受眾名單推送 | Flink 規則引擎；目的地皆為內部系統（Webhook 簽章／批次／重試／DLQ、Kafka、GCS）；推送單審批、交付紀錄；廣告平台不在範圍 | `/v1/triggers*`、`/v1/destinations*`、`/v1/audiences/*/push` | triggers、segments a | 即時 < 5 s；批次 15 分鐘 | docs/14 |
-| 5.13 AI 洞察（第二階段可延後） | 工具閘道（tools.yaml：權限／預算／脫敏／審計）、agent（異常偵測、漏斗診斷、流失雷達）、選擇題式問答、洞察物件、提議需審批、golden evals | `/v1/insights*`、`/v1/agents*`、MCP | ai_ask、ai_admin | 工具呼叫 5 s；預算 20 GB/呼叫 | docs/03、05 |
+| 5.13 AI 洞察（**第二階段；第一階段關閉**） | 工具閘道（tools.yaml：權限／預算／脫敏／審計）、agent（異常偵測、漏斗診斷、流失雷達）、選擇題式問答、洞察物件、提議需審批、golden evals | `/v1/insights*`、`/v1/agents*`、MCP | ai_ask、ai_admin | 工具呼叫 5 s；預算 20 GB/呼叫 | docs/03、05 |
 | 5.13b 自定義 SQL | 數據庫表目錄（依權限：events、users、user_tags、segment_members、dim_*、id_map 僅資訊管理／系統管理員、中間表）、函數庫、SQL 編輯（格式化／解釋／動態參數）、只允許 SELECT／WITH（去註解後檢查）、遮罩欄位預校驗（手機／證號／姓名／Email 直接報錯）、1,000 列預覽與可視化（表格／折線／柱狀／堆疊／組合／環圖）、查詢記錄、已存查詢、存為概覽／書籤／中間表、下載審計 | `/v1/sql/*` | can.sql：數據分析、資訊管理、系統管理員 | 預覽 10 s；掃描預算依角色 | docs/21 §3 |
 | 5.14 權限中心（系統管理） | 角色（五種：系統管理員、行銷、數據分析、數位經營、資訊管理 + 自訂、勾選權限；系統管理員可新增／刪除任何角色，admin 本身不可刪，仍有指派時須改派、雙人複核、審計 role.deleted）、使用者指派（多角色、範圍、到期、SSO 群組、臨時提權）、模組矩陣（v/u/e/a/d）、數據權限（專案／分群限制／回溯／K 匿名；組織範圍保留給自訂角色）與行級模擬、欄位隱碼（L3 明文僅系統管理員；L2 數據分析／數位經營）、審批（分群／推送／觸發／agent 提議／匯出／L2 揭露 → 數位經營；新目的地首次全量推送／L3 揭露／break-glass／OneID 合併 → 系統管理員） | `/v1/iam/*` | iam v/d | authorize() < 5 ms | docs/10 v0.4 |
 | 5.15 日誌統計／審計（系統管理） | 全部人與 agent 的讀寫審計（含 oneid.backfilled、role.*、sql.*）；看板：使用概況、敏感存取、審批、異常 | `/v1/governance/audit*` | audit | — | docs/10 §7–8 |
+| 5.17 歷史資料遷移（數據治理） | 盤點（資料集、位置、量、導出方式、目標、狀態）、埋點銜接（橋接表：神策事件 → GA4 事件名／類型／參數、未解議題、CSV 下載給導入商）、導出／載入任務（按日分片進度、三方筆數、校驗、重跑）、新舊對帳（每事件每日神策 vs 載入、並行期神策 vs GA360、用戶銜接率）、切換時序 | `/v1/migration/*` | governance v/d；資訊管理、系統管理員 | 分片對帳 < 0.1%；並行差異 ≤ 5% | docs/22 |
 | 5.16 資料流與效能（數據治理） | 端到端資料流（吞吐／延遲／狀態）、各模組讀寫、資料品質、查詢效能（P50/P95/P99 對 SLA、掃描、快取）、批次作業、儲存、告警 | `/v1/ops/*` | governance v | Prometheus 供數 | docs/09、13 |
 
 ## 6. 非功能規格
@@ -96,13 +102,14 @@
 
 | 里程碑 | 範圍 | 週 |
 |---|---|---|
-| M1 走通一條線 | GA360 BigQuery 日批 + 串流 → ClickHouse；事件分析查真資料；SSO | 3 |
-| M2 代碼級第一版 | 六個分析模組接真 API（對齊神策 v3.0 核對表）、OneID v1 含登入改寫、GA360 去識別化埋點 SDK 片段、數據中台交易批次導入、五角色 RBAC／隱碼／審計、元事件／用戶表／維度表管理基本版、測試環境部署 | 8 |
-| M3 P0 完整 | 分群與標籤 v1（規則／匯入／例行計算／版本／回收站）、自定義 SQL、推送、建模 v1、Tag Sync、神策匯入工具、資料流與效能頁接 Prometheus | 12 |
-| M4 AI 洞察 v1 | 工具閘道、分析工具、異常 agent、問答、golden evals | 16 |
-| M5 GA | 10 億合成事件基準、安全強化、機房驗證、DR 演練 | 22–24 |
+| M1 盤點與橋接表 | 神策資料盤點、bridge.py 產出埋點規格交 GA360 導入商、環境與 CI、合成資料走通 Collector→ClickHouse、SSO | 3 |
+| M2 歷史資料進倉 | 神策導出工具（Impala／API）、首批歷史載入測試環境、整合測試 T1–T4、事件分析查歷史真資料、五角色 RBAC／隱碼／審計 | 7 |
+| M3 GA360 接入與並行 | BigQuery 匯出接入、橋接轉名、OneID 登入改寫、六模組 + 自定義 SQL 接真 API、元事件／用戶表／維度表管理、並行期 T5–T6 | 11 |
+| M4 交易結合與營運 | 數據中台交易導入、結合分析五案例、分群與標籤（含神策分群／標籤匯入）、推送、Tag Sync、T7–T9 | 15 |
+| M5 切換與驗收 | 凍結神策、最終對帳、10 億效能基準、安全強化、機房驗證、DR 演練、驗收 | 18–20 |
+| 第二階段 | AI 洞察（工具閘道、異常 agent、問答、golden evals）、即時 Kafka 交易、即時觸發進階 | 另案 |
 
-測試層：單元（≥70%，編譯器 ≥90%）、契約（schemathesis）、口徑一致性（UI 與 agent 同 SQL、golden 答案集）、資料（dbt tests、1 千萬 fixture）、權限／隱碼（5 角色打每個 API；自定義 SQL 遮罩欄位與唯讀檢查）、OneID 改寫（attribution.py 自測 S1–S10）、e2e（Playwright 桌機＋390px）、效能（1 億 → 10 億）、安全（CI 掃描）、AI 品質（golden evals ≥95%）。協同：trunk-based、squash、branch protection、CODEOWNERS、Claude 自動審查與 @claude 指派（docs/16）。
+測試層：單元（≥70%，編譯器 ≥90%）、契約（schemathesis）、新舊資料整合（docs/22 §4 T1–T9：元數據覆蓋、筆數三方對帳、用戶對帳、口徑 golden、並行雙軌、OneID 銜接）、口徑一致性（UI 與 API 同 SQL、golden 答案集）、資料（dbt tests、1 千萬 fixture）、權限／隱碼（5 角色打每個 API；自定義 SQL 遮罩欄位與唯讀檢查）、OneID 改寫（attribution.py 自測 S1–S10）、e2e（Playwright 桌機＋390px）、效能（1 億 → 10 億）、安全（CI 掃描）；AI 品質（golden evals）移到第二階段。協同：trunk-based、squash、branch protection、CODEOWNERS、Claude 自動審查與 @claude 指派（docs/16）。
 
 每模組驗收條件寫在 Story issue（模板 `.github/ISSUE_TEMPLATE/story.md`），以 docs/04 §8 的驗收矩陣為基準。
 
@@ -116,7 +123,7 @@
 |---|---|
 | docs/01 | 調研與總體設計 |
 | docs/02 | 後端架構 |
-| docs/03、05 | AI agent 洞察層、神策 AI 對標 |
+| docs/03、05 | AI agent 洞察層、神策 AI 對標（第二階段） |
 | docs/04 | P0 分析模組規格與 ClickHouse 實作；§0a 事件命名映射、§0b 神策 v3.0 核對表 |
 | docs/06 | 數據整合與可視化建模；§6 連線鑑權 |
 | docs/07 | GCP 部署、授權、OS |
@@ -131,3 +138,4 @@
 | docs/19 | OneID 歸戶邏輯（對齊神策 IDM 3.0；v1.1 登入後改寫） |
 | docs/20 | GA360 埋點與交易事件打通：去識別化 ID 的產生、上報與關聯 |
 | docs/21 | 分群、標籤與自定義 SQL（對齊神策分群／標籤管理／自定義查詢） |
+| docs/22 | 神策 → GA360 遷移與歷史資料銜接：埋點設計建議（橋接表）、資料盤點與導出載入、新舊整合測試 T1–T9、交易結合分析、第一階段時程 |

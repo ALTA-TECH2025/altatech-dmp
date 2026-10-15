@@ -846,3 +846,55 @@ WHERE event = 'bond_deal'
 GROUP BY platform
 ORDER BY traders DESC
 LIMIT 1000`;
+
+/* ------------------------------------------------------------------ v0.7：神策 → GA360 遷移與歷史資料銜接（docs/22） */
+export const MIG_INVENTORY = [
+  { ds: '事件明細', loc: 'Impala · events（Kudu 近期 + HDFS Parquet 歷史）', range: '2023-10-01 ～ 2026-10-14', rows: 4_870_000_000, method: 'HDFS Parquet 直讀（distcp）', target: 'dmp.events 歷史分區（36 個月）', status: 'ok', progress: 100, note: '三方對帳差異 0.04%；$ip 丟棄；登入 ID 已 HMAC 成客戶代碼' },
+  { ds: '用戶表', loc: 'Impala · users（profile 屬性）', range: '全量快照 2026-10-14', rows: 2_140_330, method: 'Impala JDBC', target: 'dmp.users（16 個屬性映射）', status: 'ok', progress: 100, note: 'L4 欄位未選；age_band／aum_bucket 分桶後入倉' },
+  { ds: 'ID 映射（IDM 3.0）', loc: 'id_mapping · identities', range: '全量快照 2026-10-14', rows: 5_312_900, method: 'Impala JDBC', target: 'id_map（綁定關係 + 首次關聯時間）', status: 'ok', progress: 100, note: '先於事件載入；匿名側保留，不與 GA client_id 銜接' },
+  { ds: '分群結果', loc: '用戶分群結果表（按 basetime）', range: '最近版本 + 定義 JSON', rows: 183, method: '查詢 API', target: '分群（規則重建 121 / 匯入快照 62）', status: 'warn', progress: 86, note: '62 個含神策函數規則無法一比一重建，先匯入成員快照並標示「不再更新」' },
+  { ds: '標籤', loc: 'user_tag_*（含歷史版本）', range: '最近 7 版', rows: 412, method: 'Impala JDBC', target: '標籤（匯入型）+ 例行計算在 DMP 重建', status: 'ok', progress: 100, note: '' },
+  { ds: '元數據', loc: '事件／屬性字典、虛擬事件、概覽、書籤', range: '112 事件 · 286 屬性 · 概覽 41 · 書籤 220', rows: 659, method: '元數據 API', target: 'events.yaml v4（完成）；概覽人工重建', status: 'warn', progress: 60, note: '概覽 41 個待客戶決定重建範圍（建議前 15 個）' },
+  { ds: '智能運營（SF）', loc: '計畫／旅程定義、觸達紀錄', range: '2024-03 ～ 2026-10', rows: 96_400_000, method: 'HDFS Parquet 直讀', target: 'events（$Plan*／$Journey* 歷史）', status: 'ok', progress: 100, note: '新計畫改在客戶新 MA 工具；事件來源待定' },
+];
+export const MIG_EXPORTS = [
+  { id: 'exp_events', ds: '事件明細', mode: 'HDFS Parquet（日 × 事件）', slices: 1110, done: 1110, src: 4_872_015_330, exp: 4_871_990_112, load: 4_870_061_004, status: 'ok', last: '10/02 18:40', note: '去重 190 萬筆（$track_id 重送）；3 個分片重跑 1 次' },
+  { id: 'exp_users', ds: '用戶表', mode: 'Impala JDBC 全量', slices: 1, done: 1, src: 2_140_330, exp: 2_140_330, load: 2_140_330, status: 'ok', last: '10/01 02:10', note: '' },
+  { id: 'exp_idmap', ds: 'ID 映射', mode: 'Impala JDBC 全量', slices: 1, done: 1, src: 5_312_900, exp: 5_312_900, load: 5_312_900, status: 'ok', last: '10/01 01:40', note: '' },
+  { id: 'exp_sf', ds: '智能運營事件', mode: 'HDFS Parquet（日）', slices: 950, done: 950, src: 96_412_000, exp: 96_412_000, load: 96_401_200, status: 'ok', last: '10/03 09:12', note: '' },
+  { id: 'exp_seg', ds: '分群結果', mode: '查詢 API', slices: 183, done: 158, src: 183, exp: 158, load: 158, status: 'warn', last: '10/14 16:00', note: '25 個分群規則含神策函數，待人工分級' },
+  { id: 'exp_delta', ds: '事件明細（T0 後最終增量）', mode: 'HDFS Parquet（日）', slices: 14, done: 0, src: 0, exp: 0, load: 0, status: 'pending', last: '—', note: '神策凍結（T0）後執行' },
+];
+// 並行期（GA360 已上線、神策仍在）：同一事件每日量，神策 vs GA360；diff 為 (ga−sa)/sa
+export const MIG_PARALLEL = [
+  { ev: '$pageview', ga: 'page_view', sa: 6_240_000, gav: 5_990_400, note: '同意拒絕 + 廣告攔截' },
+  { ev: '$AppViewScreen', ga: 'screen_view', sa: 9_120_000, gav: 9_028_800, note: '' },
+  { ev: 'app_login_success', ga: 'app_login_success', sa: 2_662_200, gav: 2_651_600, note: '' },
+  { ev: 'hq_stockdetail_view', ga: 'hq_stockdetail_view', sa: 4_410_000, gav: 4_322_000, note: '' },
+  { ev: 'stock_order_submit', ga: 'stock_order_submit', sa: 2_784_000, gav: 2_770_100, note: '' },
+  { ev: 'kh_entry_khpg_pv', ga: 'kh_entry_khpg_pv', sa: 41_200, gav: 38_700, note: '開戶頁 iOS 埋點 10/09 才補上' },
+  { ev: 'kh_apply', ga: 'kh_apply', sa: 9_812, gav: 9_790, note: '' },
+  { ev: 'search_submit', ga: 'search_submit', sa: 812_000, gav: 744_000, note: 'Web 搜尋框未埋 GA（導入商處理中）' },
+  { ev: 'sip_purchase', ga: 'sip_purchase', sa: 6_300, gav: 6_280, note: '' },
+  { ev: 'act_click', ga: 'act_click', sa: 128_000, gav: 125_900, note: '' },
+  { ev: '$WebClick', ga: 'web_click', sa: 3_110_000, gav: 2_460_000, note: 'GA 自訂 web_click 只埋了主要按鈕（口徑差異，已記錄）' },
+  { ev: 'push_click', ga: 'notification_open', sa: 92_000, gav: 90_100, note: 'FCM 自動事件' },
+];
+export const MIG_USERS = { login_users: 1_812_440, both: 1_703_690, only_sa: 92_300, only_ga: 16_450, anon_sa: 7_920_000, anon_ga: 2_310_000 };
+export const MIG_TIMELINE = [
+  { t: 'T-8 週', date: '08/20', cn: '橋接表定稿，交 GA360 導入商', status: 'done' },
+  { t: 'T-6 週', date: '09/03', cn: '歷史首批載入測試環境；T1–T4', status: 'done' },
+  { t: 'T-4 週', date: '09/17', cn: 'GA360 上線，並行期開始；T5–T6', status: 'done' },
+  { t: 'T-1 週', date: '10/08', cn: '並行差異收斂（≤ 5%）；切換演練', status: 'now' },
+  { t: 'T0', date: '10/15', cn: '神策凍結；補導最終增量；最終對帳', status: 'todo' },
+  { t: 'T+1 週', date: '10/22', cn: '整合驗收（T7–T9）；神策 token 撤銷', status: 'todo' },
+];
+// 神策預置事件／屬性 → GA4（與 backend/migration/bridge.py 同一張表）
+export const MIG_PRESET_EVENTS = {
+  '$pageview': ['page_view', 'auto'], '$WebClick': ['web_click', 'custom'], '$WebStay': ['user_engagement', 'auto'], '$AppViewScreen': ['screen_view', 'auto'],
+  '$AppStart': ['app_start', 'custom'], '$AppEnd': ['app_end', 'custom'], '$AppClick': ['app_click', 'custom'], '$AppInstall': ['first_open', 'auto'],
+  '$SignUp': ['sign_up', 'recommended'], '$AppPushClick': ['notification_open', 'auto'], '$AppPushReceived': ['notification_receive', 'auto'],
+  '$AppCrashed': ['app_exception', 'auto'], '$ShortUrlRedirect': ['short_url_redirect', 'custom'],
+};
+export const MIG_PRESET_PROPS = { '$page_url': 'page_location', '$referrer': 'page_referrer', '$title': 'page_title', '$screen_name': 'firebase_screen', '$app_version': 'app_info.version', '$utm_source': 'traffic_source.source', '$utm_medium': 'traffic_source.medium', '$utm_campaign': 'traffic_source.name' };
+export const MIG_GA_SOURCES = ['GA360（App／Web 埋點）', 'GA360（App）', 'GA360（Web）', 'GA360'];

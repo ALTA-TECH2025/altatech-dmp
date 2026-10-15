@@ -1,5 +1,7 @@
 # Vibe Coding 開發計畫：分工、測試協同、拆解與「代碼級第一版」時程
 
+> **v1.1 調整（2026-10-16）**：第一階段不做 AI（§4 的工具閘道／agent／evals 與 §5 第 13–16 週的 AI 工作移到第二階段），主軸改為神策 → GA360 遷移與歷史資料銜接；里程碑與週次以 docs/22 §6 的 M1–M5（第 20 週驗收）為準，本文其餘分工、規則、測試協同仍適用，「AI 層」一人改做歷史資料導出／對帳工具。
+>
 > 版本 v0.1（2026-10-14）。前提：原型（prototype/）、後端骨架與契約（backend/openapi.yaml、semantic/*.yaml、mcp/tools.yaml、security/*.yaml）、部署套件（deploy/）已完成；範圍依 docs/13 v0.6（不寫回神策、無 AI Coach、無客服工單／營業員 App、Customer Match 不做、自建映像 6 個）。
 
 ## 0. 結論先講
