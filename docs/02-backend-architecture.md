@@ -14,6 +14,8 @@
 | **AI agent 原生** | 所有分析能力同時以「語意層 + 工具（MCP）」形式暴露給 AI agent；agent 產生的洞察是一級資料物件，可被訂閱、回饋、再利用 |
 | 可替換 | 每一層都可換成火山引擎 VeCDP／DataFinder 或神策對應產品 |
 
+> **第一階段註記（2026-10-16）**：計算層的 Flink 與 Kafka 第一階段不部署，改為「暫存 Parquet → ClickHouse SQL 標準化 → dbt／Airflow 微批」（docs/23 §2）；即時觸發與即時標籤第二階段再上 Flink（只做 CEP 一個 job）。本文其餘分層與元件職責不變。
+
 ## 2. 架構分層
 
 ```
