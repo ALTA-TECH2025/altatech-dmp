@@ -20,8 +20,8 @@ from .scheduler import RunResult
 
 
 class ClickHouseHTTP:
-    def __init__(self, url: str = "http://127.0.0.1:8123", user: str = "default", password: str = "", database: str = "default"):
-        self.url, self.user, self.password, self.database = url, user, password, database
+    def __init__(self, url: str = "http://127.0.0.1:8123", user: str = "default", password: str = "", database: str = "default", timeout: int = 600):
+        self.url, self.user, self.password, self.database, self.timeout = url, user, password, database, timeout
 
     def query(self, sql: str, data: bytes | None = None, settings: dict[str, Any] | None = None) -> str:
         params = {"user": self.user, "password": self.password, "database": self.database, **(settings or {})}
@@ -29,7 +29,7 @@ class ClickHouseHTTP:
             params["query"] = sql
         req = urllib.request.Request(self.url + "/?" + urllib.parse.urlencode(params), data=data if data is not None else sql.encode(), method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=120) as r:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 return r.read().decode()
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"ClickHouse {e.code}: {e.read().decode()[:600]}\nSQL: {sql[:300]}") from None

@@ -14,6 +14,8 @@ user_properties:
   - { key: has_margin, cn: 信用戶, type: bool, source: crm.cdc, update: daily, sensitivity: L2, filterable: true, groupable: true }
   - { key: churn_score, cn: 流失風險分, type: number, source: tag_engine.model, update: "daily 07:30", sensitivity: L2, filterable: true, groupable: true, buckets: [0, 40, 70, 100] }
   - { key: pref_market, cn: 偏好市場, type: enum, source: tag_engine.stat, update: "daily 06:00", sensitivity: L1, filterable: true, groupable: true }
+  - { key: aum, cn: 資產總額, type: number, source: ledger.batch, update: "daily 05:00", sensitivity: L2, filterable: true, groupable: false, note: 只給區間化與排序；匯出走 aum_bucket }
+  - { key: is_first_trade, cn: 是否首次交易, type: bool, source: tag_engine.rule, update: "daily 06:00", sensitivity: L1, filterable: true, groupable: true }
   - { key: last_active_at, cn: 最近活躍, type: datetime, source: event.derived, update: realtime, sensitivity: L1, filterable: true, groupable: false }
 write_protocol: [profile_set, profile_set_once, profile_increment, profile_append, profile_unset]
 forbidden_l4: [name, id_no, mobile, email, full_account_no, birth_date, address]

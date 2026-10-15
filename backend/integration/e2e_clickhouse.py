@@ -85,7 +85,7 @@ def main() -> int:
         modeling.set_key("k_idm", b"e2e-key-idm"); modeling.set_key("k_acct", b"e2e-key-acct")
         ch = None
         if binary:
-            proc = start_clickhouse(binary, work); ch = ClickHouseHTTP(f"http://127.0.0.1:{HTTP_PORT}")
+            proc = start_clickhouse(binary, work); ch = ClickHouseHTTP(f"http://127.0.0.1:{HTTP_PORT}", timeout=3600)
             for st in local_ddl((ROOT / "clickhouse" / "schema.sql").read_text(encoding="utf-8")):
                 ch.query(st)
             print("ClickHouse", ch.query("SELECT version()").strip(), "· tables:", ch.query("SELECT count() FROM system.tables WHERE database='dmp'").strip())
@@ -153,6 +153,8 @@ def main() -> int:
             same_ids = ch.scalar("SELECT count() FROM dmp.events e INNER JOIN dmp.events_sql s ON e.event_id = s.event_id AND e.event = s.event")
             assert same_ids == n_ev, (same_ids, n_ev)   # Python 路徑的每一筆都能在 SQL 路徑找到同 event_id 同事件名
             print(f"compile_sql path: {n_sql} rows (superset before enum/range cleansing); event_id/event match with python path: {same_ids}/{n_ev}")
+            if os.environ.get("E2E_USERS", "1") != "0":
+                main_users_bench(ch)
         print("status:", json.dumps([{k: x[k] for k in ('id', 'enabled', 'last', 'watermark')} for x in s.status(t0 + timedelta(hours=1))], ensure_ascii=False, default=str)[:600])
         print("alerts:", [a["message"] for a in s.alerts()])
         print("E2E OK")
@@ -164,6 +166,114 @@ def main() -> int:
             except subprocess.TimeoutExpired: proc.kill()
         shutil.rmtree(work, ignore_errors=True)
 
+
+
+# ---------------------------------------------------------------- 用戶表規模測試：N 萬用戶 × 300 屬性（寬表），日批快照覆蓋、即時微批、dictionary、事件關聯、SAMPLE
+KIND_OF = {"string": "enum", "enum": "enum", "number": "num", "bool": "flag", "date": "date", "datetime": "datetime"}
+CH_TYPE = {"enum": "LowCardinality(String)", "num": "Nullable(Float64)", "flag": "UInt8", "date": "Nullable(Date)", "datetime": "Nullable(DateTime64(3, 'UTC'))"}
+CAST_OF = {"enum": "{v}", "num": "toFloat64OrNull({v})", "flag": "toUInt8OrZero({v})", "date": "toDateOrNull({v})", "datetime": "parseDateTime64BestEffortOrNull({v}, 3)"}
+
+
+def prop_catalog(n_props: int) -> list[tuple[str, str, bool]]:
+    """(name, kind, registered)：前面是 user_properties.yaml 已登記（L0–L2）的屬性，其餘合成到 n_props（模擬還沒進 YAML、以 ALTER 加上的欄位）。"""
+    from backend.clickhouse.gen_users_ddl import columns, load_props
+    out = [(k, KIND_OF[y], True) for k, _, y in columns(load_props())]
+    kinds = ["num", "enum", "flag", "date"]; i = 0
+    while len(out) < n_props:
+        out.append((f"p{len(out):03d}_{kinds[i % 4]}", kinds[i % 4], False)); i += 1
+    return out
+
+
+def gen_expr(name: str, kind: str, idx: int, seed: int, changed: str | None = None) -> str:
+    """以 number 與 seed 決定的確定性值；changed 給了就只對該條件的用戶換值（模擬日批覆蓋）。"""
+    enums = {"lifecycle": ["新客", "成長", "成熟", "沉睡", "流失"], "tier": ["P1", "P2", "P3", "P4", "P5"], "age_band": ["<25", "25-34", "35-44", "45-54", "55-64", "65+"],
+             "gender": ["M", "F"], "aum_bucket": ["<10萬", "10–50萬", "50–100萬", "100–500萬", "≥500萬"], "pref_market": ["TSE", "OTC", "US", "HK"],
+             "branch_id": [f"B{i:03d}" for i in range(60)], "first_utm_source": ["google", "line", "fb", "direct", "edm"]}
+    vals = enums.get(name, ["A", "B", "C", "D", "E"]); arr = "[" + ", ".join(f"'{v}'" for v in vals) + "]"
+    def val(h: str) -> str:
+        return {"enum": f"{arr}[{h} % {len(vals)} + 1]", "num": f"round(({h} % 100000000) / 100, 2)", "flag": f"toUInt8({h} % 2)",
+                "date": f"toDate('2024-01-01') + ({h} % 900)", "datetime": f"toDateTime64('2026-01-01 00:00:00', 3) + ({h} % 1000000)"}[kind]
+    base = val(f"cityHash64(number, {seed}, {idx})")
+    if changed:
+        return f"if({changed}, {val(f'cityHash64(number, {seed + 1}, {idx})')}, {base}) AS `{name}`"
+    return f"{base} AS `{name}`"
+
+
+def users_bench(ch: ClickHouseHTTP, n_users: int, n_props: int, n_events: int) -> dict[str, float]:
+    import time as _t
+    t: dict[str, float] = {}
+    cat = prop_catalog(n_props)
+    one_id = "concat('v1_', substring(lower(hex(sipHash64(number))), 1, 20)) AS one_id"
+    cols = ", ".join(f"`{n}`" for n, _, _ in cat)
+
+    def timed(key: str, sql: str, settings: dict | None = None) -> str:
+        t0 = _t.perf_counter(); r = ch.query(sql, settings=settings); t[key] = round(_t.perf_counter() - t0, 2); return r
+
+    # 0) 未登記的合成屬性以 ALTER ADD COLUMN 加上（= 改 YAML 後重產 DDL 的效果；metadata-only）
+    adds = ", ".join(f"ADD COLUMN IF NOT EXISTS `{n}` {CH_TYPE[k]}" for n, k, reg in cat if not reg)
+    if adds:
+        timed("alter_add_columns", f"ALTER TABLE dmp.users_snapshot {adds}"); ch.query(f"ALTER TABLE dmp.users {adds}")
+    # 1) 日批：數據中台給寬表 Parquet（300 欄）→ users_snapshot（INSERT SELECT，不 UPDATE）；第 2 天 30% 用戶數值／枚舉／旗標換值
+    for day, seed, changed in (("2026-10-15", 11, None), ("2026-10-16", 11, "number % 10 < 3")):
+        exprs = ", ".join(gen_expr(n, k, i, seed, changed if k in ("num", "flag", "enum") else None) for i, (n, k, _) in enumerate(cat))
+        timed(f"gen_parquet_{day}", f"INSERT INTO FUNCTION file('users_{day}.parquet', 'Parquet') SELECT toDate('{day}') AS snapshot_date, {one_id}, {exprs} FROM numbers({n_users})",
+              {"engine_file_truncate_on_insert": 1, "max_insert_threads": 4})
+        timed(f"load_snapshot_{day}", f"INSERT INTO dmp.users_snapshot (snapshot_date, one_id, {cols}) SELECT snapshot_date, one_id, {cols} FROM file('users_{day}.parquet', 'Parquet')",
+              {"max_insert_threads": 4, "max_threads": 4})
+        timed(f"refresh_users_{day}", f"INSERT INTO dmp.users (one_id, {cols}, first_seen, updated_at) SELECT one_id, {cols}, toDateTime64('{day} 05:00:00', 3), toDateTime64('{day} 05:00:00', 3) FROM dmp.users_snapshot WHERE snapshot_date = toDate('{day}')",
+              {"max_insert_threads": 4})
+    assert ch.scalar("SELECT count() FROM dmp.users_snapshot") == 2 * n_users
+    assert ch.scalar("SELECT count() FROM dmp.users FINAL") == n_users
+    diff = ch.scalar("SELECT count() FROM (SELECT one_id, anyIf(aum, snapshot_date=toDate('2026-10-15')) a1, anyIf(aum, snapshot_date=toDate('2026-10-16')) a2 FROM dmp.users_snapshot GROUP BY one_id HAVING a1 != a2)")
+    assert 0.25 * n_users < diff < 0.35 * n_users, diff
+    assert ch.scalar("SELECT count() FROM dmp.users FINAL WHERE toDate(updated_at) = toDate('2026-10-16')") == n_users
+    timed("q_users_final_filter", "SELECT count() FROM dmp.users FINAL WHERE aum_bucket = '≥500萬' AND is_first_trade = 1 FORMAT TSV")
+    timed("q_users_final_cold_prop", "SELECT p120_enum, count() FROM dmp.users FINAL GROUP BY 1 ORDER BY 1 FORMAT TSV")
+    timed("q_users_history_asof", "SELECT snapshot_date, aum_bucket, count() FROM dmp.users_snapshot GROUP BY 1, 2 ORDER BY 1, 2 FORMAT TSV")
+    # 2) 即時零星更新：5% 用戶 profile_set lifecycle → 微批合併進 users（每欄 if(mapContains) 由欄位清單產生）
+    k = max(1, n_users // 20)
+    ch.query(f"INSERT INTO dmp.user_prop_log SELECT one_id, 'lifecycle', '流失', 'set', toDateTime64('2026-10-16 09:10:00', 3) FROM (SELECT {one_id} FROM numbers({k}))")
+    merged = ", ".join(f"if(mapContains(l.m, '{n}'), {CAST_OF[kd].format(v=f'l.m[\'{n}\']')}, u.`{n}`) AS `{n}`" for n, kd, _ in cat)
+    timed("microbatch_merge_prop_log", f"""INSERT INTO dmp.users (one_id, {cols}, first_seen, updated_at)
+        SELECT u.one_id, {merged}, u.first_seen, l.last_ts
+        FROM (SELECT one_id, mapFromArrays(groupArray(prop), groupArray(last_value)) AS m, max(prop_ts) AS last_ts
+              FROM (SELECT one_id, prop, argMax(value, ts) AS last_value, max(ts) AS prop_ts FROM dmp.user_prop_log WHERE ts > toDateTime64('2026-10-16 09:00:00', 3) GROUP BY one_id, prop) GROUP BY one_id) AS l
+        INNER JOIN dmp.users AS u FINAL ON u.one_id = l.one_id""")
+    assert ch.scalar("SELECT count() FROM dmp.users FINAL WHERE lifecycle = '流失' AND toDateTime(updated_at) = toDateTime('2026-10-16 09:10:00')") == k
+    assert ch.scalar("SELECT count() FROM dmp.users FINAL") == n_users           # 合併不會多出列
+    assert ch.scalar("SELECT count() FROM dmp.users FINAL WHERE toDateTime(updated_at) = toDateTime('2026-10-16 09:10:00') AND aum IS NULL") == 0   # 其他屬性保留
+    # 3) dictionary：熱欄位載入時間與記憶體
+    timed("dict_reload", "SYSTEM RELOAD DICTIONARY dmp.users_dict")
+    row = ch.query("SELECT element_count, round(bytes_allocated/1048576), status FROM system.dictionaries WHERE name='users_dict' FORMAT TSV").strip().split("\t")
+    assert int(row[0]) == n_users and row[2] == "LOADED", row
+    t["dict_mb"] = float(row[1])
+    # 4) 事件 × 用戶屬性：生成 n_events 筆事件（分佈在全部用戶）→ dictGet 分組、JOIN 冷屬性、SAMPLE 一致性、漏斗
+    timed("gen_events", f"""INSERT INTO dmp.events (project, time, event, source, one_id, distinct_id, event_id, platform, symbol, props, ingest_time, schema_version, batch_id)
+        SELECT 'altatech_dmp', toDateTime64('2026-10-01 01:00:00', 3) + (number % 1296000) * 2, ['hq_stockdetail_view','bond_order','bond_deal','app_login_success','$pageview'][number % 5 + 1], 'bench',
+               concat('v1_', substring(lower(hex(sipHash64(number % {n_users}))), 1, 20)) AS oid, oid, lower(hex(cityHash64(number, 7))), ['iOS','Android','Web'][number % 3 + 1],
+               toString(2300 + number % 300), CAST('{{}}', 'JSON'), now64(3), 1, 'bench'
+        FROM numbers({n_events})""", {"max_insert_threads": 4})
+    timed("optimize_events", "OPTIMIZE TABLE dmp.events FINAL")
+    timed("q_dictget_group", "SELECT dictGet('dmp.users_dict', 'aum_bucket', one_id_uint) AS g, uniqExact(one_id) FROM dmp.events WHERE event = 'bond_deal' AND source='bench' GROUP BY g ORDER BY g FORMAT TSV")
+    timed("q_dictget_filter_funnel", "SELECT level, count() FROM (SELECT one_id, windowFunnel(604800)(toDateTime(time), event='hq_stockdetail_view', event='bond_order', event='bond_deal') AS level FROM dmp.events WHERE source='bench' AND dictGet('dmp.users_dict', 'lifecycle', one_id_uint) = '成長' GROUP BY one_id) GROUP BY level ORDER BY level FORMAT TSV")
+    timed("q_join_cold_prop", "SELECT u.g, count() FROM dmp.events e INNER JOIN (SELECT one_id, p120_enum AS g FROM dmp.users FINAL) u ON e.one_id = u.one_id WHERE e.source='bench' AND e.event='bond_order' GROUP BY u.g ORDER BY u.g FORMAT TSV")
+    full = ch.scalar("SELECT count() FROM dmp.events WHERE source='bench' AND one_id IN (SELECT DISTINCT one_id FROM dmp.events SAMPLE 1/10 WHERE source='bench')")
+    sampled = ch.scalar("SELECT count() FROM dmp.events SAMPLE 1/10 WHERE source='bench'")
+    assert full == sampled, (full, sampled)                                       # 抽到的用戶，事件全在樣本裡（按用戶分桶）
+    t["sample_ratio"] = round(sampled / n_events, 3)
+    timed("q_path_sample", "SELECT count() FROM (SELECT one_id, groupArray(event) FROM dmp.events SAMPLE 1/10 WHERE source='bench' GROUP BY one_id) FORMAT TSV")
+    t["events_disk_mb"] = float(ch.query("SELECT round(sum(bytes_on_disk)/1048576) FROM system.parts WHERE database='dmp' AND table='events' AND active").strip())
+    t["users_disk_mb"] = float(ch.query("SELECT round(sum(bytes_on_disk)/1048576) FROM system.parts WHERE database='dmp' AND table IN ('users','users_snapshot') AND active").strip())
+    t["server_rss_mb"] = float(ch.query("SELECT round(value/1048576) FROM system.asynchronous_metrics WHERE metric='MemoryResident'").strip() or 0)
+    return t
+
+
+def main_users_bench(ch: ClickHouseHTTP) -> None:
+    n_users = int(os.environ.get("E2E_USERS", "200000")); n_props = int(os.environ.get("E2E_PROPS", "300")); n_events = int(os.environ.get("E2E_EVENTS", "1000000"))
+    print(f"--- users bench: {n_users:,} users × {n_props} props (wide table), {n_events:,} events")
+    t = users_bench(ch, n_users, n_props, n_events)
+    for k, v in t.items():
+        print(f"  {k:<32} {v:>10}")
 
 if __name__ == "__main__":
     sys.exit(main())

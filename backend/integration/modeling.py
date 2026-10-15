@@ -425,8 +425,8 @@ def to_ch_row(model: Model, rec: dict[str, Any], project: str = "altatech_dmp", 
                "ingest_time": ingest_ms, "schema_version": 1, "late": 0, "batch_id": rec.get("batch_id", "")}
         row["props"]["$identities"] = rec.get("identities", {})
         return row
-    if model.entity == "user":
-        return {"one_id": rec["one_id"], "props": rec["props"], "first_seen": ingest_ms, "updated_at": ingest_ms}
+    if model.entity == "user":   # 寬表：已登記屬性直接是欄位，未登記的進 props_extra
+        return {"one_id": rec["one_id"], **rec["props"], "props_extra": {}, "first_seen": ingest_ms, "updated_at": ingest_ms}
     key = model.raw["target"]["key"]
     props = dict(rec["props"])
     return {key: props.pop(key), "props": props, "updated_at": ingest_ms}
@@ -467,7 +467,7 @@ def compile_sql(model: Model, raw_table: str, project: str = "altatech_dmp", bat
         for r in model.cleansing:
             if r["rule"] == "required":
                 where += [f"{src_of[f]} IS NOT NULL AND toString({src_of[f]}) != ''" for f in r["fields"] if f in src_of]
-        sql = f"""INSERT INTO {model.target_table}
+        sql = f"""INSERT INTO {model.target_table} (project, time, event, source, one_id, entity_type, entity_id, distinct_id, session_id, event_id, platform, app_id, symbol, side, channel, amount, utm_source, utm_campaign, props, ingest_time, schema_version, late, batch_id)
 SELECT
   '{project}' AS project,
   toDateTime64({tm['field']}, 3, '{tm.get('tz', 'Asia/Taipei')}') AS time,

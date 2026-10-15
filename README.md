@@ -46,6 +46,7 @@ backend/                                            後端骨架（可讀、可�
   security/rbac.yaml  masking.yaml  policy.py                           角色矩陣、欄位隱碼策略、Policy Engine（authorize）骨架
   activation/destinations.yaml  webhook.py                           受眾名單推送目的地、Webhook 簽章／批次／重試
   oneid/attribution.py  semantic/oneid_rules.yaml                     OneID 歸戶參考實作與規則表（含登入改寫，10 個情境自測）
+  clickhouse/schema.sql  gen_users_ddl.py                 熱層 DDL（events 按用戶分桶與 SAMPLE BY、用戶寬表快照／現況／屬性日誌／dictionary 由 user_properties.yaml 產生、隔離區、對帳表）
   clickhouse/audit.sql                             審計表、日誌統計物化視圖、row policy 與 masking view
   clickhouse/schema.sql  clickhouse/insight_store.sql      熱層 DDL、Insight Store（PostgreSQL + pgvector）
   docker-compose.yml                               本機開發環境（Kafka、ClickHouse、PostgreSQL、Valkey、物件儲存）

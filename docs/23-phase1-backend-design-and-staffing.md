@@ -90,6 +90,14 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 - 測試：每來源一組 fixture（含遲到、重送、未知事件名、拒絕同意）；三方對帳表每批自動寫；差異 > 0.1% 的日分片自動重跑。
 - 效能目標：神策歷史 70 億筆以 `INSERT SELECT FROM s3()` 載入，單節點 ≥ 100 萬列/秒。
 
+### 4.1b users（用戶表；對應神策 Kudu 用戶表）— 含在 ingest 人日內
+
+- **寬表，不用 JSON 放 300 個屬性**：每個屬性一個實體欄位，DDL 由 `user_properties.yaml` 經 `backend/clickhouse/gen_users_ddl.py` 產生；新增屬性 = 改 YAML + `ALTER TABLE ADD COLUMN`（metadata-only，毫秒）。實測 100k 列 × 300 屬性：寬表載入 2.8 s、JSON 欄位 16 s，磁碟與查詢相近；JSON 還會把 100 存成 Int64、100.5 存成 Float64，型別子欄位讀取踩雷。未登記的零星屬性放 `props_extra JSON`。
+- **日批覆蓋 = 插入新快照，不 UPDATE**：數據中台的寬表 Parquet → `users_snapshot`（按快照日分區，保留 N 天屬性歷史）→ `users` 現況表（ReplacingMergeTree，以更新時間為版本，查詢 FINAL）。
+- **即時零星更新**：`user_prop_log` 每屬性一列，每 10 分鐘微批以「每欄 if(mapContains(...))」合併進 `users`，SQL 由欄位清單產生。
+- **事件關聯用戶屬性**：可篩選／可分組的熱欄位（≤ 50）載成 dictionary，事件查詢 `dictGet`；其餘走 `users FINAL` JOIN。
+- 端到端測試 `e2e_clickhouse.py` 的 users bench 段以 `E2E_USERS`／`E2E_PROPS`／`E2E_EVENTS` 控制規模，量出載入、FINAL 查詢、微批合併、dictionary 記憶體、dictGet 分組、SAMPLE 一致性（實測 200 萬用戶 × 300 屬性：快照載入 161 s、現況覆蓋 70 s、FINAL 篩選 0.34 s、10 萬筆微批合併 11.9 s、dictionary 1.34 GB、1,000 萬事件 dictGet 分組 0.44 s；完整表見 backend/integration/README）。
+
 ### 4.2 oneid — 12 人日
 
 - 已有 `attribution.py` 的規則與自測；補 `bind_service`（REST + 批次）、`backfill_job`（每 10 分鐘：查 `oneid_backfill` 待套用 → `ALTER TABLE UPDATE` 限近 8 個日分區 → 標記完成）、`merge_split`（審批單 → 重算 id_map → 審計）、DSAR。
@@ -173,7 +181,7 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 
 ### 6.2 把剩下的 ClickHouse 工作變成「可學、可測、可審」
 
-1. **設計一次定稿，之後不碰**：排序鍵 `(project, event_date, event, one_id, time, event_id)`（接入端到端測試已抓到一個教訓：ReplacingMergeTree 以排序鍵去重，少了 event_id 時同客戶同事件同秒的兩筆會被合併掉）、月分區、高頻屬性物化欄位、三層 MV。第 2 週用 1 千萬筆合成資料驗證五個樣板的掃描量與耗時，第 3 週請顧問做第一次審查。之後改 schema 要走設計審查。
+1. **設計一次定稿，之後不碰**：排序鍵 `(project, event_date, event, one_id, time, event_id)`（接入端到端測試已抓到一個教訓：ReplacingMergeTree 以排序鍵去重，少了 event_id 時同客戶同事件同秒的兩筆會被合併掉）、`SAMPLE BY one_id_uint`（等同神策按用戶分桶：抽到的用戶事件全在樣本裡，路徑分析 1/10 抽樣因此按人一致）、月分區、高頻屬性物化欄位、三層 MV。第 2 週用 1 千萬筆合成資料驗證五個樣板的掃描量與耗時，第 3 週請顧問做第一次審查。之後改 schema 要走設計審查。
 2. **五個樣板人寫，AI 寫變體**：每個樣板附「為什麼這樣寫」的註解、`EXPLAIN` 期望、golden 結果。AI 產生的每一條 SQL 都要通過 golden 答案集與 `EXPLAIN ESTIMATE` 掃描量門檻（≤ 樣板 1.5 倍），不通過 CI 直接擋。
 3. **效能基準提早、每週跑**：第 4 週起 1 億筆、固定 40 條查詢、P95 對 SLA；超標當週處理，不累積到 10 億才發現。
 4. **查詢守門在伺服器端**：settings profile 限掃描量、逾時、併發；工作負載隔離（human／batch／sql_user）。即使寫出爛查詢，也只是該查詢逾時，不拖垮系統。
