@@ -18,7 +18,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│ 體驗層   DMP Web（原型 /prototype）│ AI 洞察助理（Chat）│ 營運觸發 │ 外部 MA / 內部系統 Webhook / GA4 受眾 │
+│ 體驗層   DMP Web（原型 /prototype）│ AI 洞察助理（Chat）│ 營運觸發 │ 內部系統 Webhook／Kafka／GCS 名單推送 │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │ Agent 層 Insight Agent Runtime（排程 / 問答 / 事件驅動 agent）                             │
 │          Agent Tool Gateway（MCP Server：query_metric / run_funnel / … 權限、預算、脫敏）   │
@@ -32,7 +32,7 @@
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │ 儲存層   Kafka │ ClickHouse（熱）│ Iceberg on GCS（機房：SeaweedFS）（冷）│ PostgreSQL + pgvector │ Valkey      │
 ├─────────────────────────────────────────────────────────────────────────────────┤
-│ 接入層   GA360 Importer │ GTM Server-side 雙寫 │ Collector API（神策相容）│ Debezium CDC │ 匯入 │
+│ 接入層   GA360 Importer（BigQuery 日批 + 串流）│ Collector API（神策相容）│ Debezium CDC │ 匯入 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -42,10 +42,10 @@
 
 | 元件 | 技術 | 職責 | 擴展點 |
 |---|---|---|---|
-| Collector API | Go / FastAPI | 神策相容 `/sa`、原生 `/v1/events`、GA4 MP `/ga4`；校驗、脫敏、寫 Kafka | 事件字典、禁止欄位規則 |
+| Collector API | Go / FastAPI | 神策相容 `/sa`、原生 `/v1/events`（App／內部系統直送）；校驗、脫敏、寫 Kafka | 事件字典、禁止欄位規則 |
 | GA360 Importer | Airflow + Spark（BigQuery Storage Read API） | 日批／Fresh 匯入、對帳、覆蓋 | 映射表 `backend/semantic/ga4_mapping.yaml` |
 | Trade Eventizer | Flink | CDC 列變更 → 業務事件（狀態機） | 狀態機 YAML |
-| OneID Service | Flink + Redis + ClickHouse `id_map` + gRPC/REST | 即時解析與合併、日批校正、拆分、DSAR | ID 優先級表、合併限制規則 |
+| OneID Service | Flink + Valkey + ClickHouse `id_map` + REST | 接入時歸戶（一個 ID 只屬一人、不自動合併、首次關聯升級、改綁政策）、人工合併／拆分、DSAR | `semantic/oneid_rules.yaml`（docs/19） |
 | Semantic Layer | Python（`backend/semantic`） | 指標／維度／事件語意定義；編譯為 ClickHouse SQL；成本估算 | 新增 metric / dimension 只改 YAML |
 | Analytics Query API | FastAPI | 事件、漏斗、留存、路徑、間隔、分布、歸因、LTV、Session、細查 | 分析模型以 plugin 註冊 |
 | Segment & Tag Service | FastAPI + Spark + ClickHouse Bitmap | 規則／SQL／即時／模型標籤；分群交併差；快照 | 標籤計算器 plugin |
@@ -70,7 +70,7 @@
 
 | 群組 | 端點 | 說明 |
 |---|---|---|
-| Ingest | `POST /v1/events`、`POST /sa`、`POST /ga4` | 事件寫入 |
+| Ingest | `POST /v1/events`、`POST /sa` | 事件寫入（GA360 由 Importer 從 BigQuery 匯出拉取，不經 Collector） |
 | Semantic | `GET /v1/semantic/metrics`、`GET /v1/semantic/dimensions`、`GET /v1/semantic/events`、`POST /v1/semantic/compile` | 語意層目錄與 SQL 編譯（dry-run、成本） |
 | Analytics | `POST /v1/analytics/{events,funnel,retention,path,interval,distribution,attribution,ltv,session}` | 分析模型 |
 | Profile | `GET /v1/profiles/{one_id}`、`GET /v1/profiles/{one_id}/timeline` | 畫像、用戶細查 |
@@ -122,7 +122,7 @@ Kafka dmp.events ─► Flink CEP（規則）─► dmp.triggers ─► 訂閱�
 |---|---|---|
 | dmp-core | API、語意層、分群標籤、OneID、Profile、Policy Engine、Tag Sync、受眾推送（Python 模組化單體） | `DMP_ROLE=api`／`worker` 兩種 Deployment |
 | dmp-agent | Tool Gateway（MCP）+ Agent Runtime + 洞察排程 | 第一階段不含 AI 時 replicas=0 |
-| dmp-ingest | Go Collector（/v1/events、/sa、/ga4） | HPA；CDC 由 KafkaConnect 跑官方 Debezium |
+| dmp-ingest | Go Collector（/v1/events、/sa） | HPA；CDC 由 KafkaConnect 跑官方 Debezium；GA360 由 dmp-batch 的 Importer 拉 BigQuery |
 | dmp-batch | Airflow（LocalExecutor）+ dbt + Spark client + dlt | 一個 Pod；CronJob／PodOperator 共用 |
 | dmp-flink-jobs | Flink SQL 作業集 | 一個 FlinkDeployment |
 | dmp-web | 前端靜態檔（nginx-unprivileged） | |

@@ -54,7 +54,7 @@ flowchart TB
     KF[(Kafka)] --- CH[(ClickHouse)] --- PG[(PostgreSQL + pgvector)] --- VK[(Valkey)] --- OBJ[(GCS / 物件儲存<br/>Iceberg 冷層)]
   end
   subgraph ING[接入層]
-    COL[Collector Go<br/>/v1/events /sa /ga4] --- GA[GA360 Importer<br/>BigQuery + GTM SS] --- CDC[Debezium / Flink CDC] --- BAT[dlt / SeaTunnel 批次匯入<br/>神策歷史一次性]
+    COL[Collector Go<br/>/v1/events /sa] --- GA[GA360 Importer<br/>BigQuery 日批 + 串流] --- CDC[Debezium / Flink CDC] --- BAT[dlt / SeaTunnel 批次匯入<br/>神策歷史一次性]
   end
   SRC[資料來源：GA360 · 交易系統 · CRM · MA · 神策歷史（一次性匯入）] --> ING --> STO --> CMP --> SVC --> AGENT --> EXP
   SEC[安全：Keycloak · RBAC · 隱碼 · KMS · 審計 WORM]:::x -.-> SVC
@@ -67,7 +67,7 @@ flowchart TB
 ```mermaid
 flowchart LR
   subgraph EXTS[外部]
-    BQ[GA360 / BigQuery] ; GTM[GTM Server-side] ; MS[交易主機 MSSQL] ; CRM[CRM PostgreSQL] ; SA[神策歷史 一次性] ; LLMG[LLM Gateway]
+    BQ[GA360 / BigQuery 匯出] ; MS[交易主機 MSSQL] ; CRM[CRM PostgreSQL] ; SA[神策歷史 一次性] ; LLMG[LLM Gateway]
   end
   subgraph GKE[GKE asia-east1 / RKE2]
     subgraph P1[ingest pool]
@@ -96,7 +96,7 @@ flowchart LR
   subgraph DOWN[下游]
     MA[MA] ; DW[數倉 / CRM]
   end
-  BQ --> C1 ; GTM --> C1 ; MS --> C2 ; CRM --> C2 ; SA --> D1
+  BQ --> A1 ; MS --> C2 ; CRM --> C2 ; SA --> D1
   C1 --> K1 --> F1 --> CH1 ; D1 --> CH1 ; CH1 --> API --> MCP --> LLMG
   API --> SQL ; API --> MEM ; CH1 --> GCS ; K1 --> MA ; MCP --> MA ; GCS --> DW
   ING --> C1 ; ING --> API ; ING --> WEB
@@ -105,7 +105,7 @@ flowchart LR
 ### 數據流
 ```mermaid
 flowchart LR
-  S1[GA360 / GTM SS] --> I1[Collector / Importer] --> R[(Kafka raw.*)]
+  S1[GA360 BigQuery 匯出] --> I1[Importer] --> R[(Kafka raw.*)]
   S2[交易主機 MSSQL] --> I2[Debezium CDC] --> R
   S3[CRM / MA] --> I3[dlt 批次] --> R
   S4[神策歷史事件 一次性] -.匯入.-> ICE

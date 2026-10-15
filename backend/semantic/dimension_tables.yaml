@@ -1,0 +1,31 @@
+# 維度表／維度字典／虛擬屬性（對齊神策「元數據管理 › 維度表、維度字典、虛擬屬性」）
+# 維度表 = 以「事件／用戶屬性值 = 維度表主鍵」關聯的外部表，欄位成為可篩選／分組的「關聯屬性」。
+# 維度表不是獨立主體：事件永遠屬於用戶（one_id）；帳戶只是客戶的多值 ID（docs/19），dim_account 只補帳戶的維度。
+# 來源由「數據整合 › 同步任務」寫入（upsert by 主鍵／全量覆蓋）或 item_set 協議上報。
+rules:
+  join_key_must_be_unique: true          # 否則查詢放大列數
+  max_rows_for_join: 1000000             # 超過改 dictGet（ClickHouse dictionary），不走 JOIN
+  prefer_event_property_when_available: true
+  exposed_columns_become_dimensions: true # 寫進 dimensions.yaml（name 形如 dim_instrument.industry）
+dimension_tables:
+  - { id: dim_instrument, cn: 商品主檔, primary_key: symbol, item_type: instrument, join: [{ table: events, column: symbol }], source: sync_instrument, sync: "daily 05:30", engine: dictionary,
+      columns: [{ key: name, cn: 商品名稱, type: string, sensitivity: L0 }, { key: market, cn: 市場, type: enum, sensitivity: L0 }, { key: industry, cn: 產業, type: string, sensitivity: L0 }, { key: type, cn: 類型, type: enum, sensitivity: L0 }, { key: is_etf, cn: ETF, type: bool, sensitivity: L0 }, { key: lot_size, cn: 交易單位, type: number, sensitivity: L0, exposed: false }] }
+  - { id: dim_account, cn: 帳戶主檔, primary_key: account_no, item_type: account, join: [{ table: events, column: account_no }], source: sync_account, sync: realtime_cdc, engine: dictionary, row_level_keys: [branch_id, agent_id],
+      columns: [{ key: account_type, cn: 帳戶類型, type: enum, sensitivity: L1 }, { key: branch_id, cn: 分公司, type: string, sensitivity: L1 }, { key: agent_id, cn: 營業員, type: string, sensitivity: L3 }, { key: opened_at, cn: 開戶日, type: date, sensitivity: L1, exposed: false }, { key: status, cn: 狀態, type: enum, sensitivity: L1 }, { key: margin_enabled, cn: 信用, type: bool, sensitivity: L2 }] }
+  - { id: dim_branch, cn: 分公司, primary_key: branch_id, item_type: branch, join: [{ table: events, column: branch_id }, { table: users, column: branch_id }], source: sync_org, sync: daily, engine: dictionary,
+      columns: [{ key: name, cn: 名稱, type: string, sensitivity: L0 }, { key: region, cn: 區域, type: enum, sensitivity: L0 }, { key: manager_id, cn: 主管, type: string, sensitivity: L3, exposed: false }] }
+  - { id: dim_agent, cn: 營業員, primary_key: agent_id, item_type: agent, join: [{ table: users, column: agent_id }], source: sync_org, sync: daily, engine: dictionary,
+      columns: [{ key: branch_id, cn: 分公司, type: string, sensitivity: L1 }, { key: team, cn: 組別, type: string, sensitivity: L1 }, { key: level, cn: 職級, type: enum, sensitivity: L2 }, { key: active, cn: 在職, type: bool, sensitivity: L1 }] }
+  - { id: dim_campaign, cn: 行銷活動, primary_key: campaign_id, item_type: campaign, join: [{ table: events, column: campaign_id }, { table: events, column: utm_campaign, dim_column: utm_name }], source: sync_campaign, sync: hourly, engine: dictionary,
+      columns: [{ key: name, cn: 活動名稱, type: string, sensitivity: L0 }, { key: channel, cn: 渠道, type: enum, sensitivity: L0 }, { key: start_at, cn: 開始, type: date, sensitivity: L0, exposed: false }, { key: end_at, cn: 結束, type: date, sensitivity: L0, exposed: false }, { key: budget_bucket, cn: 預算區間, type: enum, sensitivity: L2 }, { key: owner, cn: 負責人, type: string, sensitivity: L1, exposed: false }] }
+dictionaries:   # 屬性值 → 顯示名；1:1 或 N:1；只限文字／數值屬性；上傳模式 append | overwrite
+  - { property: reason_code, mode: n_to_1, source: manual_upload, entries: { E001: 餘額不足, E012: 漲跌停, E020: 零股限制, E031: 額度不足, SYS02: 委託閘道逾時, SYS03: 委託閘道逾時 } }
+  - { property: market, mode: 1_to_1, source: manual_upload, entries: { TSE: 上市, OTC: 上櫃, US: 美股, HK: 港股, FUND: 基金 } }
+  - { property: channel, mode: 1_to_1, source: manual_upload, entries: { app: App, web: 官網, agent: 營業員, ivr: 語音, api: API } }
+  - { property: branch_id, mode: 1_to_1, source: { dimension_table: dim_branch, column: name } }
+  - { property: kyc_level, mode: 1_to_1, source: manual_upload, entries: { L1: 基本, L2: 進階, L3: 完整 } }
+virtual_properties:   # 表達式組合屬性與維度表欄位；查詢時計算、不落地；名稱不可與既有屬性重複；≤ 1024 字元
+  - { name: v.symbol_industry, cn: 成交商品產業, scope: event, expr: "dictGet('dim_instrument', 'industry', symbol)", uses: [dim_instrument] }
+  - { name: v.amount_bucket, cn: 金額區間, scope: event, expr: "multiIf(amount < 1e5, '<10萬', amount < 5e5, '10–50萬', amount < 1e6, '50–100萬', '≥100萬')", uses: [] }
+  - { name: v.is_office_hour, cn: 盤中, scope: event, expr: "toHour(time) BETWEEN 9 AND 13", uses: [] }
+  - { name: v.account_age_band, cn: 開戶年資, scope: user, expr: "multiIf(account_age_days < 30, '新戶', account_age_days < 365, '1 年內', '1 年以上')", uses: [] }

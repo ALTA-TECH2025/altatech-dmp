@@ -46,15 +46,32 @@ CREATE TABLE IF NOT EXISTS dmp.users
 ENGINE = ReplicatedReplacingMergeTree('/ch/{shard}/dmp.users', '{replica}', updated_at)
 ORDER BY one_id;
 
-CREATE TABLE IF NOT EXISTS dmp.items
+-- 維度表（docs/06 §7.2）：每張一表，主鍵 = 事件／用戶屬性值；< 100 萬列以 JOIN，否則建 dictionary 用 dictGet
+CREATE TABLE IF NOT EXISTS dmp.dim_instrument
 (
-    item_type    LowCardinality(String),   -- account | instrument | agent | branch | campaign | content
-    item_id      String,
-    props        JSON,
+    symbol       String,                   -- 主鍵 = events.symbol
+    props        JSON,                     -- name, market, industry, type, is_etf, lot_size
     updated_at   DateTime64(3, 'UTC')
 )
-ENGINE = ReplicatedReplacingMergeTree('/ch/{shard}/dmp.items', '{replica}', updated_at)
-ORDER BY (item_type, item_id);
+ENGINE = ReplicatedReplacingMergeTree('/ch/{shard}/dmp.dim_instrument', '{replica}', updated_at)
+ORDER BY symbol;
+-- dim_account（主鍵 account_no，180 萬列 → dictionary）、dim_branch、dim_agent、dim_campaign 同型，由同步任務 upsert／全量覆蓋
+
+-- 登入改寫覆蓋表（docs/19 §2.5）：微批把近 7 天匿名事件的 one_id 改到登入客戶前，查詢層以本表在 SQL 編譯時覆蓋
+CREATE TABLE IF NOT EXISTS dmp.oneid_backfill
+(
+    distinct_id  String,
+    from_time    DateTime64(3, 'UTC'),
+    to_time      DateTime64(3, 'UTC'),
+    anon_one_id  String,
+    target_one_id String,
+    applied      UInt8 DEFAULT 0,
+    created_at   DateTime64(3, 'UTC')
+)
+ENGINE = ReplicatedReplacingMergeTree('/ch/{shard}/dmp.oneid_backfill', '{replica}', created_at)
+ORDER BY (distinct_id, from_time);
+-- 套用：ALTER TABLE dmp.events UPDATE one_id = target, one_id_uint = cityHash64(target)
+--       WHERE distinct_id IN (...) AND event_date BETWEEN d-7 AND d AND one_id IN (anon_one_ids)  -- 只動近 8 個日分區
 
 CREATE TABLE IF NOT EXISTS dmp.id_map
 (

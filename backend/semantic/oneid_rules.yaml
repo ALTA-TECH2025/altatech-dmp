@@ -1,0 +1,46 @@
+# OneID 歸戶規則（對齊神策 IDM 3.0「全域用戶關聯」的運作方式；docs/19）
+# 原則：
+#   1. 歸戶在接入時決定，事件寫入即定 one_id；未登入的行為事件以 distinct_id（cookie／裝置／匿名 ID）歸到匿名用戶。
+#      登入事件到達時做歸戶，並把該 distinct_id 近 7 天仍屬匿名用戶的事件改寫到登入客戶（login_backfill）；更早的事件不動。
+#   2. 一個 ID 同一時刻只屬於一個用戶；兩個已存在的用戶不自動合併（只有人工工具可合併／拆分，需審批與審計）。
+#   3. 同一條資料裡多個 ID 分屬不同用戶 → 資料歸「優先級最高的 ID」所屬用戶；可改綁的 ID 從舊用戶解綁、綁到該用戶。
+#   4. 孤立的 ID 永遠不會打通：只有同一條資料（事件或 bind 指令）裡共現的 ID 才會建立關聯。
+#   5. 登入帳號（客戶代碼）優先級最高、單值、不可改、不可解綁。
+version: 1
+alias:                                   # 接入時先正規化：同源 ID 併成同一類型
+  $identity_ga_user_id: $identity_login_id      # GA user_id 已是 HMAC 客戶代碼，直接視為 login_id
+ids:
+  - { key: $identity_login_id,    cn: 客戶代碼（HMAC）, priority: 1, cardinality: single, rebind: never,  source: [crm, app_backend, ga360.user_id], note: 唯一錨點；一旦綁定不可改、不可解綁 }
+  - { key: $identity_mobile_hash, cn: 手機（HMAC）,     priority: 2, cardinality: single, rebind: manual, source: [crm, account_open], note: 換號由 CRM 發 unbind+bind；同手機被第二個客戶綁定 → 不改綁、記 conflict 待人工 }
+  - { key: $identity_account_no,  cn: 交易帳號（FPE）,  priority: 3, cardinality: multi,  rebind: manual, source: [trade_core, crm], note: 一客多戶；帳戶改隸罕見，需人工 }
+  - { key: $identity_device_id,   cn: 裝置 ID,          priority: 4, cardinality: multi,  rebind: latest, source: [ga360], note: 共用裝置：最新登入者取得，舊用戶保留歷史 }
+  - { key: $identity_cookie_id,   cn: GA client_id,     priority: 5, cardinality: multi,  rebind: latest, source: [ga360], note: 清 cookie 即新 ID；登入前事件先歸匿名用戶，登入時近 7 天改寫到客戶 }
+  - { key: $identity_anonymous_id, cn: 匿名 ID,         priority: 6, cardinality: multi,  rebind: latest, source: [collector], note: 兜底 }
+  - { key: $identity_line_uid,    cn: LINE UID,         priority: 9, cardinality: multi,  rebind: latest, source: [ma], participates: false, note: 觸達渠道；只做輸出對應，不參與歸戶 }
+strong_ids: [$identity_login_id, $identity_mobile_hash, $identity_account_no]   # 有任一強 ID 的用戶才算「已識別客戶」
+anonymous_user:
+  create_from: [$identity_cookie_id, $identity_device_id, $identity_anonymous_id]   # 只有弱 ID 的資料也建立用戶（匿名用戶），事件先歸它
+  distinct_id: first_present_of_create_from   # 未登入事件的 distinct_id = 該筆資料裡第一個弱 ID（Web: cookie_id；App: device_id；Collector: anonymous_id），寫進 events.distinct_id
+  upgrade_on_first_strong_bind: true      # 匿名用戶第一次與強 ID 共現且該強 ID 尚無用戶 → 直接升級為客戶（歷史匿名事件自動歸戶，不需改寫事件）
+login_backfill:                           # 登入歸戶 + 近 7 天匿名行為改寫
+  enabled: true
+  trigger_events: [login, $SignUp, ga.login, oneid.bind]   # 帶 login_id 與 distinct_id 共現的資料都算「登入事件」
+  window_days: 7                          # 以登入事件時間往前 7 天（event time，不是到達時間）
+  scope: events_of_distinct_id_owned_by_anonymous_user     # 只改寫「同 distinct_id、目前仍屬匿名用戶」的事件；已歸到任何客戶的事件不動
+  rewrite: { one_id: target_customer, one_id_uint: target_customer, keep: distinct_id }   # distinct_id 原值保留，可追溯
+  apply: { mode: micro_batch, interval_minutes: 10, storage: clickhouse_lightweight_update, partition_bound: 8 }   # 每 10 分鐘合併一批改寫；只動近 8 個日分區
+  consistency: query_overlay_until_applied   # 改寫落地前查詢以 oneid_backfill 覆蓋表即時生效，報表不會有「先少後多」
+  anonymous_user_after_backfill: keep_if_remaining_events_else_tombstone   # 匿名用戶若 7 天外仍有事件則保留，否則標記已併入
+  audit: oneid.backfilled                 # 記錄 distinct_id、目標客戶、改寫筆數、視窗
+  not_applied_when: [consent_denied, distinct_id_already_bound_to_other_customer_at_event_time]
+consent:
+  key: privacy_info.analytics_storage
+  when_denied: weak_ids_do_not_bind       # 未同意：弱 ID 不與強 ID 建立關聯，事件以匿名用戶記錄
+account_binding:
+  source: crm.customer_accounts           # CRM 主檔每日發 bind 指令 {login_id, account_no}
+  trade_event_without_binding: create_account_keyed_user   # 交易事件只帶 account_no 且尚未綁定 → 先以帳號建立用戶，CRM 綁定到達時升級
+manual_tools:
+  merge: { who: [platform_admin], approval: [auditor], effect: rewrite_events_one_id_uint, audit: oneid.merged }
+  split: { who: [platform_admin], approval: [auditor], effect: rewrite_events_from_time, audit: oneid.split }
+  unbind: { who: [platform_admin, data_engineer], blocked_for: [$identity_login_id], audit: oneid.unbound }
+dense_id: { one_id_uint: monotonic_uint64, assigned_at: user_create }   # 無自動合併 → 只有 login_backfill（近 7 天匿名事件）與人工合併／拆分會改寫 one_id_uint

@@ -21,7 +21,7 @@ clickhouse:
     tiers: { hotMonths: 36, cold: { type: gcs, bucket: dmp-cold-asia-east1, enabled: false } }   # 3 年全熱；第 4 年起啟用冷層
 spark: { enabled: true, onDemand: true, spot: true, nodeSelector: { pool: spot }, executors: { max: 4, cpu: 4, memoryGi: 16 } }
 apps:   # v0.6 整併後 6 個自建映像：ingest / core / agent / batch / flink-jobs / web（docs/13 §3.1）
-  ingest:       { replicas: 2, cpu: 1, memoryGi: 1, hpa: { min: 2, max: 4, targetCpu: 60 }, nodeSelector: { pool: all } }   # Collector（Go）：/v1/events、/sa、/ga4；CDC 由 kafka.connect（Strimzi + Debezium）執行
+  ingest:       { replicas: 2, cpu: 1, memoryGi: 1, hpa: { min: 2, max: 4, targetCpu: 60 }, nodeSelector: { pool: all } }   # Collector（Go）：/v1/events、/sa；CDC 由 kafka.connect（Strimzi + Debezium）執行
   core:         # 模組化單體（Python）：API + 語意層 + 分群標籤 + OneID + Profile + Policy Engine + Tag Sync + 受眾推送；同一映像以 DMP_ROLE 分工
     api:        { replicas: 3, cpu: 2, memoryGi: 4, priorityClass: online, nodeSelector: { pool: all } }
     worker:     { replicas: 2, cpu: 3, memoryGi: 6, priorityClass: batch, nodeSelector: { pool: all }, kafkaBatch: 5000, topics: { tags: dmp.tag_updates, segments: dmp.segment_updates } }

@@ -16,21 +16,10 @@ types:
     cn: GCS Parquet（數倉／大量）
     prefix: gs://dmp-sync/audiences/
     manifest: true
-  ga4_audience:
-    cn: GA4 受眾 → Google Ads 再行銷
-    identifier: [client_id, app_instance_id, user_id_hmac]
-    transport: measurement_protocol
-    endpoint: https://www.google-analytics.com/mp/collect
-    secrets: [measurement_id, api_secret]            # Secret Manager
-    user_property_pattern: dmp_audience_{audience_id}  # 或單一 dmp_audiences 清單
-    consent_required: [marketing, ads_remarketing, ga_analytics_storage]
-    rate: { requests_per_second: 200, spread_hours: 24 }
-    reconcile: ga4_data_api_audience_size_t1
-    pii: none
-  # google_ads_customer_match：本期不做（docs/14 §5）；日後以獨立 adapter 實作
+  # 廣告平台（GA4 受眾／Google Ads 再行銷、Customer Match）不在本系統範圍：受眾推送只做名單推送到內部系統。
 approval:
   create_destination: [ops_manager]
-  external_destination_first_time: [ops_manager, auditor]
+  new_destination_first_time: [ops_manager, auditor]     # 任何新目的地首次推送需稽核核可
   full_push: [ops_manager]
   delta_scheduled: none
-audit_events: [sync.delivered, sync.external, sync.failed, sync.replayed]
+audit_events: [sync.delivered, sync.failed, sync.replayed]

@@ -1,4 +1,4 @@
-# GA360 BigQuery Export → DMP 事件映射（Importer 與 GTM Server-side 共用）
+# GA360 BigQuery Export → DMP 事件映射（日批 events_ 與串流 events_intraday_ 共用；GA360 是行為事件的唯一 GA 來源，無雙寫）
 event_name: { to: event, transform: "prefix:ga." , keep_registered: true }
 event_timestamp: { to: time, transform: "us_to_ms" }
 user_pseudo_id:
@@ -26,4 +26,4 @@ session_traffic_source_last_click.manual_campaign: { source: $utm_source, medium
 privacy_info: { analytics_storage: consent.analytics, ads_storage: consent.ads, policy: "consent.analytics != 'Yes' => no_oneid_merge" }
 dedupe:
   event_id: "sha256(stream_id|user_pseudo_id|event_timestamp|event_name|event_bundle_sequence_id)"
-  source_priority: [ga360, gtm_ss]
+  source_priority: [ga360_daily, ga360_intraday]   # 日批到齊後以日批覆蓋串流（event_id 去重）

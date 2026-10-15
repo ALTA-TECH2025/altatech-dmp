@@ -65,7 +65,7 @@
 
 ## 4. 神策歷史資料的一次性匯入
 
-- 範圍：神策分析既有的歷史行為事件與使用者屬性，**只匯入一次**；匯入完成後行為事件全部改由 GA360（日批 + GTM 即時雙寫）供應，不再接神策增量，也不寫回神策。
+- 範圍：神策分析既有的歷史行為事件與使用者屬性，**只匯入一次**；匯入完成後行為事件全部改由 GA360 BigQuery 匯出（日批 + 串流 intraday）供應，不再接神策增量，也不寫回神策。
 - 流程：神策查詢 API 分日匯出（或請神策工程直接匯出 Parquet）→ GCS 暫存桶 → Spot 節點以 dlt／Spark 批次寫入 Iceberg raw → 映射器轉成本平台事件（事件名、屬性名、`identities` 幾乎 1:1；`$` 預置屬性對齊到 GA 事件命名）→ ClickHouse。
 - 對齊：神策事件名與 GA360 事件名需在事件字典建立對照（例：神策 `$pageview` ↔ `ga.page_view`、`$AppViewScreen` ↔ `ga.screen_view`），讓歷史與新資料能在同一漏斗中銜接；`distinct_id`／`login_id` 轉為 `$identity_login_id`，`track_signup`／`track_id_bind` 轉為 OneID 綁定指令。
 - 驗證：匯入後以每日事件量、去重人數與神策既有報表對帳（差異 < 1%），通過後刪除暫存桶。
@@ -107,3 +107,31 @@
 8. **權限**：建立／修改／輪替連線需 `integration` 模組的設定權限（d）；分析師只可見連線清單（遮罩）。
 
 對應檔案：`backend/integration/connectors.yaml`（secret_providers、auth_methods、least_privilege、rotation_policy、connection_test）、`backend/integration/auth.py`（Connection.validate／redacted、SecretResolver、test_connection、rotate，含自測）、`backend/openapi.yaml`（/v1/integration/*）、原型「數據整合 → 連線 → 連線設定／新增連線」抽屜。
+
+## 7. 對齊神策「數據源的集成與管理」（通用數據接入）與「元數據管理」（v0.5.1 修訂）
+
+### 7.1 功能結構改為三層
+
+| 層 | 神策 | 本系統（原型「數據整合」頁） | 說明 |
+|---|---|---|---|
+| 數據源管理 | 新建數據源（Hive／MySQL／ClickHouse／FTP／Kafka…）、測試連線 | 連線（MSSQL／PostgreSQL／BigQuery／Kafka／GCS／神策一次性）＋ §6 的鑑權、密鑰參照、逐步測試、輪替 | — |
+| 數據表管理 | 登記外部表、Schema、欄位變更處理 | 探索表結構、設主鍵與增量欄位（LSN／更新時間／分片日期）、Schema 版本、變更標記；個資欄位標 L4 不可選 | 一張表可被多個任務使用 |
+| 數據同步（任務） | 來源 → 神策數據表／事件表／用戶表；事件表只增量、用戶表與有主鍵表 upsert；全量／增量／流任務；任務依賴、複製；啟停、狀態、日誌 | 同步任務：目標 **events（只增量，需事件化映射）／users（upsert）／維度表 dim_*（upsert 或全量覆蓋）／OneID 綁定／標籤**；全量／增量／流任務（CDC、Kafka）；排程、依賴、複製；執行紀錄與日誌、失敗重試、Schema 變更處理（自動映射／忽略／暫停通知） | 「可視化建模精靈」就是建立任務的流程 |
+
+建模精靈七步改名為：數據源 → 選表與主鍵 → 目標類型 → 字段映射與轉換 → 清洗規則 → 預覽驗證 → 排程發佈。清洗規則與隔離區不變（§3）。
+
+### 7.2 維度表、維度字典、虛擬屬性（取代原「Item 表管理」的錯誤認知）
+
+原本把 Item 當成「帳戶、商品等有自己事件的主體」是錯的。神策的定義：
+
+- **維度表**：當事件裡缺少分析需要的維度時，引入外部表，以「事件／用戶屬性值 = 維度表主鍵」關聯（例：`events.symbol = dim_instrument.symbol`，items 表另以 `item_type` 區分），維度表的欄位成為可篩選、可分組的關聯屬性。關聯鍵必須唯一；建議行數 < 100 萬；事件屬性已能滿足時不要用維度表（JOIN 有成本）。事件仍然屬於用戶，維度表不是主體。
+- **維度字典**：針對已有資料上報的文字／數值屬性，上傳「值 → 顯示名」映射（1:1 或 N:1），篩選與分組時以顯示名呈現；上傳可新增或覆蓋。
+- **虛擬屬性**：以表達式組合事件／用戶屬性與維度表欄位，查詢時計算、不落地；名稱不可與既有屬性重複。
+
+本系統的對應：`backend/semantic/dimension_tables.yaml`（維度表、字典、虛擬屬性）、原型「治理 › 維度表與字典」、API `/v1/meta/dimension-tables`、`/v1/meta/dictionaries`、`/v1/meta/virtual-properties`。帳戶的處理改為：`account_no` 是客戶的多值 ID（docs/19），`dim_account` 只補帳戶的維度（類型、分公司、營業員），超過 100 萬列以 ClickHouse dictionary（dictGet）取代 JOIN。
+
+### 7.3 對應檔案
+
+- `backend/openapi.yaml`：`/v1/integration/connections*`（數據源）、`/v1/integration/tables*`（數據表）、`/v1/integration/sync-tasks*`（任務：建立、執行、執行紀錄、預覽）。
+- `backend/integration/connectors.yaml`、`auth.py`：數據源與鑑權。
+- `backend/semantic/dimension_tables.yaml`：維度表／字典／虛擬屬性定義。

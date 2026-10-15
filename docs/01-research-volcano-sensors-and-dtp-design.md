@@ -46,6 +46,12 @@
 
 ---
 
+
+> **勘誤（2026-10-15，以後續文件為準）**
+> 1. **GA360 沒有雙寫**：行為事件的 GA 來源只有 GA360 BigQuery 匯出（日批 `events_` 為權威、串流 `events_intraday_` 提供分鐘級）；本文 §5 的「GTM Server-side 雙寫（路徑 B）」與 Collector `/ga4` 端點取消。即時（秒級）只適用於交易／帳務 CDC 事件。
+> 2. **廣告平台不在範圍**：§受眾／再行銷相關的 GA4 受眾回流、Google Ads 不做；受眾推送只做「名單推送到內部系統」（docs/14）。
+> 3. **OneID 歸戶邏輯改版**：§6 的「圖連通 + 合併 + 夜間改寫」改為對齊神策 IDM 3.0 的「接入時決定、一個 ID 只屬一人、不自動合併、首次關聯升級、改綁政策」，見 docs/19 與 `backend/oneid/attribution.py`。
+
 ## 1. 標竿調研：火山引擎與神策
 
 ### 1.1 火山引擎數智平台 VeDI
@@ -542,7 +548,7 @@ instrument (symbol) ◄── order events
 
 - 事件表 `entity_type/entity_id` 指出事件直接主體；`one_id` 永遠填客戶。
 - `dtp.items` 保存各主體屬性（帳戶類型、開戶日、營業員、分公司、商品產業別…）。
-- 跨主體分析（火山「多主體分析」）：例如「某營業員名下客戶的 App 活躍 vs 交易轉化」= 事件表 JOIN items(agent) 後分組。
+- 跨主體分析（火山「多主體分析」）：例如「某營業員名下客戶的 App 活躍 vs 交易轉化」= 事件表以 agent_id 關聯 dim_agent 維度表後分組。
 
 ### 6.4 OneID API
 
@@ -651,7 +657,7 @@ GROUP BY level ORDER BY level;
 | App 改版後，從看盤到成交的中位時間有沒有縮短？ | GA screen_view + `order_filled` 間隔 |
 | 推播打開率高但不成交的客群長什麼樣？ | MA `push_opened` + 交易事件 + 畫像 |
 | 哪些客戶 60 天無登入但仍有定期定額扣款？（沉睡但有價值） | GA/App `login` + `fund_subscribe` |
-| 營業員名下客戶的數位自助率 | items(agent) + `channel` 分組 |
+| 營業員名下客戶的數位自助率 | dim_agent 維度表 + `channel` 分組 |
 
 ---
 
@@ -824,7 +830,7 @@ DMZ (K8s node pool: edge)
 | 4 | OneID 錯併（共用裝置、家庭帳戶） | 高 | 合併限制規則 + 人工拆分 + 抽樣稽核 |
 | 5 | ClickHouse JSON 型別成熟度（24.x） | 低 | 高頻屬性物化為欄位；不足時退回 Map + 分型別欄位 |
 | 6 | 自建 vs 採購（VeCDP / 神策）TCO | 決策 | 本設計各層可被商用替換；建議以 Phase 0–1 自建接入層與 OneID，分析 UI 可評估採購 |
-| 7 | 營業員行級權限與客戶重分配歷史 | 中 | items(agent) 版本化，查詢以「當前歸屬」或「事件當下歸屬」可選 |
+| 7 | 營業員行級權限與客戶重分配歷史 | 中 | dim_agent 維度表版本化，查詢以「當前歸屬」或「事件當下歸屬」可選 |
 | 8 | 資料保存年限與 DSAR 衝突（法定保存 vs 刪除權） | 中 | 法遵定義「法定保存例外」，DSAR 僅刪行為資料、交易資料去識別化保留 |
 
 ---

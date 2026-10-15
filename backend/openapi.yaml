@@ -69,9 +69,17 @@ paths:
   /v1/profiles/{one_id}/timeline:
     get: { tags: [Profile], summary: 行為序列（用戶細查，需 reason）, parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }, { name: reason, in: query, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/oneid/resolve:
-    get: { tags: [OneID], summary: 解析 ID → one_id, parameters: [{ name: type, in: query, schema: { type: string } }, { name: value, in: query, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [OneID], summary: 解析 ID → one_id（接入時歸戶規則見 docs/19；一個 ID 只屬一個用戶）, parameters: [{ name: type, in: query, schema: { type: string } }, { name: value, in: query, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/oneid/bind:
-    post: { tags: [OneID], summary: 綁定, responses: { '200': { description: ok } } }
+    post: { tags: [OneID], summary: '綁定指令（CRM 主檔 {login_id, account_no} 等；等同一條共現資料，套同一套歸戶規則）', responses: { '200': { description: ok } } }
+  /v1/oneid/unbind:
+    post: { tags: [OneID], summary: 解綁（login_id 不可解綁；審計 oneid.unbound）, responses: { '200': { description: ok }, '409': { description: 不可解綁 } } }
+  /v1/oneid/merge:
+    post: { tags: [OneID], summary: 人工合併兩個用戶（唯一會改寫事件 one_id 的操作；需 platform_admin + 稽核審批）, responses: { '202': { description: pending_approval } } }
+  /v1/oneid/{one_id}/history:
+    get: { tags: [OneID], summary: 綁定／改綁／升級／衝突歷史, parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/oneid/backfills:
+    get: { tags: [OneID], summary: '登入改寫批次（近 7 天匿名事件改寫到登入客戶；docs/19 §2.5）：待套用／已套用、筆數、視窗', responses: { '200': { description: ok } } }
   /v1/oneid/erase:
     post: { tags: [OneID], summary: DSAR 刪除, responses: { '202': { description: accepted } } }
   /v1/segments:
@@ -167,14 +175,22 @@ paths:
   /v1/meta/oneid/rules:
     get: { tags: [Meta], summary: OneID 識別類型優先序、強度與合併策略；合併／拆分統計, responses: { '200': { description: ok } } }
     put: { tags: [Meta], summary: 更新規則（需 governance.d 與稽核審批；影響標籤重算）, responses: { '200': { description: ok } } }
-  /v1/meta/items:
-    get: { tags: [Meta], summary: Item 類型清單（主鍵、來源、同步、筆數、與事件關聯鍵）, responses: { '200': { description: ok } } }
-    post: { tags: [Meta], summary: 新增 Item 類型, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/ItemType' } } } }, responses: { '201': { description: created } } }
-  /v1/meta/items/{type}:
-    get: { tags: [Meta], summary: Item 類型定義與屬性, parameters: [{ name: type, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
-    patch: { tags: [Meta], summary: 修改屬性（敏感等級只能升）, parameters: [{ name: type, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
-  /v1/meta/items/{type}/sync:
-    post: { tags: [Meta], summary: 立即同步（觸發來源映射的批次；審計 item.sync）, parameters: [{ name: type, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+  /v1/meta/dimension-tables:
+    get: { tags: [Meta], summary: 維度表清單（主鍵、item_type、關聯條件 events/users.<屬性> = dim.<主鍵>、來源任務、列數、欄位與敏感等級、曝露為關聯屬性的欄位）, responses: { '200': { description: ok } } }
+    post: { tags: [Meta], summary: 新增維度表（指定同步任務的目標表 → 主鍵（須唯一）→ 關聯屬性 → 曝露欄位）；> 100 萬列自動改 dictionary 引擎, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/DimensionTable' } } } }, responses: { '201': { description: created }, '422': { description: 主鍵不唯一或關聯屬性不存在 } } }
+  /v1/meta/dimension-tables/{id}:
+    get: { tags: [Meta], summary: 維度表定義, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    patch: { tags: [Meta], summary: 修改關聯條件／曝露欄位／顯示名（敏感等級只能升）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/meta/dimension-tables/{id}/sync:
+    post: { tags: [Meta], summary: 立即執行其來源同步任務（審計 dimension.sync）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+  /v1/meta/dictionaries:
+    get: { tags: [Meta], summary: 維度字典清單（屬性 → 值／顯示名映射，1:1 或 N:1）, responses: { '200': { description: ok } } }
+  /v1/meta/dictionaries/{property}:
+    put: { tags: [Meta], summary: 上傳字典（CSV 值,顯示名；mode=append|overwrite；只限文字／數值屬性；審計 dictionary.uploaded）, parameters: [{ name: property, in: path, required: true, schema: { type: string } }, { name: mode, in: query, schema: { type: string, enum: [append, overwrite], default: append } }], responses: { '200': { description: ok } } }
+    get: { tags: [Meta], summary: 下載字典, parameters: [{ name: property, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/meta/virtual-properties:
+    get: { tags: [Meta], summary: 虛擬屬性（表達式組合屬性與維度表欄位；查詢時計算）, responses: { '200': { description: ok } } }
+    post: { tags: [Meta], summary: 建立虛擬屬性（名稱不可與既有屬性重複；表達式 ≤ 1024 字元；型別推斷與預覽）, responses: { '201': { description: created } } }
   /v1/ops/pipeline:
     get: { tags: [Ops], summary: 端到端資料流各段吞吐、延遲、狀態（Prometheus 供數）與資料品質指標, responses: { '200': { description: ok } } }
   /v1/ops/query-perf:
@@ -183,6 +199,20 @@ paths:
     get: { tags: [Ops], summary: 批次作業狀態（Airflow）與儲存用量, responses: { '200': { description: ok } } }
   /v1/ops/batch-jobs/{name}/rerun:
     post: { tags: [Ops], summary: 重跑作業（需 governance.d；審計 batch.rerun）, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+  /v1/integration/tables:
+    get: { tags: [Integration], summary: 數據表管理：已登記的外部表（數據源、表、主鍵、增量欄位、欄位數、Schema 版本、變更、使用它的任務）, responses: { '200': { description: ok } } }
+    post: { tags: [Integration], summary: 從數據源探索並登記表（讀 schema 與樣本；個資欄位標 L4 不可選；設主鍵與增量欄位）, responses: { '201': { description: created } } }
+  /v1/integration/tables/{id}/rescan:
+    post: { tags: [Integration], summary: 重新探索 Schema，產生變更清單（新欄位／改型別），依任務的 schema_change 設定處理, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/integration/sync-tasks:
+    get: { tags: [Integration], summary: 同步任務清單（來源表 → 目標：events 只增量／users upsert／dim_* upsert 或全量／oneid_bind／tags；全量／增量／流任務；排程、依賴、最近執行、狀態）, responses: { '200': { description: ok } } }
+    post: { tags: [Integration], summary: 建立任務（可視化建模精靈的產物：數據源 → 表與主鍵 → 目標類型 → 字段映射與轉換 → 清洗規則 → 預覽驗證 → 排程）, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SyncTask' } } } }, responses: { '201': { description: created } } }
+  /v1/integration/sync-tasks/{id}/run:
+    post: { tags: [Integration], summary: 立即執行／重跑（流任務為重啟；審計 task.rerun）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+  /v1/integration/sync-tasks/{id}/runs:
+    get: { tags: [Integration], summary: 執行紀錄（筆數、耗時、隔離數、失敗原因、重試次數）與日誌, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/integration/sync-tasks/{id}/preview:
+    post: { tags: [Integration], summary: 以樣本（預設 1,000 列）跑映射與清洗規則，回通過／隔離／拒絕與原因、個資命中、新屬性, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/integration/connectors:
     get: { tags: [Integration], summary: 連接器目錄（類型、鑑權方式與欄位、最小權限清單、輪替政策；來自 connectors.yaml）, responses: { '200': { description: ok } } }
   /v1/integration/connections:
@@ -207,8 +237,8 @@ paths:
   /v1/integration/connections/{id}/privileges:
     get: { tags: [Integration], summary: 權限自檢結果（對照 least_privilege 清單逐項 ✓／✗）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/destinations:
-    get: { tags: [Activation], summary: 目的地清單（webhook / kafka / gcs / ga4_audience）, responses: { '200': { description: ok } } }
-    post: { tags: [Activation], summary: 建立目的地（需 segments.approve；對外目的地首次另需稽核）, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Destination' } } } }, responses: { '201': { description: created } } }
+    get: { tags: [Activation], summary: 目的地清單（webhook / kafka / gcs；皆為內部系統）, responses: { '200': { description: ok } } }
+    post: { tags: [Activation], summary: 建立目的地（需 segments.approve；新目的地首次推送另需稽核核可）, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Destination' } } } }, responses: { '201': { description: created } } }
   /v1/destinations/{id}/test:
     post: { tags: [Activation], summary: 送測試事件（audience.test，3 筆假資料）並回傳接收端回應, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/destinations/{id}/rotate-secret:
@@ -252,10 +282,17 @@ components:
       type: object
       required: [key, cn, type, scope, sensitivity]
       properties: { key: { type: string }, cn: { type: string }, type: { type: string }, scope: { type: string, enum: [event, user, item] }, sensitivity: { type: string, enum: [L0, L1, L2, L3] }, source: { type: string }, enum: { type: array, items: { type: string } }, unit: { type: string }, item_type: { type: string } }
-    ItemType:
+    DimensionTable:
       type: object
-      required: [type, cn, primary_key, source]
-      properties: { type: { type: string }, cn: { type: string }, primary_key: { type: string }, source: { type: string }, sync: { type: string }, join_key: { type: string }, properties: { type: array, items: { type: object, properties: { key: { type: string }, cn: { type: string }, type: { type: string }, sensitivity: { type: string } } } } }
+      required: [id, cn, primary_key, join, source]
+      properties:
+        id: { type: string, pattern: '^dim_[a-z0-9_]+$' }
+        cn: { type: string }
+        primary_key: { type: string }
+        item_type: { type: string }
+        join: { type: array, items: { type: object, required: [table, column], properties: { table: { type: string, enum: [events, users] }, column: { type: string, description: 事件／用戶屬性 }, dim_column: { type: string, description: 預設為主鍵 } } } }
+        source: { type: string, description: 同步任務 id }
+        columns: { type: array, items: { type: object, properties: { key: { type: string }, cn: { type: string }, type: { type: string }, sensitivity: { type: string, enum: [L0, L1, L2, L3] }, exposed: { type: boolean, default: true } } } }
     Assignment:
       type: object
       required: [user_id, roles]
@@ -265,6 +302,21 @@ components:
         scope: { type: object, properties: { branches: { type: array, items: { type: string } }, agent_customers: { type: boolean }, projects: { type: array, items: { type: string } }, segment_limit: { type: string }, lookback_days: { type: integer } } }
         expires_at: { type: string, format: date-time }
         reason: { type: string }
+    SyncTask:
+      type: object
+      required: [id, cn, source, target, mode]
+      properties:
+        id: { type: string }
+        cn: { type: string }
+        source: { type: object, properties: { table_id: { type: string }, incremental_column: { type: string } } }
+        target: { type: object, properties: { type: { type: string, enum: [events, users, dimension_table, oneid_bind, tags] }, id: { type: string, description: 維度表 id 或標籤 id }, write: { type: string, enum: [append, upsert, overwrite] } } }
+        mode: { type: string, enum: [full, incremental, stream] }
+        schedule: { type: string, description: cron 或 realtime }
+        depends_on: { type: array, items: { type: string } }
+        mapping: { type: array, items: { type: object, properties: { from: { type: string }, to: { type: string }, transform: { type: string }, pii: { type: boolean } } } }
+        event_rules: { type: object, description: 目標為 events 時：事件名規則（固定／狀態機）、time、identities、event_id }
+        cleansing: { type: array, items: { type: object, properties: { rule: { type: string }, expr: { type: string }, on_violation: { type: string, enum: [quarantine, reject, fix] } } } }
+        schema_change: { type: string, enum: [auto_map, ignore, pause_and_notify], default: pause_and_notify }
     ConnectionCreate:
       type: object
       required: [id, type, auth_method, fields]
@@ -358,7 +410,7 @@ components:
       properties:
         id: { type: string }
         name: { type: string }
-        type: { type: string, enum: [webhook, kafka, gcs, ga4_audience] }
+        type: { type: string, enum: [webhook, kafka, gcs] }
         url: { type: string, description: webhook 專用 }
         identifier: { type: string, enum: [customer_code, one_id, client_id] }
         allowed_tags: { type: array, items: { type: string } }

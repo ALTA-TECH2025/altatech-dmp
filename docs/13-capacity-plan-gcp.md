@@ -51,7 +51,7 @@
 
 | 整併後映像 | 內含模組（整併前） | 執行形態（3 台檔位） |
 |---|---|---|
-| **dmp-core**（Python 模組化單體） | api、semantic（語意層）、segment／tag（分群標籤）、oneid、profile、policy engine、tag-sync（API 同步）、activation（Webhook／GA4 受眾推送） | 一個映像，`DMP_ROLE=api`（Deployment ×2–3，online）／`DMP_ROLE=worker`（Deployment ×1–2，batch）；共用 ClickHouse／PostgreSQL／Valkey 連線池與語意層快取 |
+| **dmp-core**（Python 模組化單體） | api、semantic（語意層）、segment／tag（分群標籤）、oneid、profile、policy engine、tag-sync（API 同步）、activation（Webhook 名單推送） | 一個映像，`DMP_ROLE=api`（Deployment ×2–3，online）／`DMP_ROLE=worker`（Deployment ×1–2，batch）；共用 ClickHouse／PostgreSQL／Valkey 連線池與語意層快取 |
 | **dmp-agent** | tool-gateway（MCP）、agent-runtime、洞察排程 | 一個映像一個 Pod（×0–2）；第一階段不含 AI 時 replicas=0，不需改其他模組 |
 | **dmp-ingest**（Go） | collector | Deployment ×2 + HPA；CDC 不再自建映像，改由 Strimzi KafkaConnect 以官方 Debezium connector 跑（`kafka.connect`） |
 | **dmp-batch** | airflow、dbt、spark client、dlt 匯入器 | Airflow 改 LocalExecutor，scheduler + webserver 同一 Pod；KubernetesPodOperator／CronJob 跑 dbt、dlt 也用同一映像 |

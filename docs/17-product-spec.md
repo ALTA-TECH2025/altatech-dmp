@@ -23,7 +23,7 @@
 
 ![元件模組圖](diagrams/module-map.png)
 
-功能模組與它們負責的資料、模組間關係：接入與治理（數據整合、元事件管理、用戶表／Item 表）→ 核心資料（events + MV、users／items／id_map、Bitmap／segments／insights）；分析與營運八個模組與 AI 洞察都經「語意層 + 查詢編譯器」與「Policy Engine」存取資料。部署視圖（節點池、Pod、託管服務）見 `diagrams/component-deployment.png`（docs/12）。
+功能模組與它們負責的資料、模組間關係：接入與治理（數據整合、元事件管理、用戶表／維度表）→ 核心資料（events + MV、users／items／id_map、Bitmap／segments／insights）；分析與營運八個模組與 AI 洞察都經「語意層 + 查詢編譯器」與「Policy Engine」存取資料。部署視圖（節點池、Pod、託管服務）見 `diagrams/component-deployment.png`（docs/12）。
 
 ## 3. 數據流圖
 
@@ -31,31 +31,31 @@
 
 | 流 | 路徑 | 延遲目標 |
 |---|---|---|
-| 即時行為 | GTM Server-side → Collector → Kafka raw → Flink（normalize／eventize／OneID／session）→ ClickHouse | 端到端 P95 < 10 s（原型目標 4.6 s） |
-| 日批行為 | GA360 BigQuery 匯出 → Storage Read API → Kafka raw → 同上 | 前日資料 07:00 前到齊 |
+| 準即時行為 | GA360 BigQuery 串流匯出（events_intraday_）→ Importer → Kafka raw → Flink（normalize／eventize／OneID／session）→ ClickHouse | 分鐘級（P95 < 15 分鐘，受 GA 串流匯出延遲限制） |
+| 日批行為 | GA360 BigQuery 日批匯出（events_，權威）→ Storage Read API → Kafka raw → 同上；event_id 去重，覆蓋串流 | 前日資料 07:00 前到齊 |
 | 交易／帳務 | MSSQL CDC（Debezium）→ Kafka → Flink 狀態機事件化（委託／成交／失敗／刪單） | < 5 s |
 | 主檔 | CRM／HR／商品主檔 → 建模映射 → users／items | 每日 |
 | 分析查詢 | UI／API／agent → 語意層編譯 → Policy（行級、遮罩）→ ClickHouse（MV 優先）→ 快取 → 審計 | 各模組 P95 SLA 見 §5.9 |
-| 標籤與推送 | dbt 日批 → user_tags Bitmap → 分群 → 審批 → Webhook／Kafka／GCS／GA4 → deliveries | 日批 < 20 分鐘；增量 15 分鐘送完 |
+| 標籤與名單推送 | dbt 日批 → user_tags Bitmap → 分群 → 審批 → Webhook／Kafka／GCS（內部系統）→ deliveries | 日批 < 20 分鐘；增量 15 分鐘送完 |
 | 治理 | 元事件／屬性／用戶表／Item／OneID 規則變更 → 語意層 YAML → 影響範圍 → 變更單 → 審計 | 即時生效（上線）或審批後 |
 
 每個模組讀寫哪些資料見 docs/18 §2 與原型「資料流與效能」頁。
 
 ## 4. 資料模型與語意層
 
-- Event–User–Item 模型，神策相容協議（track／profile_*／item_*／identities）與 GA4 匯出映射（docs/01、06）。
-- ClickHouse：`events`（L0，按 project／event_date／event／one_id／time 排序，月分區，13 個月熱層）、MV L1–L3、`users`、`items`、`id_map`、`user_tags`（Bitmap）、`audit_log`（`backend/clickhouse/*.sql`）。
-- 語意層 YAML：`events.yaml`、`metrics.yaml`、`dimensions.yaml`、`items.yaml`、`user_properties.yaml`、`ga4_mapping.yaml`；UI、API、agent 工具走同一查詢編譯器。
+- Event–User–Item 模型，神策相容協議（track／profile_*／item_*／identities）與 GA4 匯出映射（docs/01、06）；OneID 歸戶對齊神策 IDM 3.0（docs/19）。
+- ClickHouse：`events`（L0，按 project／event_date／event／one_id／time 排序，月分區，13 個月熱層）、MV L1–L3、`users`、維度表 `dim_*`（dictionary）、`id_map`、`user_tags`（Bitmap）、`audit_log`（`backend/clickhouse/*.sql`）。
+- 語意層 YAML：`events.yaml`、`metrics.yaml`、`dimensions.yaml`、`dimension_tables.yaml`（維度表／字典／虛擬屬性）、`user_properties.yaml`、`oneid_rules.yaml`、`ga4_mapping.yaml`；UI、API、agent 工具走同一查詢編譯器。
 - 敏感等級 L0–L4：L4 永不入倉；L3 代碼化；L2 匯出區間化；依角色遮罩（docs/10）。
 
 ## 5. 模組規格（每模組：功能、輸入／輸出、權限、效能、契約）
 
 | 模組 | 功能要點（對標神策／DataFinder） | 契約 | 權限 | 效能目標（P95） | 細節 |
 |---|---|---|---|---|---|
-| 5.1 數據整合（可視化建模） | 連線（鑑權方式排序、密鑰參照不入庫、逐步測試、最小權限自檢、輪替）→ 選表 → 實體對映（狀態機事件化）→ 欄位映射（代碼化／分桶）→ 清洗規則（隔離／拒絕）→ 預覽驗證（個資掃描）→ 排程發佈；來源 MSSQL／PG／BigQuery／Kafka／GCS／神策一次性 | `/v1/integration/*` | integration v/u/d | 連線測試 < 15 s；發佈後首批資料 < 5 分鐘 | docs/06 |
+| 5.1 數據整合（數據源的集成與管理） | 數據源管理（鑑權方式排序、密鑰參照不入庫、逐步測試、最小權限自檢、輪替）→ 數據表管理（Schema 探索、主鍵／增量欄位、版本與變更）→ 同步任務（目標 events 只增量／users upsert／維度表／OneID 綁定／標籤；全量／增量／流任務；排程、依賴、日誌、重試、Schema 變更處理）→ 清洗與隔離；建立任務走七步精靈 | `/v1/integration/*` | integration v/u/d | 連線測試 < 15 s；發佈後首批資料 < 5 分鐘 | docs/06 §7 |
 | 5.2 元事件管理 | 事件字典（狀態：草稿／上線／隔離／停用）、事件 CRUD 與上線檢查（命名、負責人、屬性型別與敏感等級、無 L4）、屬性字典（型別只放寬、敏感只升）、虛擬事件、隔離區登記（30 天丟棄）、變更單審批、路徑節點規則 | `/v1/meta/events*`、`/v1/meta/properties`、`/v1/meta/virtual-events`、`/v1/meta/quarantine` | governance v/d | 上線即生效（語意層、Collector、Flink） | docs/18 |
 | 5.3 用戶表管理 | 用戶屬性（來源、更新、敏感、可篩選／分組、覆蓋率、分桶）、profile_* 協議、OneID 規則（識別優先序、強度、合併策略、合併／拆分統計）、個資防護（L4 清單、偵測規則）、DSAR | `/v1/meta/user-properties`、`/v1/meta/oneid/rules` | governance v/d | — | docs/18、`semantic/user_properties.yaml` |
-| 5.4 Item 表管理 | Item 類型（account／instrument／agent／branch／campaign／碼表）：主鍵、來源、同步、屬性與敏感等級、與事件關聯鍵、dictGet 維度、行級權限鍵 | `/v1/meta/items*` | governance v/d | 同步依類型（即時～每日） | `semantic/items.yaml` |
+| 5.4 維度表與字典 | 維度表（以「屬性值 = 主鍵」補充事件／用戶沒有埋的維度，欄位成為關聯屬性；主鍵唯一；< 100 萬列否則 dictGet）、維度字典（值 → 顯示名，1:1／N:1，新增／覆蓋）、虛擬屬性（表達式，查詢時計算） | `/v1/meta/dimension-tables*`、`/v1/meta/dictionaries*`、`/v1/meta/virtual-properties` | governance v/d | 同步依任務（即時～每日） | docs/06 §7.2、`semantic/dimension_tables.yaml` |
 | 5.5 事件分析 | 多指標 × 指標類型（總次數／用戶數／人均／去重／數值求和、均值、最大、最小、中位、P90）、指標篩選與全局篩選（且／或、運算子）、按分組（≤3 維、Top N）、粒度（分鐘～合計）、對比上期、折線／柱狀／堆疊／累計／表格、合計列、下鑽用戶列表、儲存報表、SQL | `/v1/analytics/events` | events v/u/e | 3 s（MV 命中 < 1 s） | docs/04 §1 |
 | 5.6 漏斗分析 | 步驟增刪與每步篩選、窗口（值＋單位）、關聯屬性、全局篩選、分組對比、對比上期、漏斗圖／趨勢／表格、步驟明細（轉化率、中位時長、流失）、下鑽流失／轉化用戶 | `/v1/analytics/funnel` | events | 5 s | docs/04 §2 |
 | 5.7 留存分析 | 初始／後續行為各自篩選、任意事件、日／週／月、期數、當期／區間、留存／流失、比例／人數、關聯屬性、分組；留存表（平均列、格子下鑽）、曲線、分組表 | `/v1/analytics/retention` | events | 5 s | docs/04 §7（P1 提前） |
@@ -63,7 +63,7 @@
 | 5.9 歸因分析 | 目標事件與指標（次數／用戶／數值）、觸點（命名、事件、篩選）、前向關聯事件、五模型（位置權重、半衰期可調）與對比、回溯窗口、分組；觸點次數、直接／輔助轉化、歸因值、轉化路徑、模型差異 | `/v1/analytics/attribution` | events | 5 s | docs/04 §4 |
 | 5.10 用戶列表／細查 | 條件 → Bitmap 估數 → 分頁；來源條件下鑽（事件／漏斗／留存／路徑／歸因）；存為分群／匯出（審批、浮水印、上限）；細查需理由、身分圖、時間軸 | `/v1/users`、`/v1/profiles/*` | users、profile | 估數 1 s；分頁 2 s；細查 1 s | docs/04 §5 |
 | 5.11 標籤與分群 | 標籤類型（規則／統計／SQL／模型）、日批 Bitmap（版本 7）、分群交並差、審批、Tag Sync API（REST／Kafka／GCS） | `/v1/segments*`、`/v1/sync/*` | segments | 500 標籤日批 < 20 分鐘 | docs/04 §6、09 |
-| 5.12 即時觸發／受眾推送 | Flink 規則引擎；目的地（Webhook 簽章／批次／重試／DLQ、Kafka、GCS、GA4 受眾）；推送單審批、交付紀錄 | `/v1/triggers*`、`/v1/destinations*`、`/v1/audiences/*/push` | triggers、segments a | 即時 < 5 s；批次 15 分鐘 | docs/14 |
+| 5.12 即時觸發／受眾名單推送 | Flink 規則引擎；目的地皆為內部系統（Webhook 簽章／批次／重試／DLQ、Kafka、GCS）；推送單審批、交付紀錄；廣告平台不在範圍 | `/v1/triggers*`、`/v1/destinations*`、`/v1/audiences/*/push` | triggers、segments a | 即時 < 5 s；批次 15 分鐘 | docs/14 |
 | 5.13 AI 洞察（第二階段可延後） | 工具閘道（tools.yaml：權限／預算／脫敏／審計）、agent（異常偵測、漏斗診斷、流失雷達）、選擇題式問答、洞察物件、提議需審批、golden evals | `/v1/insights*`、`/v1/agents*`、MCP | ai_ask、ai_admin | 工具呼叫 5 s；預算 20 GB/呼叫 | docs/03、05 |
 | 5.14 權限中心 | 角色（預設 8 + 自訂、勾選權限）、使用者指派（多角色、範圍、到期、SSO 群組、臨時提權）、模組矩陣（v/u/e/a/d）、數據權限（組織／專案／分群限制／回溯／K 匿名）與行級模擬、欄位隱碼、審批 | `/v1/iam/*` | iam v/d | authorize() < 5 ms | docs/10 |
 | 5.15 日誌統計／審計 | 全部人與 agent 的讀寫寫審計；看板：使用概況、敏感存取、審批、異常 | `/v1/governance/audit*` | audit | — | docs/10 §7–8 |
@@ -87,8 +87,8 @@
 
 | 里程碑 | 範圍 | 週 |
 |---|---|---|
-| M1 走通一條線 | GA360 日批 + GTM 即時 → ClickHouse；事件分析查真資料；SSO | 3 |
-| M2 代碼級第一版 | 六個分析模組接真 API、OneID v1、交易 CDC、RBAC／隱碼／審計、元事件／用戶表／Item 表管理基本版、測試環境部署 | 8 |
+| M1 走通一條線 | GA360 BigQuery 日批 + 串流 → ClickHouse；事件分析查真資料；SSO | 3 |
+| M2 代碼級第一版 | 六個分析模組接真 API、OneID v1、交易 CDC、RBAC／隱碼／審計、元事件／用戶表／維度表管理基本版、測試環境部署 | 8 |
 | M3 P0 完整 | 標籤 v1、分群、推送、建模 v1、Tag Sync、神策匯入工具、資料流與效能頁接 Prometheus | 12 |
 | M4 AI 洞察 v1 | 工具閘道、分析工具、異常 agent、問答、golden evals | 16 |
 | M5 GA | 10 億合成事件基準、安全強化、機房驗證、DR 演練 | 22–24 |
@@ -117,5 +117,6 @@
 | docs/11 | 開源風險評分與可維護性 |
 | docs/12 | 架構圖集（4 張）與簡報版 |
 | docs/13 | 容量規劃（GCP／機房／Dell、3 台 vs 6 台） |
-| docs/14 | 受眾推送 |
+| docs/14 | 受眾名單推送（內部系統） |
+| docs/19 | OneID 歸戶邏輯（對齊神策 IDM 3.0） |
 | docs/18 | Demo 全面檢查：問題、漏洞、優化、待確認 |

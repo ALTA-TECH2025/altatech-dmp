@@ -8,7 +8,7 @@ events:
     source: ga360
     required: [$page_url, page_group]
     optional: [$referrer, $utm_source, $utm_medium, $utm_campaign]
-    description: Web 頁面瀏覽，由 GA360 匯入或 GTM Server-side 即時雙寫。
+    description: Web 頁面瀏覽，由 GA360 BigQuery 匯出（日批 + 串流 intraday）匯入。
     example_questions: ["開戶頁每天多少人看", "哪個渠道帶來最多開戶頁流量"]
   - name: ga.screen_view
     cn: 畫面瀏覽
@@ -52,7 +52,7 @@ events:
     entity: account
     source: trade_cdc
     required: [order_no, symbol, market, side, order_type, price, qty, amount, channel]
-    optional: [trade_kind, time_in_force]
+    optional: [trade_kind, time_in_force, client_order_ref]   # client_order_ref：App 送單時產生的 UUID，與 GA order_submit 事件對帳（docs/20）
     caveats: ["委託不等於成交；成交金額請用 order_filled"]
   - name: order_filled
     cn: 成交

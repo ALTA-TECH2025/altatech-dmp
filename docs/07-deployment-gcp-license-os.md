@@ -9,7 +9,7 @@
 ```
 asia-east1（台灣）  VPC（私有子網、無公網 IP）
 ├─ GKE Standard（區域叢集，3 zone）
-│   ├─ node pool: ingest   (c3-standard-8 ×3)      Collector、GTM SS、Debezium、Kafka Connect
+│   ├─ node pool: ingest   (c3-standard-8 ×3)      Collector、Debezium、Kafka Connect
 │   ├─ node pool: stream   (c3-standard-16 ×4)     Flink（K8s Operator）
 │   ├─ node pool: olap     (c3-highmem-44 ×4 + Hyperdisk Balanced/Extreme)  ClickHouse 2×2 + Keeper
 │   ├─ node pool: data     (n2-standard-8 ×3)      Kafka（Strimzi）、Spark/Trino、Airflow
