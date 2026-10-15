@@ -882,12 +882,13 @@ export const MIG_PARALLEL = [
 ];
 export const MIG_USERS = { login_users: 1_812_440, both: 1_703_690, only_sa: 92_300, only_ga: 16_450, anon_sa: 7_920_000, anon_ga: 2_310_000 };
 export const MIG_TIMELINE = [
-  { t: 'M1', date: '08/20', cn: '橋接表定稿，交 GA360 導入商', status: 'done' },
-  { t: 'M2', date: '09/03', cn: '歷史 70 億載入測試環境；T1–T4', status: 'done' },
-  { t: 'M3', date: '09/17', cn: 'GA360 上線，並行期開始（≥ 3 個月）；T5–T6', status: 'done' },
-  { t: '並行期', date: '09/17 起', cn: '逐事件比對每日量、修埋點；神策為退路', status: 'now' },
-  { t: 'T0', date: '客戶定 ≤ 2027/09/30', cn: '神策凍結；4 週內補導最終增量、最終對帳、驗收 T7–T9', status: 'todo' },
-  { t: '神策到期', date: '2027/10/31', cn: '神策停用；Impala／HDFS 權限與 token 撤銷', status: 'todo' },
+  { t: 'M1', date: '2026/11/20', cn: '盤點、橋接表定稿交 GA360 導入商', status: 'done' },
+  { t: 'M2', date: '2026/12/18', cn: '歷史 70 億載入測試環境；T1–T4', status: 'done' },
+  { t: 'M3', date: '2027/01/22', cn: 'GA360 上線，並行期開始；T5–T6', status: 'done' },
+  { t: 'M4 / M5', date: '2027/02/26 · 03/26', cn: '交易結合與營運；內部驗收、切換演練', status: 'now' },
+  { t: 'UAT', date: '2027/06/30', cn: '客戶驗收 T1–T9 與結合分析案例', status: 'todo' },
+  { t: 'PD = T0', date: '2027/09/30', cn: '正式上線；神策停止寫入；4 週內最終增量與對帳', status: 'todo' },
+  { t: '神策到期', date: '2027/10/31', cn: 'Impala／HDFS 權限與 token 撤銷', status: 'todo' },
 ];
 // 神策預置事件／屬性 → GA4（與 backend/migration/bridge.py 同一張表）
 export const MIG_PRESET_EVENTS = {
