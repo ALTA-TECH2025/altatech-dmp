@@ -462,7 +462,7 @@ export const CONNECTIONS = [
     auth: { method: 'workload_identity', cn: 'Workload Identity（無密鑰）', fields: { project_id: 'ga-export-3012', dataset: 'analytics_3012', location: 'asia-east1' }, secret: null, rotation: { kind: 'short_lived' }, lastTest: { at: '10-14 05:10', ok: true }, owner: '數位行銷 林', tls: true, privileges: [['bigquery.dataViewer（dataset）', true], ['bigquery.readSessionUser', true], ['bigquery.jobUser（dmp 專案）', true]] } },
   { id: 'crm_pg', type: 'PostgreSQL', cn: 'CRM 客戶主檔', mode: 'CDC（pgoutput）+ 日批', tables: 4, models: 2, lag: '3.1 秒', status: 'ok', rows24h: 1_230_119,
     auth: { method: 'password', cn: '帳號密碼', fields: { host: '10.20.8.14', port: 5432, database: 'crm', username: 'dmp_ro' }, secret: { field: 'password', ref: 'projects/dmp-prod/secrets/crm-pg/versions/3', provider: 'Secret Manager' }, rotation: { kind: 'rotating', every: 90, due: '2026-10-24', left: 10, state: 'warn' }, lastTest: { at: '10-14 02:00', ok: true }, owner: 'CRM 王', tls: true, privileges: [['CONNECT / USAGE', true], ['SELECT on 4 表', true], ['REPLICATION', true], ['非 superuser', true]], note: '建議改 Cloud SQL IAM 驗證（短效 token，免輪替）' } },
-  { id: 'sensors', type: 'SensorsData', cn: '神策分析歷史事件（一次性匯入，已完成）', mode: '查詢 API → Parquet → Iceberg', tables: 1, models: 1, lag: '已完成 10/02', status: 'ok', rows24h: 0, note: '匯入 48.7 億筆，對帳差異 0.4%；之後行為事件全部來自 GA360',
+  { id: 'sensors', type: 'SensorsData', cn: '神策分析歷史事件（一次性匯入，已完成）', mode: 'Impala／HDFS Parquet 直讀 → 暫存 → ClickHouse', tables: 1, models: 1, lag: '已完成 10/02', status: 'ok', rows24h: 0, note: '匯入 70 億筆，對帳差異 0.04%；之後行為事件全部來自 GA360',
     auth: { method: 'api_token', cn: 'API token（已撤銷）', fields: { base_url: 'https://sa.bank.internal', project: 'production' }, secret: { field: 'api_secret', ref: 'projects/dmp-prod/secrets/sensors-token/versions/2', provider: 'Secret Manager', revoked: true }, rotation: { kind: 'revoked' }, lastTest: { at: '10-02 18:40', ok: true }, owner: '數據分析 王', tls: true, privileges: [['專案唯讀分析帳號', true]] } },
   { id: 'fund_pg', type: 'PostgreSQL', cn: '基金平台', mode: 'CDC', tables: 2, models: 1, lag: '4.0 秒', status: 'warn', rows24h: 41_000, note: '來源新增欄位 PLAN_FREQ，建議映射到 plan_type',
     auth: { method: 'cert', cn: 'mTLS 用戶端憑證', fields: { host: 'fund-db.bank.internal', port: 5432, database: 'fund', username: 'dmp_ro' }, secret: { field: 'client_cert', ref: 'kv/data/dmp/prod/fund_pg#client_cert', provider: 'OpenBao' }, rotation: { kind: 'rotating', every: 365, due: '2027-03-01', left: 138, state: 'ok' }, lastTest: { at: '10-13 02:00', ok: false, failedStep: 'cdc_prereq' }, owner: '財富 李', tls: true, privileges: [['CONNECT / USAGE', true], ['SELECT on 2 表', true], ['REPLICATION', true], ['publication 含新表', false]] } },
@@ -760,7 +760,7 @@ export const SYNC_TASKS = [
   { id: 'sync_account', cn: '帳戶主檔 → 維度表 dim_account', src: 'dwh_trade · dim_account', target: 'dim_account（upsert by account_no）', mode: '每日全量', sched: '02:30', last: '14:36', rows: 1_812_440, status: 'ok', note: '' },
   { id: 'sync_instrument', cn: '商品主檔 → 維度表 dim_instrument', src: 'crm_pg · instrument_master', target: 'dim_instrument（全量覆蓋）', mode: '全量', sched: '05:30', last: '05:30 → 05:31', rows: 24_310, status: 'ok', note: '' },
   { id: 'sync_fund_events', cn: '基金申購 → 事件', src: 'fund_pg · fund_order（CDC）', target: 'events', mode: '流任務', sched: '持續', last: '14:30', rows: 41_000, status: 'warn', note: 'Schema drift：來源新增 PLAN_FREQ，38 筆 plan_type 空值進隔離' },
-  { id: 'sync_sensors_history', cn: '神策歷史事件（一次性）', src: 'sensors · 查詢 API → Parquet', target: 'events', mode: '全量（一次性）', sched: '已完成 10/02', last: '10/02 18:40', rows: 4_870_000_000, status: 'done', note: '對帳差異 0.4%；token 已撤銷' },
+  { id: 'sync_sensors_history', cn: '神策歷史事件（一次性）', src: 'sensors · Impala／HDFS Parquet 直讀', target: 'events', mode: '全量（一次性）', sched: '已完成 10/02', last: '10/02 18:40', rows: 7_010_000_000, status: 'done', note: '對帳差異 0.04%；T0 後補導最終增量' },
 ];
 export const PIPELINE = {
   stages: [
@@ -849,21 +849,21 @@ LIMIT 1000`;
 
 /* ------------------------------------------------------------------ v0.7：神策 → GA360 遷移與歷史資料銜接（docs/22） */
 export const MIG_INVENTORY = [
-  { ds: '事件明細', loc: 'Impala · events（Kudu 近期 + HDFS Parquet 歷史）', range: '2023-10-01 ～ 2026-10-14', rows: 4_870_000_000, method: 'HDFS Parquet 直讀（distcp）', target: 'dmp.events 歷史分區（36 個月）', status: 'ok', progress: 100, note: '三方對帳差異 0.04%；$ip 丟棄；登入 ID 已 HMAC 成客戶代碼' },
-  { ds: '用戶表', loc: 'Impala · users（profile 屬性）', range: '全量快照 2026-10-14', rows: 2_140_330, method: 'Impala JDBC', target: 'dmp.users（16 個屬性映射）', status: 'ok', progress: 100, note: 'L4 欄位未選；age_band／aum_bucket 分桶後入倉' },
-  { ds: 'ID 映射（IDM 3.0）', loc: 'id_mapping · identities', range: '全量快照 2026-10-14', rows: 5_312_900, method: 'Impala JDBC', target: 'id_map（綁定關係 + 首次關聯時間）', status: 'ok', progress: 100, note: '先於事件載入；匿名側保留，不與 GA client_id 銜接' },
+  { ds: '事件明細', loc: 'Impala · events（Kudu 近期 + HDFS Parquet 歷史）', range: '2023-10-01 ～ 2026-10-14（3 年）', rows: 7_010_000_000, method: 'HDFS Parquet 直讀（distcp，客戶已開放）', target: 'dmp.events 歷史分區（36 個月）', status: 'ok', progress: 100, note: '三方對帳差異 0.04%；$ip 丟棄；登入後事件 distinct_id 已 HMAC 成客戶代碼' },
+  { ds: '用戶表（IDM 2.0）', loc: 'Impala · users（id、first_id、second_id、profile 屬性）', range: '全量快照 2026-10-14', rows: 2_140_330, method: 'Impala JDBC', target: 'dmp.users（16 個屬性映射）；second_id → 客戶代碼', status: 'ok', progress: 100, note: 'L4 欄位未選；age_band／aum_bucket 分桶後入倉' },
+  { ds: 'ID 映射（由 users 推得）', loc: 'users.id ↔ first_id／second_id', range: '全量快照 2026-10-14', rows: 2_140_330, method: 'Impala JDBC', target: 'id_map（匿名 ID ↔ 客戶代碼 + 首次關聯時間）', status: 'ok', progress: 100, note: '先於事件載入；first_id 保留為匿名，不與 GA client_id 銜接' },
   { ds: '分群結果', loc: '用戶分群結果表（按 basetime）', range: '最近版本 + 定義 JSON', rows: 183, method: '查詢 API', target: '分群（規則重建 121 / 匯入快照 62）', status: 'warn', progress: 86, note: '62 個含神策函數規則無法一比一重建，先匯入成員快照並標示「不再更新」' },
   { ds: '標籤', loc: 'user_tag_*（含歷史版本）', range: '最近 7 版', rows: 412, method: 'Impala JDBC', target: '標籤（匯入型）+ 例行計算在 DMP 重建', status: 'ok', progress: 100, note: '' },
-  { ds: '元數據', loc: '事件／屬性字典、虛擬事件、概覽、書籤', range: '112 事件 · 286 屬性 · 概覽 41 · 書籤 220', rows: 659, method: '元數據 API', target: 'events.yaml v4（完成）；概覽人工重建', status: 'warn', progress: 60, note: '概覽 41 個待客戶決定重建範圍（建議前 15 個）' },
-  { ds: '智能運營（SF）', loc: '計畫／旅程定義、觸達紀錄', range: '2024-03 ～ 2026-10', rows: 96_400_000, method: 'HDFS Parquet 直讀', target: 'events（$Plan*／$Journey* 歷史）', status: 'ok', progress: 100, note: '新計畫改在客戶新 MA 工具；事件來源待定' },
+  { ds: '元數據', loc: '事件／屬性字典、虛擬事件、概覽、書籤', range: '112 事件 · 286 屬性 · 概覽 41 · 書籤 220', rows: 659, method: '元數據 API', target: 'events.yaml v4（完成）；概覽依需求重建', status: 'warn', progress: 60, note: '概覽與書籤盤點中，客戶勾選必留清單後重建' },
+  { ds: '智能運營（SF）／LINE 歷史', loc: '計畫／旅程定義、觸達紀錄、LINE 事件', range: '2024-03 ～ 2026-10', rows: 96_400_000, method: 'HDFS Parquet 直讀', target: 'events（$Plan*／$Journey*／LINE 歷史，標示僅歷史）', status: 'ok', progress: 100, note: '新 MA 工具與 LINE 不在本案；T0 後無新資料' },
 ];
 export const MIG_EXPORTS = [
-  { id: 'exp_events', ds: '事件明細', mode: 'HDFS Parquet（日 × 事件）', slices: 1110, done: 1110, src: 4_872_015_330, exp: 4_871_990_112, load: 4_870_061_004, status: 'ok', last: '10/02 18:40', note: '去重 190 萬筆（$track_id 重送）；3 個分片重跑 1 次' },
+  { id: 'exp_events', ds: '事件明細', mode: 'HDFS Parquet（日 × 事件）', slices: 1110, done: 1110, src: 7_012_415_330, exp: 7_012_380_112, load: 7_009_604_221, status: 'ok', last: '10/02 18:40', note: '去重 280 萬筆（$track_id 重送）；5 個分片重跑 1 次' },
   { id: 'exp_users', ds: '用戶表', mode: 'Impala JDBC 全量', slices: 1, done: 1, src: 2_140_330, exp: 2_140_330, load: 2_140_330, status: 'ok', last: '10/01 02:10', note: '' },
-  { id: 'exp_idmap', ds: 'ID 映射', mode: 'Impala JDBC 全量', slices: 1, done: 1, src: 5_312_900, exp: 5_312_900, load: 5_312_900, status: 'ok', last: '10/01 01:40', note: '' },
+  { id: 'exp_idmap', ds: 'ID 映射（IDM 2.0 由 users 推得）', mode: 'Impala JDBC 全量', slices: 1, done: 1, src: 2_140_330, exp: 2_140_330, load: 2_140_330, status: 'ok', last: '10/01 01:40', note: '' },
   { id: 'exp_sf', ds: '智能運營事件', mode: 'HDFS Parquet（日）', slices: 950, done: 950, src: 96_412_000, exp: 96_412_000, load: 96_401_200, status: 'ok', last: '10/03 09:12', note: '' },
   { id: 'exp_seg', ds: '分群結果', mode: '查詢 API', slices: 183, done: 158, src: 183, exp: 158, load: 158, status: 'warn', last: '10/14 16:00', note: '25 個分群規則含神策函數，待人工分級' },
-  { id: 'exp_delta', ds: '事件明細（T0 後最終增量）', mode: 'HDFS Parquet（日）', slices: 14, done: 0, src: 0, exp: 0, load: 0, status: 'pending', last: '—', note: '神策凍結（T0）後執行' },
+  { id: 'exp_delta', ds: '事件明細（T0 後最終增量）', mode: 'HDFS Parquet（日）', slices: 0, done: 0, src: 0, exp: 0, load: 0, status: 'pending', last: '—', note: 'T0 由客戶定（最晚 2027-09-30）；神策可用到 2027-10-31' },
 ];
 // 並行期（GA360 已上線、神策仍在）：同一事件每日量，神策 vs GA360；diff 為 (ga−sa)/sa
 export const MIG_PARALLEL = [
@@ -882,12 +882,12 @@ export const MIG_PARALLEL = [
 ];
 export const MIG_USERS = { login_users: 1_812_440, both: 1_703_690, only_sa: 92_300, only_ga: 16_450, anon_sa: 7_920_000, anon_ga: 2_310_000 };
 export const MIG_TIMELINE = [
-  { t: 'T-8 週', date: '08/20', cn: '橋接表定稿，交 GA360 導入商', status: 'done' },
-  { t: 'T-6 週', date: '09/03', cn: '歷史首批載入測試環境；T1–T4', status: 'done' },
-  { t: 'T-4 週', date: '09/17', cn: 'GA360 上線，並行期開始；T5–T6', status: 'done' },
-  { t: 'T-1 週', date: '10/08', cn: '並行差異收斂（≤ 5%）；切換演練', status: 'now' },
-  { t: 'T0', date: '10/15', cn: '神策凍結；補導最終增量；最終對帳', status: 'todo' },
-  { t: 'T+1 週', date: '10/22', cn: '整合驗收（T7–T9）；神策 token 撤銷', status: 'todo' },
+  { t: 'M1', date: '08/20', cn: '橋接表定稿，交 GA360 導入商', status: 'done' },
+  { t: 'M2', date: '09/03', cn: '歷史 70 億載入測試環境；T1–T4', status: 'done' },
+  { t: 'M3', date: '09/17', cn: 'GA360 上線，並行期開始（≥ 3 個月）；T5–T6', status: 'done' },
+  { t: '並行期', date: '09/17 起', cn: '逐事件比對每日量、修埋點；神策為退路', status: 'now' },
+  { t: 'T0', date: '客戶定 ≤ 2027/09/30', cn: '神策凍結；4 週內補導最終增量、最終對帳、驗收 T7–T9', status: 'todo' },
+  { t: '神策到期', date: '2027/10/31', cn: '神策停用；Impala／HDFS 權限與 token 撤銷', status: 'todo' },
 ];
 // 神策預置事件／屬性 → GA4（與 backend/migration/bridge.py 同一張表）
 export const MIG_PRESET_EVENTS = {

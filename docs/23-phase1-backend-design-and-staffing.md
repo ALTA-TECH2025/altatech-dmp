@@ -88,7 +88,7 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 - 標準化全部在 ClickHouse SQL：橋接轉名用 `dictGet('bridge', ...)`（`sensors_ga4_bridge.yaml` 匯成字典）、別名表、時間轉 UTC、`event_id` 去重（`ReplacingMergeTree` + 日批覆蓋串流）、OneID `dictGet('id_map', ...)`、HMAC 在匯入端（Python，金鑰從 KMS／HSM）。
 - 對不上的事件名進 `dmp.quarantine` 並登記元事件待辦。
 - 測試：每來源一組 fixture（含遲到、重送、未知事件名、拒絕同意）；三方對帳表每批自動寫；差異 > 0.1% 的日分片自動重跑。
-- 效能目標：神策歷史 50 億筆以 `INSERT SELECT FROM s3()` 載入，單節點 ≥ 100 萬列/秒。
+- 效能目標：神策歷史 70 億筆以 `INSERT SELECT FROM s3()` 載入，單節點 ≥ 100 萬列/秒。
 
 ### 4.2 oneid — 12 人日
 
@@ -149,7 +149,7 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 | 工作流 | 人 | 擁有目錄 | M1（W3） | M2（W7） | M3（W11） | M4（W15） | M5（W18–20） |
 |---|---|---|---|---|---|---|---|
 | **TL／架構** | 1 | `openapi.yaml`、`semantic/*.yaml`、`clickhouse/schema.sql`、`AGENTS.md`、CI | 契約凍結、schema／分區／排序鍵定稿、設計審查 1 | 編譯器樣板 review、golden 口徑定案 | 設計審查 2（效能） | 切換演練 | 設計審查 3（容量）、驗收 |
-| **資料管線** | 1 | `ingest/`、`oneid/`、`jobs/airflow`、`jobs/dbt`（匯入與對帳部分） | 神策盤點、`sensors_export` 匯入器、合成資料走通 | 歷史 50 億載入測試環境、三方對帳、OneID 綁定與改寫 | GA360 匯入（日批 + 串流）、橋接轉名、並行對帳 | 數據中台交易匯入、狀態機事件化、最終增量 | 10 億基準、冷層 |
+| **資料管線** | 1 | `ingest/`、`oneid/`、`jobs/airflow`、`jobs/dbt`（匯入與對帳部分） | 神策盤點、`sensors_export` 匯入器、合成資料走通 | 歷史 70 億載入測試環境、三方對帳、OneID 綁定與改寫 | GA360 匯入（日批 + 串流）、橋接轉名、並行對帳 | 數據中台交易匯入、狀態機事件化、最終增量 | 10 億基準、冷層 |
 | **後端查詢** | 1 | `semantic/compiler/`、`api/`（analytics、users、sql）、`security/` | 編譯器骨架 + 事件樣板 | 漏斗、留存樣板；事件分析接真資料；Policy 注入 | 路徑、歸因、用戶列表；自定義 SQL；五角色權限測試 | 結合分析五案例的查詢驗證 | 效能回歸、P95 收斂 |
 | **營運與遷移服務** | 1 | `segments/`、`tags/`、`activation/`、`migration/`、`governance/`、`api/`（對應 router） | `migration` 盤點與導出任務狀態機、橋接表 API | 元事件／維度表 API、審批流 | 分群規則引擎、估數、版本、回收站 | 標籤七種、神策分群／標籤匯入、推送 | 回收與清理、文件 |
 | **前端** | 1 | `prototype/` → `web/` | 工程化（Vite + TS）、登入、總覽、遷移頁接 API | 事件分析頁接 API、治理頁 | 漏斗／留存／路徑／歸因／用戶列表 | 分群與標籤、自定義 SQL、推送 | 打磨、H5 |
@@ -197,7 +197,7 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 
 | 模組 | 做完的定義 |
 |---|---|
-| ingest | 四種來源 fixture 全過；三方對帳自動寫；50 億歷史載入測試環境且差異 < 0.1% |
+| ingest | 四種來源 fixture 全過；三方對帳自動寫；70 億歷史載入測試環境且差異 < 0.1% |
 | oneid | 10 情境自測 + 分區邊界測試；改寫延遲 < 10 分鐘 |
 | compiler | 五樣板 golden 誤差 0；單元 ≥ 90%；掃描量門檻全過 |
 | api | schemathesis 0 違反；五角色 × 端點 0 越權 |

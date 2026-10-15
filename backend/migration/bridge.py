@@ -59,6 +59,8 @@ PRESET_PROPS = {
     '$ip': '不送（GA 不匯出 IP）', '$is_first_day': 'first_open／ga_session_number=1 推導', '$is_first_time': 'ga_session_number=1 推導',
 }
 GA_SOURCES = ('GA360（App／Web 埋點）', 'GA360（App）', 'GA360（Web）', 'GA360')
+# 新 MA 工具與 LINE 事件尚無規格、不列入本案：只匯入神策歷史，T0 後無新資料（docs/22 v1.1）
+HISTORY_ONLY_SOURCES = ('MA 系統事件', 'MA', 'LINE（MA）')
 
 
 def snake(name: str) -> str:
@@ -101,8 +103,10 @@ def build():
         src = ev.get('source', '')
         in_ga = src in GA_SOURCES
         g, kind, note = ga4_event(ev)
-        if not in_ga:
-            kind, note = 'not_ga', f'來源「{src}」不經 GA；由對應接入（MA／數據中台／渠道回傳／短鏈）直接寫入正式事件名'
+        if src in HISTORY_ONLY_SOURCES:
+            kind, note = 'history_only', f'來源「{src}」：新 MA 工具／LINE 不在本案範圍，只匯入神策歷史，T0 後無新資料'
+        elif not in_ga:
+            kind, note = 'not_ga', f'來源「{src}」不經 GA；由對應接入（數據中台／渠道回傳／短鏈）直接寫入正式事件名'
             if ev['name'] in PRESET_EVENTS:  # 短鏈等：預置但不走 GA SDK
                 g = PRESET_EVENTS[ev['name']][0]
         props = list(ev.get('required', [])) + list(ev.get('optional', []))
@@ -170,7 +174,7 @@ def main():
     # 自測：轉換規則、往返唯一、限制
     assert snake('$AppViewScreen') == 'app_view_screen' and snake('kh_entry_khpg_pv') == 'kh_entry_khpg_pv' and snake('Market_Data') == 'market_data'
     assert snake('$ga_test') == 'sa_ga_test' and snake('123x') == 'e_123x'
-    ga = [r for r in rows if r['kind'] != 'not_ga']
+    ga = [r for r in rows if r['kind'] not in ('not_ga', 'history_only')]
     assert all(len(r['ga4_event']) <= LIMITS['event_name_len'] and re.fullmatch(r'[a-z][a-z0-9_]*', r['ga4_event']) for r in ga), '事件名不合 GA4 規則'
     assert len({r['ga4_event'] for r in ga}) == len(ga), 'GA4 事件名碰撞'
     assert not any(r['ga4_event'] in RESERVED_EVENTS and r['kind'] == 'custom' for r in ga)

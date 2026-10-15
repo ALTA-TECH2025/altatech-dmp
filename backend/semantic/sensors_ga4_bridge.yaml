@@ -94,10 +94,10 @@ preset_props:
 events:
 - sensors_event: PlanEDMClick
   ga4_event: plan_edmclick
-  kind: not_ga
+  kind: history_only
 - sensors_event: PlanEDMShow
   ga4_event: plan_edmshow
-  kind: not_ga
+  kind: history_only
 - sensors_event: ShortUrlRedirect
   ga4_event: short_url_redirect
   kind: not_ga
@@ -109,22 +109,22 @@ events:
   kind: not_ga
 - sensors_event: $PlanSMSArrived
   ga4_event: plan_smsarrived
-  kind: not_ga
+  kind: history_only
 - sensors_event: $PlanAudienceMarked
   ga4_event: plan_audience_marked
-  kind: not_ga
+  kind: history_only
 - sensors_event: $JourneyExit
   ga4_event: journey_exit
-  kind: not_ga
+  kind: history_only
 - sensors_event: $JourneyComponentEnter
   ga4_event: journey_component_enter
-  kind: not_ga
+  kind: history_only
 - sensors_event: $PlanEDMClick
   ga4_event: plan_edmclick
-  kind: not_ga
+  kind: history_only
 - sensors_event: $PlanEDMShow
   ga4_event: plan_edmshow
-  kind: not_ga
+  kind: history_only
 - sensors_event: operation_target
   ga4_event: operation_target
   kind: not_ga
@@ -139,16 +139,16 @@ events:
   kind: not_ga
 - sensors_event: $PlanConverted
   ga4_event: plan_converted
-  kind: not_ga
+  kind: history_only
 - sensors_event: $PlanAudienceEnter
   ga4_event: plan_audience_enter
-  kind: not_ga
+  kind: history_only
 - sensors_event: $PlanMsgSendPrepare
   ga4_event: plan_msg_send_prepare
-  kind: not_ga
+  kind: history_only
 - sensors_event: $PlanMsgWouldNotSend
   ga4_event: plan_msg_would_not_send
-  kind: not_ga
+  kind: history_only
 - sensors_event: test_login
   ga4_event: test_login
   kind: custom
@@ -196,10 +196,10 @@ events:
   kind: not_ga
 - sensors_event: push_received
   ga4_event: push_received
-  kind: not_ga
+  kind: history_only
 - sensors_event: push_click
   ga4_event: push_click
-  kind: not_ga
+  kind: history_only
 - sensors_event: my_agreement_sign
   ga4_event: my_agreement_sign
   kind: custom
@@ -211,22 +211,22 @@ events:
   kind: custom
 - sensors_event: line_unfollow
   ga4_event: line_unfollow
-  kind: not_ga
+  kind: history_only
 - sensors_event: line_sendline_message
   ga4_event: line_sendline_message
-  kind: not_ga
+  kind: history_only
 - sensors_event: line_message
   ga4_event: line_message
-  kind: not_ga
+  kind: history_only
 - sensors_event: line_follow
   ga4_event: line_follow
-  kind: not_ga
+  kind: history_only
 - sensors_event: line_account_unlink
   ga4_event: line_account_unlink
-  kind: not_ga
+  kind: history_only
 - sensors_event: line_account_link
   ga4_event: line_account_link
-  kind: not_ga
+  kind: history_only
 - sensors_event: kh_steppg_pv
   ga4_event: kh_steppg_pv
   kind: custom
@@ -415,19 +415,19 @@ events:
   kind: custom
 - sensors_event: $PlanPopupDisplay
   ga4_event: plan_popup_display
-  kind: not_ga
+  kind: history_only
 - sensors_event: $PlanMsgSendDone
   ga4_event: plan_msg_send_done
-  kind: not_ga
+  kind: history_only
 - sensors_event: $PlanMsgArrived
   ga4_event: plan_msg_arrived
-  kind: not_ga
+  kind: history_only
 - sensors_event: $AppPushClick
   ga4_event: notification_open
-  kind: not_ga
+  kind: history_only
 - sensors_event: $PlanPopupClick
   ga4_event: plan_popup_click
-  kind: not_ga
+  kind: history_only
 - sensors_event: fund_deposit
   ga4_event: fund_deposit
   kind: not_ga
