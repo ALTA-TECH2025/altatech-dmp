@@ -4,7 +4,7 @@
 承接 **GA360 埋點事件**（BigQuery 匯出）與**證券交易事件**，打通 OneID，提供事件／漏斗／留存／路徑等分析、標籤分群、即時觸發、受眾名單推送，
 並以**語意層 + 工具閘道（MCP）+ Insight Agent** 讓 AI agent 能安全、可擴展地洞察資料。
 
-對標：火山引擎 VeDI（DataFinder、VeCDP）、神策（神策分析、SDP、用戶畫像、智能運營）。
+對標：火山引擎 VeDI（DataFinder、VeCDP）、神策（神策分析、神策数界）。
 
 ## 目錄
 
@@ -14,22 +14,22 @@ docs/
   02-backend-architecture.md                       後端架構（分層、元件、API、查詢路徑、部署）
   03-ai-agent-insight-layer.md                     AI agent 洞察擴展層（語意層、工具目錄、agent、洞察物件、治理）
   04-analysis-modules-p0.md                        P0 模組規格：事件、漏斗、行為路徑、歸因、用戶列表、標籤（含 ClickHouse 實作與效能目標）
-  05-agent-capabilities-sensors-benchmark.md       以神策 Copilot／AI 智能分析師／智能體為參考的 agent 能力設計
-  06-data-integration-visual-modeling.md           可視化建模與資料整合：MSSQL／BigQuery／PostgreSQL／神策，欄位映射與清洗
+  05-agent-capabilities-sensors-benchmark.md       以Sensors AI 智能分析師／智能體為參考的 agent 能力設計
+  06-data-integration-visual-modeling.md           可視化建模與資料整合：MSSQL／BigQuery／PostgreSQL／GA 360 Sensors DATA event user ，欄位映射與清洗
   07-deployment-gcp-license-os.md                  GCP 容器化一鍵部署、開源授權審查（無需額外商業授權）、OS 支援矩陣
-  08-engineering-plan.md                           語言與框架、團隊分工、版本規劃、10 個月時程
+  08-engineering-plan.md                           語言與框架、團隊分工、版本規劃、6 個月時程
   09-scale-10b-events-performance.md               百億事件量級：稠密 ID、多層聚合、Bitmap 標籤引擎、查詢效能策略
   10-enterprise-security-rbac-masking-audit.md     企業級安全：角色／模組／數據權限、欄位隱碼、審批、審計與日誌統計可視化
   11-oss-risk-scorecard-and-maintainability.md     開源元件評分（弱點掃描風險／可用性／主流性／vibe coding 維護性）與選型修訂
-  12-architecture-diagrams.md  diagrams/         系統架構圖、元件組成（部署）圖、數據流圖、元件模組圖（SVG/PNG 由 build.py 產生 + Mermaid）
-  14-audience-activation.md                        受眾推送：名單推送到內部系統（簽章 Webhook／Kafka／GCS）；廣告平台不在範圍
+  12-architecture-diagrams.md  diagrams/           系統架構圖、元件組成（部署）圖、數據流圖、元件模組圖（SVG/PNG 由 build.py 產生 + Mermaid）
+  14-audience-activation.md                        受眾推送：簽章 Webhook 到內部系統（亦可 Kafka／GCS）；廣告平台不在範圍
   19-oneid-attribution.md                          OneID 歸戶邏輯（對齊神策 IDM 3.0：接入時決定、一個 ID 只屬一人、不自動合併、首次關聯升級、改綁政策；未登入事件以 distinct_id 歸匿名用戶，登入時近 7 天匿名事件改寫到客戶；情境與自測）
   20-ga360-trading-instrumentation.md              GA360 埋點與交易事件打通：代碼化客戶 ID（HMAC）同款用於 GA user_id 與交易 CDC、手機／帳號去識別化、登入／登出埋點呼叫、client_order_ref 對帳、匯出欄位映射
   17-product-spec.md                               產品規格書（總規格：架構圖、元件模組圖、數據流圖、資料模型、16 個模組規格、非功能、開發測試計畫、待確認索引）
   18-demo-audit-findings.md                        Demo 全面檢查：數據流／效能／建模／數據權限／元事件／用戶表／維度表／角色權限的問題、漏洞、優化與每模組待確認細節
   16-github-collaboration-with-claude.md          6 人分工（目錄即邊界）、Claude 三種用法與邊界、GitHub 協同（trunk-based、squash、branch protection、CODEOWNERS、CI 分層、@claude 指派）
   15-vibe-coding-plan.md                           Vibe coding 開發計畫：6 人分工、測試協同、Epic/Story 拆解（154 人日）、代碼級第一版第 8 週、AI 洞察 v1 第 16 週
-  13-capacity-plan-gcp.md                          GCP 容量規劃：3 年 200 億事件（首年含舊資料）、每日 500–1,000 標籤、API 同步、50 人上線；正式 A 檔 6 台或 D 檔 3 台大機型／測試 3 台；Docker 模組整併（6 個映像）；機房實體機／VM 規格與 Dell 估價
+  13-capacity-plan-gcp.md                          GCP 容量規劃：3 年 200 億事件（首年含舊資料）、每日 500–1,000 標籤、API 同步、50 人上線；正式 A 檔 6 台或 D 檔 3 台大機型／測試 3 台
 prototype/                                          可直接開啟的前端原型（純靜態，無建置步驟）
   index.html  css/app.css  js/app.js  js/data.js  vercel.json
 backend/                                            後端骨架（可讀、可跑的最小實作與設定）
@@ -40,7 +40,7 @@ backend/                                            後端骨架（可讀、可�
   integration/connectors.yaml  models.example.yaml  transforms.py  auth.py   連接器定義（鑑權方式、最小權限、輪替、測試步驟）、建模產物、轉換函式庫、鑑權邏輯（密鑰參照、連線診斷、輪替）
   security/rbac.yaml  masking.yaml  policy.py                           角色矩陣、欄位隱碼策略、Policy Engine（authorize）骨架
   activation/destinations.yaml  webhook.py                           受眾名單推送目的地、Webhook 簽章／批次／重試
-  oneid/attribution.py  semantic/oneid_rules.yaml                     OneID 歸戶參考實作與規則表（含 9 個情境自測）
+  oneid/attribution.py  semantic/oneid_rules.yaml                     OneID 歸戶參考實作與規則表（含登入改寫，10 個情境自測）
   clickhouse/audit.sql                             審計表、日誌統計物化視圖、row policy 與 masking view
   clickhouse/schema.sql  clickhouse/insight_store.sql      熱層 DDL、Insight Store（PostgreSQL + pgvector）
   docker-compose.yml                               本機開發環境（Kafka、ClickHouse、PostgreSQL、Valkey、物件儲存）
