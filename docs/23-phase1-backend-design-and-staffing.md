@@ -81,7 +81,7 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 
 每個模組列：職責、關鍵介面、資料、測試門檻、估計規模（人日，含 AI 協作）。
 
-### 4.1 ingest（接入與載入）— 28 人日
+### 4.1 ingest（接入與載入）— 28 人日（已有可跑的基本版：`backend/integration/modeling.py`、`scheduler.py`、`runner.py`，端到端測試 `e2e_clickhouse.py` 在真 ClickHouse 通過）
 
 - 職責：把四種來源落成 `dmp.raw_events` 統一格式（`source, event_name_raw, time_ms, distinct_id, login_id_hmac, props JSON, ingest_batch`），再以 `normalize.sql` 寫入 `dmp.events`。
 - 關鍵介面：`Importer.run(window) -> Batch`、`Loader.apply(batch) -> ReconRow`；Airflow DAG 每來源一條。
@@ -173,7 +173,7 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 
 ### 6.2 把剩下的 ClickHouse 工作變成「可學、可測、可審」
 
-1. **設計一次定稿，之後不碰**：排序鍵 `(project, event_date, event, one_id, time)`、月分區、高頻屬性物化欄位、三層 MV。第 2 週用 1 千萬筆合成資料驗證五個樣板的掃描量與耗時，第 3 週請顧問做第一次審查。之後改 schema 要走設計審查。
+1. **設計一次定稿，之後不碰**：排序鍵 `(project, event_date, event, one_id, time, event_id)`（接入端到端測試已抓到一個教訓：ReplacingMergeTree 以排序鍵去重，少了 event_id 時同客戶同事件同秒的兩筆會被合併掉）、月分區、高頻屬性物化欄位、三層 MV。第 2 週用 1 千萬筆合成資料驗證五個樣板的掃描量與耗時，第 3 週請顧問做第一次審查。之後改 schema 要走設計審查。
 2. **五個樣板人寫，AI 寫變體**：每個樣板附「為什麼這樣寫」的註解、`EXPLAIN` 期望、golden 結果。AI 產生的每一條 SQL 都要通過 golden 答案集與 `EXPLAIN ESTIMATE` 掃描量門檻（≤ 樣板 1.5 倍），不通過 CI 直接擋。
 3. **效能基準提早、每週跑**：第 4 週起 1 億筆、固定 40 條查詢、P95 對 SLA；超標當週處理，不累積到 10 億才發現。
 4. **查詢守門在伺服器端**：settings profile 限掃描量、逾時、併發；工作負載隔離（human／batch／sql_user）。即使寫出爛查詢，也只是該查詢逾時，不拖垮系統。

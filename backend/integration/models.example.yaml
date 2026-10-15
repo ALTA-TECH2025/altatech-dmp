@@ -1,21 +1,22 @@
-# 可視化建模產物範例（UI 存檔格式）。平台由此生成 Flink CDC 或 Spark/Airflow 作業。
+# 可視化建模產物範例（UI 存檔格式；建模精靈七步的輸出）。第一階段由 modeling.py 解譯成 Python 微批或 ClickHouse INSERT…SELECT（docs/23）。
+# 交易資料來源是數據中台事實表（批次增量），不直連交易主機。
 model:
   id: mdl_order_hist
-  name: 交易主機委託表 → 委託/成交事件
-  source: { connector: mssql, connection: trade_core, table: dbo.ORDER_HIST, mode: cdc }
+  name: 數據中台委託事實表 → 委託/成交事件
+  source: { connector: dwh, connection: dwh_trade, table: fact_order_hist, mode: incremental, pk: [ORD_NO, STATUS], incremental_field: UPDATED_AT }
   entity: event
   eventize:                         # 狀態表 → 事件（狀態機）
     key: ORD_NO
     status_field: STATUS
     transitions:
-      - { on: insert, to: NEW,       event: order_submit }
-      - { from: NEW,  to: PARTIAL,   event: order_partial_filled }
-      - { to: FILLED,                event: order_filled }
+      - { on: insert, to: NEW,       event: bond_order }
+      - { from: NEW,  to: PARTIAL,   event: bond_deal }               # 部分成交也是一筆成交事件，以 filled_qty < qty 區分
+      - { to: FILLED,                event: bond_deal }
       - { to: CANCELLED,             event: order_cancelled }
       - { to: REJECTED,              event: order_rejected }
   time: { field: ORD_TIME, type: datetime2, tz: Asia/Taipei, to: ms_utc }
   identities:
-    - { target: $identity_login_id,  from: CUST_ID,  transform: hmac_sha256(k_idm) }
+    - { target: $identity_login_id,  from: CUST_ID,  transform: token_v1(k_idm) }      # docs/20：v1_ + 20 字元客戶代碼，與 GA user_id 同款
     - { target: $identity_account_no, from: ACCT_NO, transform: fpe(k_acct), multi: true }
   entity_ref: { type: account, id_from: ACCT_NO, transform: fpe(k_acct) }
   fields:
@@ -28,7 +29,7 @@ model:
     - { target: qty,       from: QTY, transform: to_int }
     - { target: amount,    expr: "PRICE * QTY" }
     - { target: channel,   from: CHANNEL, transform: "map({A: app, W: web, S: agent, I: ivr})" }
-    - { target: filled_qty, from: FILL_QTY, when: "event in (order_partial_filled, order_filled)" }
+    - { target: filled_qty, from: FILL_QTY, when: "event in (bond_deal)" }
     - { target: fee,       from: FEE }
     - { target: tax,       from: TAX }
     - { target: reason_code, from: RJ_CODE, when: "event = order_rejected" }
@@ -39,7 +40,7 @@ model:
     - { rule: range, field: amount, min: 0, on_fail: quarantine }
     - { rule: time_window, field: time, days: 7, on_fail: quarantine }
     - { rule: pii_scan, on_fail: reject_and_alert }
-  dedupe: { event_id: "sha256(source|ORD_NO|STATUS|lsn)" }
-  schedule: { mode: realtime }
+  dedupe: { event_id: "sha256(source|ORD_NO|STATUS)" }
+  schedule: { mode: incremental, cron: "*/15 * * * *", depends_on: [sync_instrument], retries: 3, backoff_s: 60, schema_change: auto_map }
   owner: 交易系統
-  sla: { latency_p95_s: 10 }
+  sla: { latency_p95_s: 1200 }

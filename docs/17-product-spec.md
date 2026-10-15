@@ -57,7 +57,7 @@
 - 事件字典 v4（`events.yaml`）：以客戶模擬事件清單為準，112 個神策事件（開戶 kh_*、定期定額 sip_*、申購／競拍 auc_*、行情 hq_*、活動 act_*、證券 bond_*、$App*／$pageview 等基礎事件、$Plan*／$Journey* 智能運營事件、LINE／Push／短鏈）＋ 3 個補充交易事件；每個事件帶 group／platforms／source／aliases，舊名（ga.page_view、quote_view、order_submit…）以別名映射到正式事件名（docs/04 §0a）。
 - 新舊銜接：正式事件名 = 神策事件名；GA 端事件名由 `backend/migration/bridge.py` 由事件字典產生（117 事件：72 經 GA、45 由 MA／數據中台／渠道／短鏈直接接入），接入時以 `sensors_ga4_bridge.yaml` 轉回；登入用戶兩邊同一客戶代碼，匿名 ID 不銜接（docs/22 §2）。
 - 去識別化：一把 HMAC 金鑰（HSM）產生 `v1_` + 20 字元客戶代碼，GA `user_id` 與神策 `$identity_login_id` 同款；手機 HMAC／帳號 FPE 不送 GA；行為事件與交易事件不逐筆對帳，只靠 OneID 歸戶（docs/20）。
-- ClickHouse：`events`（L0，按 project／event_date／event／one_id／time 排序，月分區，13 個月熱層）、MV L1–L3、`oneid_backfill`（登入改寫覆蓋表）、`users`、維度表 `dim_*`（dictionary）、`id_map`、`user_tags`（Bitmap）、`segment_members`、`audit_log`（`backend/clickhouse/*.sql`）。
+- ClickHouse：`events`（L0，按 project／event_date／event／one_id／time／event_id 排序，月分區，13 個月熱層）、MV L1–L3、`oneid_backfill`（登入改寫覆蓋表）、`users`、維度表 `dim_*`（dictionary）、`id_map`、`user_tags`（Bitmap）、`segment_members`、`audit_log`（`backend/clickhouse/*.sql`）。
 - 語意層 YAML：`events.yaml`、`metrics.yaml`、`dimensions.yaml`、`dimension_tables.yaml`（維度表／字典／虛擬屬性）、`user_properties.yaml`、`oneid_rules.yaml`、`ga4_mapping.yaml`；UI、API、agent 工具走同一查詢編譯器。
 - 敏感等級 L0–L4：L4 永不入倉；L3 代碼化；L2 匯出區間化；依角色遮罩（docs/10）。
 

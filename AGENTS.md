@@ -17,6 +17,9 @@ AltaTech DMP：數位軌跡／客戶數據中台。`docs/` 是設計文件，`pr
 ```bash
 python3 backend/security/policy.py            # 權限引擎自測
 python3 backend/integration/transforms.py     # 轉換函式自測
+python3 -m backend.integration.modeling       # 建模引擎自測（映射、清洗、SQL 編譯）
+python3 -m backend.integration.scheduler      # 排程器自測（模擬時鐘）
+python3 -m backend.integration.e2e_clickhouse # 接入端到端乾跑；設 CLICKHOUSE_BIN 走真 ClickHouse
 python3 backend/insight_agent/runtime.py      # agent 迴圈煙霧測試
 python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True)]"
 node --check prototype/js/app.js && node --check prototype/js/data.js

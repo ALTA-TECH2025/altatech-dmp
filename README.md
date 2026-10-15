@@ -41,7 +41,8 @@ backend/                                            後端骨架（可讀、可�
   mcp/tools.yaml  mcp/server.py                    Agent Tool Gateway（工具目錄 + 權限/預算/脫敏/審計骨架）
   insight_agent/agents.yaml  skills/*.md  evals/golden.yaml  runtime.py   agent 註冊、skill、評測、執行迴圈
   migration/bridge.py  ga360_tracking_spec.csv  semantic/sensors_ga4_bridge.yaml   神策 → GA360 埋點銜接：由事件字典產生 GA4 事件名／參數（給導入商）與接入用橋接表，檢查 GA4 限制（自測）
-  integration/connectors.yaml  models.example.yaml  transforms.py  auth.py   連接器定義（鑑權方式、最小權限、輪替、測試步驟）、建模產物、轉換函式庫、鑑權邏輯（密鑰參照、連線診斷、輪替）
+  integration/README.md  modeling.py  scheduler.py  runner.py  cli.py  e2e_clickhouse.py   可視化建模引擎（驗證／預覽／套用／SQL 編譯）、排程器（cron、依賴、重試、水位、Schema 變更）、執行器（檔案 → ClickHouse → 隔離 → 對帳）、端到端測試（真 ClickHouse）
+  integration/connectors.yaml  models.example.yaml  models.instrument.yaml  transforms.py  auth.py   連接器定義（鑑權方式、最小權限、輪替、測試步驟）、建模產物範例（事件、維度表）、轉換函式庫、鑑權邏輯
   security/rbac.yaml  masking.yaml  policy.py                           角色矩陣、欄位隱碼策略、Policy Engine（authorize）骨架
   activation/destinations.yaml  webhook.py                           受眾名單推送目的地、Webhook 簽章／批次／重試
   oneid/attribution.py  semantic/oneid_rules.yaml                     OneID 歸戶參考實作與規則表（含登入改寫，10 個情境自測）

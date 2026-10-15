@@ -1,0 +1,19 @@
+# 維度表模型範例：商品主檔（全量覆蓋，每日 05:30）→ dim_instrument（docs/06 §7.2）
+model:
+  id: mdl_instrument
+  name: 商品主檔 → dim_instrument
+  source: { connector: postgresql, connection: crm_pg, table: instrument_master, mode: full, pk: [STK_CODE] }
+  entity: dim
+  target: { table: dmp.dim_instrument, key: symbol, mode: full }
+  fields:
+    - { target: symbol,   from: STK_CODE, transform: trim }
+    - { target: name,     from: STK_NAME, transform: trim }
+    - { target: market,   from: MKT, transform: "map({T: TSE, O: OTC, U: US, H: HK})" }
+    - { target: industry, from: IND_NAME }
+    - { target: type,     from: STK_TYPE, transform: lower }
+    - { target: lot_size, from: LOT, transform: to_int }
+  cleansing:
+    - { rule: required, fields: [symbol, name], on_fail: quarantine }
+    - { rule: enum, field: market, values: [TSE, OTC, US, HK], on_fail: quarantine }
+  schedule: { mode: full, cron: "30 5 * * *", retries: 2, backoff_s: 300, schema_change: pause }
+  owner: 數據團隊

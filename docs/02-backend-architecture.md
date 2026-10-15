@@ -60,7 +60,7 @@
 
 ## 4. 資料模型摘要
 
-- `events`（ClickHouse）：`(project, event_date, event, one_id, time)` 排序；高頻屬性物化欄位；其餘 JSON。
+- `events`（ClickHouse）：`(project, event_date, event, one_id, time, event_id)` 排序（ReplacingMergeTree 以排序鍵去重，event_id 必須在內）；高頻屬性物化欄位；其餘 JSON。
 - `users` / `items`：ReplacingMergeTree；`id_map`：`(id_type, id_hash) → one_id, version`。
 - `user_tags`：`(tag_id, tag_value, version) → groupBitmap(one_id_uint)`。
 - `insights`（PostgreSQL）：`id, kind, title, summary, hypothesis, evidence[] (semantic query + result digest), chart_spec, confidence, severity, scope (segment/dimension), created_by (agent|user), status, feedback[], embedding`。
