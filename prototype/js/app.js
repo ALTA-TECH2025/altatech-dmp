@@ -8,10 +8,10 @@ import { ACCOUNTS, SOURCES, EVENTS, TS, PLATFORM_SPLIT, CHANNEL_SPLIT, UTM_SPLIT
          PATHS, ATTRIBUTION, USERS, CONNECTIONS, MODEL_EXAMPLE, CONFIG_CARDS,
          ROLES, MODULES, MATRIX, DATA_SCOPES, MASK_RULES, APPROVALS, AUDIT, DESTINATIONS, AUDIENCE_PUSHES, DELIVERIES,
          PROPS, PROP_SCOPES, OPS, AGGS, GRANS, CHART_TYPES, SAVED_REPORTS, CONNECTOR_AUTH, FIELD_CN, TEST_STEPS, TEST_FIX, ONEID_CASES,
-         META_PROPS, USER_PROPS, ONEID_RULES, DIM_TABLES, DIM_DICTS, VIRTUAL_PROPS, EXT_TABLES, SYNC_TASKS, PIPELINE, QUERY_PERF, BATCH_JOBS, STORAGE, USER_ASSIGNMENTS, VIRTUAL_EVENTS, TAG_KINDS, SEG_RULE_TYPES, SQL_TABLES, SQL_FUNCS, SQL_SAVED, SQL_HISTORY, SQL_DEFAULT } from './data.js?v=20261015.10';
+         META_PROPS, USER_PROPS, ONEID_RULES, DIM_TABLES, DIM_DICTS, VIRTUAL_PROPS, EXT_TABLES, SYNC_TASKS, PIPELINE, QUERY_PERF, BATCH_JOBS, STORAGE, USER_ASSIGNMENTS, VIRTUAL_EVENTS, TAG_KINDS, SEG_RULE_TYPES, SQL_TABLES, SQL_FUNCS, SQL_SAVED, SQL_HISTORY, SQL_DEFAULT } from './data.js?v=20261015.11';
 
 const VERSION = 'v0.6.1';
-const BUILD = '20261015.10';
+const BUILD = '20261015.11';
 
 /* ------------------------------------------------------------------ state */
 const S = {
@@ -168,7 +168,8 @@ const NAV_GROUPS = [
   { id: 'ops', cn: '營運', items: [['segments', '分群與標籤'], ['triggers', '即時觸發']] },
   { id: 'data', cn: '資料', items: [['integration', '數據整合'], ['profile', '用戶細查 / OneID']] },
   { id: 'ai', cn: 'AI 洞察', items: [['ai/insights', '洞察串流'], ['ai/ask', '問答'], ['ai/agents', 'Agents'], ['ai/tools', '工具目錄']] },
-  { id: 'gov', cn: '治理', items: [['governance', '元事件管理'], ['userschema', '用戶表'], ['items', '維度表與字典'], ['pipeline', '資料流與效能'], ['audit', '日誌統計'], ['iam', '權限中心'], ['settings', '平台設定']] },
+  { id: 'gov', cn: '數據治理', items: [['governance', '元事件管理'], ['userschema', '用戶表'], ['items', '維度表與字典'], ['pipeline', '資料流與效能']] },
+  { id: 'sys', cn: '系統管理', items: [['iam', '權限中心'], ['audit', '日誌統計'], ['settings', '平台設定']] },
 ];
 const ROUTE_MODULE = { overview: 'overview', sqlquery: 'events', events: 'events', funnel: 'events', path: 'events', attribution: 'events', retention: 'events', users: 'users', profile: 'profile', segments: 'segments', triggers: 'triggers', integration: 'integration', ai: 'ai_ask', governance: 'governance', userschema: 'governance', items: 'governance', pipeline: 'governance', audit: 'audit', iam: 'iam', settings: 'iam' };
 const RK = () => (S.user && S.user.rk) || 'data_analyst';
