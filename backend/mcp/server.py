@@ -124,6 +124,6 @@ def metric_query(caller: Caller, args: dict[str, Any]) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    c = Caller(user_id="demo", roles=["analyst"], run_id="run_demo")
+    c = Caller(user_id="demo", roles=["data_analyst"], run_id="run_demo")
     b = Budget()
     print(json.dumps(call(c, b, "semantic.search", {"query": "開戶 轉化"}), ensure_ascii=False, indent=1))

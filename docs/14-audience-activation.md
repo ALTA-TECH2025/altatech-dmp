@@ -48,14 +48,14 @@ Content-Type: application/json
 | 模式 | 內容 | 審批 |
 |---|---|---|
 | 增量（delta） | 與上一版本比對，只送加入／移除 | 已核准的排程自動執行 |
-| 全量（full） | 整份名單；用於初始化或對帳 | 營運主管 |
+| 全量（full） | 整份名單；用於初始化或對帳 | 數位經營 |
 | 即時（realtime） | 成員進出即推（Flink 規則／即時標籤） | 建立時審批一次 |
 
-排程：日批完成後（預設 03:00）、立即、即時。推送前先與使用者數據範圍 Bitmap 交集（分公司主管只能推自己範圍的名單）。
+排程：日批完成後（預設 03:00）、立即、即時。推送前先與使用者數據範圍 Bitmap 交集（自訂角色若有專案／分群限制，只能推範圍內的名單）。
 
 ## 5. 權限、審批與審計
 
-- 建立目的地：`segments.approve`；新目的地首次推送需稽核核可。
+- 建立目的地：數位經營或資訊管理（`segments.approve` 或 `integration.admin`）；新目的地首次推送需系統管理員核可。
 - 推送單：建立需 `segments.use`；全量需 `segments.approve`。
 - 審計：`sync.delivered`、`sync.failed`、`sync.replayed`、`destination.created`、`destination.secret_rotated`。
 - 名單內容依目的地合約套隱碼（標籤最多 L2，數值區間化）。

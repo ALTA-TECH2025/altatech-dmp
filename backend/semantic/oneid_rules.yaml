@@ -40,7 +40,7 @@ account_binding:
   source: crm.customer_accounts           # CRM 主檔每日發 bind 指令 {login_id, account_no}
   trade_event_without_binding: create_account_keyed_user   # 交易事件只帶 account_no 且尚未綁定 → 先以帳號建立用戶，CRM 綁定到達時升級
 manual_tools:
-  merge: { who: [platform_admin], approval: [auditor], effect: rewrite_events_one_id_uint, audit: oneid.merged }
-  split: { who: [platform_admin], approval: [auditor], effect: rewrite_events_from_time, audit: oneid.split }
-  unbind: { who: [platform_admin, data_engineer], blocked_for: [$identity_login_id], audit: oneid.unbound }
+  merge: { who: [it_admin], approval: [admin], effect: rewrite_events_one_id_uint, audit: oneid.merged }
+  split: { who: [it_admin], approval: [admin], effect: rewrite_events_from_time, audit: oneid.split }
+  unbind: { who: [admin, it_admin], blocked_for: [$identity_login_id], audit: oneid.unbound }
 dense_id: { one_id_uint: monotonic_uint64, assigned_at: user_create }   # 無自動合併 → 只有 login_backfill（近 7 天匿名事件）與人工合併／拆分會改寫 one_id_uint

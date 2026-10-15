@@ -75,7 +75,7 @@ paths:
   /v1/oneid/unbind:
     post: { tags: [OneID], summary: 解綁（login_id 不可解綁；審計 oneid.unbound）, responses: { '200': { description: ok }, '409': { description: 不可解綁 } } }
   /v1/oneid/merge:
-    post: { tags: [OneID], summary: 人工合併兩個用戶（唯一會改寫事件 one_id 的操作；需 platform_admin + 稽核審批）, responses: { '202': { description: pending_approval } } }
+    post: { tags: [OneID], summary: 人工合併兩個用戶（唯一會改寫事件 one_id 的操作；由資訊管理發起、系統管理員審批）, responses: { '202': { description: pending_approval } } }
   /v1/oneid/{one_id}/history:
     get: { tags: [OneID], summary: 綁定／改綁／升級／衝突歷史, parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/oneid/backfills:

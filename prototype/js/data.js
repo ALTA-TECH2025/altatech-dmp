@@ -14,11 +14,12 @@ export const dayOffset = (n, from = TODAY) => { const d = new Date(from); d.setD
 
 /* ------------------------------------------------------------------ accounts (demo roles) */
 export const ACCOUNTS = [
-  { id: 'u-ana', rk: 'analyst', name: '林雅婷', email: 'yating.lin@altatech.demo', role: '數據分析師', col: '#2C73EA', init: '林', scope: 'all', can: { detail: true, sql: true, approve: false, admin: false } },
-  { id: 'u-ops', rk: 'ops_manager', name: '陳柏宇', email: 'boyu.chen@altatech.demo', role: '數位營運主管', col: '#12B5A8', init: '陳', scope: 'all', can: { detail: true, sql: false, approve: true, admin: false } },
-  { id: 'u-agt', rk: 'sales_agent', name: '王信宏', email: 'hsinhung.wang@altatech.demo', role: '營業員（台北分公司）', col: '#D8A800', init: '王', scope: 'branch:TPE01', can: { detail: true, sql: false, approve: false, admin: false } },
-  { id: 'u-adm', rk: 'platform_admin', name: '張敏慧', email: 'minhui.chang@altatech.demo', role: '平台管理員', col: '#7C4DD6', init: '張', scope: 'all', can: { detail: true, sql: true, approve: true, admin: true } },
-  { id: 'u-aud', rk: 'auditor', name: '許文瑄', email: 'wenhsuan.hsu@altatech.demo', role: '稽核／法遵', col: '#56646D', init: '許', scope: 'all', can: { detail: false, sql: false, approve: true, admin: false, audit: true } },
+  // 本系統只有五種角色：數據分析、行銷、數位經營、系統管理員、資訊管理（營業員／分公司主管不進本系統）
+  { id: 'u-ana', rk: 'data_analyst', name: '林雅婷', email: 'yating.lin@altatech.demo', role: '數據分析', col: '#2C73EA', init: '林', scope: 'all', can: { detail: true, sql: true, approve: false, admin: false } },
+  { id: 'u-mkt', rk: 'marketing', name: '黃思妤', email: 'szuyu.huang@altatech.demo', role: '行銷', col: '#D8A800', init: '黃', scope: 'all', can: { detail: false, sql: false, approve: false, admin: false } },
+  { id: 'u-ops', rk: 'digital_ops', name: '陳柏宇', email: 'boyu.chen@altatech.demo', role: '數位經營', col: '#12B5A8', init: '陳', scope: 'all', can: { detail: true, sql: false, approve: true, admin: false } },
+  { id: 'u-adm', rk: 'admin', name: '張敏慧', email: 'minhui.chang@altatech.demo', role: '系統管理員', col: '#7C4DD6', init: '張', scope: 'all', can: { detail: true, sql: true, approve: true, admin: true, audit: true } },
+  { id: 'u-it', rk: 'it_admin', name: '吳建宏', email: 'chienhung.wu@altatech.demo', role: '資訊管理', col: '#56646D', init: '吳', scope: 'all', can: { detail: false, sql: true, approve: false, admin: false, audit: true } },
 ];
 
 /* ------------------------------------------------------------------ sources */
@@ -393,60 +394,54 @@ export const CONFIG_CARDS = {
 
 /* ================================================================== v0.3：企業級權限、隱碼、審計統計 */
 export const ROLES = [
-  { key: 'platform_admin', cn: '平台管理員', scope: '全域', users: 2, desc: '平台設定、角色與權限、資料源、審計全覽' },
-  { key: 'data_engineer', cn: '資料工程師', scope: '全域（不含細查）', users: 3, desc: '數據整合、事件字典、血緣、資料品質' },
-  { key: 'analyst', cn: '數據分析師', scope: '全域（欄位隱碼）', users: 6, desc: '全部分析模組、SQL 沙箱、標籤定義' },
-  { key: 'ops_manager', cn: '數位營運主管', scope: '全域', users: 2, desc: '分析、分群、觸發、審批 agent 提議與推送／匯出' },
-  { key: 'marketer', cn: '行銷專員', scope: '全域（活動曝光者）', users: 5, desc: '聚合分析、分群建立（需審批）、活動復盤' },
-  { key: 'branch_manager', cn: '分公司主管', scope: '所屬分公司', users: 24, desc: '分析、用戶列表、細查（需理由）' },
-  { key: 'sales_agent', cn: '營業員', scope: '所屬客戶 · 回溯 90 天', users: 1240, desc: '用戶列表、細查（需理由）、AI 摘要' },
-  { key: 'auditor', cn: '稽核／法遵', scope: '全域唯讀', users: 3, desc: '審計日誌、揭露申請審核、DSAR' },
+  { key: 'admin', cn: '系統管理員', scope: '全域', users: 2, desc: '平台設定、角色與指派、審批（全量推送、L3 揭露、臨時提權、OneID 合併）、審計全覽、DSAR' },
+  { key: 'marketing', cn: '行銷', scope: '全域（欄位隱碼）', users: 5, desc: '分析模組、分群與推送單建立（生效需數位經營審批）、觸發規則建立、活動復盤；用戶列表隱碼、不可匯出、不可細查' },
+  { key: 'data_analyst', cn: '數據分析', scope: '全域（欄位隱碼）', users: 6, desc: '全部分析模組、用戶列表、細查（需理由）、匯出（需審批）、SQL 沙箱、標籤定義' },
+  { key: 'digital_ops', cn: '數位經營', scope: '全域', users: 2, desc: '業務負責人：分析、用戶列表、審批分群／推送／觸發／agent 提議／匯出／L2 揭露' },
+  { key: 'it_admin', cn: '資訊管理', scope: '全域（不含個人）', users: 3, desc: '數據整合、資料流與效能、元事件／用戶表／維度表治理、平台技術設定、審計日誌；不看個人資料' },
   { key: 'svc_insight', cn: 'AI 服務身份', scope: '僅聚合', users: 4, desc: '排程 agent 專用，不可細查' },
 ];
 export const MODULES = [['overview', '總覽'], ['events', '事件／漏斗／路徑／歸因'], ['users', '用戶列表'], ['profile', '用戶細查'], ['segments', '標籤與分群'], ['triggers', '即時觸發'], ['integration', '數據整合'], ['ai_ask', 'AI 洞察'], ['ai_admin', 'Agent 設定'], ['governance', '資料治理'], ['audit', '日誌統計'], ['iam', '權限中心']];
 // 動作：v 可見 u 可用 e 匯出 a 審批 d 設定
 export const MATRIX = {
-  platform_admin: { overview: 'vuead', events: 'vuead', users: 'vuead', profile: 'u', segments: 'vuead', triggers: 'vuead', integration: 'vuead', ai_ask: 'vuea', ai_admin: 'vd', governance: 'vued', audit: 'v', iam: 'vd' },
-  data_engineer: { overview: 'vu', events: 'vu', users: '', profile: '', segments: '', triggers: 'v', integration: 'vuead', ai_ask: 'u', ai_admin: '', governance: 'vud', audit: 'v', iam: '' },
-  analyst: { overview: 'vu', events: 'vue', users: 'vu', profile: 'u', segments: 'vu', triggers: 'v', integration: 'v', ai_ask: 'u', ai_admin: '', governance: 'v', audit: 'v', iam: '' },
-  ops_manager: { overview: 'vu', events: 'vue', users: 'vue', profile: 'u', segments: 'vua', triggers: 'vua', integration: 'v', ai_ask: 'ua', ai_admin: '', governance: 'v', audit: 'v', iam: '' },
-  marketer: { overview: 'v', events: 'vu', users: '', profile: '', segments: 'u', triggers: 'v', integration: '', ai_ask: 'u', ai_admin: '', governance: '', audit: 'v', iam: '' },
-  branch_manager: { overview: 'v', events: 'vu', users: 'vu', profile: 'u', segments: 'v', triggers: '', integration: '', ai_ask: 'u', ai_admin: '', governance: '', audit: 'v', iam: '' },
-  sales_agent: { overview: 'v', events: '', users: 'vu', profile: 'u', segments: '', triggers: '', integration: '', ai_ask: 'u', ai_admin: '', governance: '', audit: 'v', iam: '' },
-  auditor: { overview: 'v', events: 'v', users: 'v', profile: 'v', segments: 'v', triggers: 'v', integration: 'v', ai_ask: 'v', ai_admin: 'v', governance: 'v', audit: 'vuea', iam: 'v' },
+  admin: { overview: 'vuead', events: 'vuead', users: 'vuead', profile: 'u', segments: 'vuead', triggers: 'vuead', integration: 'vuead', ai_ask: 'vuea', ai_admin: 'vd', governance: 'vuead', audit: 'vuea', iam: 'vd' },
+  marketing: { overview: 'v', events: 'vu', users: 'vu', profile: '', segments: 'vu', triggers: 'vu', integration: '', ai_ask: 'u', ai_admin: '', governance: '', audit: 'v', iam: '' },
+  data_analyst: { overview: 'vu', events: 'vue', users: 'vue', profile: 'u', segments: 'vu', triggers: 'v', integration: 'v', ai_ask: 'u', ai_admin: '', governance: 'v', audit: 'v', iam: '' },
+  digital_ops: { overview: 'vu', events: 'vue', users: 'vue', profile: 'u', segments: 'vua', triggers: 'vua', integration: 'v', ai_ask: 'ua', ai_admin: 'v', governance: 'v', audit: 'vu', iam: 'v' },
+  it_admin: { overview: 'vu', events: 'vu', users: '', profile: '', segments: 'v', triggers: 'v', integration: 'vuead', ai_ask: 'u', ai_admin: 'vd', governance: 'vued', audit: 'vue', iam: 'v' },
   svc_insight: { overview: '', events: 'u', users: '', profile: '', segments: 'v', triggers: '', integration: '', ai_ask: 'u', ai_admin: '', governance: '', audit: '', iam: '' },
 };
 export const DATA_SCOPES = [
-  { k: '組織範圍', rule: 'branch_id IN (使用者範圍) / agent_id IN (所屬客戶)', how: '查詢編譯器加行級條件；分群先交集範圍 Bitmap', who: '分公司主管、營業員' },
+  { k: '組織範圍（保留）', rule: 'branch_id IN (…) / agent_id IN (…)', how: '查詢編譯器加行級條件；本系統五種角色皆為全域，營業員／分公司主管不進本系統，此規則保留給自訂角色', who: '自訂角色（未啟用）' },
   { k: '專案／資料來源', rule: 'project IN (…) AND source IN (…)', how: '角色可見清單', who: '全部' },
-  { k: '分群限制', rule: 'one_id_uint IN (campaign_exposed)', how: '只允許在特定分群內分析', who: '行銷專員' },
-  { k: '時間範圍', rule: 'event_date ≥ today() − 90', how: '限制回溯天數', who: '營業員' },
+  { k: '分群限制', rule: 'one_id_uint IN (segment_bitmap)', how: '只允許在特定分群內分析', who: '外包帳號（自訂角色）' },
+  { k: '時間範圍', rule: 'event_date ≥ today() − 180', how: '限制回溯天數', who: '外包帳號（自訂角色）' },
   { k: 'K 匿名門檻', rule: '分組人數 < 20 → 顯示「< 20」', how: '結果後處理，防反推個人', who: '全部' },
   { k: '聚合專用身份', rule: '禁止 profile / users', how: '排程 agent 不能觸及個人', who: 'AI 服務身份' },
 ];
 export const MASK_RULES = [
   { field: '姓名／身分證／手機／Email／完整帳號', level: 'L4', plain: '無（不進分析倉）', others: '—', how: '僅存於來源系統與 OneID 加密區' },
-  { field: 'one_id / 客戶代碼 / 帳號（代碼化）', level: 'L3', plain: '管理員、稽核', others: 'mask_tail(4)：cust_•••7281', how: '可 JOIN 不可反推；揭露需主管＋稽核' },
-  { field: '單筆金額 / 持股 / 手續費', level: 'L2', plain: '分析師、營運主管、所屬營業員、分公司主管', others: 'bucket：10–50 萬；匯出一律區間化', how: '揭露需主管' },
-  { field: '流失分', level: 'L2', plain: '分析師、營運主管、營業員', others: 'bucket：高／中／低', how: '' },
+  { field: 'one_id / 客戶代碼 / 帳號（代碼化）', level: 'L3', plain: '系統管理員', others: 'mask_tail(4)：cust_•••7281', how: '可 JOIN 不可反推；揭露需系統管理員核准' },
+  { field: '單筆金額 / 持股 / 手續費', level: 'L2', plain: '數據分析、數位經營', others: 'bucket：10–50 萬（行銷、資訊管理）；匯出一律區間化', how: '揭露需數位經營核准' },
+  { field: '流失分', level: 'L2', plain: '數據分析、數位經營', others: 'bucket：高／中／低（行銷）', how: '' },
   { field: '頁面 / 事件 / 裝置 / 渠道', level: 'L1', plain: '所有分析角色', others: '—', how: 'URL 去除查詢字串' },
   { field: '看板聚合數字', level: 'L0', plain: '所有人', others: '—', how: '' },
 ];
 export const APPROVALS = [
   { id: 'ap_1042', type: '分群推送', who: '林雅婷', what: '新戶未入金（7 天）→ MA + CRM', n: '8,930 人', at: '今天 13:40', status: 'pending', approver: '陳柏宇' },
   { id: 'ap_1041', type: 'agent 提議', who: 'churn-radar', what: '分群「高價值沉睡客」', n: '11,420 人 · 信心 72%', at: '今天 07:04', status: 'pending', approver: '陳柏宇' },
-  { id: 'ap_1040', type: '欄位揭露', who: '王信宏', what: 'oid_7k3a9q · 帳號尾碼（L3）', n: '理由：客戶來電對帳', at: '今天 11:20', status: 'pending', approver: '陳柏宇 + 稽核' },
+  { id: 'ap_1040', type: '欄位揭露', who: '林雅婷', what: 'oid_7k3a9q · 帳號尾碼（L3）', n: '理由：客訴調查需核對帳戶', at: '今天 11:20', status: 'pending', approver: '張敏慧（系統管理員）' },
   { id: 'ap_1039', type: '匯出', who: '林雅婷', what: '用戶列表（定期定額活躍客）', n: '92,300 列 · 區間化', at: '昨天 17:05', status: 'approved', approver: '陳柏宇' },
-  { id: 'ap_1038', type: '臨時提權', who: '張敏慧', what: '稽核唯讀 → 4 小時', n: '事故調查', at: '10-12 09:10', status: 'expired', approver: '稽核' },
+  { id: 'ap_1038', type: '臨時提權', who: '陳柏宇', what: '數位經營 → 系統管理員 4 小時', n: '事故調查', at: '10-12 09:10', status: 'expired', approver: '張敏慧 + 數位經營（雙人）' },
   { id: 'ap_1037', type: 'agent 提議', who: 'funnel-doctor', what: '即時規則「iOS 開戶中斷挽回」', n: '1,860 人', at: '10-12 06:41', status: 'rejected', approver: '陳柏宇' },
 ];
 const _aud = (base, w) => { const o = []; for (let i = 29; i >= 0; i--) { const d = dayOffset(-i); const dow = d.getDay(); o.push({ d: dkey(d), v: Math.round(base * ((dow === 0 || dow === 6) ? .25 : 1) * (1 + (rnd() - .5) * w)) }); } return o; };
 export const AUDIT = {
   tiles: [['平台活躍使用者（日）', '312', '+4.1%'], ['查詢次數（日）', '8,420', '+6.3%'], ['細查次數（日）', '236', '+18.5%'], ['揭露申請（本週）', '14', '核准 9'], ['匯出筆數（本週）', '183,400', '3 件'], ['權限拒絕（日）', '27', '−12%']],
-  profileByRole: [{ name: '營業員', data: _aud(160, .3) }, { name: '分公司主管', data: _aud(48, .4) }, { name: '分析師', data: _aud(22, .5) }],
+  profileByRole: [{ name: '數據分析', data: _aud(120, .3) }, { name: '數位經營', data: _aud(64, .4) }, { name: '系統管理員', data: _aud(12, .5) }],
   modules: [{ k: '事件分析', v: 3120 }, { k: '用戶列表', v: 2210 }, { k: 'AI 洞察', v: 1480 }, { k: '漏斗分析', v: 920 }, { k: '標籤與分群', v: 610 }, { k: '行為路徑', v: 340 }, { k: '歸因分析', v: 210 }],
-  topProfile: [['王信宏', '營業員 · TPE01', 41, '客戶來電對帳（×38）'], ['李佳穎', '營業員 · TPE02', 29, '定期回訪'], ['周美玲', '營業員 · KHH01', 23, '客訴調查'], ['林雅婷', '分析師', 9, '漏斗流失抽樣'], ['張志豪', '分公司主管 · TCH01', 7, '業績檢視']],
-  anomalies: [['今天 02:14', '非上班時間細查', '李佳穎 · 3 次', 'warn'], ['今天 11:52', '單人高頻細查', '王信宏 · 1 小時 12 次（門檻 10）', 'warn'], ['昨天 16:30', '匯出超過門檻', '林雅婷 · 92,300 列（已審批）', 'ok'], ['昨天 09:05', '權限拒絕突增', '行銷專員嘗試用戶列表 ×14', 'bad']],
+  topProfile: [['林雅婷', '數據分析', 41, '漏斗流失抽樣（×30）'], ['李佳穎', '數據分析', 29, '客訴調查'], ['陳柏宇', '數位經營', 23, '活動名單抽查'], ['周美玲', '數位經營', 9, '流失名單確認'], ['張敏慧', '系統管理員', 7, 'DSAR 處理']],
+  anomalies: [['今天 02:14', '非上班時間細查', '李佳穎 · 3 次', 'warn'], ['今天 11:52', '單人高頻細查', '林雅婷 · 1 小時 12 次（門檻 10）', 'warn'], ['昨天 16:30', '匯出超過門檻', '林雅婷 · 92,300 列（已審批）', 'ok'], ['昨天 09:05', '權限拒絕突增', '行銷嘗試用戶細查 ×14', 'bad']],
   agent: [{ k: '工具呼叫（日）', v: 1860 }, { k: '敏感工具（日）', v: 12 }, { k: '提議數（週）', v: 7 }, { k: '採納率', v: 43 }],
   denied: _aud(27, .6),
   exports: _aud(6, .8),
@@ -548,7 +543,7 @@ export const META_PROPS = [
   { k: 'reason_code', cn: '失敗原因碼', type: 'string', scope: 'event', sens: 'L1', src: '交易 CDC', enum: ['E001', 'E012', 'E020', 'E031', 'SYS02'], usedBy: 1, note: '維度字典：42 個代碼 → 說明', item: 'dict:reason_code', status: 'live' },
   { k: 'channel', cn: '渠道', type: 'string', scope: 'event', sens: 'L1', src: '多來源', enum: ['app', 'web', 'agent', 'ivr', 'api'], usedBy: 7, status: 'live' },
   { k: 'branch_id', cn: '分公司', type: 'string', scope: 'event', sens: 'L1', src: '開戶系統 / CRM', usedBy: 2, note: '行級權限鍵；關聯維度表 dim_branch', item: 'dim_branch', status: 'live' },
-  { k: 'agent_id', cn: '營業員', type: 'string', scope: 'event', sens: 'L3', src: 'CRM', usedBy: 1, note: '行級權限鍵；代碼化；關聯維度表 dim_agent', item: 'dim_agent', status: 'live' },
+  { k: 'agent_id', cn: '營業員', type: 'string', scope: 'event', sens: 'L3', src: 'CRM', usedBy: 1, note: '客戶歸屬維度（營業員不是本系統使用者）；代碼化；關聯維度表 dim_agent', item: 'dim_agent', status: 'live' },
   { k: 'kyc_level', cn: 'KYC 等級', type: 'string', scope: 'event', sens: 'L2', src: '開戶系統', enum: ['L1', 'L2', 'L3'], usedBy: 1, status: 'live' },
   { k: 'duration_ms', cn: '停留時長', type: 'number', unit: 'ms', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'live' },
   { k: 'campaign_id', cn: '活動 ID', type: 'string', scope: 'event', sens: 'L1', src: 'MA / GA360', usedBy: 2, item: 'dim_campaign', status: 'live' },
@@ -564,7 +559,7 @@ export const USER_PROPS = [
   { k: 'age_band', cn: '年齡層', type: 'enum', src: 'CRM（CDC，出生年 → 分桶）', upd: '每日', sens: 'L2', filter: true, group: true, cover: 86.9, note: '只存分桶，不存生日' },
   { k: 'gender', cn: '性別', type: 'enum', src: 'CRM（CDC）', upd: '每日', sens: 'L2', filter: true, group: true, cover: 86.9 },
   { k: 'branch_id', cn: '所屬分公司', type: 'string', src: 'CRM（CDC）', upd: '每日', sens: 'L1', filter: true, group: true, cover: 87.4, note: '行級權限鍵（當前歸屬）' },
-  { k: 'agent_id', cn: '所屬營業員', type: 'string', src: 'CRM（CDC）', upd: '每日', sens: 'L3', filter: true, group: false, cover: 85.1, note: '行級權限鍵；代碼化' },
+  { k: 'agent_id', cn: '所屬營業員', type: 'string', src: 'CRM（CDC）', upd: '每日', sens: 'L3', filter: true, group: false, cover: 85.1, note: '客戶歸屬維度；代碼化' },
   { k: 'first_utm_source', cn: '首次來源', type: 'string', src: '事件推導（首次 ga.page_view）', upd: '即時（set_once）', sens: 'L1', filter: true, group: true, cover: 71.2 },
   { k: 'signup_date', cn: '開戶日期', type: 'date', src: '開戶系統', upd: '即時', sens: 'L1', filter: true, group: false, cover: 87.4 },
   { k: 'account_age_days', cn: '開戶天數', type: 'number', src: '計算（today − signup_date）', upd: '每日', sens: 'L1', filter: true, group: true, cover: 87.4, note: '數值自動分桶' },
@@ -592,14 +587,14 @@ export const ONEID_CASES = [
   ['S4 交易事件只帶帳號', '{ACC9}（CRM 尚未送綁定）', '以帳號建立用戶；CRM 綁定 {cust_C, ACC9} 到達 → 該用戶升級為客戶 C，歷史交易自動歸戶'],
   ['S5 同手機兩個客戶', '{cust_D, M1}，M1 已屬 A', 'D 另建用戶、事件歸 D；手機不改綁（政策：人工）、記 conflict；不會把 A、D 合併'],
   ['S6 未同意', '{cust_A, C8} 但 analytics_storage 未同意', '事件歸 A（有強 ID）；C8 不綁定、C8 的匿名事件不改寫；C8 單獨出現的事件留在匿名用戶'],
-  ['S7 解綁', 'unbind(cookie C7)', '允許；unbind(login_id) 一律拒絕；人工合併／拆分需稽核審批，並改寫受影響事件'],
+  ['S7 解綁', 'unbind(cookie C7)', '允許；unbind(login_id) 一律拒絕；人工合併／拆分由資訊管理發起、系統管理員審批，並改寫受影響事件'],
 ];
 // 維度表（對齊神策「元數據管理 › 維度表」）：外部表以「事件／用戶屬性 = 維度表主鍵」關聯，欄位成為可篩選／分組的關聯屬性；不是獨立主體，事件永遠屬於用戶
 export const DIM_TABLES = [
   { id: 'dim_instrument', cn: '商品主檔', pk: 'symbol', join: 'events.symbol = dim_instrument.symbol', itemType: 'instrument', rows: 24_310, src: '數據同步任務 sync_instrument（商品主檔 PG，日批 05:30）', sync: '每日 05:30', status: 'ok', cols: [['name', '商品名稱', 'string', 'L0', true], ['market', '市場', 'enum', 'L0', true], ['industry', '產業', 'string', 'L0', true], ['type', '類型', 'enum', 'L0', true], ['is_etf', 'ETF', 'bool', 'L0', true], ['lot_size', '交易單位', 'number', 'L0', false]], usedBy: ['事件分析：成交 × 產業', '標籤：pref_market', '歸因：ETF 專區'], note: '補充交易／看盤事件沒有埋的商品維度（產業、類型）；行數 < 100 萬' },
-  { id: 'dim_account', cn: '帳戶主檔', pk: 'account_no', join: 'events.account_no = dim_account.account_no', itemType: 'account', rows: 1_812_440, src: '數據同步任務 sync_account（交易主機 CDC，upsert）', sync: '即時（CDC）', status: 'warn', cols: [['account_type', '帳戶類型', 'enum', 'L1', true], ['branch_id', '分公司', 'string', 'L1', true], ['agent_id', '營業員', 'string', 'L3', true], ['opened_at', '開戶日', 'date', 'L1', false], ['status', '狀態', 'enum', 'L1', true], ['margin_enabled', '信用', 'bool', 'L2', true]], usedBy: ['行級權限：branch_id／agent_id', '事件分析：成交 × 帳戶類型'], note: '帳戶不是獨立主體：account_no 是客戶的多值 ID（docs/19），這張表只補帳戶的維度；超過 100 萬列，查詢以 dictGet 而非 JOIN' },
-  { id: 'dim_branch', cn: '分公司', pk: 'branch_id', join: 'events.branch_id = dim_branch.branch_id；users.branch_id = dim_branch.branch_id', itemType: 'branch', rows: 46, src: '數據同步任務 sync_org（HR 組織樹，日批）', sync: '每日', status: 'ok', cols: [['name', '名稱', 'string', 'L0', true], ['region', '區域', 'enum', 'L0', true], ['manager_id', '主管', 'string', 'L3', false]], usedBy: ['事件分析：按區域分組', '數據權限：組織樹範圍指派'], note: '' },
-  { id: 'dim_agent', cn: '營業員', pk: 'agent_id', join: 'users.agent_id = dim_agent.agent_id', itemType: 'agent', rows: 1_240, src: '數據同步任務 sync_org', sync: '每日', status: 'ok', cols: [['branch_id', '分公司', 'string', 'L1', true], ['team', '組別', 'string', 'L1', true], ['level', '職級', 'enum', 'L2', true], ['active', '在職', 'bool', 'L1', true]], usedBy: ['用戶列表：按營業員組別', '數據權限'], note: '' },
+  { id: 'dim_account', cn: '帳戶主檔', pk: 'account_no', join: 'events.account_no = dim_account.account_no', itemType: 'account', rows: 1_812_440, src: '數據同步任務 sync_account（交易主機 CDC，upsert）', sync: '即時（CDC）', status: 'warn', cols: [['account_type', '帳戶類型', 'enum', 'L1', true], ['branch_id', '分公司', 'string', 'L1', true], ['agent_id', '營業員', 'string', 'L3', true], ['opened_at', '開戶日', 'date', 'L1', false], ['status', '狀態', 'enum', 'L1', true], ['margin_enabled', '信用', 'bool', 'L2', true]], usedBy: ['事件分析：成交 × 帳戶類型', '用戶列表：按分公司'], note: '帳戶不是獨立主體：account_no 是客戶的多值 ID（docs/19），這張表只補帳戶的維度；超過 100 萬列，查詢以 dictGet 而非 JOIN' },
+  { id: 'dim_branch', cn: '分公司', pk: 'branch_id', join: 'events.branch_id = dim_branch.branch_id；users.branch_id = dim_branch.branch_id', itemType: 'branch', rows: 46, src: '數據同步任務 sync_org（HR 組織樹，日批）', sync: '每日', status: 'ok', cols: [['name', '名稱', 'string', 'L0', true], ['region', '區域', 'enum', 'L0', true], ['manager_id', '主管', 'string', 'L3', false]], usedBy: ['事件分析：按區域分組', '維度字典 branch_id'], note: '' },
+  { id: 'dim_agent', cn: '營業員', pk: 'agent_id', join: 'users.agent_id = dim_agent.agent_id', itemType: 'agent', rows: 1_240, src: '數據同步任務 sync_org', sync: '每日', status: 'ok', cols: [['branch_id', '分公司', 'string', 'L1', true], ['team', '組別', 'string', 'L1', true], ['level', '職級', 'enum', 'L2', true], ['active', '在職', 'bool', 'L1', true]], usedBy: ['用戶列表：按營業員組別'], note: '' },
   { id: 'dim_campaign', cn: '行銷活動', pk: 'campaign_id', join: 'events.campaign_id = dim_campaign.campaign_id；events.utm_campaign = dim_campaign.utm_name', itemType: 'campaign', rows: 318, src: '數據同步任務 sync_campaign（MA API，每小時）', sync: '每小時', status: 'ok', cols: [['name', '活動名稱', 'string', 'L0', true], ['channel', '渠道', 'enum', 'L0', true], ['start_at', '開始', 'date', 'L0', false], ['end_at', '結束', 'date', 'L0', false], ['budget_bucket', '預算區間', 'enum', 'L2', true], ['owner', '負責人', 'string', 'L1', false]], usedBy: ['歸因：觸點命名', '活動復盤'], note: '' },
 ];
 // 維度字典（對齊神策「維度字典」）：屬性值 → 顯示名（1:1 或 N:1），篩選與分組時以顯示名呈現；只限文字／數值屬性
@@ -671,14 +666,13 @@ export const BATCH_JOBS = [
 ];
 export const STORAGE = [['ClickHouse（2 副本）', 7.9, 8.0, 'TB'], ['Kafka（7 天）', 0.26, 1.5, 'TB'], ['GCS 原始 + Iceberg', 5.4, 8.0, 'TB'], ['PostgreSQL（控制面）', 38, 200, 'GB'], ['Valkey', 2.9, 8, 'GB']];
 export const USER_ASSIGNMENTS = [
-  { user: '張敏慧', email: 'admin@…', roles: ['platform_admin'], scope: '全域', expiry: '—', sso: 'AD: DMP-Admins', last: '今天 09:12' },
-  { user: '林雅婷', email: 'analyst@…', roles: ['analyst'], scope: '全域', expiry: '—', sso: 'AD: DMP-Analysts', last: '今天 14:20' },
-  { user: '陳柏宇', email: 'ops@…', roles: ['ops_manager', 'marketer'], scope: '全域', expiry: '—', sso: 'AD: DMP-Ops', last: '今天 13:58' },
-  { user: '王信宏', email: 'agent@…', roles: ['sales_agent'], scope: '所屬客戶（A001）· 回溯 90 天', expiry: '—', sso: 'AD: Sales-TPE01', last: '今天 14:05' },
-  { user: '周美玲', email: 'tpe01@…', roles: ['branch_manager'], scope: '分公司 TPE01', expiry: '—', sso: 'AD: Branch-Managers', last: '昨天 17:40' },
-  { user: '李承翰', email: 'audit@…', roles: ['auditor'], scope: '全域唯讀', expiry: '—', sso: 'AD: Audit', last: '今天 08:30' },
-  { user: '外包 顧問 A', email: 'vendor-a@…', roles: ['analyst'], scope: '專案 sinopac_demo · 分群 campaign_exposed', expiry: '2026-10-31', sso: '本地帳號（MFA）', last: '10-12 16:02', temp: true },
-  { user: '陳柏宇（臨時提權）', email: 'ops@…', roles: ['platform_admin'], scope: '全域', expiry: '今天 18:00（4 小時）', sso: 'break-glass ap_1038', last: '今天 14:01', temp: true },
+  { user: '張敏慧', email: 'admin@…', roles: ['admin'], scope: '全域', expiry: '—', sso: 'AD: DMP-Admins', last: '今天 09:12' },
+  { user: '林雅婷', email: 'analyst@…', roles: ['data_analyst'], scope: '全域', expiry: '—', sso: 'AD: DMP-Analysts', last: '今天 14:20' },
+  { user: '黃思妤', email: 'mkt@…', roles: ['marketing'], scope: '全域', expiry: '—', sso: 'AD: DMP-Marketing', last: '今天 11:35' },
+  { user: '陳柏宇', email: 'ops@…', roles: ['digital_ops', 'marketing'], scope: '全域', expiry: '—', sso: 'AD: DMP-DigitalOps', last: '今天 13:58' },
+  { user: '吳建宏', email: 'it@…', roles: ['it_admin'], scope: '全域（不含個人）', expiry: '—', sso: 'AD: DMP-IT', last: '今天 08:30' },
+  { user: '外包 顧問 A', email: 'vendor-a@…', roles: ['custom_vendor_analyst'], scope: '專案 sinopac_demo · 回溯 180 天', expiry: '2026-10-31', sso: '本地帳號（MFA）', last: '10-12 16:02', temp: true },
+  { user: '陳柏宇（臨時提權）', email: 'ops@…', roles: ['admin'], scope: '全域', expiry: '今天 18:00（4 小時）', sso: 'break-glass ap_1038', last: '今天 14:01', temp: true },
 ];
 export const VIRTUAL_EVENTS = [
   { name: 'v.any_trade', cn: '任一交易行為', def: 'order_submit OR order_filled OR fund_subscribe', owner: '數據分析', usedBy: ['留存分析', '標籤：trade_style'] },

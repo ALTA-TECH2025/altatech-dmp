@@ -18,8 +18,8 @@ types:
     manifest: true
   # 廣告平台（GA4 受眾／Google Ads 再行銷、Customer Match）不在本系統範圍：受眾推送只做名單推送到內部系統。
 approval:
-  create_destination: [ops_manager]
-  new_destination_first_time: [ops_manager, auditor]     # 任何新目的地首次推送需稽核核可
-  full_push: [ops_manager]
+  create_destination: [digital_ops, it_admin]
+  new_destination_first_time: [admin]      # 任何新目的地首次推送需系統管理員核可
+  full_push: [digital_ops]
   delta_scheduled: none
 audit_events: [sync.delivered, sync.failed, sync.replayed]

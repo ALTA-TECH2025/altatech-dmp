@@ -6,6 +6,8 @@
 
 > **v0.2 勘誤（授權審查後）**：本文件原選型中的 MinIO（AGPL）、Redis（RSAL/SSPL）、HashiCorp Vault（BSL）、Grafana/Loki（AGPL）已分別改為 GCS／SeaweedFS、Valkey、Cloud KMS／OpenBao、Perses／OpenSearch，詳見 `07-deployment-gcp-license-os.md` 與 `LICENSES.md`；分析模組優先序改依 `04-analysis-modules-p0.md`。**範圍修訂**：神策只做一次性歷史匯入（不接增量、不寫回，見 06 文件 §4）；第 14 節「與 AI Coach 的銜接」作廢，平台下游為 MA、客服與營業員 App。
 
+> **v0.3 勘誤（角色）**：本文提到的「營業員僅能看所屬客戶」「分公司主管僅見分公司」「稽核角色」不再適用。本系統的使用者只有五種角色：系統管理員、行銷、數據分析、數位經營、資訊管理（`backend/security/rbac.yaml`、docs/10 v0.4）；營業員與分公司主管不進本系統，客戶的所屬營業員／分公司只是分析維度，不是行級權限。
+
 
 ---
 

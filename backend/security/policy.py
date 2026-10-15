@@ -85,10 +85,13 @@ def authorize(subject: Subject, action: str, module: str, context: dict[str, Any
 
 
 if __name__ == "__main__":
-    agent = Subject("u-agt", ["sales_agent"], branches=["TPE01"], agents=["A001"])
-    print(authorize(agent, "use", "users"))
-    print(authorize(agent, "use", "profile", {"reason": "客戶來電"}).field_policies["amount"])
-    print(authorize(agent, "use", "events").allowed, "<- 營業員不可用事件分析")
-    analyst = Subject("u-ana", ["analyst"])
+    mkt = Subject("u-mkt", ["marketing"])
+    print(authorize(mkt, "use", "users"))
+    print(authorize(mkt, "use", "users").field_policies["amount"], "<- 行銷看金額只有區間")
+    print(authorize(mkt, "use", "profile", {"reason": "x"}).allowed, "<- 行銷不可細查")
+    print(authorize(Subject("u-it", ["it_admin"]), "use", "users").allowed, "<- 資訊管理不看個人")
+    analyst = Subject("u-ana", ["data_analyst"])
     print(authorize(analyst, "export", "events", {}).reason)
-    print(authorize(Subject("u-adm", ["platform_admin"]), "use", "users").field_policies["one_id"])
+    print(authorize(analyst, "use", "profile", {"reason": "客訴調查"}).field_policies["amount"], "<- 數據分析看金額明文、one_id 遮罩")
+    print(authorize(Subject("u-ops", ["digital_ops"]), "approve", "segments").allowed, "<- 數位經營可審批分群")
+    print(authorize(Subject("u-adm", ["admin"]), "use", "users").field_policies["one_id"])

@@ -1,21 +1,21 @@
 # 欄位敏感等級與遮罩策略。策略：mask_tail(n) | mask_all | bucket | hash | hide | round
 levels: { L0: 聚合, L1: 行為, L2: 敏感業務, L3: 代碼化識別, L4: 可識別（永不進分析倉） }
 fields:
-  - { name: one_id,            level: L3, plain_roles: [platform_admin, auditor], others: "mask_tail(4)" }
-  - { name: cust_code,         level: L3, plain_roles: [platform_admin, auditor], others: "mask_tail(4)" }
-  - { name: account_no,        level: L3, plain_roles: [platform_admin, auditor], others: "mask_tail(4)" }
+  - { name: one_id,            level: L3, plain_roles: [admin], others: "mask_tail(4)" }
+  - { name: cust_code,         level: L3, plain_roles: [admin], others: "mask_tail(4)" }
+  - { name: account_no,        level: L3, plain_roles: [admin], others: "mask_tail(4)" }
   - { name: $identity_mobile_hash, level: L3, plain_roles: [], others: hide }
-  - { name: amount,            level: L2, plain_roles: [analyst, ops_manager, branch_manager, sales_agent], others: "bucket([0,1e5,5e5,1e6,5e6])", export: bucket }
-  - { name: filled_amount,     level: L2, plain_roles: [analyst, ops_manager, branch_manager, sales_agent], others: bucket, export: bucket }
-  - { name: fee,               level: L2, plain_roles: [analyst, ops_manager], others: "round(1000)", export: bucket }
-  - { name: fee90,             level: L2, plain_roles: [analyst, ops_manager, branch_manager], others: bucket, export: bucket }
-  - { name: churn_score,       level: L2, plain_roles: [analyst, ops_manager, branch_manager, sales_agent], others: "bucket([0,40,70,100])" }
+  - { name: amount,            level: L2, plain_roles: [data_analyst, digital_ops], others: "bucket([0,1e5,5e5,1e6,5e6])", export: bucket }
+  - { name: filled_amount,     level: L2, plain_roles: [data_analyst, digital_ops], others: bucket, export: bucket }
+  - { name: fee,               level: L2, plain_roles: [data_analyst, digital_ops], others: "round(1000)", export: bucket }
+  - { name: fee90,             level: L2, plain_roles: [data_analyst, digital_ops], others: bucket, export: bucket }
+  - { name: churn_score,       level: L2, plain_roles: [data_analyst, digital_ops], others: "bucket([0,40,70,100])" }
   - { name: age_band,          level: L1, plain_roles: ["*"] }
   - { name: platform,          level: L1, plain_roles: ["*"] }
   - { name: page_url,          level: L1, plain_roles: ["*"], transform: strip_query_string }
 reveal:
   requires: [reason, approval]
-  approvers: { L3: [ops_manager, auditor], L2: [ops_manager] }
+  approvers: { L3: [admin], L2: [digital_ops] }   # L3 揭露由系統管理員核准、L2 由數位經營核准
   ttl_hours: 24
   audit_event: mask.revealed
 export:
