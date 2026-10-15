@@ -564,8 +564,12 @@ a { color: inherit; }
   .grid { gap: 12px; }
   .card { padding: 14px; }
   .card-h { flex-wrap: wrap; }
+  .card-h { flex-wrap: wrap; }
+  .card-h h3 { overflow-wrap: anywhere; white-space: normal; }
   .card-h .right { margin-left: 0; width: 100%; }
   .card-h .right .seg { flex-wrap: wrap; }
+  .qbody .row .sel.grow, .qbody .sel.grow { flex: 1 1 120px; min-width: 0; max-width: 100%; }
+  .sel, .inp { max-width: 100%; }
   .tile .val { font-size: 21px; }
   .qpanel.collapsed .qbody { display: none; }
   .qpanel.collapsed { padding-bottom: 10px; }

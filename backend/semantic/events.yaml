@@ -1,4 +1,5 @@
 # 事件字典（語意層）— agent 與 UI 共用。新增事件只需在此登記。
+# 交易／帳務事件不直連交易主機：來源是數據中台／CDP 的事實表（批次導入，每 15 分鐘增量；若數據中台提供 Kafka 則流任務）。
 # v4：事件命名對齊客戶神策專案（sbp_family）的模擬事件清單（112 個），另含本系統交易／帳務 CDC 補充事件；aliases 為本專案文件中的舊名（查詢時等價）。
 version: 4
 project: altatech_dmp
@@ -44,7 +45,7 @@ events:
     cn: "市場交易數據"
     group: "業務資料（服務端）"
     entity: user
-    source: "服務端（CDC／批次）"
+    source: "數據中台（批次導入）"
     kind: business
     status: live
     platforms: "服務端"
@@ -108,7 +109,7 @@ events:
     cn: "業務目標"
     group: "業務資料（服務端）"
     entity: user
-    source: "服務端（CDC／批次）"
+    source: "數據中台（批次導入）"
     kind: business
     status: live
     platforms: "JavaScript,服務端,Android,iOS"
@@ -117,7 +118,7 @@ events:
     cn: "市場交易詳情"
     group: "業務資料（服務端）"
     entity: user
-    source: "服務端（CDC／批次）"
+    source: "數據中台（批次導入）"
     kind: business
     status: live
     platforms: "JavaScript,服務端,iOS,Android"
@@ -126,7 +127,7 @@ events:
     cn: "銷戶資訊"
     group: "業務資料（服務端）"
     entity: user
-    source: "服務端（CDC／批次）"
+    source: "數據中台（批次導入）"
     kind: business
     status: live
     platforms: "JavaScript,服務端,Android,iOS"
@@ -297,18 +298,18 @@ events:
     required: ["keyword", "result_count"]
   - name: "realtime_bond_order"
     cn: "即時_證券_委託"
-    group: "證券（交易主機）"
+    group: "證券（數據中台）"
     entity: account
-    source: "交易 CDC"
+    source: "數據中台（批次導入）"
     kind: trade
     status: live
     platforms: "JavaScript,服務端,iOS,Android"
     required: ["order_no", "symbol", "market", "side", "amount"]
   - name: "realtime_bond_deal"
     cn: "即時_證券_成交"
-    group: "證券（交易主機）"
+    group: "證券（數據中台）"
     entity: account
-    source: "交易 CDC"
+    source: "數據中台（批次導入）"
     kind: trade
     status: live
     platforms: "JavaScript,服務端,iOS,Android"
@@ -755,27 +756,27 @@ events:
     required: ["symbol", "side", "order_type"]
   - name: "bond_portfolio_income"
     cn: "證券_持有損益"
-    group: "證券（交易主機）"
+    group: "證券（數據中台）"
     entity: account
-    source: "交易 CDC"
+    source: "數據中台（批次導入）"
     kind: trade
     status: live
     platforms: "JavaScript,服務端,Android,iOS"
     required: ["order_no", "symbol", "market", "side", "amount"]
   - name: "bond_portfolio"
     cn: "證券_持有詳情"
-    group: "證券（交易主機）"
+    group: "證券（數據中台）"
     entity: account
-    source: "交易 CDC"
+    source: "數據中台（批次導入）"
     kind: trade
     status: live
     platforms: "JavaScript,服務端,iOS,Android"
     required: ["order_no", "symbol", "market", "side", "amount"]
   - name: "bond_order"
     cn: "證券_委託"
-    group: "證券（交易主機）"
+    group: "證券（數據中台）"
     entity: account
-    source: "交易 CDC"
+    source: "數據中台（批次導入）"
     kind: trade
     status: live
     platforms: "JavaScript,服務端,iOS,Android"
@@ -785,9 +786,9 @@ events:
     caveats: ["委託不等於成交；成交金額請用 order_filled"]
   - name: "bond_deal"
     cn: "證券_成交"
-    group: "證券（交易主機）"
+    group: "證券（數據中台）"
     entity: account
-    source: "交易 CDC"
+    source: "數據中台（批次導入）"
     kind: trade
     status: live
     platforms: "JavaScript,服務端,Android,iOS"
@@ -795,9 +796,9 @@ events:
     required: ["order_no", "filled_qty", "filled_price", "filled_amount", "fee", "tax"]
   - name: "bond_charge_income"
     cn: "證券_手續費收入"
-    group: "證券（交易主機）"
+    group: "證券（數據中台）"
     entity: account
-    source: "交易 CDC"
+    source: "數據中台（批次導入）"
     kind: trade
     status: live
     platforms: "JavaScript,服務端,iOS,Android"
@@ -1036,34 +1037,34 @@ events:
     required: ["plan_id", "journey_id", "msg_id"]
   - name: "fund_deposit"
     cn: "入金"
-    group: "帳務（CDC）"
+    group: "帳務（數據中台）"
     entity: account
-    source: "帳務 CDC"
+    source: "數據中台（批次導入）"
     kind: trade
     status: live
     platforms: "服務端"
     required: ["amount", "method"]
-    note: "清單外：帳務主機 CDC 新增"
+    note: "清單外：數據中台帳務事實表事件化新增"
   - name: "order_rejected"
     cn: "委託失敗"
-    group: "證券（交易主機）"
+    group: "證券（數據中台）"
     entity: account
-    source: "交易 CDC"
+    source: "數據中台（批次導入）"
     kind: trade
     status: live
     platforms: "服務端"
     required: ["order_no", "reason_code"]
-    note: "清單外：交易主機狀態機事件化新增"
+    note: "清單外：數據中台委託表狀態機事件化新增"
   - name: "order_cancelled"
     cn: "刪單"
-    group: "證券（交易主機）"
+    group: "證券（數據中台）"
     entity: account
-    source: "交易 CDC"
+    source: "數據中台（批次導入）"
     kind: trade
     status: live
     platforms: "服務端"
     required: ["order_no", "cancel_qty"]
-    note: "清單外：交易主機狀態機事件化新增"
+    note: "清單外：數據中台委託表狀態機事件化新增"
   - name: "ga.ab_exposure"
     cn: "AB 實驗曝光"
     group: "未登記"

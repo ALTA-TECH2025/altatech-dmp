@@ -24,7 +24,7 @@ docs/
   12-architecture-diagrams.md  diagrams/           系統架構圖、元件組成（部署）圖、數據流圖、元件模組圖（SVG/PNG 由 build.py 產生 + Mermaid）
   14-audience-activation.md                        受眾推送：簽章 Webhook 到內部系統（亦可 Kafka／GCS）；廣告平台不在範圍
   19-oneid-attribution.md                          OneID 歸戶邏輯（對齊神策 IDM 3.0：接入時決定、一個 ID 只屬一人、不自動合併、首次關聯升級、改綁政策；未登入事件以 distinct_id 歸匿名用戶，登入時近 7 天匿名事件改寫到客戶；情境與自測）
-  20-ga360-trading-instrumentation.md              GA360 埋點與交易事件打通：代碼化客戶 ID（HMAC）同款用於 GA user_id 與交易 CDC、手機／帳號去識別化、登入／登出埋點呼叫、匯出欄位映射；行為與交易事件只靠客戶代碼歸戶、不做逐筆對應
+  20-ga360-trading-instrumentation.md              GA360 埋點與交易事件打通：代碼化客戶 ID（HMAC）同款用於 GA user_id 與數據中台交易資料、手機／帳號去識別化、登入／登出埋點呼叫、匯出欄位映射；行為與交易事件只靠客戶代碼歸戶、不做逐筆對應
   17-product-spec.md                               產品規格書（總規格：架構圖、元件模組圖、數據流圖、資料模型、16 個模組規格、非功能、開發測試計畫、待確認索引）
   18-demo-audit-findings.md                        Demo 全面檢查：數據流／效能／建模／數據權限／元事件／用戶表／維度表／角色權限的問題、漏洞、優化與每模組待確認細節
   16-github-collaboration-with-claude.md          6 人分工（目錄即邊界）、Claude 三種用法與邊界、GitHub 協同（trunk-based、squash、branch protection、CODEOWNERS、CI 分層、@claude 指派）

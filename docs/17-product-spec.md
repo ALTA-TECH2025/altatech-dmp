@@ -33,7 +33,7 @@
 |---|---|---|
 | 準即時行為 | GA360 BigQuery 串流匯出（events_intraday_）→ Importer → Kafka raw → Flink（normalize／eventize／OneID／session）→ ClickHouse | 分鐘級（P95 < 15 分鐘，受 GA 串流匯出延遲限制） |
 | 日批行為 | GA360 BigQuery 日批匯出（events_，權威）→ Storage Read API → Kafka raw → 同上；event_id 去重，覆蓋串流 | 前日資料 07:00 前到齊 |
-| 交易／帳務 | MSSQL CDC（Debezium）→ Kafka → Flink 狀態機事件化（委託／成交／失敗／刪單） | < 5 s |
+| 交易／帳務 | 數據中台／CDP 事實表批次導入（每 15 分鐘增量 + 日批校正；數據中台有 Kafka 則流任務）→ Kafka → Flink 狀態機事件化（委託／成交／失敗／刪單）；不直連交易主機 | < 20 分鐘（批次）／< 1 分鐘（Kafka） |
 | 主檔 | CRM／HR／商品主檔 → 建模映射 → users／items | 每日 |
 | 分析查詢 | UI／API／agent → 語意層編譯 → Policy（行級、遮罩）→ ClickHouse（MV 優先）→ 快取 → 審計 | 各模組 P95 SLA 見 §5.9 |
 | 標籤與名單推送 | dbt 日批 → user_tags Bitmap → 分群 → 審批 → Webhook／Kafka／GCS（內部系統）→ deliveries | 日批 < 20 分鐘；增量 15 分鐘送完 |
@@ -88,7 +88,7 @@
 | 里程碑 | 範圍 | 週 |
 |---|---|---|
 | M1 走通一條線 | GA360 BigQuery 日批 + 串流 → ClickHouse；事件分析查真資料；SSO | 3 |
-| M2 代碼級第一版 | 六個分析模組接真 API、OneID v1、交易 CDC、RBAC／隱碼／審計、元事件／用戶表／維度表管理基本版、測試環境部署 | 8 |
+| M2 代碼級第一版 | 六個分析模組接真 API、OneID v1、數據中台交易批次導入、RBAC／隱碼／審計、元事件／用戶表／維度表管理基本版、測試環境部署 | 8 |
 | M3 P0 完整 | 標籤 v1、分群、推送、建模 v1、Tag Sync、神策匯入工具、資料流與效能頁接 Prometheus | 12 |
 | M4 AI 洞察 v1 | 工具閘道、分析工具、異常 agent、問答、golden evals | 16 |
 | M5 GA | 10 億合成事件基準、安全強化、機房驗證、DR 演練 | 22–24 |

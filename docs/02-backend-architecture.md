@@ -32,7 +32,7 @@
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │ 儲存層   Kafka │ ClickHouse（熱）│ Iceberg on GCS（機房：SeaweedFS）（冷）│ PostgreSQL + pgvector │ Valkey      │
 ├─────────────────────────────────────────────────────────────────────────────────┤
-│ 接入層   GA360 Importer（BigQuery 日批 + 串流）│ Collector API（神策相容）│ Debezium CDC │ 匯入 │
+│ 接入層   GA360 Importer（BigQuery 日批 + 串流）│ Collector API（神策相容）│ 數據中台批次導入／Kafka │ CDC（CRM）│
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -44,7 +44,7 @@
 |---|---|---|---|
 | Collector API | Go / FastAPI | 神策相容 `/sa`、原生 `/v1/events`（App／內部系統直送）；校驗、脫敏、寫 Kafka | 事件字典、禁止欄位規則 |
 | GA360 Importer | Airflow + Spark（BigQuery Storage Read API） | 日批／Fresh 匯入、對帳、覆蓋 | 映射表 `backend/semantic/ga4_mapping.yaml` |
-| Trade Eventizer | Flink | CDC 列變更 → 業務事件（狀態機） | 狀態機 YAML |
+| Trade Eventizer | Flink | 數據中台交易／帳務事實表的增量列 → 業務事件（狀態機）；不直連交易主機 | 狀態機 YAML |
 | OneID Service | Flink + Valkey + ClickHouse `id_map` + REST | 接入時歸戶（一個 ID 只屬一人、不自動合併、首次關聯升級、改綁政策）、人工合併／拆分、DSAR | `semantic/oneid_rules.yaml`（docs/19） |
 | Semantic Layer | Python（`backend/semantic`） | 指標／維度／事件語意定義；編譯為 ClickHouse SQL；成本估算 | 新增 metric / dimension 只改 YAML |
 | Analytics Query API | FastAPI | 事件、漏斗、留存、路徑、間隔、分布、歸因、LTV、Session、細查 | 分析模型以 plugin 註冊 |

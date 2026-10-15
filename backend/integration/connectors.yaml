@@ -16,7 +16,24 @@ connection_test:   # 逐步診斷，哪一步失敗就回哪一步的原因與�
   timeout_seconds: 15
   audit_event: integration.connection.tested
 connectors:
-  - type: mssql
+  - type: dwh                                       # 數據中台／CDP（交易、帳務事實表的唯一來源；不直連交易主機）
+    cn: 數據中台（Trino／Hive／Iceberg；或其 Kafka）
+    versions: ["Trino 4xx", "Hive 3", "Iceberg 1.x"]
+    auth: [kerberos, oauth2, kafka_mtls]            # 建議順序：Kerberos（AD 網域）> OAuth2／JWT > Kafka mTLS（數據中台提供串流時）
+    auth_methods:
+      kerberos:   { fields: [host, port, catalog, schema, principal], secret_fields: [keytab], secret_ref_required: true, notes: "keytab 存密鑰庫以 CSI 掛載到 batch Pod；Trino JDBC KerberosRemoteServiceName" }
+      oauth2:     { fields: [host, port, catalog, schema, client_id], secret_fields: [client_secret], secret_ref_required: true, rotation_days: 90, notes: "短效 access token；Trino externalAuthentication" }
+      kafka_mtls: { fields: [bootstrap, topic, group_id], secret_fields: [client_cert, client_key], secret_ref_required: true, rotation_days: 365, notes: "數據中台若提供交易事件 topic，改走流任務" }
+    tls: { required: true, min_version: "1.2", verify_server_cert: true, ca_bundle_ref: optional }
+    network: { private_ip: true, source_ip_allowlist: "Cloud NAT 固定 IP / 機房出口 IP", port_default: 443 }
+    least_privilege:
+      batch: ["SELECT on 指定 schema 的事實表／維度表", "資源群組 dmp（掃描上限、併發上限）", "不需要 catalog 寫入權"]
+      stream: ["topic 的 READ 與 consumer group DESCRIBE"]
+    capabilities: { batch: partition_incremental, stream: kafka_optional, schema_discovery: true }
+    driver: { name: trino-jdbc, license: Apache-2.0 }
+    incremental: { partition_column: dt, update_column: updated_at, interval_minutes: 15, daily_reconcile: "02:00 全量對帳（筆數、金額加總）" }
+    default_transforms: { timestamp: to_ms_utc, decimal: to_decimal, varchar: trim }
+  - type: mssql                                     # 保留給其他業務系統；交易主機不接
     cn: Microsoft SQL Server
     versions: ["2016+"]
     auth: [kerberos, entra_id_sp, password]        # 建議順序：Kerberos（AD 網域）> Entra ID 服務主體 > SQL 帳密

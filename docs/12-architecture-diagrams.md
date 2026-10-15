@@ -54,7 +54,7 @@ flowchart TB
     KF[(Kafka)] --- CH[(ClickHouse)] --- PG[(PostgreSQL + pgvector)] --- VK[(Valkey)] --- OBJ[(GCS / 物件儲存<br/>Iceberg 冷層)]
   end
   subgraph ING[接入層]
-    COL[Collector Go<br/>/v1/events /sa] --- GA[GA360 Importer<br/>BigQuery 日批 + 串流] --- CDC[Debezium / Flink CDC] --- BAT[dlt / SeaTunnel 批次匯入<br/>神策歷史一次性]
+    COL[Collector Go<br/>/v1/events /sa] --- GA[GA360 Importer<br/>BigQuery 日批 + 串流] --- DWH[數據中台批次導入 Trino / Kafka] --- CDC[Debezium CDC CRM] --- BAT[dlt / SeaTunnel 批次匯入<br/>神策歷史一次性]
   end
   SRC[資料來源：GA360 · 交易系統 · CRM · MA · 神策歷史（一次性匯入）] --> ING --> STO --> CMP --> SVC --> AGENT --> EXP
   SEC[安全：Keycloak · RBAC · 隱碼 · KMS · 審計 WORM]:::x -.-> SVC
@@ -67,11 +67,11 @@ flowchart TB
 ```mermaid
 flowchart LR
   subgraph EXTS[外部]
-    BQ[GA360 / BigQuery 匯出] ; MS[交易主機 MSSQL] ; CRM[CRM PostgreSQL] ; SA[神策歷史 一次性] ; LLMG[LLM Gateway]
+    BQ[GA360 / BigQuery 匯出] ; DW[數據中台 / CDP 交易事實表] ; CRM[CRM PostgreSQL] ; SA[神策歷史 一次性] ; LLMG[LLM Gateway]
   end
   subgraph GKE[GKE asia-east1 / RKE2]
     subgraph P1[ingest pool]
-      C1[dmp-ingest Collector ×2–3 Go] ; C2[KafkaConnect Debezium CDC]
+      C1[dmp-ingest Collector ×2–3 Go] ; C2[Batch Importer Trino + KafkaConnect Debezium CRM]
     end
     subgraph P2[stream pool]
       F1[Flink JM ×2 + TM ×6–16]
@@ -106,7 +106,7 @@ flowchart LR
 ```mermaid
 flowchart LR
   S1[GA360 BigQuery 匯出] --> I1[Importer] --> R[(Kafka raw.*)]
-  S2[交易主機 MSSQL] --> I2[Debezium CDC] --> R
+  S2[數據中台 / CDP 交易·帳務事實表] --> I2[批次導入 每 15 分鐘 / Kafka] --> R
   S3[CRM / MA] --> I3[dlt 批次] --> R
   S4[神策歷史事件 一次性] -.匯入.-> ICE
   R --> N[normalize] --> E[eventize 狀態機<br/>HMAC/FPE 代碼化] --> O[oneid-resolve] --> SS[sessionize] --> EV[(dmp.events)]

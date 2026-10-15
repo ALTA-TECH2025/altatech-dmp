@@ -38,7 +38,7 @@
 |---|---|---|---|---|---|
 | 1 | `$identity_login_id` 客戶代碼（HMAC） | 單值 | 不可改、不可解綁 | CRM／App 後台／GA `user_id` | 唯一錨點；GA `user_id` 接入時直接視為此 ID（alias） |
 | 2 | `$identity_mobile_hash` | 單值 | 人工 | CRM／開戶 | 同手機被第二個客戶帶入 → 不改綁、記 conflict；換號由 CRM 發 unbind + bind |
-| 3 | `$identity_account_no`（FPE） | 多值 | 人工 | CRM 綁定／交易 CDC | 一客多戶 |
+| 3 | `$identity_account_no`（FPE） | 多值 | 人工 | CRM 綁定／數據中台交易資料 | 一客多戶 |
 | 4 | `$identity_device_id` | 多值 | 最新者取得 | GA360 | 共用裝置 |
 | 5 | `$identity_cookie_id`（GA client_id） | 多值 | 最新者取得 | GA360 | 清 cookie 即新 ID |
 | 6 | `$identity_anonymous_id` | 多值 | 最新者取得 | Collector | 兜底 |

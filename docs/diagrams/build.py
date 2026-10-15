@@ -163,10 +163,10 @@ def data_flow():
         s.parts.append(f'<text x="{x}" y="92" font-family="{FONT}" font-size="13" font-weight="800" fill="{C["brand"]}">{html.escape(t)}</text>')
         s.parts.append(f'<line x1="{x}" y1="100" x2="{x+234}" y2="100" stroke="{C["line"]}" stroke-width="2"/>')
     # column 1 sources
-    src = [("GA360 Web/App 埋點", ["gtag / Firebase → BigQuery 匯出"]), ("GA360 串流匯出", ["events_intraday_，分鐘級"]), ("交易主機（委託/成交/出入金）", ["MSSQL 狀態表"]), ("CRM / 開戶 / 基金", ["PostgreSQL、API"]), ("神策歷史（一次性匯入）", ["查詢 API / Parquet 匯出"]), ("MA", ["推播"])]
+    src = [("GA360 Web/App 埋點", ["gtag / Firebase → BigQuery 匯出"]), ("GA360 串流匯出", ["events_intraday_，分鐘級"]), ("數據中台／CDP（委託/成交/出入金）", ["事實表：批次導入或 Kafka"]), ("CRM / 開戶 / 基金", ["PostgreSQL、API"]), ("神策歷史（一次性匯入）", ["查詢 API / Parquet 匯出"]), ("MA", ["推播"])]
     for i, (t, ls) in enumerate(src): s.box(28, 115 + i * 78, 234, 60, t, ls, "gray", small=True)
     # column 2 ingestion
-    ing = [("BigQuery Importer（日批/Fresh）", ["Storage Read API → Iceberg raw"]), ("Collector /ga4 /v1/events /sa", ["校驗、禁止欄位、event_id 冪等"]), ("Debezium / Flink CDC", ["列變更 → raw.trade_cdc"]), ("dlt / SeaTunnel 批次", ["raw.crm、profile_set"]), ("神策歷史匯入（一次性）", ["協議 1:1 映射 → Iceberg"]), ("Kafka raw.* topics", ["原文保留 7–30 天；可回放"])]
+    ing = [("BigQuery Importer（日批/Fresh）", ["Storage Read API → Iceberg raw"]), ("Collector /ga4 /v1/events /sa", ["校驗、禁止欄位、event_id 冪等"]), ("數據中台批次導入（Trino）", ["15 分鐘增量 → raw.dwh_trade"]), ("dlt / SeaTunnel 批次", ["raw.crm、profile_set"]), ("神策歷史匯入（一次性）", ["協議 1:1 映射 → Iceberg"]), ("Kafka raw.* topics", ["原文保留 7–30 天；可回放"])]
     for i, (t, ls) in enumerate(ing): s.box(290, 115 + i * 78, 234, 60, t, ls, "green", small=True)
     # column 3 flink
     fl = [("normalize", ["GA4 → 統一事件（ga. 前綴）", "時區、去重、遲到標記"]), ("eventize（狀態機）", ["NEW→order_submit、F→order_filled…", "敏感欄位代碼化 HMAC/FPE"]), ("oneid-resolve", ["identities → one_id / one_id_uint", "優先級合併、共用裝置限制"]), ("sessionize", ["30 分鐘閒置切 Session"]), ("rt-rules（CEP）/ rt-tags", ["MATCH_RECOGNIZE → dmp.triggers", "近 N 分鐘標籤 → Valkey"]), ("audit / insights topics", ["agent.tool_called、role.changed"])]
@@ -216,7 +216,7 @@ def data_flow():
              "• 所有讀寫（含 agent.tool_called、role.changed、mask.revealed）→ dmp.audit → ClickHouse audit_log + GCS WORM → Grafana 日誌統計看板。"]
     for i, n in enumerate(notes): s.note(42, 652 + i * 18, n, C["ink"])
     s.group(28, 780, 1544, 190, "延遲與 SLA（docs/02、09）")
-    sla = [("行為事件可查", "P95 < 15 分鐘", "GA360 串流匯出 → Importer → Flink → ClickHouse"), ("交易事件可查", "P95 < 10 秒", "CDC → Flink 事件化 → ClickHouse"), ("即時觸發", "P95 < 5 秒", "Flink CEP → dmp.triggers"), ("30 天漏斗（1 億事件）", "P95 < 10 秒", "Bitmap 預篩 + windowFunnel"), ("用戶列表人數預估", "< 1 秒", "Bitmap 交併差"), ("標籤全量日批", "< 60 分鐘", "L1 聚合 → Bitmap 版本切換"), ("agent 問答（3–5 次工具）", "P95 < 40 秒", "選擇題式配置 + 交叉驗證")]
+    sla = [("行為事件可查", "P95 < 15 分鐘", "GA360 串流匯出 → Importer → Flink → ClickHouse"), ("交易事件可查", "P95 < 20 分鐘", "數據中台批次 → Flink 事件化 → ClickHouse"), ("即時觸發", "P95 < 5 秒", "Flink CEP → dmp.triggers"), ("30 天漏斗（1 億事件）", "P95 < 10 秒", "Bitmap 預篩 + windowFunnel"), ("用戶列表人數預估", "< 1 秒", "Bitmap 交併差"), ("標籤全量日批", "< 60 分鐘", "L1 聚合 → Bitmap 版本切換"), ("agent 問答（3–5 次工具）", "P95 < 40 秒", "選擇題式配置 + 交叉驗證")]
     for i, (a, b, c) in enumerate(sla):
         x = 42 + (i % 4) * 382; y = 810 + (i // 4) * 72
         s.box(x, y, 366, 60, f"{a}：{b}", [c], "brand", small=True)
