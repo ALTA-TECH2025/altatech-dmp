@@ -6,6 +6,7 @@
 |---|---|---|
 | 系統架構圖（分層視圖） | `diagrams/system-architecture.svg` / `.png` | 提案與評審：六層（來源→接入→儲存→計算→語意服務→Agent→體驗）＋ 安全、觀測、部署、供應鏈 |
 | 元件組成圖（GKE 部署視圖） | `diagrams/component-deployment.svg` / `.png` | 基礎設施與資安評審：節點池、Pod、託管服務、Ingress、邊界 |
+| 元件模組圖（功能模組） | `diagrams/module-map.svg` / `.png` | 產品與開發：功能模組、負責的資料、模組間關係與資料流摘要 |
 | 數據流圖 | `diagrams/data-flow.svg` / `.png` | 工程與資料治理：六段資料流、關鍵規則、延遲 SLA |
 
 ## 提案簡報版（16:9，`diagrams/slides/`，由 `build_slides.py` 產生）

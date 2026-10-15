@@ -1,0 +1,19 @@
+# 用戶表（dmp.users.props）屬性：來源、更新、敏感等級、可篩選／分組。L4 欄位不存在於此檔（永不入倉）。
+user_properties:
+  - { key: customer_code, cn: 客戶代碼, type: string, source: crm.cdc, update: realtime, sensitivity: L3, filterable: true, groupable: false }
+  - { key: lifecycle, cn: 生命週期, type: enum, values: [新客, 成長, 成熟, 沉睡, 流失], source: tag_engine.rule, update: "daily 06:00", sensitivity: L1, filterable: true, groupable: true }
+  - { key: tier, cn: 價值分級, type: enum, values: [P1, P2, P3, P4, P5], source: tag_engine.sql, update: weekly, sensitivity: L2, filterable: true, groupable: true }
+  - { key: age_band, cn: 年齡層, type: enum, source: crm.cdc(birth_year -> bucket), update: daily, sensitivity: L2, filterable: true, groupable: true, note: 只存分桶 }
+  - { key: gender, cn: 性別, type: enum, source: crm.cdc, update: daily, sensitivity: L2, filterable: true, groupable: true }
+  - { key: branch_id, cn: 所屬分公司, type: string, source: crm.cdc, update: daily, sensitivity: L1, filterable: true, groupable: true, row_level_key: true }
+  - { key: agent_id, cn: 所屬營業員, type: string, source: crm.cdc, update: daily, sensitivity: L3, filterable: true, groupable: false, row_level_key: true }
+  - { key: first_utm_source, cn: 首次來源, type: string, source: event.derived(first ga.page_view), update: set_once, sensitivity: L1, filterable: true, groupable: true }
+  - { key: signup_date, cn: 開戶日期, type: date, source: account_system, update: realtime, sensitivity: L1, filterable: true, groupable: false }
+  - { key: account_age_days, cn: 開戶天數, type: number, source: computed, update: daily, sensitivity: L1, filterable: true, groupable: true, buckets: [0, 7, 30, 90, 365] }
+  - { key: aum_bucket, cn: 資產區間, type: enum, source: ledger.batch(bucket), update: "daily 05:00", sensitivity: L2, filterable: true, groupable: true, note: 只存區間 }
+  - { key: has_margin, cn: 信用戶, type: bool, source: crm.cdc, update: daily, sensitivity: L2, filterable: true, groupable: true }
+  - { key: churn_score, cn: 流失風險分, type: number, source: tag_engine.model, update: "daily 07:30", sensitivity: L2, filterable: true, groupable: true, buckets: [0, 40, 70, 100] }
+  - { key: pref_market, cn: 偏好市場, type: enum, source: tag_engine.stat, update: "daily 06:00", sensitivity: L1, filterable: true, groupable: true }
+  - { key: last_active_at, cn: 最近活躍, type: datetime, source: event.derived, update: realtime, sensitivity: L1, filterable: true, groupable: false }
+write_protocol: [profile_set, profile_set_once, profile_increment, profile_append, profile_unset]
+forbidden_l4: [name, id_no, mobile, email, full_account_no, birth_date, address]

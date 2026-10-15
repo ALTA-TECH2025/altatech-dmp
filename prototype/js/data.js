@@ -534,3 +534,112 @@ export const SAVED_REPORTS = [
   { id: 'r3', name: '開戶→首筆成交（iOS vs Android）', kind: 'funnel', owner: '林主管', updated: '10-11' },
   { id: 'r4', name: '推播→成交（7 天窗口）', kind: 'funnel', owner: 'MA 小組', updated: '10-09' },
 ];
+
+/* ------------------------------------------------------------------ v0.5：元事件／屬性字典／用戶表／Item 表／資料流與效能／使用者指派 */
+export const META_PROPS = [
+  // 全域屬性字典（事件屬性 + 預置屬性）：型別、敏感等級、來源、枚舉、被幾個事件使用
+  { k: '$page_url', cn: '頁面網址', type: 'string', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 2, note: '去除查詢字串後入倉', status: 'live' },
+  { k: 'page_group', cn: '頁面群組', type: 'string', scope: 'event', sens: 'L1', src: '事件化規則', enum: ['account_open', 'quote', 'trade', 'wealth', 'campaign'], usedBy: 3, status: 'live' },
+  { k: '$screen_name', cn: '畫面名稱', type: 'string', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'live' },
+  { k: 'symbol', cn: '商品代碼', type: 'string', scope: 'event', sens: 'L2', src: '交易 CDC / GA360', usedBy: 6, note: '關聯 Item：instrument', item: 'instrument', status: 'live' },
+  { k: 'market', cn: '市場', type: 'string', scope: 'event', sens: 'L1', src: '交易 CDC', enum: ['TSE', 'OTC', 'US', 'HK', 'FUND'], usedBy: 4, status: 'live' },
+  { k: 'side', cn: '買賣別', type: 'string', scope: 'event', sens: 'L1', src: '交易 CDC', enum: ['buy', 'sell'], usedBy: 2, status: 'live' },
+  { k: 'order_type', cn: '委託類型', type: 'string', scope: 'event', sens: 'L1', src: '交易 CDC', enum: ['limit', 'market', 'odd_lot', 'day_trade'], usedBy: 1, status: 'live' },
+  { k: 'amount', cn: '金額', type: 'number', unit: 'TWD', scope: 'event', sens: 'L2', src: '交易／帳務 CDC', usedBy: 4, note: '匯出一律區間化', status: 'live' },
+  { k: 'qty', cn: '數量', type: 'number', unit: '股', scope: 'event', sens: 'L2', src: '交易 CDC', usedBy: 2, status: 'live' },
+  { k: 'fee', cn: '手續費', type: 'number', unit: 'TWD', scope: 'event', sens: 'L2', src: '交易 CDC', usedBy: 1, status: 'live' },
+  { k: 'reason_code', cn: '失敗原因碼', type: 'string', scope: 'event', sens: 'L1', src: '交易 CDC', enum: ['E001', 'E012', 'E020', 'E031', 'SYS02'], usedBy: 1, note: '碼表維護於 Item：reason_code', item: 'reason_code', status: 'live' },
+  { k: 'channel', cn: '渠道', type: 'string', scope: 'event', sens: 'L1', src: '多來源', enum: ['app', 'web', 'agent', 'ivr', 'api'], usedBy: 7, status: 'live' },
+  { k: 'branch_id', cn: '分公司', type: 'string', scope: 'event', sens: 'L1', src: '開戶系統 / CRM', usedBy: 2, note: '行級權限鍵；關聯 Item：branch', item: 'branch', status: 'live' },
+  { k: 'agent_id', cn: '營業員', type: 'string', scope: 'event', sens: 'L3', src: 'CRM', usedBy: 1, note: '行級權限鍵；代碼化', item: 'agent', status: 'live' },
+  { k: 'kyc_level', cn: 'KYC 等級', type: 'string', scope: 'event', sens: 'L2', src: '開戶系統', enum: ['L1', 'L2', 'L3'], usedBy: 1, status: 'live' },
+  { k: 'duration_ms', cn: '停留時長', type: 'number', unit: 'ms', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'live' },
+  { k: 'campaign_id', cn: '活動 ID', type: 'string', scope: 'event', sens: 'L1', src: 'MA / GA360', usedBy: 2, item: 'campaign', status: 'live' },
+  { k: 'exp_id', cn: '實驗 ID', type: 'string', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'quarantine', note: '隨 ga.ab_exposure 進隔離區，待登記' },
+  { k: 'memo', cn: '備註', type: 'string', scope: 'event', sens: 'L4', src: 'CRM', usedBy: 0, status: 'blocked', note: '個資掃描命中手機號：拒絕入倉' },
+];
+export const USER_PROPS = [
+  // 用戶表（profile）屬性：來源、更新頻率、敏感等級、可用於篩選／分組、覆蓋率
+  { k: 'one_id', cn: 'OneID', type: 'string', src: 'OneID 服務', upd: '即時', sens: 'L3', filter: false, group: false, cover: 100, note: '主鍵；代碼化，可 JOIN 不可反推' },
+  { k: 'customer_code', cn: '客戶代碼', type: 'string', src: 'CRM（CDC）', upd: '即時', sens: 'L3', filter: true, group: false, cover: 87.4 },
+  { k: 'lifecycle', cn: '生命週期', type: 'enum', src: '標籤引擎（規則）', upd: '每日 06:00', sens: 'L1', filter: true, group: true, cover: 100, enum: ['新客', '成長', '成熟', '沉睡', '流失'] },
+  { k: 'tier', cn: '價值分級', type: 'enum', src: '標籤引擎（SQL）', upd: '每週一', sens: 'L2', filter: true, group: true, cover: 62.3, enum: ['P1', 'P2', 'P3', 'P4', 'P5'] },
+  { k: 'age_band', cn: '年齡層', type: 'enum', src: 'CRM（CDC，出生年 → 分桶）', upd: '每日', sens: 'L2', filter: true, group: true, cover: 86.9, note: '只存分桶，不存生日' },
+  { k: 'gender', cn: '性別', type: 'enum', src: 'CRM（CDC）', upd: '每日', sens: 'L2', filter: true, group: true, cover: 86.9 },
+  { k: 'branch_id', cn: '所屬分公司', type: 'string', src: 'CRM（CDC）', upd: '每日', sens: 'L1', filter: true, group: true, cover: 87.4, note: '行級權限鍵（當前歸屬）' },
+  { k: 'agent_id', cn: '所屬營業員', type: 'string', src: 'CRM（CDC）', upd: '每日', sens: 'L3', filter: true, group: false, cover: 85.1, note: '行級權限鍵；代碼化' },
+  { k: 'first_utm_source', cn: '首次來源', type: 'string', src: '事件推導（首次 ga.page_view）', upd: '即時（set_once）', sens: 'L1', filter: true, group: true, cover: 71.2 },
+  { k: 'signup_date', cn: '開戶日期', type: 'date', src: '開戶系統', upd: '即時', sens: 'L1', filter: true, group: false, cover: 87.4 },
+  { k: 'account_age_days', cn: '開戶天數', type: 'number', src: '計算（today − signup_date）', upd: '每日', sens: 'L1', filter: true, group: true, cover: 87.4, note: '數值自動分桶' },
+  { k: 'aum_bucket', cn: '資產區間', type: 'enum', src: '帳務（日批，分桶）', upd: '每日 05:00', sens: 'L2', filter: true, group: true, cover: 80.5, note: '只存區間，不存金額' },
+  { k: 'has_margin', cn: '信用戶', type: 'bool', src: 'CRM（CDC）', upd: '每日', sens: 'L2', filter: true, group: true, cover: 87.4 },
+  { k: 'churn_score', cn: '流失風險分', type: 'number', src: '模型（標籤引擎）', upd: '每日 07:30', sens: 'L2', filter: true, group: true, cover: 100 },
+  { k: 'pref_market', cn: '偏好市場', type: 'enum', src: '標籤引擎（統計）', upd: '每日 06:00', sens: 'L1', filter: true, group: true, cover: 72.3 },
+  { k: 'last_active_at', cn: '最近活躍', type: 'datetime', src: '事件推導', upd: '即時', sens: 'L1', filter: true, group: false, cover: 100 },
+  { k: 'name / id_no / mobile / email', cn: '姓名／身分證／手機／Email', type: '—', src: '來源系統', upd: '—', sens: 'L4', filter: false, group: false, cover: 0, note: '永不入倉；OneID 只存 HMAC 雜湊' },
+];
+export const ONEID_RULES = [
+  { id: '$identity_login_id', cn: '登入帳號（客戶代碼）', strength: 'strong', priority: 1, merge: '合併', src: 'App 後台 / CRM', note: '主識別' },
+  { id: '$identity_mobile_hash', cn: '手機（HMAC）', strength: 'strong', priority: 2, merge: '合併', src: 'CRM / 開戶', note: '明文不入倉；同手機多客戶 → 不合併、告警' },
+  { id: '$identity_account_no', cn: '交易帳號', strength: 'multi', priority: 3, merge: '一對多（帳戶屬 Item）', src: '交易主機', note: '一個客戶多帳戶；帳戶為 Item account' },
+  { id: '$identity_ga_user_id', cn: 'GA user_id', strength: 'strong', priority: 4, merge: '合併', src: 'GTM Server-side', note: '登入後由 GTM 帶出（代碼化）' },
+  { id: '$identity_device_id', cn: '裝置 ID（IDFV／GAID）', strength: 'weak', priority: 5, merge: '關聯不合併', src: 'GA360', note: '共用裝置風險；只做歸屬推斷' },
+  { id: '$identity_cookie_id', cn: 'GA client_id', strength: 'weak', priority: 6, merge: '關聯不合併', src: 'GA360', note: '登入前行為以此暫掛，登入後回填（T+1 日批校正）' },
+  { id: '$identity_line_uid', cn: 'LINE UID', strength: 'channel', priority: 7, merge: '關聯不合併', src: 'MA', note: '觸達渠道，不作身分合併' },
+];
+export const ITEM_TYPES = [
+  { type: 'account', cn: '交易帳戶', pk: 'account_no（代碼化）', count: 1_812_440, src: '交易主機 CDC', sync: '即時', joinKey: 'events.entity_id（entity_type=account）', props: [['account_type', '帳戶類型', 'enum', 'L1'], ['branch_id', '分公司', 'string', 'L1'], ['agent_id', '營業員', 'string', 'L3'], ['opened_at', '開戶日', 'date', 'L1'], ['status', '狀態', 'enum', 'L1'], ['margin_enabled', '信用', 'bool', 'L2']], note: '一客戶多帳戶；帳戶層事件（委託／成交／出入金）以此為主體' },
+  { type: 'instrument', cn: '商品（股票／ETF／基金）', pk: 'symbol', count: 24_310, src: '商品主檔（日批）', sync: '每日 05:30', joinKey: 'events.symbol', props: [['name', '商品名稱', 'string', 'L0'], ['market', '市場', 'enum', 'L0'], ['industry', '產業', 'string', 'L0'], ['type', '類型', 'enum', 'L0'], ['is_etf', 'ETF', 'bool', 'L0'], ['lot_size', '交易單位', 'number', 'L0']], note: '分析時以 symbol JOIN 取產業／類型維度（dictGet）' },
+  { type: 'agent', cn: '營業員', pk: 'agent_id（代碼化）', count: 1_240, src: 'CRM / HR', sync: '每日', joinKey: 'users.agent_id、events.agent_id', props: [['branch_id', '分公司', 'string', 'L1'], ['team', '組別', 'string', 'L1'], ['level', '職級', 'enum', 'L2'], ['active', '在職', 'bool', 'L1']], note: '行級權限：營業員只看所屬客戶' },
+  { type: 'branch', cn: '分公司', pk: 'branch_id', count: 46, src: 'HR 組織樹', sync: '每日', joinKey: 'users.branch_id、events.branch_id', props: [['name', '名稱', 'string', 'L0'], ['region', '區域', 'enum', 'L0'], ['manager_id', '主管', 'string', 'L3']], note: '行級權限：分公司主管只看所屬分公司；組織樹用於範圍指派' },
+  { type: 'campaign', cn: '行銷活動', pk: 'campaign_id', count: 318, src: 'MA / GA（UTM）', sync: '每小時', joinKey: 'events.campaign_id、utm_campaign', props: [['name', '活動名稱', 'string', 'L0'], ['channel', '渠道', 'enum', 'L0'], ['start_at', '開始', 'date', 'L0'], ['end_at', '結束', 'date', 'L0'], ['budget_bucket', '預算區間', 'enum', 'L2'], ['owner', '負責人', 'string', 'L1']], note: '歸因與活動復盤的維度來源' },
+  { type: 'reason_code', cn: '碼表（失敗原因）', pk: 'code', count: 42, src: '交易系統文件（手動維護）', sync: '手動', joinKey: 'events.reason_code', props: [['desc', '說明', 'string', 'L0'], ['category', '分類', 'enum', 'L0'], ['user_fixable', '客戶可自行處理', 'bool', 'L0']], note: '原型：SYS02 = 委託閘道逾時' },
+];
+export const PIPELINE = {
+  stages: [
+    { id: 'src', cn: '來源', items: ['GA360 BigQuery 日批', 'GTM Server-side 即時', '交易 CDC', '帳務 CDC', 'CRM CDC', 'MA'], tput: '2.1 億/日', lag: '—', status: 'ok' },
+    { id: 'ingest', cn: 'Collector / KafkaConnect', items: ['dmp-ingest ×2', 'Debezium ×1'], tput: '7,900 ev/s 尖峰', lag: '28 ms P95', status: 'ok' },
+    { id: 'kafka', cn: 'Kafka raw.*', items: ['3 broker · 12 分區', '7 天保留 · 0.26 TB'], tput: '2.4 MB/s', lag: '消費延遲 1.2 s', status: 'ok' },
+    { id: 'flink', cn: 'Flink 事件化', items: ['normalize → eventize', 'OneID 關聯 · session', 'checkpoint 30 s'], tput: '7,900 ev/s', lag: '2.1 s P95', status: 'ok' },
+    { id: 'ch', cn: 'ClickHouse', items: ['events 2 副本 · 3.9 TB/副本', 'MV L1–L3 · Bitmap 標籤', '查詢 P95 3.2 s'], tput: '寫入 7,900 列/s', lag: '可查 < 5 s', status: 'ok' },
+    { id: 'serve', cn: '服務', items: ['dmp-core api ×2', 'Tag Sync / 推送', 'Agent ×2'], tput: '5 查詢/s 高峰', lag: 'API P95 420 ms', status: 'ok' },
+    { id: 'out', cn: '下游', items: ['Kafka dmp.tag_updates', 'Webhook（MA／CRM）', 'GA4 受眾'], tput: '0.6 億變更/日', lag: '15 分鐘送完', status: 'warn', note: 'MA Webhook 昨日重試 2 次（DLQ 0）' },
+  ],
+  quality: [['遲到事件（> 7 天）', '0.08%', 'ok'], ['隔離率', '0.02%', 'ok'], ['GA360 對帳差異', '0.3%', 'ok'], ['OneID 打通率', '87.4%', 'ok'], ['Schema drift（待處理）', '1', 'warn'], ['重複事件（event_id 去重）', '0.9%', 'ok']],
+};
+export const QUERY_PERF = [
+  { mod: '事件分析', p50: 0.4, p95: 1.8, p99: 3.9, scan: '6 GB', cache: 71, path: 'MV L1 日彙總；分組 ≤ 3 維走 L2', sla: 3, n24h: 1_842 },
+  { mod: '漏斗分析', p50: 1.1, p95: 3.2, p99: 6.8, scan: '21 GB', cache: 38, path: 'windowFunnel on L0（30 天）；one_id_uint 稠密', sla: 5, n24h: 611 },
+  { mod: '留存分析', p50: 0.7, p95: 2.4, p99: 4.1, scan: '9 GB', cache: 55, path: 'retention() on L0；cohort 預聚合 L3', sla: 5, n24h: 240 },
+  { mod: '行為路徑', p50: 0.9, p95: 4.2, p99: 9.5, scan: '12 GB（SAMPLE 1/10）', cache: 20, path: 'session 序列 arrayJoin；全量 ×8 耗時', sla: 8, n24h: 128 },
+  { mod: '歸因分析', p50: 0.8, p95: 1.4, p99: 2.6, scan: '1.1 GB', cache: 64, path: '觸點表（事件表 5–10%）五模型同掃', sla: 5, n24h: 96 },
+  { mod: '用戶列表（估數）', p50: 0.2, p95: 0.3, p99: 0.6, scan: '140 MB', cache: 88, path: 'Bitmap 交並差（RoaringBitmap）', sla: 1, n24h: 2_210 },
+  { mod: '用戶列表（分頁）', p50: 0.5, p95: 0.9, p99: 1.6, scan: '380 MB', cache: 40, path: 'Bitmap → users 點查', sla: 2, n24h: 1_470 },
+  { mod: '用戶細查', p50: 0.1, p95: 0.3, p99: 0.5, scan: '12 MB', cache: 10, path: 'one_id 主鍵 + bloom index', sla: 1, n24h: 312 },
+  { mod: 'AI 工具（metric.query 等）', p50: 0.6, p95: 2.1, p99: 4.4, scan: '4 GB', cache: 60, path: '同一編譯器；預算 20 GB/呼叫', sla: 5, n24h: 1_120 },
+];
+export const BATCH_JOBS = [
+  { name: '標籤全量日批（500 個）', sched: '02:00', last: '02:00 → 02:19', dur: '19 分', status: 'ok', note: 'dbt 8 併行；Bitmap 版本 7 份' },
+  { name: 'OneID 日批校正（cookie → one_id 回填）', sched: '03:00', last: '03:00 → 03:12', dur: '12 分', status: 'ok', note: '回填 41 萬筆登入前事件' },
+  { name: 'GA360 日批匯入（前日）', sched: '05:10 到齊後', last: '05:14 → 05:52', dur: '38 分', status: 'ok', note: '1.82 億事件 · 對帳 0.3%' },
+  { name: '觸點表重算（歸因）', sched: '04:00', last: '04:00 → 04:06', dur: '6 分', status: 'ok', note: '14 天窗口' },
+  { name: 'MV L2/L3 補算（遲到資料）', sched: '每小時', last: '14:00 → 14:02', dur: '2 分', status: 'ok', note: '' },
+  { name: 'Tag Sync 增量推送', sched: '日批後', last: '02:20 → 02:34', dur: '14 分', status: 'warn', note: 'MA Webhook 429 重試 2 次' },
+  { name: '審計歸檔（WORM）', sched: '01:00', last: '01:00 → 01:03', dur: '3 分', status: 'ok', note: '' },
+];
+export const STORAGE = [['ClickHouse（2 副本）', 7.9, 8.0, 'TB'], ['Kafka（7 天）', 0.26, 1.5, 'TB'], ['GCS 原始 + Iceberg', 5.4, 8.0, 'TB'], ['PostgreSQL（控制面）', 38, 200, 'GB'], ['Valkey', 2.9, 8, 'GB']];
+export const USER_ASSIGNMENTS = [
+  { user: '張敏慧', email: 'admin@…', roles: ['platform_admin'], scope: '全域', expiry: '—', sso: 'AD: DMP-Admins', last: '今天 09:12' },
+  { user: '林雅婷', email: 'analyst@…', roles: ['analyst'], scope: '全域', expiry: '—', sso: 'AD: DMP-Analysts', last: '今天 14:20' },
+  { user: '陳柏宇', email: 'ops@…', roles: ['ops_manager', 'marketer'], scope: '全域', expiry: '—', sso: 'AD: DMP-Ops', last: '今天 13:58' },
+  { user: '王信宏', email: 'agent@…', roles: ['sales_agent'], scope: '所屬客戶（A001）· 回溯 90 天', expiry: '—', sso: 'AD: Sales-TPE01', last: '今天 14:05' },
+  { user: '周美玲', email: 'tpe01@…', roles: ['branch_manager'], scope: '分公司 TPE01', expiry: '—', sso: 'AD: Branch-Managers', last: '昨天 17:40' },
+  { user: '李承翰', email: 'audit@…', roles: ['auditor'], scope: '全域唯讀', expiry: '—', sso: 'AD: Audit', last: '今天 08:30' },
+  { user: '外包 顧問 A', email: 'vendor-a@…', roles: ['analyst'], scope: '專案 sinopac_demo · 分群 campaign_exposed', expiry: '2026-10-31', sso: '本地帳號（MFA）', last: '10-12 16:02', temp: true },
+  { user: '陳柏宇（臨時提權）', email: 'ops@…', roles: ['platform_admin'], scope: '全域', expiry: '今天 18:00（4 小時）', sso: 'break-glass ap_1038', last: '今天 14:01', temp: true },
+];
+export const VIRTUAL_EVENTS = [
+  { name: 'v.any_trade', cn: '任一交易行為', def: 'order_submit OR order_filled OR fund_subscribe', owner: '數據分析', usedBy: ['留存分析', '標籤：trade_style'] },
+  { name: 'v.app_active', cn: 'App 活躍', def: 'ga.screen_view OR quote_view OR login（platform IN ios,android）', owner: 'App 產品', usedBy: ['事件分析 DAU', '留存分析'] },
+  { name: 'v.open_funnel_entry', cn: '進入開戶流程', def: 'ga.page_view（page_group=account_open）OR account_open_start', owner: '數位開戶', usedBy: ['漏斗：開戶'] },
+];

@@ -1,4 +1,4 @@
-"""產生三張 SVG 架構圖：system-architecture.svg、component-deployment.svg、data-flow.svg。
+"""產生四張 SVG 架構圖：system-architecture.svg、component-deployment.svg、data-flow.svg、module-map.svg。
 修改下方的資料結構後執行 python3 docs/diagrams/build.py 重新產生。純標準函式庫，無相依。"""
 from __future__ import annotations
 from pathlib import Path
@@ -222,5 +222,48 @@ def data_flow():
         s.box(x, y, 366, 60, f"{a}：{b}", [c], "brand", small=True)
     s.save("data-flow.svg")
 
+# ------------------------------------------------------------------ 4. 元件模組圖（功能模組與模組間資料流）
+def module_map():
+    s = SVG(1600, 1000, "元件模組圖：功能模組、負責的資料與模組間關係")
+    s.group(28, 80, 460, 300, "接入與治理  Ingest & Governance", fill="#FBFCFE")
+    for i, (t, ls, c) in enumerate([("數據整合（可視化建模）", ["連線（鑑權／密鑰參照／測試）→ 選表 → 映射 → 清洗 → 發佈", "MSSQL／PG／BigQuery／Kafka／GCS／神策一次性"], "green"),
+                                     ("元事件管理", ["事件字典、屬性字典、虛擬事件、隔離區", "上線檢查、變更單、L4 拒絕"], "green"),
+                                     ("用戶表管理 ／ Item 表管理", ["用戶屬性（來源／更新／敏感／可篩選）、OneID 規則", "account／instrument／agent／branch／campaign／碼表"], "green")]):
+        s.box(42, 112 + i * 86, 432, 76, t, ls, c, small=True)
+    s.group(516, 80, 560, 300, "核心資料  Core Data（ClickHouse / PostgreSQL / Valkey）", fill="#FBFCFE")
+    for i, (t, ls, c) in enumerate([("events（L0 明細）+ MV L1–L3", ["project／event_date／event／one_id／time 排序", "日彙總、常用分組、cohort 預聚合；13 個月熱／冷層"], "yellow"),
+                                     ("users ／ items ／ id_map", ["用戶屬性 JSON、Item 字典（dictGet）、OneID 映射與版本", "touchpoints（歸因日批）、session 序列（路徑）"], "yellow"),
+                                     ("user_tags Bitmap ／ segments ／ insights", ["標籤值 RoaringBitmap 版本 7 份；分群交並差", "Insight Store（pgvector）、audit_log（WORM）"], "yellow")]):
+        s.box(530, 112 + i * 86, 532, 76, t, ls, c, small=True)
+    s.group(1104, 80, 468, 300, "橫切  Cross-cutting", fill="#FBFCFE")
+    for i, (t, ls, c) in enumerate([("語意層 + 查詢編譯器", ["events／metrics／dimensions／items／user_properties YAML", "UI、API、agent 工具同一條編譯路徑"], "brand"),
+                                     ("Policy Engine（角色／模組／行級／隱碼／審批）", ["authorize() → WHERE 條件 + 遮罩欄位 + 審批需求", "使用者指派（範圍、到期）、K 匿名、break-glass"], "red"),
+                                     ("審計與觀測", ["audit_log → 日誌統計；query_log → 查詢效能", "Prometheus／Grafana：資料流、批次、儲存、告警"], "gray")]):
+        s.box(1118, 112 + i * 86, 440, 76, t, ls, c, small=True)
+    s.group(28, 410, 1048, 300, "分析與營運  Analytics & Operations（dmp-core）", fill="#FBFCFE")
+    mods = [("事件分析", ["多指標×類型、篩選、分組", "粒度、對比、圖表"]), ("漏斗分析", ["步驟＋每步篩選、窗口", "關聯屬性、分組、趨勢"]), ("留存分析", ["初始／後續行為、當期／區間", "留存／流失、分組"]), ("行為路徑", ["起始／結束、事件集拆分", "會話、桑基圖、下鑽"]),
+            ("歸因分析", ["目標＋觸點、五模型", "窗口、分組、轉化路徑"]), ("用戶列表 ／ 細查", ["條件→Bitmap 估數→分頁", "細查需理由；來源條件"]), ("標籤與分群", ["規則／SQL／統計／模型", "日批 Bitmap、審批"]), ("即時觸發 ／ 受眾推送", ["Flink 規則；Webhook 簽章", "Kafka／GCS／GA4 受眾"])]
+    for i, (t, ls) in enumerate(mods):
+        x = 42 + (i % 4) * 258; y = 442 + (i // 4) * 126
+        s.box(x, y, 244, 110, t, ls, "brand", small=True)
+    s.group(1104, 410, 468, 300, "AI 洞察  Insight Agent（dmp-agent）", fill="#FBFCFE")
+    for i, (t, ls, c) in enumerate([("Tool Gateway（MCP）", ["tools.yaml：權限／預算／脫敏／審計", "metric.query、funnel.run、analysis.configure…"], "purple"),
+                                     ("Agent Runtime + 排程 agent", ["異常偵測、漏斗診斷、流失雷達", "選擇題式問答、可校驗回答"], "purple"),
+                                     ("洞察物件 / 行動提議", ["證據可重跑、信心度、回饋", "提議分群／規則 → 審批後生效"], "purple")]):
+        s.box(1118, 442 + i * 86, 440, 76, t, ls, c, small=True)
+    s.arrow(258, 388, 258, 410, "登記 → 語意層 / 事件化規則", C["green"])
+    s.arrow(796, 388, 796, 410, "查詢（經語意層＋Policy）", C["brand"])
+    s.arrow(1104, 262, 1076, 262, "", C["red"], dash=True); s.note(1118, 398, "← Policy Engine：每次查詢（UI／API／agent）都套用行級與遮罩", C["red"])
+    s.arrow(1104, 560, 1076, 560, "", C["purple"], dash=True); s.note(1118, 728, "← agent 工具與分析模組共用同一查詢編譯器與權限", C["purple"])
+    s.arrow(1338, 388, 1338, 410, "工具目錄來自語意層", C["purple"])
+    s.group(28, 740, 1544, 150, "模組間資料流（摘要）", fill="#FFFFFF")
+    rows = ["接入：來源 → Collector／KafkaConnect → Kafka raw.* → Flink（normalize → eventize → OneID → session）→ ClickHouse events + MV；未登記事件 → 隔離區 → 元事件管理登記後放行。",
+            "分析：UI 設定 → 語意層編譯（事件字典／屬性／Item 維度）→ Policy Engine 加行級與遮罩 → ClickHouse（MV 優先）→ 結果快取 → 審計；agent 工具走完全相同的路徑。",
+            "營運：標籤日批（dbt）→ user_tags Bitmap → 分群（交並差）→ 審批 → 推送（Webhook／Kafka／GA4）→ deliveries；即時觸發由 Flink 規則直接打 MA。",
+            "治理：用戶表／Item 表／OneID 規則變更 → 語意層 dimensions／items YAML → 影響範圍（標籤、分群、agent 工具）→ 變更單審批 → 審計；資料流與效能頁從 Prometheus／query_log 供數。"]
+    for i, r in enumerate(rows): s.note(44, 772 + i * 26, r, C["ink"])
+    s.legend(28, 960, [("green", "接入／治理"), ("yellow", "核心資料"), ("brand", "分析／營運"), ("purple", "AI 洞察"), ("red", "權限"), ("gray", "審計／觀測")])
+    s.save("module-map.svg")
+
 if __name__ == "__main__":
-    system_architecture(); component_deployment(); data_flow()
+    system_architecture(); component_deployment(); data_flow(); module_map()

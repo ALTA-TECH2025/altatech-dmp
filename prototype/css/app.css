@@ -651,3 +651,17 @@ a { color: inherit; }
 .tstep .d { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--body); overflow-wrap: anywhere; }
 .tstep .fix { grid-column: 2 / 4; font-size: 11.5px; color: #A32626; }
 @media (max-width: 900px) { .tstep { grid-template-columns: 20px 1fr; } .tstep .d, .tstep .fix { grid-column: 2 / 3; } }
+
+/* ---------------------------------------------------------------- v0.5：治理（元事件／用戶表／Item／資料流） */
+.pipe { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; padding-bottom: 6px; }
+.pipe-stage { flex: 1 0 150px; min-width: 150px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--soft); font-size: 11.5px; display: flex; flex-direction: column; gap: 6px; }
+.pipe-stage.warn { border-color: #F2D6AE; background: #FFF8EE; }
+.pipe-stage .hd { display: flex; align-items: center; justify-content: space-between; }
+.pipe-stage .hd b { font-size: 12.5px; }
+.pipe-stage ul { margin: 0; padding-left: 14px; color: var(--body); line-height: 1.5; }
+.pipe-stage .ft { display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--muted); margin-top: auto; }
+.pipe-arrow { align-self: center; color: var(--faint); font-size: 18px; flex: 0 0 auto; }
+.tile.sel { border-color: var(--brand); background: var(--brand-soft); }
+.tbl tr.warnrow td { background: #FFF8EE; }
+.btn-ghost.danger { color: var(--st-serious); }
+@media (max-width: 900px) { .pipe { flex-direction: column; } .pipe-arrow { transform: rotate(90deg); align-self: center; } }
