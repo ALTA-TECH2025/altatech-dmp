@@ -1,4 +1,5 @@
 # Agent Tool Gateway 工具目錄（MCP）。新增工具 = 新增一條 + 實作 handler。
+# phase: 2 — 第一階段不啟用（docs/22 §1）；保留契約供第二階段接入，所有工具仍走同一查詢編譯器與 Policy Engine。
 gateway:
   budgets:
     per_call_scan_bytes: 20e9

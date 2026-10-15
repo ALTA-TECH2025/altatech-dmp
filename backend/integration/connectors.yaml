@@ -16,6 +16,21 @@ connection_test:   # 逐步診斷，哪一步失敗就回哪一步的原因與�
   timeout_seconds: 15
   audit_event: integration.connection.tested
 connectors:
+  - type: sensors_export                            # 神策歷史資料（一次性遷移；docs/22 §3）：查詢 API、或私有化 Impala／HDFS 直讀
+    cn: 神策歷史資料導出（查詢 API／Impala JDBC／HDFS Parquet）
+    versions: ["SA 2.x（私有化）", "SA 雲（查詢 API）"]
+    auth: [impala_kerberos, api_token]              # 建議順序：私有化直讀 Impala／HDFS（快、完整）> 查詢 API（按日切片、受併發與列數限制）
+    auth_methods:
+      impala_kerberos: { fields: [host, port, database, principal], secret_fields: [keytab], secret_ref_required: true, notes: "直讀 events／users／user_tag 等底層表；HDFS Parquet 可用 distcp 整段搬，最省時" }
+      api_token:       { fields: [base_url, project], secret_fields: [api_secret], secret_ref_required: true, rotation_days: 30, notes: "/api/sql/query，SQL 按 date 切片、分頁；遷移完成後撤銷 token" }
+    tls: { required: true, min_version: "1.2", verify_server_cert: true, ca_bundle_ref: optional }
+    network: { private_ip: true, source_ip_allowlist: "Cloud NAT 固定 IP / 機房出口 IP", port_default: 443 }
+    least_privilege:
+      batch: ["指定 project 的 SELECT（events、users、id mapping、segment／tag 結果表）", "不需要元數據寫入權"]
+    capabilities: { batch: date_sliced_full_load, stream: none, schema_discovery: true }
+    driver: { name: impala-jdbc / requests, license: Apache-2.0 }
+    incremental: { partition_column: date, update_column: none, interval_minutes: 0, daily_reconcile: "每日分片：來源筆數 vs 導出筆數 vs 載入筆數，差異 > 0.1% 重跑該日" }
+    default_transforms: { time: ms_local_to_utc(Asia/Taipei), distinct_id: keep, "$identity_login_id": hmac_v1_customer_code, "$device_id": keep_as_anonymous, "$ip": drop }
   - type: dwh                                       # 數據中台／CDP（交易、帳務事實表的唯一來源；不直連交易主機）
     cn: 數據中台（Trino／Hive／Iceberg；或其 Kafka）
     versions: ["Trino 4xx", "Hive 3", "Iceberg 1.x"]

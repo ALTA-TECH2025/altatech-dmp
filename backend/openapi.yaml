@@ -23,6 +23,7 @@ tags:
   - { name: Integration }
   - { name: Meta }
   - { name: Ops }
+  - { name: Migration }
 paths:
   /v1/events:
     post:
@@ -256,6 +257,17 @@ paths:
     get: { tags: [Ops], summary: 批次作業狀態（Airflow）與儲存用量, responses: { '200': { description: ok } } }
   /v1/ops/batch-jobs/{name}/rerun:
     post: { tags: [Ops], summary: 重跑作業（需 governance.d；審計 batch.rerun）, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+  /v1/migration/inventory:
+    get: { tags: [Migration], summary: 神策歷史資料盤點（資料集、來源表、日期範圍、筆數、導出方式、目標表、狀態；docs/22 §3）, responses: { '200': { description: ok } } }
+  /v1/migration/bridge:
+    get: { tags: [Migration], summary: 神策 → GA4 埋點銜接表（由 events.yaml 產生：sensors_event、ga4_event、kind、參數、未解議題；可下載 CSV 給 360 導入商）, responses: { '200': { description: ok } } }
+  /v1/migration/exports:
+    get: { tags: [Migration], summary: 導出／載入任務（按日分片進度、筆數、校驗、重跑）, responses: { '200': { description: ok } } }
+    post: { tags: [Migration], summary: '建立導出任務（資料集、日期範圍、方式 impala|api；需 governance.d；審計 migration.export.created）', responses: { '202': { description: accepted } } }
+  /v1/migration/exports/{id}/rerun:
+    post: { tags: [Migration], summary: 重跑指定日期分片（差異 > 0.1% 時）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+  /v1/migration/reconcile:
+    get: { tags: [Migration], summary: 新舊對帳（每事件每日：神策筆數 vs 載入筆數；並行期：神策 vs GA360 筆數與差異；用戶銜接率）, responses: { '200': { description: ok } } }
   /v1/integration/tables:
     get: { tags: [Integration], summary: 數據表管理：已登記的外部表（數據源、表、主鍵、增量欄位、欄位數、Schema 版本、變更、使用它的任務）, responses: { '200': { description: ok } } }
     post: { tags: [Integration], summary: 從數據源探索並登記表（讀 schema 與樣本；個資欄位標 L4 不可選；設主鍵與增量欄位）, responses: { '201': { description: created } } }
