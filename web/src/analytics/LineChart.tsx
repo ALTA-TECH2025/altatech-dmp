@@ -4,7 +4,7 @@ import { fmtNum, niceScale, seriesColor, type Series } from './series';
 
 export function LineChart({ series, kind = 'line', height = 280 }: { series: Series[]; kind?: 'line' | 'bar'; height?: number }) {
   const W = 900, H = height, L = 56, R = 16, T = 16, B = 40;
-  const xs = useMemo(() => Array.from(new Set(series.flatMap((s) => s.points.map((p) => p.x)))).sort(), [series]);
+  const xs = useMemo(() => { const u = Array.from(new Set(series.flatMap((s) => s.points.map((p) => p.x)))); return kind === 'bar' ? u : u.sort(); }, [series, kind]);   // 長條 = 類別軸，照結果順序；折線 = 時間軸，排序
   const max = Math.max(0, ...series.flatMap((s) => s.points.map((p) => p.y ?? 0)));
   const scale = niceScale(max);
   const [hover, setHover] = useState<number | null>(null);
@@ -20,7 +20,7 @@ export function LineChart({ series, kind = 'line', height = 280 }: { series: Ser
         onMouseMove={(e) => { const r = (e.currentTarget as SVGSVGElement).getBoundingClientRect(); const px = ((e.clientX - r.left) / r.width) * W; const i = kind === 'bar' ? Math.floor((px - L) / bandW) : Math.round(((px - L) / (W - L - R)) * (xs.length - 1)); setHover(i >= 0 && i < xs.length ? i : null); }}
         onMouseLeave={() => setHover(null)}>
         {scale.ticks.map((t) => <g key={t}><line x1={L} x2={W - R} y1={yPos(t)} y2={yPos(t)} stroke="var(--grid)" /><text x={L - 8} y={yPos(t) + 4} textAnchor="end" fontSize="11" fill="var(--muted)">{fmtNum(t)}</text></g>)}
-        {xs.map((x, i) => (i % Math.ceil(xs.length / 8) === 0 || i === xs.length - 1) && <text key={x} x={kind === 'bar' ? L + bandW * (i + 0.5) : xPos(i)} y={H - B + 18} textAnchor="middle" fontSize="11" fill="var(--muted)">{x.length > 10 ? x.slice(5, 16) : x}</text>)}
+        {xs.map((x, i) => (i % Math.ceil(xs.length / 8) === 0 || i === xs.length - 1) && <text key={x} x={kind === 'bar' ? L + bandW * (i + 0.5) : xPos(i)} y={H - B + 18} textAnchor="middle" fontSize="11" fill="var(--muted)">{/^\d{4}-\d{2}-\d{2}/.test(x) ? (x.length > 10 ? x.slice(5, 16) : x) : x.length > 12 ? x.slice(0, 11) + '…' : x}</text>)}
         {kind === 'bar' ? shown.map((s, si) => s.points.map((p) => {
           const i = idx(p.x); const bw = (bandW * 0.7) / shown.length; const x = L + bandW * i + bandW * 0.15 + bw * si; const y = yPos(p.y ?? 0);
           return <rect key={p.x} x={x + 1} y={y} width={Math.max(2, bw - 2)} height={H - B - y} rx={4} fill={p.suppressed ? 'url(#hatchc)' : seriesColor(si)} opacity={hover === null || hover === i ? 0.9 : 0.45} />;

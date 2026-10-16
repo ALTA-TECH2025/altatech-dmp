@@ -68,6 +68,7 @@ export function sourceText(s: UsersSource): string {
   if (s.type === 'funnel') return `漏斗第 ${s.step} 步${s.reached === false ? '流失' : '到達'}${s.bucket ? `（${s.bucket}）` : ''}${s.group != null ? ` · ${String(s.group)}` : ''}`;
   if (s.type === 'retention') return `留存 ${s.cohort} 同期群第 ${s.period} 期${s.retained === false ? '未留存' : s.retained === null ? '全部' : '留存'}${s.group != null ? ` · ${String(s.group)}` : ''}`;
   if (s.type === 'path') return `路徑第 ${s.level} 步 ${s.node}`;
+  if (s.type === 'attribution') return `歸因觸點 ${s.touch}${s.group != null ? ` · ${String(s.group)}` : ''} 的轉化者`;
   return `事件分析${s.bucket ? ` ${s.bucket}` : ''}${Array.isArray(s.group) ? ` · ${s.group.join(' / ')}` : ''}`;
 }
 

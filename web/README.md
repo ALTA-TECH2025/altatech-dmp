@@ -29,6 +29,7 @@ npm run build          # dist/（由 apps.web 映像的 nginx 提供，與 API �
 | `src/approvals/ApprovalsPage.tsx`、`approvals.ts`、`src/users/ExportDialog.tsx` | 審批與匯出頁（待我審批：核可／退回附意見；我的申請；匯出申請：核可後產檔 → 下載 CSV）；用戶列表與分群詳情的「匯出（審批）」小表單（用途、保存天數） |
 | 漏斗／留存／事件分析頁 | 落點下鑽：漏斗每步「到達／流失」、留存格子（點：留存；Shift+點：未留存）、事件分析表格列 → `navigate('/users', { state: { source } })` |
 | `src/analytics/PathPage.tsx`、`PathChart.tsx`、`sankey.ts` | 行為路徑頁（起點／終點、步數、節點只留／折疊／拆分／合併／離開、會話切割、抽樣）與自繪 SVG 桑基圖（節點高度與連線寬度 ∝ 人數、固定類別色、滑過高亮與提示、點節點設為新起點或下鑽用戶列表）；`sankey.ts` 版面純函式有單元測試 |
+| `src/analytics/AttributionPage.tsx` | 歸因分析頁（轉化目標與價值欄位、觸點別名／條件／自訂權重、六種模型勾選、位置權重、半衰期、回溯窗口、拆分）：數字卡、各模型占比長條（同一張圖一個模型一條序列）、模型對比表（轉化數／價值切換）、觸點 → 轉化者用戶列表；`shareSeries` 有單元測試 |
 | `src/analytics/RetentionPage.tsx` | 留存分析頁（初始／回訪行為、四模型、日週月、期數、含當期、分組）與同期群 × 期矩陣（單色深淺 = 比例，未過期數灰階） |
 | `src/iam/IamPage.tsx` | 權限中心：角色矩陣、使用者指派、數據權限模擬、欄位隱碼、我的 session |
 | `src/styles/app.css` | 設計 token 與原型同一套（含深色模式） |

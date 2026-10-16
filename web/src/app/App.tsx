@@ -9,6 +9,7 @@ import { FunnelPage } from '@/analytics/FunnelPage';
 import { RetentionPage } from '@/analytics/RetentionPage';
 import { EventsPage } from '@/analytics/EventsPage';
 import { PathPage } from '@/analytics/PathPage';
+import { AttributionPage } from '@/analytics/AttributionPage';
 import { UsersPage } from '@/users/UsersPage';
 import { SegmentsPage } from '@/segments/SegmentsPage';
 import { ApprovalsPage } from '@/approvals/ApprovalsPage';
@@ -36,7 +37,7 @@ export function App() {
             <Route path="/funnel" element={<FunnelPage />} />
             <Route path="/retention" element={<RetentionPage />} />
             <Route path="/path" element={<PathPage />} />
-            <Route path="/attribution" element={<Placeholder title="歸因分析" module="attribution" />} />
+            <Route path="/attribution" element={<AttributionPage />} />
             <Route path="/sql" element={<Placeholder title="自定義 SQL" module="events" />} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="/segments" element={<SegmentsPage />} />

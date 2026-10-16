@@ -78,3 +78,22 @@ export interface PathQuery {
 }
 export interface PathRow { path: string[]; users: number | null; sessions: number | null; share: number | null; avg_ms: number | null; suppressed: boolean }
 export interface PathResult { paths: PathRow[]; anchor_users: number; nodes: { level: number; node: string; users: number }[]; links: { level: number; from: string; to: string; users: number }[]; sampled: number | null; sql: string; lineage: string[]; cost: { ms: number; rows: number; layer: string }; warnings: string[]; chart_spec: Record<string, unknown> }
+
+export type AttributionModel = 'first' | 'last' | 'linear' | 'position' | 'decay' | 'custom';
+export interface AttributionTouch { event: string; alias?: string; filters?: Cond[]; weight?: number }
+export interface AttributionQuery {
+  project?: string;
+  target: { event: string; filters?: Cond[]; value_field?: string };
+  touches: AttributionTouch[];
+  split?: string;
+  models: AttributionModel[];
+  position_weights?: { first: number; last: number };
+  half_life_days?: number;
+  window_days: number;
+  filters?: Cond[];
+  segment?: string;
+  sample?: number;
+  time: { from: string; to: string; now?: string };
+}
+export interface AttributionRow { touch: string; event: string; split: string | null; models: Record<string, { conversions: number | null; value: number | null; share: number | null }>; users: number | null; suppressed: boolean }
+export interface AttributionResult { rows: AttributionRow[]; summary: { conversions: number; converters: number; touched: number; untouched: number; value: number; avg_touches: number | null }; models: AttributionModel[]; sql: string; lineage: string[]; cost: { ms: number; rows: number; layer: string }; warnings: string[]; chart_spec: Record<string, unknown> }
