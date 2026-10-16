@@ -11,8 +11,9 @@ from ..auth.session import MemoryStore as SessionMemory
 from ..auth.session import SessionManager
 from ..security.policy import Subject, authorize
 from ..semantic.compiler import Catalog, compile_query
+from ..semantic.compiler.attribution import compile_attribution, parse_attribution, shape
 from ..semantic.compiler.funnel import compile_funnel, parse_funnel, with_rates
-from ..semantic.compiler.golden import FUNNELS, PATHS, PROJECT, QUERIES, RETENTIONS, USERS, run_sql
+from ..semantic.compiler.golden import ATTRIBUTIONS, FUNNELS, PATHS, PROJECT, QUERIES, RETENTIONS, USERS, run_sql
 from ..semantic.compiler.path import compile_path, parse_path, sankey
 from ..semantic.compiler.retention import compile_retention, parse_retention
 from ..semantic.compiler.users import compile_estimate, compile_identities, compile_list, compile_profile, compile_timeline, identity_graph, parse_list, parse_users
@@ -49,6 +50,11 @@ def api_stage(ch: Any) -> None:
             r = c.post("/v1/analytics/path", json=q); assert r.status_code == 200, (name, r.text[:200])
             assert r.json()["paths"] == sankey(run_sql(ch, cp.sql, cp.settings), pq)["paths"] and r.json()["sampled"] is None, name
             checked += 1
+        for name, raw, _ in ATTRIBUTIONS[:3]:
+            aq = parse_attribution(q := {**raw, "project": PROJECT}, cat); ca = compile_attribution(aq, cat, authorize(Subject(f"entra:{user}", [role]), "use", "attribution"))
+            r = c.post("/v1/analytics/attribution", json=q); assert r.status_code == 200, (name, r.text[:200])
+            assert r.json()["rows"] == shape(run_sql(ch, ca.sql, ca.settings), aq)["rows"], name
+            checked += 1
         for name, raw, _ in RETENTIONS[:3]:
             rq = parse_retention(q := {**raw, "project": PROJECT}, cat); cr = compile_retention(rq, cat, authorize(Subject(f"entra:{user}", [role]), "use", "events"))
             r = c.post("/v1/analytics/retention", json=q); assert r.status_code == 200, (name, r.text[:200])
@@ -84,4 +90,4 @@ def api_stage(ch: Any) -> None:
     assert len(ev) == checked and any(x["masked"] for x in ev if x["user"] == "entra:mkt")   # 行銷的金額查詢有遮罩紀錄
     ul = [x for x in store.audit_tail(400) if x["event"] == "users.listed"]
     assert len(ul) == checked_users and any(x["masked"] for x in ul if x["user"] == "entra:mkt")
-    print(f"api stage OK: {checked} queries via /v1/analytics/events+funnel+retention+path + {checked_users} via /v1/users/list == direct SQL (admin + marketing), profile/timeline/identities (data_analyst), audit query.executed={len(ev)} users.listed={len(ul)}")
+    print(f"api stage OK: {checked} queries via /v1/analytics/events+funnel+retention+path+attribution + {checked_users} via /v1/users/list == direct SQL (admin + marketing), profile/timeline/identities (data_analyst), audit query.executed={len(ev)} users.listed={len(ul)}")

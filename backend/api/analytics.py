@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..security.policy import Subject, authorize
 from ..semantic.compiler import Catalog, Compiled, compile_query
+from ..semantic.compiler.attribution import compile_attribution, parse_attribution, shape
 from ..semantic.compiler.funnel import compile_funnel, parse_funnel, with_rates
 from ..semantic.compiler.parser import AGGS, OPS
 from ..semantic.compiler.path import compile_path, parse_path, sankey
@@ -163,6 +164,30 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
         return {**sankey(rows, pq), "sampled": pq.sample, "sql": c.sql, "lineage": c.lineage, "cost": {"ms": ms, "rows": len(rows), "layer": c.layer}, "warnings": c.warnings,
                 "chart_spec": {"type": "sankey", "direction": pq.direction, "steps": pq.steps, "anchor": pq.anchor}}
 
+    @r.post("/v1/analytics/attribution")
+    def attribution(body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        d = authorize(subject, "use", "attribution")
+        if not d.allowed:
+            raise HTTPException(403, d.reason)
+        try:
+            aq = parse_attribution(body, cat); c = compile_attribution(aq, cat, d, str(body.get("profile") or "human"))
+        except PermissionError as e:
+            raise HTTPException(403, str(e)) from None
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        if ch is None:
+            raise HTTPException(503, "此環境未連接 ClickHouse")
+        t0 = time.perf_counter()
+        try:
+            rows = run_rows(ch, c)
+        except RuntimeError as e:
+            store.audit("query.failed", {"user": subject.user_id, "module": "attribution", "error": str(e)[:200]})
+            raise HTTPException(502, f"查詢失敗：{str(e)[:300]}") from None
+        ms = round((time.perf_counter() - t0) * 1000)
+        store.audit("query.executed", {"user": subject.user_id, "module": "attribution", "sql_hash": hashlib.sha256(c.sql.encode()).hexdigest()[:16], "rows": len(rows), "ms": ms, "row_policy": c.row_filters, "lineage": c.lineage})
+        return {**shape(rows, aq), "sql": c.sql, "lineage": c.lineage, "cost": {"ms": ms, "rows": len(rows), "layer": c.layer}, "warnings": c.warnings,
+                "chart_spec": {"type": "attribution", "x": "touch", "series": aq.models, "split": bool(aq.split)}}
+
     @r.get("/v1/semantic/catalog")
     def catalog(subject: Subject = Depends(get_subject)) -> dict[str, Any]:
         """查詢建構器用的目錄：依身分過濾（L3 以上的用戶屬性不給）。"""
@@ -177,6 +202,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
             "aggs": sorted(AGGS), "ops": {k: sorted(v) for k, v in OPS.items()},
             "funnel": {"window_units": ["minute", "hour", "day"], "max_window_days": 90, "max_steps": 10, "orders": ["loose", "strict"], "metrics": ["users", "times"]},
             "path": {"max_steps": 10, "session_modes": ["gap", "id", "cross"], "default_sample": 0.1, "max_days": 92, "exit_node": "離開"},
+            "attribution": {"models": ["first", "last", "linear", "position", "decay", "custom"], "max_touches": 10, "max_window_days": 90, "value_fields": ["amount"]},
         }
 
     return r

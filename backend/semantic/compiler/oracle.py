@@ -12,6 +12,7 @@ from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from .attribution import AttributionQuery
 from .catalog import FieldRef
 from .funnel import FunnelQuery
 from .parser import Cond, Formula, Group, Metric, Query
@@ -475,6 +476,9 @@ class Oracle:
                     if s.retained is None or self._retained(rq.model, ps, s.period, rq.lo, rq.periods) == s.retained:
                         out.add(oid)
             return out
+        if s.type == "attribution":
+            aq = s.query; ti = next(i for i, t in enumerate(aq.touches) if t.alias == s.group)
+            return {oid for oid, _, win, _ in self._attribution_conversions(aq, decision) if any(x[1] == ti and (s.bucket is None or x[2] == s.bucket) for x in win)}
         if s.type == "path":
             pq = s.query; out = set()
             for oid, path, _ in self._path_slices(pq, decision):
@@ -559,3 +563,74 @@ class Oracle:
             rows.append(row)
         rows.sort(key=lambda r: (-r["_k"], -(r["sessions"] if r["sessions"] is not None else agg[tuple(r["path"])][1]), r["path"]))
         return rows[: pq.top_n]
+
+
+    # ---- 歸因 ----
+    def _attribution_conversions(self, aq: AttributionQuery, decision: Any = None) -> list[tuple[str, float, list[tuple[datetime, int, str]], datetime]]:
+        """每次轉化 → (one_id, 價值, 窗口內觸點 [(time, 觸點序號, 拆分值)] 依時間排序, 轉化時間)。觸點序號取第一個符合的觸點（同 SQL multiIf）。"""
+        now = aq.time.now or date.today()
+        if aq.sample:
+            raise ValueError("oracle 不做抽樣")
+        tev = {t.event for t in aq.touches}
+        tstart = aq.touch_start()
+        touches: dict[str, list[tuple[datetime, int, str]]] = defaultdict(list)
+        convs: list[tuple[str, datetime, float]] = []
+        for r in self.events:
+            if r["project"] != aq.project or not self.group(aq.filters, r, now) or not self._row_filters_ok(decision, r, now): continue
+            if r["event"] == aq.target and aq.time.start <= r["event_date"] <= aq.time.end and self.group(aq.target_filters, r, now):
+                v = self.value(aq.value, r) if aq.value else 1
+                convs.append((r["one_id"], r["time"], float(v) if v is not None else 0.0))
+            if r["event"] in tev and tstart <= r["event_date"] <= aq.time.end:
+                i = next((j for j, t in enumerate(aq.touches) if t.event == r["event"] and self.group(t.filters, r, now)), None)
+                if i is None: continue
+                sp = self.value(aq.split, r) if aq.split else ""
+                touches[r["one_id"]].append((r["time"], i, "" if sp is None else str(sp)))
+        out = []
+        for oid, ct, v in convs:
+            win = sorted([x for x in touches.get(oid, []) if x[0] < ct and x[0] >= ct - timedelta(days=aq.window_days)], key=lambda x: x[0])
+            out.append((oid, v, win, ct))
+        return out
+
+    def _weights(self, aq: AttributionQuery, model: str, ct: datetime, win: list[tuple[datetime, int, str]]) -> list[float]:
+        n = len(win)
+        if model == "first": return [1.0 if i == 0 else 0.0 for i in range(n)]
+        if model == "last": return [1.0 if i == n - 1 else 0.0 for i in range(n)]
+        if model == "linear": return [1.0 / n] * n
+        if model == "position":
+            if n == 1: return [1.0]
+            if n == 2: return [0.5, 0.5]
+            mid = (1 - aq.w_first - aq.w_last) / (n - 2)
+            return [aq.w_first if i == 0 else aq.w_last if i == n - 1 else mid for i in range(n)]
+        if model == "decay":
+            def ms(t: datetime) -> int: return int(t.timestamp() * 1000)
+            raw = [2 ** (-((ms(ct) - ms(x[0])) / 1000) / (aq.half_life_days * 86400)) for x in win]
+            s = sum(raw); return [r / s for r in raw]
+        raw = [aq.touches[x[1]].weight for x in win]; s = sum(raw)
+        return [1.0 / n] * n if s == 0 else [r / s for r in raw]
+
+    def run_attribution(self, aq: AttributionQuery, decision: Any = None) -> list[dict[str, Any]]:
+        k = int(getattr(decision, "k_anonymity", 0) or 0)
+        convs = self._attribution_conversions(aq, decision)
+        rows: dict[tuple, dict[str, Any]] = {}
+        for oid, v, win, ct in convs:
+            if not win: continue
+            ws = {m: self._weights(aq, m, ct, win) for m in aq.models}
+            for i, x in enumerate(win):
+                key = (x[1], x[2]) if aq.split else (x[1],)
+                r = rows.setdefault(key, {"users": set(), **{f"{m}_conv": 0.0 for m in aq.models}, **{f"{m}_val": 0.0 for m in aq.models}})
+                r["users"].add(oid)
+                for m in aq.models:
+                    r[f"{m}_conv"] += ws[m][i]; r[f"{m}_val"] += ws[m][i] * v
+        total = len(convs); converters = len({c[0] for c in convs}); touched = sum(1 for c in convs if c[2]); tv = sum(c[1] for c in convs)
+        avg = (sum(len(c[2]) for c in convs if c[2]) / touched) if touched else None
+        out = []
+        for key in sorted(rows):
+            r = rows[key]; users = len(r["users"]); sup = bool(k and users < k)
+            row: dict[str, Any] = {"ti": key[0]}
+            if aq.split: row["sp"] = key[1]
+            for m in aq.models:
+                row[f"{m}_conv"] = None if sup else r[f"{m}_conv"]; row[f"{m}_val"] = None if sup else r[f"{m}_val"]
+            row.update({"_k": users, "conversions": total, "converters": converters, "touched": touched, "total_value": tv, "avg_touches": avg})
+            if k: row["suppressed"] = sup
+            out.append(row)
+        return out

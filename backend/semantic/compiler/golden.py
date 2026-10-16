@@ -211,6 +211,22 @@ PATH_REJECTED: list[tuple[str, dict[str, Any], str]] = [
     ("PR4 超過 92 天", {"anchor": {"event": "bond_order"}, "time": {"from": "2026-01-01", "to": "2026-10-16"}}, "92 天"),
     ("PR5 拆分欄位 one_id", {"anchor": {"event": "bond_order"}, "nodes": {"split": [{"event": "$pageview", "field": "one_id"}]}, "time": T}, "one_id"),
 ]
+TOUCHES = [{"event": "$pageview", "alias": "瀏覽"}, {"event": "hq_stockdetail_view", "alias": "看盤"}, {"event": "app_login_success", "alias": "登入"}]
+ATTRIBUTIONS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
+    ("A01 成交 × 三觸點 × 首次／末次／線性，7 天", {"target": {"event": "bond_deal"}, "touches": TOUCHES, "models": ["first", "last", "linear"], "window_days": 7, "time": T}, "admin"),
+    ("A02 金額價值 × 位置（0.3/0.5）× 時間衰減（半衰期 2 天）× 自訂權重，3 天", {"target": {"event": "bond_deal", "value_field": "amount"}, "touches": [{**TOUCHES[0], "weight": 3}, {**TOUCHES[1], "weight": 1}, {**TOUCHES[2], "weight": 0}], "models": ["position", "decay", "custom"], "position_weights": {"first": 0.3, "last": 0.5}, "half_life_days": 2, "window_days": 3, "time": T}, "admin"),
+    ("A03 依平台拆分 × 線性，14 天", {"target": {"event": "bond_order"}, "touches": TOUCHES[:2], "split": "platform", "models": ["linear", "last"], "window_days": 14, "time": T}, "admin"),
+    ("A04 轉化條件（金額 ≥ 10 萬）+ 觸點條件（iOS 看盤）+ 用戶屬性，1 天", {"target": {"event": "bond_order", "filters": [{"field": "amount", "op": "gte", "value": 100000}]}, "touches": [{"event": "hq_stockdetail_view", "alias": "iOS看盤", "filters": [{"field": "platform", "op": "eq", "value": "iOS"}]}, {"event": "hq_stockdetail_view", "alias": "其他看盤"}], "models": ["first", "linear"], "window_days": 1, "filters": [{"field": "user.has_margin", "op": "true"}], "time": T}, "admin"),
+    ("A05 分群 vip + 行銷（K 匿名）× 市場拆分", {"target": {"event": "bond_deal"}, "touches": TOUCHES, "split": "market", "models": ["linear"], "segment": "vip", "window_days": 7, "time": T}, "marketing"),
+    ("A06 全模型 × 90 天窗口（回溯到資料起點前）", {"target": {"event": "order_rejected"}, "touches": TOUCHES, "models": ["first", "last", "linear", "position", "decay", "custom"], "window_days": 90, "time": T}, "admin"),
+]
+ATTRIBUTION_REJECTED: list[tuple[str, dict[str, Any], str]] = [
+    ("AR1 轉化事件也是觸點", {"target": {"event": "bond_deal"}, "touches": [{"event": "bond_deal"}], "time": T}, "不能同時"),
+    ("AR2 未知模型", {"target": {"event": "bond_deal"}, "touches": TOUCHES, "models": ["magic"], "time": T}, "models"),
+    ("AR3 位置權重超過 1", {"target": {"event": "bond_deal"}, "touches": TOUCHES, "position_weights": {"first": 0.7, "last": 0.5}, "time": T}, "≤ 1"),
+    ("AR4 窗口 91 天", {"target": {"event": "bond_deal"}, "touches": TOUCHES, "window_days": 91, "time": T}, "1–90"),
+    ("AR5 價值欄位非數值", {"target": {"event": "bond_deal", "value_field": "platform"}, "touches": TOUCHES, "time": T}, "數值"),
+]
 BRANCH = Decision(True, row_filters=["branch_id IN ('B01','B02')", "event_date >= today()-10"], field_policies={"one_id": "mask_tail(4)", "churn_score": "bucket([0,40,70,100])"}, k_anonymity=20)   # 分公司範圍 + 回溯 10 天的自訂角色
 USERS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("U01 價值分級 P1/P2 且信用戶", {"segment": "golden_all", "filters": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}, {"field": "user.has_margin", "op": "true"}]}, "admin"),
@@ -225,6 +241,7 @@ USERS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("U10 流失 R04 同期群 10-03 第 2 期起流失", {"source": {"type": "retention", "query": RETENTIONS[3][1], "cohort": "2026-10-03", "period": 2, "retained": True}}, "admin"),
     ("U16 路徑 P01 第 1 步是看盤", {"source": {"type": "path", "query": PATHS[0][1], "node": "hq_stockdetail_view", "level": 1}}, "admin"),
     ("U17 路徑 P02（之前）終點前一步是委託", {"source": {"type": "path", "query": PATHS[1][1], "node": "bond_order", "level": 2}}, "admin"),
+    ("U18 歸因 A03 被歸到「瀏覽」且平台 iOS 的轉化者", {"source": {"type": "attribution", "query": ATTRIBUTIONS[2][1], "touch": "瀏覽", "group": "iOS"}}, "admin"),
     ("U15 週留存 R05 同期群 09-28 第 1 期留存 × Android", {"source": {"type": "retention", "query": RETENTIONS[4][1], "cohort": "2026-09-28", "period": 1, "retained": True, "group": "Android"}}, "admin"),
     ("U11 事件 Q08 桶 10-05 分組 TSE", {"source": {"type": "events", "query": QUERIES[7][1], "bucket": "2026-10-05", "group": ["TSE"]}}, "admin"),
     ("U12 分公司範圍 + 回溯 10 天：做過委託（行銷遮罩）", {"behaviors": [{"event": "bond_order", "time": T_ALL}]}, BRANCH),
@@ -398,6 +415,23 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
             assert kw in str(e), (name, e)
         else:
             raise AssertionError(name)
+    from .attribution import compile_attribution, parse_attribution, shape
+    for name, raw, spec in ATTRIBUTIONS:
+        d = decision_of(spec); aq = parse_attribution({**raw, "project": PROJECT}, cat); c = compile_attribution(aq, cat, d)
+        got = run_sql(ch, c.sql, c.settings); expect = oracle.run_attribution(aq, d)
+        compare(name, c.columns, expect, got, 2 if aq.split else 1)
+        sh = shape(got, aq); assert sh["summary"]["conversions"] == sh["summary"]["touched"] + sh["summary"]["untouched"]
+        for m in aq.models:                                   # 每個模型分出去的轉化數 == 有觸點的轉化數（未抑制時）
+            tot = sum((r["models"][m]["conversions"] or 0) for r in sh["rows"])
+            if not any(r["suppressed"] for r in sh["rows"]): assert abs(tot - sh["summary"]["touched"]) < 1e-6, (name, m, tot, sh["summary"])
+        report.append(f"  {name:<44} L0 rows={len(got):<4} conversions={sh['summary']['conversions']} touched={sh['summary']['touched']} avg_touches={sh['summary']['avg_touches'] and round(sh['summary']['avg_touches'], 2)}")
+    for name, raw, kw in ATTRIBUTION_REJECTED:
+        try:
+            parse_attribution({**raw, "project": PROJECT}, cat)
+        except ValueError as e:
+            assert kw in str(e), (name, e)
+        else:
+            raise AssertionError(name)
     users_stage(ch, ds, oracle, cat, report)
     for name, raw, kw in FUNNEL_REJECTED:
         try:
@@ -416,7 +450,7 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
             raise AssertionError(f"{name}: 應被拒絕")
     if verbose:
         print("\n".join(report))
-        print(f"compiler golden OK: {len(QUERIES)} queries (layers {layers}) + {len(FUNNELS)} funnels (+strict) + {len(RETENTIONS)} retentions + {len(PATHS)} paths + {len(USERS)} user lists (+profile/timeline/identities), {len(REJECTED)}+{len(FUNNEL_REJECTED)}+{len(RETENTION_REJECTED)}+{len(PATH_REJECTED)}+{len(USERS_REJECTED)} rejected, sample ok, MV==L0")
+        print(f"compiler golden OK: {len(QUERIES)} queries (layers {layers}) + {len(FUNNELS)} funnels (+strict) + {len(RETENTIONS)} retentions + {len(PATHS)} paths + {len(ATTRIBUTIONS)} attributions + {len(USERS)} user lists (+profile/timeline/identities), {len(REJECTED)}+{len(FUNNEL_REJECTED)}+{len(RETENTION_REJECTED)}+{len(PATH_REJECTED)}+{len(ATTRIBUTION_REJECTED)}+{len(USERS_REJECTED)} rejected, sample ok, MV==L0")
     return {"queries": len(QUERIES), "layers": layers}
 
 
@@ -549,6 +583,15 @@ def dry_run() -> None:
     for name, raw, kw in PATH_REJECTED:
         try: parse_path({**raw, "project": PROJECT}, cat); raise AssertionError(name)
         except ValueError as e: assert kw in str(e), (name, e)
+    from .attribution import compile_attribution, parse_attribution, shape
+    for name, raw, spec in ATTRIBUTIONS:
+        aq = parse_attribution({**raw, "project": PROJECT}, cat); d = decision_of(spec); c = compile_attribution(aq, cat, d)
+        rows = oracle.run_attribution(aq, d); assert rows and "ARRAY JOIN touches AS t" in c.sql and c.columns[0] == "ti" and c.sql.count("(") == c.sql.count(")"), name
+        sh = shape(rows, aq); assert sh["summary"]["conversions"] > 0 and all(set(r["models"]) == set(aq.models) for r in sh["rows"]), name
+        h.update(c.sql.encode())
+    for name, raw, kw in ATTRIBUTION_REJECTED:
+        try: parse_attribution({**raw, "project": PROJECT}, cat); raise AssertionError(name)
+        except ValueError as e: assert kw in str(e), (name, e)
     from .users import compile_estimate, compile_list, parse_list, parse_users
     for name, raw, spec in USERS:
         uq = parse_users({**raw, "project": PROJECT}, cat); d = decision_of(spec)
@@ -561,7 +604,7 @@ def dry_run() -> None:
     for name, raw, kw in USERS_REJECTED:
         try: parse_users({**raw, "project": PROJECT}, cat); raise AssertionError(name)
         except ValueError as e: assert kw in str(e), (name, e)
-    print(f"compiler dry run OK: {len(QUERIES)} queries + {len(FUNNELS)} funnels + {len(RETENTIONS)} retentions + {len(PATHS)} paths + {len(USERS)} user lists compiled + oracle, {len(REJECTED)}+{len(FUNNEL_REJECTED)}+{len(RETENTION_REJECTED)}+{len(PATH_REJECTED)}+{len(USERS_REJECTED)} rejected, sql digest {h.hexdigest()[:12]}")
+    print(f"compiler dry run OK: {len(QUERIES)} queries + {len(FUNNELS)} funnels + {len(RETENTIONS)} retentions + {len(PATHS)} paths + {len(ATTRIBUTIONS)} attributions + {len(USERS)} user lists compiled + oracle, {len(REJECTED)}+{len(FUNNEL_REJECTED)}+{len(RETENTION_REJECTED)}+{len(PATH_REJECTED)}+{len(ATTRIBUTION_REJECTED)}+{len(USERS_REJECTED)} rejected, sql digest {h.hexdigest()[:12]}")
 
 
 if __name__ == "__main__":

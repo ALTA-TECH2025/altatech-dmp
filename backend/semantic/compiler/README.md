@@ -77,6 +77,11 @@ python3 -m backend.integration.e2e_clickhouse                        # 端到端
 查詢形狀見 openapi `PathQuery`。節點 = 事件（可依屬性拆成 `event:值`；可只留指定事件、其餘折成「其他」）；會話依間隔切（window function `lagInFrame` + 累計 sum）、或用 `session_id`、或跨會話整段；每會話最多 `max_events` 個事件（`arraySort` by (time, event_id) 後截斷）；連續重複可合併；會話結束補「離開」（`$AppEnd` 也映成「離開」）。起點之後／終點之前 N 步以 `ARRAY JOIN arrayEnumerate` 找起點位置再 `arraySlice`；路徑數 = 切片數、人數去重；`sankey()` 把路徑彙總成節點／連線（before 方向右對齊）。外層別名不可與內層欄位同名（ClickHouse 會把別名代入所有出現處，K 匿名條件會用到已變 NULL 的值）。
 oracle `run_path` 同口徑；8 條黃金路徑（之後／之前、拆分 + 折疊、跨會話不合併不補離開、session_id、起點條件 + 用戶屬性 + 間隔 120 分、分群 + K 匿名、終點「離開」）在 ClickHouse 25.8 逐列相等且 Top N 順序一致；5 條必拒。API 預設抽樣 1/10（明確給 `sample: null` 才不抽樣）。
 
+## 歸因樣板（`attribution.py`）
+
+查詢形狀見 openapi `AttributionQuery`。每次轉化（目標事件，可帶條件與價值欄位）往前回溯 `window_days`，取該用戶窗口內的觸點序列（`conv` LEFT JOIN 每人觸點陣列 `tpu` 後 `arrayFilter`），在 SQL 裡算六種模型的權重陣列（first／last／linear／position U 型／decay 2^(-Δt/半衰期) 正規化／custom 觸點權重正規化），`ARRAY JOIN` 觸點與序號後 `GROUP BY` 觸點［× 拆分值］得各模型的歸因轉化數與價值；summary（轉化次數、轉化人數、有觸點的轉化、價值、平均觸點數）用純量子查詢。沒有觸點的轉化不分給任何觸點。觸點序號取第一個符合的觸點（`multiIf`，同一事件可用條件拆成兩個觸點）。K 匿名：被歸到該觸點的轉化用戶 < K → 該列 NULL。
+oracle `run_attribution` 同口徑；6 條黃金歸因（三模型 7 天、金額價值 × 位置 0.3/0.5 × 衰減半衰期 2 天 × 自訂權重、平台拆分、轉化與觸點條件 + 用戶屬性、分群 + K 匿名 × 市場拆分、全模型 90 天）在 ClickHouse 25.8 逐列相等（含衰減浮點數）；5 條必拒。觸點表 `dmp.touchpoints` 是之後的加速層，現在直接掃事件表。
+
 ## 用戶列表與細查樣板（`users.py`）
 
 查詢形狀見 openapi `UsersQuery`／`UsersListRequest`。條件全部是「人」的條件：用戶屬性（`user.<key>`，只限寬表 L0–L2）、分群（`seg.<id>`）、做過／未做過（事件 × 次數 × 期間 × 事件屬性）、分析落點下鑽（漏斗某步到達／流失 = `max(level) ≥ n`／`= n−1`、留存某同期群某期留存／未留存 = u CTE 的模型條件、事件分析某桶某分組）。

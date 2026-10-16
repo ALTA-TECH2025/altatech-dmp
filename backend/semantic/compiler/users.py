@@ -187,6 +187,15 @@ def _parse_source(raw: dict[str, Any], project: str, cat: Catalog) -> Source:
         if raw.get("group") is not None and not rq.group_by:
             raise ValueError("留存沒有 group_by，不能指定 group")
         return Source("retention", rq, cohort=str(cohort)[:10], period=None if period is None else int(period), retained=None if retained is None else bool(retained), group=raw.get("group"))
+    if t == "attribution":
+        from .attribution import parse_attribution
+        aq = parse_attribution(sq, cat)
+        touch = raw.get("touch")
+        if not touch or touch not in {x.alias for x in aq.touches}:
+            raise ValueError("attribution 下鑽需要 touch（觸點別名）")
+        if raw.get("group") is not None and not aq.split:
+            raise ValueError("歸因沒有 split，不能指定 group")
+        return Source("attribution", aq, group=str(touch), bucket=None if raw.get("group") is None else str(raw["group"]))
     if t == "path":
         from .path import parse_path
         pq = parse_path(sq, cat)
@@ -208,7 +217,7 @@ def _parse_source(raw: dict[str, Any], project: str, cat: Catalog) -> Source:
         if g is not None and (not isinstance(g, list) or len(g) != len(qr.group_by)):
             raise ValueError(f"group 需是長度 {len(qr.group_by)} 的陣列（對應 group_by）")
         return Source("events", qr, bucket=raw.get("bucket"), group=g, metric=m.alias)
-    raise ValueError("source.type 只能是 funnel／retention／events／path")
+    raise ValueError("source.type 只能是 funnel／retention／events／path／attribution")
 
 
 def parse_list(raw: dict[str, Any], cat: Catalog | None = None) -> ListSpec:
@@ -377,6 +386,12 @@ def _source_sql(s: Source, cat: Catalog, decision: Any) -> tuple[str, list[str],
             conds.append(f"({mc})" if s.retained else f"NOT ({mc})")
         sub = f"WITH {parts.with_sql} SELECT one_id FROM u WHERE {' AND '.join(conds)}"
         return sub, ["dmp.events"] + [f"event:{b.event}" for b in (rq.initial, rq.ret) if b.event], parts.warnings, parts.row_filters
+    if s.type == "attribution":
+        from .attribution import attribution_parts
+        aq = s.query; parts = attribution_parts(aq, cat, decision); ti = next(i for i, t in enumerate(aq.touches) if t.alias == s.group)
+        cond = f"t.2 = {ti}" + (f" AND t.3 = {q(s.bucket)}" if s.bucket is not None else "")
+        sub = f"WITH {parts.with_sql} SELECT DISTINCT one_id FROM seq ARRAY JOIN touches AS t WHERE {cond}"
+        return sub, ["dmp.events", f"event:{aq.target}"], parts.warnings, parts.row_filters
     if s.type == "path":
         from .path import path_parts
         pq = s.query; parts = path_parts(pq, cat, decision)
