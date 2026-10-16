@@ -10,6 +10,8 @@ docs/10 §5（匯出口徑）、§6（審批流程）、§7（審計事件）；
 | `POST /v1/exports/{id}/run` | 核可後 7 天內由申請者本人產檔：`authorize(action="export")` 帶 approval_id，欄位策略取 masking.yaml 的 `export` 策略（比 UI 嚴一級：aum／amount 區間化、one_id 尾碼）；CSV 檔頭註解（申請單、使用者、時間、浮水印、用途、保存天數）+ 每列 `_watermark`；審計 `export.generated` | 申請者 |
 | `GET /v1/exports/{id}/download` | 下載 CSV（text/csv，UTF-8 BOM）；審計 `export.downloaded` | 申請者 |
 
+| `GET／POST /v1/reveals` | 欄位揭露申請：masking.yaml 的 L2／L3 欄位（本來明文的 400）、可限單一用戶（細查）、理由、時效 ≤ 24 小時；L3 → admin、L2 → 數位經營審批；核可後 `Subject.reveals` 在時效內讓 authorize 放行為明文，每次查看審計 `mask.revealed` 並累計 views；到期自動 expired | users.use |
+
 分群：待審批的分群建立／送審時也開一張 `segment` 審批單，從審批中心核可會回寫分群；直接打 `/v1/segments/{id}/approve` 則同步關閉審批單。
 
 ```bash

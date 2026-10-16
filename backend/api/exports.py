@@ -6,13 +6,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from ..approvals import ApprovalService, ExportService
+from ..approvals import ApprovalService, ExportService, RevealService
 from ..approvals.engine import Conflict
 from ..security.policy import Subject
 from .store import Store
 
 
-def build_router(store: Store, get_subject: Any, approvals: ApprovalService, exports: ExportService) -> APIRouter:
+def build_router(store: Store, get_subject: Any, approvals: ApprovalService, exports: ExportService, reveals: RevealService) -> APIRouter:
     r = APIRouter()
 
     def call(fn: Any, *a: Any, **kw: Any) -> Any:
@@ -44,6 +44,14 @@ def build_router(store: Store, get_subject: Any, approvals: ApprovalService, exp
     def decide(id: str, body: dict[str, Any] | None = None, subject: Subject = Depends(get_subject)) -> dict[str, Any]:
         body = body or {}
         return call(approvals.decide, id, subject, bool(body.get("approve", True)), str(body.get("note") or ""))
+
+    @r.get("/v1/reveals")
+    def reveals_list(subject: Subject = Depends(get_subject)) -> list[dict[str, Any]]:
+        return reveals.list(subject)
+
+    @r.post("/v1/reveals", status_code=201)
+    def reveals_request(body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        return call(reveals.request, body, subject)
 
     @r.get("/v1/exports")
     def exports_list(subject: Subject = Depends(get_subject)) -> list[dict[str, Any]]:

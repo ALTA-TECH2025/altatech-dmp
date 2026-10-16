@@ -211,3 +211,85 @@ class ExportService:
         import json
         txt = self.ch.query(sql + " FORMAT JSONEachRow", settings={**settings, "output_format_json_quote_64bit_integers": 0})
         return [json.loads(line) for line in txt.splitlines() if line.strip()]
+
+
+class RevealService:
+    """欄位揭露：申請 → 審批單（L3 → admin、L2 → 數位經營）→ 核可後時效內對申請者明文（Subject.reveals），每次查看審計 mask.revealed。"""
+    def __init__(self, store: Any, approvals: ApprovalService, now: Callable[[], datetime] | None = None):
+        self.store, self.approvals = store, approvals
+        self.now = now or approvals.now
+        self.fields = {f["name"]: f for f in MASK["fields"]}
+        self.ttl_hours = int(MASK.get("reveal", {}).get("ttl_hours", 24))
+        approvals.hooks["reveal"] = self._on_decided
+
+    def _ts(self) -> str:
+        return self.now().isoformat(timespec="seconds")
+
+    def get(self, id_: str) -> dict[str, Any]:
+        for r in self.store.items("reveals"):
+            if r["id"] == id_:
+                self._expire(r); return r
+        raise KeyError(id_)
+
+    def _expire(self, r: dict[str, Any]) -> None:
+        if r["status"] == "active" and r.get("expires_at") and datetime.fromisoformat(r["expires_at"]) <= self.now():
+            r["status"] = "expired"; self.store.put_item("reveals", r)
+            self.store.audit("mask.reveal_expired", {"user": r["requester"], "reveal": r["id"], "field": r["field"]})
+
+    def list(self, subject: Subject) -> list[dict[str, Any]]:
+        allv = "admin" in subject.roles or "digital_ops" in subject.roles
+        out = []
+        for r in self.store.items("reveals"):
+            self._expire(r)
+            if allv or r["requester"] == subject.user_id: out.append(r)
+        return sorted(out, key=lambda r: r["created_at"], reverse=True)
+
+    def request(self, body: dict[str, Any], subject: Subject) -> dict[str, Any]:
+        field = str(body.get("field") or "")
+        f = self.fields.get(field)
+        if not f: raise ValueError(f"欄位 {field} 不在遮罩表（masking.yaml）")
+        level = str(f.get("level", "L2"))
+        if level not in ("L2", "L3"): raise ValueError(f"{field} 是 {level}，不需要或不允許揭露")
+        d = authorize(subject, "use", "users")
+        if not d.allowed: raise PermissionError(d.reason)
+        if d.field_policies.get(field, "plain") == "plain": raise ValueError(f"{field} 對你本來就是明文")
+        reason = str(body.get("reason") or "").strip()
+        if not 4 <= len(reason) <= 200: raise ValueError("reason 需 4–200 字")
+        hours = int(body.get("hours") or self.ttl_hours)
+        if not 1 <= hours <= self.ttl_hours: raise ValueError(f"hours 需在 1–{self.ttl_hours}")
+        one_id = str(body["one_id"]) if body.get("one_id") else None
+        r = {"id": "rv_" + uuid.uuid4().hex[:10], "field": field, "level": level, "one_id": one_id, "requester": subject.user_id, "reason": reason, "hours": hours, "status": "pending_approval",
+             "approval_id": None, "created_at": self._ts(), "expires_at": None, "views": 0}
+        a = self.approvals.create("reveal_l3" if level == "L3" else "reveal_l2", subject, f"揭露 {field}（{level}）{hours} 小時{'，限 ' + one_id[:8] + '…' if one_id else ''}：{reason}",
+                                  {"field": field, "level": level, "hours": hours, "one_id_scoped": bool(one_id), "reason": reason}, {"kind": "reveal", "id": r["id"]})
+        r["approval_id"] = a["id"]; self.store.put_item("reveals", r)
+        self.store.audit("mask.reveal_requested", {"user": subject.user_id, "reveal": r["id"], "approval": a["id"], "field": field, "level": level, "reason": reason, "one_id_hash": hashlib.sha256(one_id.encode()).hexdigest()[:16] if one_id else None})
+        return r
+
+    def _on_decided(self, a: dict[str, Any], approve: bool, subject: Subject) -> None:
+        try: r = self.get(a["object"]["id"])
+        except KeyError: return
+        if approve:
+            r.update({"status": "active", "expires_at": (self.now() + timedelta(hours=int(r["hours"]))).isoformat(timespec="seconds")})
+            self.store.audit("mask.revealed", {"user": r["requester"], "reveal": r["id"], "field": r["field"], "approval_id": a["id"], "expires_at": r["expires_at"], "by": subject.user_id})
+        else:
+            r["status"] = "rejected" if a["status"] == "rejected" else "expired"
+        self.store.put_item("reveals", r)
+
+    def active_for(self, user_id: str, one_id: str | None = None) -> dict[str, str]:
+        """揭露中的欄位 → approval_id（給 Subject.reveals）；限單一用戶的揭露只在查該用戶時生效。"""
+        out: dict[str, str] = {}
+        for r in self.store.items("reveals"):
+            if r["requester"] != user_id or r["status"] != "active": continue
+            self._expire(r)
+            if r["status"] != "active": continue
+            if r.get("one_id") and r["one_id"] != one_id: continue
+            out[r["field"]] = r["approval_id"]
+        return out
+
+    def note_view(self, user_id: str, fields: list[str], path: str) -> None:
+        """揭露期間每次查看都寫審計並累計次數。"""
+        for r in self.store.items("reveals"):
+            if r["requester"] == user_id and r["status"] == "active" and r["field"] in fields:
+                r["views"] = int(r.get("views", 0)) + 1; self.store.put_item("reveals", r)
+                self.store.audit("mask.revealed", {"user": user_id, "reveal": r["id"], "field": r["field"], "approval_id": r["approval_id"], "path": path, "views": r["views"]})

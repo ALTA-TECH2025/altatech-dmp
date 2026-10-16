@@ -43,4 +43,12 @@ def exports_stage(ch: Any) -> None:
     import re
     assert all(re.fullmatch(r"<\d+|\d+–\d+|≥\d+|", ln.split(",")[3]) for ln in lines[2:]), lines[2]        # 匯出：aum 區間化（masking.yaml export: bucket 用預設區間；數據分析在 UI 看明文）
     login(["digital_ops"], "ops"); assert c.get(f"/v1/exports/{e['id']}/download").status_code == 403
-    print(f"exports stage OK: request→approve→generate→download rows={g['rows']} (== oracle U01) masked={g['masked']} watermark={g['watermark_id']}")
+    # 揭露：數據分析申請 one_id（L3）限單一用戶 → admin 核可 → 該用戶畫像 one_id 明文、別人仍遮罩、匯出仍遮罩
+    oid = sorted(expect)[0]; other = sorted(expect)[1]
+    login(["data_analyst"], "ana"); rv = c.post("/v1/reveals", json={"field": "one_id", "one_id": oid, "reason": "e2e 揭露驗證"}).json()
+    login(["admin"], "adm"); c.post(f"/v1/approvals/{rv['approval_id']}/decide", json={})
+    login(["data_analyst"], "ana")
+    assert c.get(f"/v1/profiles/{oid}", params={"reason": "e2e 揭露", "project": PROJECT, "now": "2026-10-16"}).json()["one_id"] == oid
+    assert c.get(f"/v1/profiles/{other}", params={"reason": "e2e 揭露", "project": PROJECT, "now": "2026-10-16"}).json()["one_id"] == mask_value("mask_tail(4)", other)
+    assert c.get("/v1/reveals").json()[0]["views"] >= 1
+    print(f"exports stage OK: request→approve→generate→download rows={g['rows']} (== oracle U01) masked={g['masked']} watermark={g['watermark_id']}; reveal one_id scoped to one user ok")

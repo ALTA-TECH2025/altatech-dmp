@@ -178,13 +178,28 @@ def main(store: Any | None = None) -> None:
     dl = c.get(f"/v1/exports/{eb['id']}/download"); assert dl.status_code == 200 and dl.headers["content-type"].startswith("text/csv") and "# AltaTech DMP 匯出" in dl.text and "_watermark" in dl.text and gen["watermark_id"] in dl.text, dl.text[:200]
     assert c.get(f"/v1/exports/{eb['id']}").json()["status"] == "downloaded" and [e["id"] for e in c.get("/v1/exports").json()] == [eb["id"]]
     evx = [x["event"] for x in store.audit_tail(100)]; assert {"export.requested", "approval.created", "approval.decided", "export.generated", "export.downloaded"} <= set(evx)
+    # 5e. 欄位揭露：數據分析申請 one_id（L3）→ 數位經營不能審 → admin 核可 → 畫像 one_id 明文、審計 mask.revealed 累計；本來明文的欄位 400；行銷申請 aum（L2）→ 數位經營核可 → 列表 aum 明文
+    login(c, sm, ["data_analyst"], "ana")
+    assert c.post("/v1/reveals", json={"field": "amount", "reason": "數據分析本來就看得到"}).status_code == 400
+    assert c.post("/v1/reveals", json={"field": "nope", "reason": "不存在的欄位"}).status_code == 400
+    rv = c.post("/v1/reveals", json={"field": "one_id", "reason": "客訴單 C-1001 需核對客戶代碼", "hours": 2}).json(); assert rv["status"] == "pending_approval" and rv["level"] == "L3", rv
+    assert c.get("/v1/profiles/v1_abcdef1234?reason=客訴單 C-1001").json()["one_id"] == "v1_abc****"
+    login(c, sm, ["digital_ops"], "ops"); assert c.post(f"/v1/approvals/{rv['approval_id']}/decide", json={}).status_code == 403            # L3 要 admin
+    login(c, sm, ["admin"], "adm"); assert c.post(f"/v1/approvals/{rv['approval_id']}/decide", json={"note": "ok"}).json()["status"] == "approved"
+    login(c, sm, ["data_analyst"], "ana")
+    assert c.get("/v1/reveals").json()[0]["status"] == "active" and c.get("/v1/profiles/v1_abcdef1234?reason=客訴單 C-1001").json()["one_id"] == "v1_abcdef1234"
+    assert "repeat(" not in ch.sqls[-3] and c.get("/v1/reveals").json()[0]["views"] >= 1 and [x for x in store.audit_tail(20) if x["event"] == "mask.revealed"][-1]["field"] == "one_id"
     login(c, sm, ["marketing"], "mkt")
+    rv2 = c.post("/v1/reveals", json={"field": "aum", "reason": "活動名單需看資產"}).json(); assert rv2["level"] == "L2"
+    login(c, sm, ["digital_ops"], "ops"); assert c.post(f"/v1/approvals/{rv2['approval_id']}/decide", json={}).json()["status"] == "approved"
+    login(c, sm, ["marketing"], "mkt")
+    lst2 = c.post("/v1/users/list", json={**uq, "columns": ["aum", "churn_score"]}).json(); assert "aum" not in lst2["masked"] and lst2["masked"]["churn_score"], lst2["masked"]
     # 6. 審計：行銷只看自己；admin 全看
     mine = c.get("/v1/audit").json(); assert mine and all(x.get("user") == "entra:mkt" for x in mine)
     login(c, sm, ["admin"], "adm"); allrows = c.get("/v1/audit").json(); assert len(allrows) > len(mine)
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":
