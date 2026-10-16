@@ -1,0 +1,68 @@
+# 主體（entities）與 ID 映射的血緣設計（對齊 VeCDP「多主體 ID Mapping + 可視化血緣」；docs/19 v1.2）
+# 原則：
+#   1. 只有一個錨點主體：客戶（customer），錨 ID = 客戶代碼（$identity_login_id）。其他主體的 ID 都是「掛在客戶下的關係」，
+#      不讓裝置或帳戶變成第二個錨點，合併規則才不會互相打架。
+#   2. 每一條 ID 關聯（edge）都有來源、證據（event_id／bind 指令）、首次與最近出現時間、信心值；血緣圖就從 edge 畫出來。
+#   3. 傳遞性映射有深度與信心門檻；低於門檻只記 edge 不歸戶。衝突永遠記錄、不自動解（金融業保守做法，與神策 IDM 3.0 一致）。
+#   4. 合併／拆分是人工工具：前後快照寫 oneid_merge_log，可回溯、可撤銷。
+version: 1
+anchor: { subject: customer, id: $identity_login_id }
+
+subjects:
+  - key: customer
+    cn: 客戶
+    anchor: true
+    ids: [$identity_login_id, $identity_mobile_hash]          # 客戶自己的 ID（代碼、手機）
+    attributes_table: dmp.users
+  - key: account
+    cn: 交易帳戶
+    ids: [$identity_account_no]
+    attributes_table: dmp.dim_account
+    relation: { to: customer, cardinality: "N:1", rebind: manual, note: 一客多戶；帳戶改隸需人工（CRM 指令）}
+  - key: device
+    cn: 裝置／瀏覽器
+    ids: [$identity_device_id, $identity_cookie_id, $identity_anonymous_id]
+    relation: { to: customer, cardinality: "N:N", rebind: latest, note: 共用裝置最新登入者取得；歷史事件留在原用戶 }
+    shared_threshold: 3                                       # 一個裝置 ID 在 90 天內見過 ≥ 3 個客戶 → 視為共用裝置，信心降、不做傳遞映射
+  - key: channel
+    cn: 觸達渠道
+    ids: [$identity_line_uid]
+    relation: { to: customer, cardinality: "N:1", rebind: latest }
+    participates_in_resolution: false                         # 只做輸出對應（推送），不參與歸戶
+
+edge:                                                         # dmp.id_edges 一列 = 一條關聯
+  fields: [id_type_a, id_a, id_type_b, id_b, source, evidence_event_id, first_seen, last_seen, seen_count, confidence, status]
+  sources: [ga360.login, ga360.cooccur, sensors.track_signup, sensors.cooccur, crm.bind, account_open, manual.merge, manual.bind]
+  status: [active, superseded, conflict, unbound]
+  confidence:
+    base: { crm.bind: 1.0, account_open: 1.0, sensors.track_signup: 0.95, ga360.login: 0.95, ga360.cooccur: 0.6, sensors.cooccur: 0.6, manual.merge: 1.0, manual.bind: 1.0 }
+    shared_device_penalty: 0.4                                # 共用裝置上的 cooccur／login edge 信心乘以 (1 − 0.4)
+    repeat_bonus_per_seen: 0.05                               # 同一 edge 每再出現一次 +0.05，上限 0.95（cooccur 類）
+
+transitive:                                                   # 傳遞性映射：A ~ B（弱–弱共現）、B ~ 客戶（登入）→ A 是否跟著歸客戶
+  enabled: true
+  max_hops: 2                                                 # 裝置 → cookie → 登入，最多兩跳
+  min_confidence: 0.8                                         # 沿路 edge 信心相乘 ≥ 0.8 才歸戶
+  follow_on_rebind: true                                      # 弱 ID 改綁到新客戶時，同匿名用戶下與它高信心共現的其他弱 ID 一起跟過去
+  never_for_shared_device: true
+
+conflicts:                                                    # 全部進待人工清單（dmp.oneid_conflicts 視圖 = id_edges WHERE status='conflict'）
+  - { kind: mobile_second_customer, when: 同手機被第二個客戶綁定, action: keep_first_record_conflict }
+  - { kind: account_other_customer, when: 帳號已屬另一客戶, action: keep_record_conflict }
+  - { kind: shared_device, when: 裝置 90 天內 ≥ shared_threshold 個客戶, action: downgrade_confidence_no_transitive }
+  - { kind: anchor_mismatch, when: 同一筆資料兩個不同客戶代碼, action: reject_record }
+
+merge_log:                                                    # dmp.oneid_merge_log：人工合併／拆分／撤銷
+  fields: [log_id, op, src_one_id, dst_one_id, ids_moved, events_rewritten, snapshot_before, snapshot_after, reason, requested_by, approved_by, at, undone_by_log_id]
+  ops: [merge, split, undo]
+  approval: { merge: [admin], split: [admin], undo: [admin] }
+
+lineage:                                                      # 表級血緣（第一階段）：同步任務 → 來源表 → 目標表；欄位級第二階段
+  table: dmp.lineage_edges
+  fields: [from_kind, from_name, to_kind, to_name, via, model_id, updated_at]
+  kinds: [source_table, raw_table, target_table, id_map, users, segment, tag, destination]
+  emit_from: [integration.runner, sensors_format, ga4_source, oneid.service]
+
+visualization:                                                # 原型「用戶細查 › 身分圖」與「數據治理 › 資料流」要畫的東西
+  identity_graph: { nodes: [customer, account, device, channel 的 ID], edges: dmp.id_edges, node_click: 屬性與事件數, edge_click: 證據事件與時間, timeline: [bind, rebind, backfill, merge, split] }
+  table_lineage: { nodes: lineage.kinds, edges: dmp.lineage_edges, node_click: 最近一次同步與對帳 }

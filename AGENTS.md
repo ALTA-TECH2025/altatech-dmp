@@ -16,6 +16,7 @@ AltaTech DMP：數位軌跡／客戶數據中台。`docs/` 是設計文件，`pr
 ## 怎麼驗證
 ```bash
 python3 backend/security/policy.py            # 權限引擎自測
+python3 backend/oneid/attribution.py          # OneID 歸戶 20 個情境（含 v1.2 血緣、傳遞映射、合併拆分）
 python3 backend/integration/transforms.py     # 轉換函式自測
 python3 -m backend.integration.modeling       # 建模引擎自測（映射、清洗、SQL 編譯）
 python3 -m backend.integration.scheduler      # 排程器自測（模擬時鐘）

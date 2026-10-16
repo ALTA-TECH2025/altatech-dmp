@@ -1,6 +1,8 @@
-# OneID 歸戶邏輯（v1.1，2026-10-15）— 對齊神策 IDM 3.0「全域用戶關聯」＋ 登入時近 7 天匿名行為改寫
+# OneID 歸戶邏輯（v1.2，2026-10-16）— 對齊神策 IDM 3.0「全域用戶關聯」＋ 登入時近 7 天匿名行為改寫
 
 > 取代 docs/01 §6 的「圖連通 + 合併 + 夜間改寫」設計。規則表：`backend/semantic/oneid_rules.yaml`；參考實作與 10 個情境自測：`backend/oneid/attribution.py`；原型「治理 › 用戶表 › OneID 規則」。GA360 埋點與交易事件如何打通、去識別化 ID 如何產生：docs/20。
+>
+> **v1.2 變更（多主體與血緣，對齊 VeCDP 的 ID Mapping 可視化）**：主體定義 `backend/semantic/entities.yaml`（客戶為唯一錨點；帳戶、裝置、渠道掛在客戶下）；每條 ID 關聯是一條有來源、證據事件、時間、信心、狀態的邊（`dmp.id_edges`），血緣圖與衝突清單（`dmp.oneid_conflicts`）從邊來；共用裝置（90 天內 ≥ 3 個客戶）信心打折、不做傳遞映射；傳遞性映射（弱 ID 改綁時，同匿名用戶下高信心共現的弱 ID 一起跟過去，最多兩跳、信心乘積 ≥ 0.8）；人工合併／拆分／撤銷寫 `dmp.oneid_merge_log`（前後快照、審批角色）；表級血緣 `dmp.lineage_edges`。參考實作情境自測擴到 S1–S20（§3b）。
 >
 > v1.1 變更：未登入的行為事件一律以 **distinct_id**（cookie／裝置／匿名 ID）歸到匿名用戶；**登入事件到達時做歸戶，並把同 distinct_id 近 7 天仍屬匿名用戶的事件改寫到登入客戶**（`login_backfill`）。這是對神策「不回填」預設的刻意偏離，理由見 §2.5。
 
@@ -126,6 +128,19 @@
 | `users` | 一個 one_id 一列；`one_id_uint` 在建立時分配、永不改變；匿名用戶在 7 天匿名事件全數改寫後標記 `merged_into` |
 | API | `/v1/oneid/resolve`、`/bind`、`/unbind`、`/merge`（人工，審批）、`/{one_id}/history`、`/backfills`（登入改寫批次與狀態）、`/erase`（DSAR） |
 | 治理頁 | ID 類型表、數量／改綁政策、昨日升級／改綁／登入改寫／衝突統計、衝突待處理清單 |
+
+### 3b. v1.2 多主體與血緣（entities.yaml、三張表、S11–S20）
+
+| 元件 | 內容 |
+|---|---|
+| `semantic/entities.yaml` | 主體（customer 錨點、account N:1、device N:N 最新者、channel 不參與歸戶）、邊的來源與信心基準、共用裝置門檻與折扣、傳遞映射參數、衝突種類與處置、合併紀錄欄位與審批、表級血緣、可視化要畫的內容 |
+| `dmp.id_edges` | `(id_type_a, id_a, id_type_b, id_b)` → source、evidence_event_id、first/last_seen、seen_count、confidence、status（active／superseded／conflict／unbound）、one_id；ReplacingMergeTree |
+| `dmp.oneid_conflicts` | 視圖：`id_edges WHERE status='conflict'`，待人工清單 |
+| `dmp.oneid_merge_log` | merge／split／undo：ids_moved、events_rewritten、snapshot_before／after、reason、requested_by、approved_by、undone_by_log_id |
+| `dmp.lineage_edges` | 表級血緣：來源 → raw → 目標 → id_map／users／分群／推送，via 任務或模組 |
+| `oneid/attribution.py` v1.2 | `_edge`／`_record_edges`（同筆資料兩兩記邊，含錨 ID 用資料來源、弱–弱用 cooccur）、`is_shared_device`、`_follow_transitive`、`merge`／`split`／`undo`、`graph(one_id)` 給身分圖 |
+
+自測 S11–S20：S11 邊的來源／證據／信心；S12 高信心共現（8 次，0.95）→ 跟著改綁並改寫匿名事件；S13 低信心（1 次，0.6）不跟；S14 共用裝置（3 個客戶）→ 邊 conflict、信心打折、不傳遞；S15 同筆兩個客戶代碼拒收；S16 同手機第二客戶記 conflict；S17 合併：客戶代碼不同拒絕、需 admin、快照與事件改寫；S18 撤銷還原、二次撤銷拒絕；S19 拆分從指定時間起、錨 ID 不可拆；S20 圖資料含主體、邊、時間軸，表級血緣有「來源 → id_map」。
 
 ## 4. 待確認
 

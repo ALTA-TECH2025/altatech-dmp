@@ -45,7 +45,7 @@ backend/                                            後端骨架（可讀、可�
   integration/connectors.yaml  models.example.yaml  models.instrument.yaml  transforms.py  auth.py   連接器定義（鑑權方式、最小權限、輪替、測試步驟）、建模產物範例（事件、維度表）、轉換函式庫、鑑權邏輯
   security/rbac.yaml  masking.yaml  policy.py                           角色矩陣、欄位隱碼策略、Policy Engine（authorize）骨架
   activation/destinations.yaml  webhook.py                           受眾名單推送目的地、Webhook 簽章／批次／重試
-  oneid/attribution.py  semantic/oneid_rules.yaml                     OneID 歸戶參考實作與規則表（含登入改寫，10 個情境自測）
+  oneid/attribution.py  semantic/oneid_rules.yaml  semantic/entities.yaml   OneID 歸戶參考實作、規則表、主體與血緣定義（登入改寫、邊與證據、共用裝置、傳遞映射、合併／拆分／撤銷，20 個情境自測）
   clickhouse/schema.sql  gen_users_ddl.py                 熱層 DDL（events 按用戶分桶與 SAMPLE BY、用戶寬表快照／現況／屬性日誌／dictionary 由 user_properties.yaml 產生、隔離區、對帳表）
   clickhouse/audit.sql                             審計表、日誌統計物化視圖、row policy 與 masking view
   clickhouse/schema.sql  clickhouse/insight_store.sql      熱層 DDL、Insight Store（PostgreSQL + pgvector）

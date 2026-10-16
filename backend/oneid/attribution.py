@@ -8,6 +8,12 @@
   並把同 distinct_id、近 7 天內仍屬匿名用戶的事件改寫到登入客戶（login_backfill）；更早的或已歸客戶的事件不動。
 - 除此之外沒有夜間改寫（人工合併／拆分例外）。
 規則來源：backend/semantic/oneid_rules.yaml。
+
+v1.2（docs/19、semantic/entities.yaml）：多主體與血緣
+- 每條 ID 關聯是一條有來源、證據、時間、信心、狀態的邊（dmp.id_edges）；血緣圖與衝突清單從邊來。
+- 共用裝置（90 天內 ≥ 門檻個客戶）：邊的信心打折、不做傳遞映射、記 conflict。
+- 傳遞性映射：弱 ID 改綁到新客戶時，同匿名用戶下與它高信心共現的其他弱 ID 一起跟過去（深度、信心門檻在 entities.yaml）。
+- 人工合併／拆分／撤銷：前後快照寫 oneid_merge_log，需審批角色；事件改寫筆數記錄。
 """
 from __future__ import annotations
 
@@ -17,7 +23,14 @@ from typing import Any
 
 import yaml
 
-RULES = yaml.safe_load((Path(__file__).resolve().parents[1] / "semantic" / "oneid_rules.yaml").read_text(encoding="utf-8"))
+_SEM = Path(__file__).resolve().parents[1] / "semantic"
+RULES = yaml.safe_load((_SEM / "oneid_rules.yaml").read_text(encoding="utf-8"))
+ENT = yaml.safe_load((_SEM / "entities.yaml").read_text(encoding="utf-8"))
+SUBJECT_OF = {i: sub["key"] for sub in ENT["subjects"] for i in sub["ids"]}
+SHARED_THRESHOLD = next(sub.get("shared_threshold", 3) for sub in ENT["subjects"] if sub["key"] == "device")
+CONF = ENT["edge"]["confidence"]
+TRANS = ENT["transitive"]
+MERGE_APPROVAL = ENT["merge_log"]["approval"]
 ID_SPEC = {i["key"]: i for i in RULES["ids"]}
 ALIAS = RULES.get("alias", {})
 STRONG = set(RULES["strong_ids"])
@@ -64,6 +77,11 @@ class OneIDService:
         self.seq = 0
         self.audit: list[dict[str, Any]] = []
         self.events: list[dict[str, Any]] = []        # 參考用事件表：{time, event, distinct_id, one_id}
+        self.edges: dict[tuple[str, str, str, str], dict[str, Any]] = {}   # dmp.id_edges（記憶體版）
+        self.device_customers: dict[tuple[str, str], set[str]] = {}       # 裝置 ID → 曾綁定的已識別客戶
+        self.merge_log: list[dict[str, Any]] = []     # dmp.oneid_merge_log
+        self.lineage: set[tuple[str, str, str, str, str]] = set()        # dmp.lineage_edges：(from_kind, from, to_kind, to, via)
+        self._ctx: dict[str, Any] = {"time": 0, "source": "cooccur", "evidence": ""}
 
     # ---- helpers
     def _new_user(self) -> User:
@@ -75,6 +93,68 @@ class OneIDService:
     def _bind(self, u: User, key: str, value: str) -> None:
         u.ids.setdefault(key, set()).add(value)
         self.index[(key, value)] = u.one_id
+        if SUBJECT_OF.get(key) == "device" and u.is_identified:
+            self.device_customers.setdefault((key, value), set()).add(u.one_id)
+
+    # ---- 邊（血緣）
+    def is_shared_device(self, key: str, value: str) -> bool:
+        return SUBJECT_OF.get(key) == "device" and len(self.device_customers.get((key, value), ())) >= SHARED_THRESHOLD
+
+    def _edge(self, a: tuple[str, str], b: tuple[str, str], one_id: str, *, source: str | None = None, status: str = "active") -> dict[str, Any]:
+        """記一條邊（無向：以 (type, id) 排序後當鍵）。重複出現 seen_count+1、信心加成；共用裝置打折。"""
+        (ta, va), (tb, vb) = sorted([a, b])
+        k = (ta, va, tb, vb); src = source or self._ctx["source"]; now = self._ctx["time"]
+        base = CONF["base"].get(src, 0.6)
+        e = self.edges.get(k)
+        if e is None:
+            e = self.edges[k] = {"source": src, "evidence_event_id": self._ctx["evidence"], "first_seen": now, "last_seen": now, "seen_count": 0,
+                                 "confidence": base, "status": status, "one_id": one_id}
+        e["seen_count"] += 1; e["last_seen"] = now; e["one_id"] = one_id; e["status"] = status if status != "active" else e["status"]
+        if e["status"] == "superseded": e["status"] = "active"
+        conf = base + CONF["repeat_bonus_per_seen"] * (e["seen_count"] - 1) if src.endswith("cooccur") else base
+        conf = min(conf, 0.95 if src.endswith("cooccur") else 1.0)
+        if any(self.is_shared_device(t, v) for t, v in (a, b)):
+            conf *= 1 - CONF["shared_device_penalty"]; e["status"] = "conflict"; e["conflict_kind"] = "shared_device"
+        e["confidence"] = round(conf, 3)
+        return e
+
+    def _record_edges(self, ids: list[tuple[str, str]], u: User) -> None:
+        """同一筆資料裡的 ID 兩兩記邊：含錨 ID 的邊用資料來源（login／bind），弱–弱用 cooccur。"""
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                a, b = ids[i], ids[j]
+                if self.index.get(a) != u.one_id or self.index.get(b) != u.one_id:
+                    continue
+                strong = a[0] in STRONG or b[0] in STRONG
+                self._edge(a, b, u.one_id, source=self._ctx["source"] if strong else (self._ctx["source"].split(".")[0] + ".cooccur"))
+        self.lineage.add(("source", self._ctx["source"].split(".")[0], "id_map", "dmp.id_map", "oneid.service"))
+
+    def _follow_transitive(self, moved: tuple[str, str], from_user: User, to_user: User, time_ms: int) -> list[tuple[str, str]]:
+        """弱 ID moved 從 from_user 改綁到 to_user 後：from_user 其他弱 ID 若與 moved 的共現路徑（≤ max_hops）信心乘積 ≥ 門檻，且不是共用裝置 → 一起改綁。"""
+        if not TRANS.get("enabled") or not TRANS.get("follow_on_rebind") or from_user.is_identified:
+            return []
+        weak = [(k, v) for k, vs in from_user.ids.items() for v in vs if k not in STRONG and SUBJECT_OF.get(k) == "device"]
+        best: dict[tuple[str, str], float] = {moved: 1.0}; frontier = [moved]
+        for _ in range(TRANS["max_hops"]):
+            nxt = []
+            for cur in frontier:
+                for cand in weak:
+                    if cand in best: continue
+                    (ta, va), (tb, vb) = sorted([cur, cand]); e = self.edges.get((ta, va, tb, vb))
+                    if not e or e["status"] == "conflict": continue
+                    c = best[cur] * e["confidence"]
+                    if c >= TRANS["min_confidence"]:
+                        best[cand] = c; nxt.append(cand)
+            frontier = nxt
+        followed = []
+        for cand, c in best.items():
+            if cand == moved or self.is_shared_device(*cand) or not to_user.has_slot(*cand): continue
+            self._unbind(from_user, *cand); self._bind(to_user, *cand); followed.append(cand)
+            self._edge(cand, moved, to_user.one_id, source="transitive")
+            self.audit.append({"event": "oneid.transitive_rebind", "id": cand, "via": moved, "confidence": round(c, 3), "from": from_user.one_id, "to": to_user.one_id})
+            if BACKFILL.get("enabled"):
+                self._login_backfill(cand[1], to_user.one_id, time_ms)
+        return followed
 
     def _unbind(self, u: User, key: str, value: str) -> None:
         u.ids.get(key, set()).discard(value)
@@ -100,11 +180,12 @@ class OneIDService:
                     return v
         return None
 
-    def track(self, event: str, time_ms: int, identities: dict[str, Any], *, consent: bool = True) -> Decision:
+    def track(self, event: str, time_ms: int, identities: dict[str, Any], *, consent: bool = True, source: str = "ga360", evidence: str = "") -> Decision:
         """一筆事件：先歸戶（resolve），寫入事件表；若是登入事件則把近 7 天同 distinct_id 的匿名事件改寫到客戶。"""
         ids = self.normalize(identities)
         did = self.distinct_id(ids)
-        d = self.resolve(identities, consent=consent)
+        is_login_rec = any(k == "$identity_login_id" for k, _ in ids)
+        d = self.resolve(identities, consent=consent, time_ms=time_ms, source=f"{source}.login" if is_login_rec else f"{source}.cooccur", evidence=evidence or f"{event}@{time_ms}")
         self.events.append({"time": time_ms, "event": event, "distinct_id": did, "one_id": d.one_id})
         is_login = event in BACKFILL.get("trigger_events", []) or any(k == "$identity_login_id" for k, _ in ids)
         if BACKFILL.get("enabled") and is_login and consent and did and self.users[d.one_id].is_identified:
@@ -122,8 +203,13 @@ class OneIDService:
         return n
 
     # ---- core
-    def resolve(self, identities: dict[str, Any], *, consent: bool = True) -> Decision:
+    def resolve(self, identities: dict[str, Any], *, consent: bool = True, time_ms: int = 0, source: str = "crm.bind", evidence: str = "") -> Decision:
+        self._ctx = {"time": time_ms, "source": source, "evidence": evidence}
         ids = self.normalize(identities)
+        logins = {v for k, v in ids if k == "$identity_login_id"}
+        if len(logins) > 1:
+            self.audit.append({"event": "oneid.rejected", "kind": "anchor_mismatch", "ids": sorted(logins)})
+            raise ValueError(f"同一筆資料有兩個客戶代碼 {sorted(logins)}：拒收（anchor_mismatch）")
         if not consent:   # 未同意：弱 ID 不與強 ID 建立關聯
             strong = [kv for kv in ids if kv[0] in STRONG]
             ids = strong if strong else ids
@@ -138,6 +224,7 @@ class OneIDService:
             u = self._new_user()
             for k, v in ids:
                 self._bind(u, k, v); bound.append((k, v))
+            self._record_edges(ids, u)
             return self._done(u, True, False, bound, rebound, conflicts, "all_new")
 
         # 優先級最高的「已有用戶的 ID」決定歸屬；但若資料帶的最高優先 ID 尚無用戶且是強 ID，而唯一找到的用戶是純匿名 → 升級
@@ -167,11 +254,19 @@ class OneIDService:
             # ID 屬於另一個用戶：依 rebind 政策
             policy = ID_SPEC[k]["rebind"]
             if policy == "latest" and winner.has_slot(k, v):
-                self._unbind(self.users[cur], k, v); self._bind(winner, k, v); rebound.append((k, v, cur))
+                prev = self.users[cur]
+                self._unbind(prev, k, v); self._bind(winner, k, v); rebound.append((k, v, cur))
+                for ek, e in self.edges.items():
+                    if (ek[0], ek[1]) == (k, v) or (ek[2], ek[3]) == (k, v):
+                        if e["one_id"] == cur and e["status"] == "active": e["status"] = "superseded"
+                if winner.is_identified:
+                    self._follow_transitive((k, v), prev, winner, self._ctx["time"])
             elif policy == "never":
                 conflicts.append(f"{k}={v} 屬於 {cur}，不可改綁（資料仍歸 {winner.one_id}）")
             else:
                 conflicts.append(f"{k}={v} 屬於 {cur}，政策 {policy}：保留原綁定、記 conflict 待人工")
+                self._edge((k, v), ids[0], cur, status="conflict")["conflict_kind"] = "mobile_second_customer" if k == "$identity_mobile_hash" else "account_other_customer"
+        self._record_edges(ids, winner)
         return self._done(winner, winner.one_id not in {*distinct} and not upgraded, upgraded, bound, rebound, conflicts, "priority_owner")
 
     def _done(self, u: User, created: bool, upgraded: bool, bound, rebound, conflicts, reason: str) -> Decision:
@@ -179,6 +274,79 @@ class OneIDService:
         if bound or rebound or conflicts or created:
             self.audit.append({"event": "oneid.resolved", "one_id": u.one_id, "created": created, "upgraded": upgraded, "bound": bound, "rebound": rebound, "conflicts": conflicts})
         return d
+
+    # ---- 人工工具：合併／拆分／撤銷（entities.yaml merge_log）
+    def _snapshot(self, oid: str) -> dict[str, list[str]]:
+        return {k: sorted(v) for k, v in self.users[oid].ids.items() if v}
+
+    def merge(self, src: str, dst: str, *, by: str, approved_by: str, approver_role: str, reason: str) -> str:
+        """把 src 併入 dst：單值欄位兩邊都有且不同 → 拒絕；事件 one_id 改寫；前後快照寫 merge_log。"""
+        if approver_role not in MERGE_APPROVAL["merge"]:
+            raise PermissionError(f"合併需 {MERGE_APPROVAL['merge']} 審批")
+        s_u, d_u = self.users[src], self.users[dst]
+        for k in s_u.ids:
+            if ID_SPEC[k]["cardinality"] == "single" and s_u.ids[k] and d_u.ids.get(k) and s_u.ids[k] != d_u.ids[k]:
+                raise ValueError(f"無法合併：{k} 兩邊不同（{sorted(s_u.ids[k])} vs {sorted(d_u.ids[k])}）")
+        before = {src: self._snapshot(src), dst: self._snapshot(dst)}
+        moved = [(k, v) for k, vs in s_u.ids.items() for v in list(vs)]
+        for k, v in moved:
+            self._unbind(s_u, k, v); self._bind(d_u, k, v)
+            for ek, e in self.edges.items():
+                if e["one_id"] == src and ((ek[0], ek[1]) == (k, v) or (ek[2], ek[3]) == (k, v)): e["one_id"] = dst
+        rewritten = [i for i, ev in enumerate(self.events) if ev["one_id"] == src]
+        for i in rewritten: self.events[i]["one_id"] = dst
+        log_id = f"ml_{len(self.merge_log) + 1:05d}"
+        self.merge_log.append({"log_id": log_id, "op": "merge", "src_one_id": src, "dst_one_id": dst, "ids_moved": moved, "events_rewritten": len(rewritten),
+                               "event_idx": rewritten, "snapshot_before": before, "snapshot_after": {dst: self._snapshot(dst)}, "reason": reason,
+                               "requested_by": by, "approved_by": approved_by, "undone_by_log_id": ""})
+        self.audit.append({"event": "oneid.merged", "log_id": log_id, "src": src, "dst": dst, "ids": len(moved), "events": len(rewritten)})
+        return log_id
+
+    def split(self, one_id: str, ids: list[tuple[str, str]], *, from_time: int, by: str, approved_by: str, approver_role: str, reason: str) -> tuple[str, str]:
+        """把指定 ID 從 one_id 拆成新用戶；這些 ID 作為 distinct_id、from_time 之後的事件改歸新用戶。錨 ID 不可拆。"""
+        if approver_role not in MERGE_APPROVAL["split"]:
+            raise PermissionError(f"拆分需 {MERGE_APPROVAL['split']} 審批")
+        if any(k == "$identity_login_id" for k, _ in ids):
+            raise ValueError("客戶代碼不可拆分")
+        u = self.users[one_id]; before = {one_id: self._snapshot(one_id)}
+        nu = self._new_user()
+        for k, v in ids:
+            self._unbind(u, k, v); self._bind(nu, k, v)
+        dids = {v for _, v in ids}
+        rewritten = [i for i, ev in enumerate(self.events) if ev["one_id"] == one_id and ev["distinct_id"] in dids and ev["time"] >= from_time]
+        for i in rewritten: self.events[i]["one_id"] = nu.one_id
+        log_id = f"ml_{len(self.merge_log) + 1:05d}"
+        self.merge_log.append({"log_id": log_id, "op": "split", "src_one_id": one_id, "dst_one_id": nu.one_id, "ids_moved": ids, "events_rewritten": len(rewritten),
+                               "event_idx": rewritten, "snapshot_before": before, "snapshot_after": {one_id: self._snapshot(one_id), nu.one_id: self._snapshot(nu.one_id)},
+                               "reason": reason, "requested_by": by, "approved_by": approved_by, "undone_by_log_id": ""})
+        self.audit.append({"event": "oneid.split", "log_id": log_id, "from": one_id, "to": nu.one_id, "ids": len(ids), "events": len(rewritten)})
+        return log_id, nu.one_id
+
+    def undo(self, log_id: str, *, by: str, approver_role: str) -> str:
+        """撤銷一次合併或拆分：把 ID 與事件搬回去（依紀錄的快照與事件索引）。"""
+        if approver_role not in MERGE_APPROVAL["undo"]:
+            raise PermissionError("撤銷需審批")
+        rec = next(r for r in self.merge_log if r["log_id"] == log_id)
+        if rec["undone_by_log_id"]:
+            raise ValueError("已撤銷")
+        src, dst = rec["src_one_id"], rec["dst_one_id"]
+        for k, v in rec["ids_moved"]:
+            self._unbind(self.users[dst], k, v); self._bind(self.users[src], k, v)
+        for i in rec["event_idx"]: self.events[i]["one_id"] = src
+        new_id = f"ml_{len(self.merge_log) + 1:05d}"; rec["undone_by_log_id"] = new_id
+        self.merge_log.append({"log_id": new_id, "op": "undo", "src_one_id": dst, "dst_one_id": src, "ids_moved": rec["ids_moved"], "events_rewritten": len(rec["event_idx"]),
+                               "event_idx": rec["event_idx"], "snapshot_before": rec["snapshot_after"], "snapshot_after": rec["snapshot_before"], "reason": f"undo {log_id}",
+                               "requested_by": by, "approved_by": by, "undone_by_log_id": ""})
+        return new_id
+
+    def graph(self, one_id: str) -> dict[str, Any]:
+        """血緣圖資料（原型「身分圖」）：節點 = 該用戶的 ID（含主體），邊 = id_edges，時間軸 = 審計裡與此用戶有關的事件。"""
+        u = self.users[one_id]
+        nodes = [{"id": f"{k}:{v}", "type": k, "subject": SUBJECT_OF.get(k, "?"), "shared": self.is_shared_device(k, v)} for k, vs in u.ids.items() for v in sorted(vs)]
+        edges = [{"a": f"{ek[0]}:{ek[1]}", "b": f"{ek[2]}:{ek[3]}", **{x: e[x] for x in ("source", "evidence_event_id", "first_seen", "last_seen", "seen_count", "confidence", "status")}}
+                 for ek, e in self.edges.items() if e["one_id"] == one_id]
+        timeline = [a for a in self.audit if a.get("one_id") == one_id or a.get("to") == one_id or a.get("dst") == one_id or a.get("src") == one_id or a.get("from") == one_id]
+        return {"one_id": one_id, "identified": u.is_identified, "nodes": nodes, "edges": edges, "timeline": timeline, "events": sum(1 for e in self.events if e["one_id"] == one_id)}
 
     def unbind(self, key: str, value: str, *, by: str) -> None:
         if key in RULES["manual_tools"]["unbind"]["blocked_for"]:
@@ -243,4 +411,92 @@ if __name__ == "__main__":
     m = svc.track("ga.login", T0 + 1000, {"$identity_cookie_id": "C9", "$identity_login_id": "cust_A"}, consent=False)
     assert m.one_id == a.one_id and m.backfilled == 0 and svc.index[("$identity_cookie_id", "C9")] != a.one_id   # C9 仍屬匿名用戶
     assert any(x["event"] == "oneid.backfilled" and x["rows"] == 2 for x in svc.audit)
-    print(f"attribution self-test ok: users={len(svc.users)} bindings={len(svc.index)} events={len(svc.events)} audit={len(svc.audit)}")
+    # ------------------------------------------------------------------ v1.2：多主體、邊與血緣、傳遞映射、共用裝置、合併／拆分／撤銷
+    sv = OneIDService(); T = 1_792_000_000_000
+    # S11 邊有來源與證據：登入記錄裡 cookie、device、客戶代碼兩兩成邊；含錨 ID 的邊是 ga360.login（0.95），弱–弱是 ga360.cooccur（0.6）
+    r = sv.track("app_login_success", T, {"$identity_cookie_id": "C11", "$identity_device_id": "D11", "$identity_login_id": "cust_E"}, evidence="ev_login_1")
+    e_login = sv.edges[tuple(x for kv in sorted([("$identity_login_id", "cust_E"), ("$identity_cookie_id", "C11")]) for x in kv)]
+    e_weak = sv.edges[tuple(x for kv in sorted([("$identity_device_id", "D11"), ("$identity_cookie_id", "C11")]) for x in kv)]
+    assert e_login["source"] == "ga360.login" and e_login["confidence"] == 0.95 and e_login["evidence_event_id"] == "ev_login_1" and e_login["one_id"] == r.one_id
+    assert e_weak["source"] == "ga360.cooccur" and e_weak["confidence"] == 0.6 and e_weak["first_seen"] == T
+    assert SUBJECT_OF["$identity_device_id"] == "device" and SUBJECT_OF["$identity_account_no"] == "account"
+    # S12 傳遞性跟隨：匿名用戶 U 的 cookie C12 與 device D12 共現 8 次（信心 0.95）；D12 之後在已識別客戶 F 的登入裡出現 → D12 改綁到 F，C12 跟著過去，C12 近 7 天匿名事件改寫
+    f = sv.resolve({"$identity_login_id": "cust_F"}, time_ms=T)
+    for i in range(8):
+        sv.track("$pageview", T + i * 1000, {"$identity_cookie_id": "C12", "$identity_device_id": "D12"})
+    u12 = sv.index[("$identity_cookie_id", "C12")]; assert not sv.users[u12].is_identified
+    r = sv.track("app_login_success", T + 10_000, {"$identity_device_id": "D12", "$identity_login_id": "cust_F"})
+    assert r.one_id == f.one_id and ("$identity_device_id", "D12", u12) in r.rebound
+    assert sv.index[("$identity_cookie_id", "C12")] == f.one_id, "C12 應沿高信心共現邊跟著 D12 歸 F"
+    assert any(x["event"] == "oneid.transitive_rebind" and x["id"] == ("$identity_cookie_id", "C12") and x["confidence"] >= 0.8 for x in sv.audit)
+    assert all(ev["one_id"] == f.one_id for ev in sv.events if ev["distinct_id"] == "C12")        # 8 筆匿名事件改寫到 F
+    # S13 低信心不跟：C13 與 D13 只共現 1 次（0.6 < 0.8）→ D13 改綁到 G，C13 留在匿名用戶
+    g = sv.resolve({"$identity_login_id": "cust_G"}, time_ms=T)
+    sv.track("$pageview", T, {"$identity_cookie_id": "C13", "$identity_device_id": "D13"})
+    u13 = sv.index[("$identity_cookie_id", "C13")]
+    r = sv.track("app_login_success", T + 5000, {"$identity_device_id": "D13", "$identity_login_id": "cust_G"})
+    assert sv.index[("$identity_device_id", "D13")] == g.one_id and sv.index[("$identity_cookie_id", "C13")] == u13
+    # S14 共用裝置：D14 先後被 H1、H2、H3 登入（≥ 門檻 3）→ 視為共用；H4 再登入：邊信心打折、狀態 conflict，且不做傳遞映射
+    for h in ("cust_H1", "cust_H2", "cust_H3"):
+        sv.track("app_login_success", T, {"$identity_device_id": "D14", "$identity_login_id": h})
+    assert sv.is_shared_device("$identity_device_id", "D14")
+    for i in range(8):
+        sv.track("$pageview", T + i, {"$identity_cookie_id": "C14", "$identity_device_id": "D14"})     # 這些事件歸 D14 目前的主人 H3
+    h4 = sv.resolve({"$identity_login_id": "cust_H4"}, time_ms=T)
+    r = sv.track("app_login_success", T + 100, {"$identity_device_id": "D14", "$identity_login_id": "cust_H4"})
+    e14 = sv.edges[tuple(x for kv in sorted([("$identity_login_id", "cust_H4"), ("$identity_device_id", "D14")]) for x in kv)]
+    assert e14["status"] == "conflict" and e14["conflict_kind"] == "shared_device" and e14["confidence"] < 0.95 * 0.61
+    assert sv.index[("$identity_cookie_id", "C14")] != h4.one_id, "共用裝置不做傳遞映射"
+    assert sum(1 for e in sv.edges.values() if e["status"] == "conflict") >= 1
+    # S15 同一筆資料兩個客戶代碼 → 拒收並審計
+    try:
+        sv.resolve({"$identity_login_id": ["cust_X", "cust_Y"], "$identity_cookie_id": "C15"}); raise AssertionError("should reject")
+    except ValueError:
+        assert sv.audit[-1]["event"] == "oneid.rejected" and sv.audit[-1]["kind"] == "anchor_mismatch"
+    # S16 同手機第二客戶 → 邊記 conflict（mobile_second_customer），手機不改綁
+    sv.resolve({"$identity_login_id": "cust_E", "$identity_mobile_hash": "M16"}, time_ms=T)
+    r = sv.resolve({"$identity_login_id": "cust_Z", "$identity_mobile_hash": "M16"}, time_ms=T + 1)
+    assert r.conflicts and sv.index[("$identity_mobile_hash", "M16")] != r.one_id
+    assert any(e.get("conflict_kind") == "mobile_second_customer" for e in sv.edges.values())
+    # S17 合併：兩個已識別客戶（客戶代碼不同）不可合併；匿名用戶併入客戶需 admin 審批，ID 與事件搬過去並留快照
+    p_ = sv.resolve({"$identity_login_id": "cust_P", "$identity_cookie_id": "C17"}, time_ms=T)
+    q_ = sv.resolve({"$identity_login_id": "cust_Q"}, time_ms=T)
+    try:
+        sv.merge(q_.one_id, p_.one_id, by="it_admin", approved_by="admin", approver_role="admin", reason="x"); raise AssertionError("should refuse")
+    except ValueError:
+        pass
+    sv.track("$pageview", T - 20 * DAY, {"$identity_cookie_id": "C17b"}); sv.track("$pageview", T - 19 * DAY, {"$identity_cookie_id": "C17b"})
+    anon = sv.index[("$identity_cookie_id", "C17b")]
+    try:
+        sv.merge(anon, p_.one_id, by="it_admin", approved_by="digital_ops", approver_role="digital_ops", reason="x"); raise AssertionError("needs admin")
+    except PermissionError:
+        pass
+    log1 = sv.merge(anon, p_.one_id, by="it_admin", approved_by="admin", approver_role="admin", reason="同一人：客服確認")
+    rec = sv.merge_log[-1]
+    assert sv.index[("$identity_cookie_id", "C17b")] == p_.one_id and rec["events_rewritten"] == 2 and rec["snapshot_before"][anon] == {"$identity_cookie_id": ["C17b"]}
+    assert all(ev["one_id"] == p_.one_id for ev in sv.events if ev["distinct_id"] == "C17b") and not sv.users[anon].ids.get("$identity_cookie_id")
+    # S18 撤銷合併：ID 與事件搬回；二次撤銷被拒
+    sv.undo(log1, by="admin", approver_role="admin")
+    assert sv.index[("$identity_cookie_id", "C17b")] == anon and all(ev["one_id"] == anon for ev in sv.events if ev["distinct_id"] == "C17b")
+    assert sv.merge_log[-1]["op"] == "undo" and sv.merge_log[0 if len(sv.merge_log) == 2 else -2]["undone_by_log_id"] == sv.merge_log[-1]["log_id"]
+    try:
+        sv.undo(log1, by="admin", approver_role="admin"); raise AssertionError("double undo")
+    except ValueError:
+        pass
+    # S19 拆分：P 的 cookie C17 從 T+1 天起的事件拆給新用戶；之前的留在 P；客戶代碼不可拆
+    sv.track("$pageview", T, {"$identity_cookie_id": "C17"}); sv.track("$pageview", T + 2 * DAY, {"$identity_cookie_id": "C17"})
+    try:
+        sv.split(p_.one_id, [("$identity_login_id", "cust_P")], from_time=T, by="it_admin", approved_by="admin", approver_role="admin", reason="x"); raise AssertionError("anchor split")
+    except ValueError:
+        pass
+    log3, new_id = sv.split(p_.one_id, [("$identity_cookie_id", "C17")], from_time=T + DAY, by="it_admin", approved_by="admin", approver_role="admin", reason="家人共用")
+    assert sv.index[("$identity_cookie_id", "C17")] == new_id and sv.merge_log[-1]["events_rewritten"] == 1
+    assert [ev["one_id"] for ev in sv.events if ev["distinct_id"] == "C17"] == [p_.one_id, new_id]
+    # S20 血緣圖與表級血緣：節點帶主體、邊帶來源／證據／信心、時間軸有事件；lineage 有「來源 → id_map」
+    gph = sv.graph(f.one_id)
+    assert {n["subject"] for n in gph["nodes"]} >= {"customer", "device"} and gph["edges"] and all("confidence" in e and "evidence_event_id" in e for e in gph["edges"])
+    assert gph["events"] == 9 and any(x["event"] == "oneid.transitive_rebind" for x in gph["timeline"])
+    assert ("source", "ga360", "id_map", "dmp.id_map", "oneid.service") in sv.lineage
+    # 不變量仍成立：一個 ID 只屬一個用戶
+    assert all(v in sv.users and ((k, val) in {(kk, vv) for kk, vs in sv.users[v].ids.items() for vv in vs}) for (k, val), v in sv.index.items())
+    print(f"attribution self-test ok: S1–S20; users={len(svc.users) + len(sv.users)} edges={len(sv.edges)} conflicts={sum(1 for e in sv.edges.values() if e['status'] == 'conflict')} merge_log={len(sv.merge_log)}")

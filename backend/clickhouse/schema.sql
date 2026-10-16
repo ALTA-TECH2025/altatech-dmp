@@ -188,6 +188,62 @@ CREATE TABLE IF NOT EXISTS dmp.ingest_recon
 ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.ingest_recon', '{replica}')
 ORDER BY (task_id, at);
 
+-- ID 關聯邊（docs/19 v1.2、semantic/entities.yaml）：每條關聯的來源、證據、時間、信心、狀態；血緣圖與衝突清單都從這裡來
+CREATE TABLE IF NOT EXISTS dmp.id_edges
+(
+    id_type_a         LowCardinality(String),
+    id_a              String,
+    id_type_b         LowCardinality(String),
+    id_b              String,
+    source            LowCardinality(String),      -- ga360.login / ga360.cooccur / sensors.track_signup / crm.bind / manual.merge …
+    evidence_event_id String,                      -- 造成這條邊的事件或指令（點邊看「為什麼」）
+    first_seen        DateTime64(3, 'UTC'),
+    last_seen         DateTime64(3, 'UTC'),
+    seen_count        UInt32,
+    confidence        Float32,
+    status            LowCardinality(String),      -- active / superseded / conflict / unbound
+    one_id            String,                      -- 這條邊歸屬的用戶（方便按用戶取圖）
+    version           UInt64                       -- 最後異動時間（毫秒），ReplacingMergeTree 版本
+)
+ENGINE = ReplicatedReplacingMergeTree('/ch/{shard}/dmp.id_edges', '{replica}', version)
+ORDER BY (id_type_a, id_a, id_type_b, id_b);
+-- 衝突待人工清單
+CREATE VIEW IF NOT EXISTS dmp.oneid_conflicts AS SELECT * FROM dmp.id_edges FINAL WHERE status = 'conflict';
+
+-- 人工合併／拆分／撤銷紀錄：前後快照可回溯、可撤銷（審批見 entities.yaml merge_log.approval）
+CREATE TABLE IF NOT EXISTS dmp.oneid_merge_log
+(
+    log_id            String,
+    op                LowCardinality(String),      -- merge / split / undo
+    src_one_id        String,
+    dst_one_id        String,
+    ids_moved         Array(Tuple(String, String)),
+    events_rewritten  UInt64,
+    snapshot_before   String,                      -- JSON：兩個用戶合併前的 ID 集合
+    snapshot_after    String,
+    reason            String,
+    requested_by      String,
+    approved_by       String,
+    at                DateTime64(3, 'UTC'),
+    undone_by_log_id  String DEFAULT ''
+)
+ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.oneid_merge_log', '{replica}')
+ORDER BY (at, log_id);
+
+-- 表級血緣：同步任務 → 來源表 → 目標表 → 用戶表／分群／推送（OpenLineage 可匯出）
+CREATE TABLE IF NOT EXISTS dmp.lineage_edges
+(
+    from_kind   LowCardinality(String),
+    from_name   String,
+    to_kind     LowCardinality(String),
+    to_name     String,
+    via         LowCardinality(String),            -- 任務 id／模組名
+    model_id    String,
+    updated_at  DateTime64(3, 'UTC')
+)
+ENGINE = ReplicatedReplacingMergeTree('/ch/{shard}/dmp.lineage_edges', '{replica}', updated_at)
+ORDER BY (from_kind, from_name, to_kind, to_name, via);
+
 CREATE TABLE IF NOT EXISTS dmp.id_map
 (
     id_type      LowCardinality(String),
