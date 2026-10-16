@@ -1,6 +1,6 @@
 # 客戶神策事件屬性字典：分級、入倉決定與 GA4 參數名
 
-> 版本 v0.1（2026-10-16）。來源：客戶提供的神策「批量修改資訊檔」（事件屬性命名表：屬性名／顯示名，681 個屬性）。規則與產出都在 `backend/migration/properties.py`，產出檔 `backend/migration/sensors_properties.csv`（property, display, tag, domain, sensitivity, decision, ga4_param, rule）。客戶原檔不進 repo；`--check` 以產出檔前兩欄重算比對，CI 每次跑。口徑：docs/10 §欄位等級、docs/22 §3.3。
+> 版本 v0.2（2026-10-16）。來源：客戶提供的神策「批量修改資訊檔」（事件屬性命名表：屬性名／顯示名，681 個屬性）與「用戶屬性導出」（name／type，3,606 個用戶屬性，§7）。規則與產出都在 `backend/migration/properties.py`，產出檔 `backend/migration/sensors_properties.csv`（property, display, tag, domain, sensitivity, decision, ga4_param, rule）。客戶原檔不進 repo；`--check` 以產出檔前兩欄重算比對，CI 每次跑。口徑：docs/10 §欄位等級、docs/22 §3.3。
 
 ## 1. 結論
 
@@ -45,7 +45,26 @@ App／Web 埋點的 263 個屬性給 `ga4_param`（snake_case、≤ 40 字元，
 
 ## 6. 對應檔案
 
-- `backend/migration/properties.py`：規則、自測、`--check`。
-- `backend/migration/sensors_properties.csv`：產出（可直接給客戶與導入商看）。
+- `backend/migration/properties.py`：規則、自測、`--check`（事件屬性與用戶屬性兩個產出都比對）。
+- `backend/migration/sensors_properties.csv`：事件屬性產出（可直接給客戶與導入商看）。
+- `backend/migration/sensors_user_properties.csv`：用戶屬性產出（§7）。
 - `backend/semantic/user_properties.yaml`：`forbidden_l4` 含本表 L4 名單。
 - `backend/integration/sensors_format.py`：預處理丟棄點。
+
+## 7. 用戶屬性導出（3,606 個）
+
+`python3 backend/migration/properties.py --users <導出.csv>` 產出 `sensors_user_properties.csv`（property, type, family, sensitivity, decision, dmp_target, rule）。
+
+| family | 數量 | 處置 |
+|---|---|---|
+| `user_group_*`（神策分群回寫欄位，一個分群一欄；含 `user_group_pj2_sf<id>_<ts>` 2,527 個） | 2,758 | **不當用戶屬性遷移**。盤點後只留客戶勾選的分群，以 `/v1/segments/import` 匯入成分群快照（docs/23 §1 分群「匯入分群（神策快照）」）；其餘不載入。 |
+| `user_tag_*`（神策標籤回寫欄位） | 691 | 同上，匯入標籤引擎為標籤值；命名是拼音縮寫（`user_tag_a011978tgsmd`…），需要客戶給標籤顯示名對照。 |
+| core：L4 可識別 | 33 | 不入用戶表（已登記 `forbidden_l4`）：姓名（s_name、openactname…）、生日（birth_dt、s_birth、s_birth_virtual）、手機（cus_mtel、noticemobile、openactmobile、sleepycust_mobile…）、信箱（cuadm、openactmail、google／fb／apple 登入信箱、ec_sec_acc_email…）。 |
+| core：L3 代碼化 | 7 | id、first_id、second_id → `id_map`；s_idno、uuid → `customer_code`／one_id；line_uuid、ec_sec_acc_no → token。 |
+| core：L2 敏感業務 | 88 | 資產（st_last_asset_amt…→ `aum`／區間）、信用與借貸（b27_* 22 欄）、各商品線開戶／首交／最近交易日期（st／sub／fu／wf／of）、性別、年齡（s_age → `age_band`）、客戶類別、開戶來源（cuaa1–4、cuaf9）。要登記進 `user_properties.yaml` 才能查（目前只有 17 個鍵），排 M1 契約 PR。 |
+| core：L1 行為／偏好 | 29 | 首次來源（$first_*、$utm_*）、社群登入類型、推播同意（is_*_push）、最近登入、沉睡分群、yield_increase、group_tag、ref_flag。 |
+
+要問客戶的（接 §5）：
+7. `user_group_*`／`user_tag_*` 三千多欄哪些還在用？請在神策分群／標籤列表勾選必留清單（docs/22 §3 盤點項目），其餘不遷。
+8. 用戶屬性導出沒有顯示名（comment 欄全空）；請補匯出含顯示名的版本，L2 的 88 欄才能給中文名登記。
+9. `$dimension_dict_cuaa1–4`、`cuaf9`、`otype`、`user_type` 的代碼表（維度字典）請一併匯出，否則只能存代碼。

@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """神策事件屬性字典（客戶匯出的「批量修改資訊檔」：屬性名／顯示名）→ 敏感等級、入倉決定、GA4 參數名。
 
-用法：python3 backend/migration/properties.py [client.csv]   # 自測 + 讀客戶字典、寫 sensors_properties.csv
-     python3 backend/migration/properties.py --check         # 自測 + 檢查 sensors_properties.csv 與 forbidden_l4 一致
+用法：python3 backend/migration/properties.py [client.csv]            # 自測 + 讀客戶事件屬性字典、寫 sensors_properties.csv
+     python3 backend/migration/properties.py --users [users.csv]     # 讀客戶用戶屬性導出（name,type,comment）、寫 sensors_user_properties.csv
+     python3 backend/migration/properties.py --check                  # 自測 + 兩個產出檔重算比對、forbidden_l4 一致
+
+用戶屬性（profile）另一套口徑：user_group_*／user_tag_* 是神策分群與標籤的回寫欄位（每個分群一欄，共三千多欄），不當用戶屬性遷移，
+改以 /v1/segments/import 匯入快照、標籤進標籤引擎；其餘 core 屬性依同一套 L1–L4 規則分級，L1／L2 要登記進 semantic/user_properties.yaml 才能查。
 
 輸入 CSV 兩欄：property（神策屬性名，不可改）、display（顯示名）。預設路徑 migration/sensors_properties_client.csv。
 輸出 CSV：property, display, tag, domain, sensitivity, decision, ga4_param, rule
@@ -33,6 +37,8 @@ from bridge import LIMITS, snake
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLIENT_CSV = ROOT / 'migration' / 'sensors_properties_client.csv'
 OUT_CSV = ROOT / 'migration' / 'sensors_properties.csv'
+USERS_CSV = ROOT / 'migration' / 'sensors_user_properties_client.csv'
+OUT_USERS_CSV = ROOT / 'migration' / 'sensors_user_properties.csv'
 USER_PROPS_YAML = ROOT / 'semantic' / 'user_properties.yaml'
 
 TAG_RE = re.compile(r'^\((O|C|B|N|X|L|SF|Item_id)\)')   # 客戶顯示名前綴：(O) 舊欄位 (C) CRM／開戶 (B) 借貸 (N) NPS (X) 維護 (L) 學堂 (SF) 智能運營
@@ -52,6 +58,42 @@ L2_DISPLAY = re.compile(r'金額|手續費|費$|費\(|費率|稅|餘額|額度|�
 MA_PREFIX = ('$sf_', 'sf_', 'rec_banner_id', 'strategy_id', 'section_id', '$channel_link_id', '$matching_key_list', '$utm_matching_type')
 DROP_OPS_NAMES = {'$ip', '$ip_isp', '$ip_country', '$latitude', '$longitude', '$hdfs_import_batch_name', '$kafka_offset', '$app_remote_config'}
 DROP_OPS_DISPLAY = re.compile(r'IP位址|IP$')   # IP 一律不入倉（sensors_format.DROP_PROPS 同口徑）
+
+
+UP_L4 = re.compile(r'mail|phone|mobile|mtel|cuadm|name$|birth|^openact')          # 信箱、手機、姓名、生日（含社群登入信箱、通知手機、虛擬生日）
+UP_L3 = re.compile(r'^(id|first_id|second_id|s_idno|uuid|line_uuid|ec_sec_acc_no)$')   # 神策內部 ID、匿名／登入 ID、去識別化 ID、LINE ID、帳號
+UP_L2 = re.compile(r'amt|balance|limit|asset|acc\b|_acc$|_acc_|acct|trade|odate|trans|status|loan|margin|lending|contracts|'
+                   r'^b27_|^s_age|^gender|s_sex|emp_flag|otype|user_type|cuaa|cuaf|default|match_dt|category')
+UP_MAP = {'s_idno': 'customer_code', 'gender': 'gender', '$dimension_dict_s_sex': 'gender', 's_age': 'age_band（分桶）', 'st_last_asset_amt': 'aum',
+          'st_first_odate': 'signup_date', 'first_odate': 'signup_date', 'last_login_date_dt': 'last_active_at', 'emp_flag': 'is_staff（新增）',
+          'st_mt_acc': 'has_margin', '$dimension_dict_sleepycust_group': 'lifecycle', 'first_trade_odate': 'first_trade_date（新增）'}
+
+
+def classify_user(name: str, typ: str) -> tuple[str, str, str, str, str]:
+    """用戶屬性 → (family, sensitivity, decision, dmp_target, rule)。"""
+    if name.startswith('user_group_'):
+        return 'segment_result', 'L1', 'import_segment', '/v1/segments/import（神策分群快照）', '神策分群回寫欄位：一個分群一欄，不當屬性遷移'
+    if name.startswith('user_tag_'):
+        return 'tag_result', 'L1', 'import_tag', '標籤引擎（匯入標籤值）', '神策標籤回寫欄位：匯入標籤引擎'
+    if name.startswith('$dimension_dict_'):
+        base = name[len('$dimension_dict_'):]
+    else:
+        base = name
+    if UP_L4.search(base) and not re.search(r'^is_\w+_push$|snslogintype', base):
+        return 'core', 'L4', 'drop_l4', '—', '可識別個資：不入用戶表（forbidden_l4）'
+    if UP_L3.match(base):
+        return 'core', 'L3', 'hash', UP_MAP.get(name, 'one_id／id_map'), '代碼化識別：進 id_map 或 token 後存'
+    if UP_L2.search(base):
+        return 'core', 'L2', 'keep', UP_MAP.get(name, '登記 user_properties.yaml（L2）'), '敏感業務：按角色遮罩／分桶'
+    return 'core', 'L1', 'keep', UP_MAP.get(name, '登記 user_properties.yaml（L1）'), '行為／偏好屬性'
+
+
+def build_users(rows: list[tuple[str, str]]) -> list[dict]:
+    out = []
+    for name, typ in rows:
+        fam, lvl, dec, tgt, rule = classify_user(name, typ)
+        out.append({'property': name, 'type': typ, 'family': fam, 'sensitivity': lvl, 'decision': dec, 'dmp_target': tgt, 'rule': rule})
+    return out
 
 
 def domain_of(name: str, display: str) -> str:
@@ -137,12 +179,51 @@ def selftest() -> None:
     assert rows[0]['ga4_param'] == '' and rows[1]['ga4_param'] == 'login_time' and any('超過' in i for i in issues), issues
     rows, issues = build([('Qty', '#交易數量'), ('qty', '數量')])
     assert any('碰撞' in i for i in issues)
+    ucases = {('user_group_pj2_sf1_1', 'bigint'): ('segment_result', 'import_segment'), ('user_tag_a0x', 'string'): ('tag_result', 'import_tag'),
+              ('googleloginmail', 'string'): ('core', 'drop_l4'), ('openactname', 'string'): ('core', 'drop_l4'), ('s_birth_virtual', 'double'): ('core', 'drop_l4'),
+              ('noticemobile', 'string'): ('core', 'drop_l4'), ('is_email_push', 'bigint'): ('core', 'keep'), ('snslogintype', 'string'): ('core', 'keep'),
+              ('s_idno', 'string'): ('core', 'hash'), ('line_uuid', 'string'): ('core', 'hash'), ('ec_sec_acc_no', 'string'): ('core', 'hash'),
+              ('st_last_asset_amt', 'double'): ('core', 'keep'), ('$utm_source', 'string'): ('core', 'keep'), ('$dimension_dict_s_sex', 'string'): ('core', 'keep')}
+    for (n, t), want in ucases.items():
+        got = classify_user(n, t)
+        assert (got[0], got[2]) == want, (n, got, want)
+    assert classify_user('st_last_asset_amt', 'double')[1] == 'L2' and classify_user('$utm_source', 'string')[1] == 'L1' and classify_user('gender', 'string')[1] == 'L2'
+
+
+def run_users(src: pathlib.Path, check: bool, forbidden: set[str]) -> int:
+    with src.open(encoding='utf-8-sig', newline='') as f:
+        r = csv.reader(f); hdr = next(r)
+        rows = [(a.strip(), b.strip()) for a, b, *_ in r if a.strip()]
+    assert hdr[0] == 'property' or hdr[0] == 'name', hdr
+    out = build_users(rows)
+    c = collections.Counter((o['family'], o['sensitivity'], o['decision']) for o in out)
+    print(f'user_properties={len(out)} ' + ' '.join(f'{a}/{b}/{d}={v}' for (a, b, d), v in sorted(c.items())))
+    missing = sorted(o['property'] for o in out if o['decision'] == 'drop_l4' and o['property'] not in forbidden)
+    if missing:
+        print('ISSUE forbidden_l4 缺（用戶屬性）：' + ', '.join(missing))
+    if check:
+        with OUT_USERS_CSV.open(encoding='utf-8-sig', newline='') as f:
+            cur = [dict(x) for x in csv.DictReader(f)]
+        if cur != out:
+            print('ISSUE sensors_user_properties.csv 與規則產出不一致，請重跑 --users'); return 1
+        return 1 if missing else 0
+    with OUT_USERS_CSV.open('w', newline='', encoding='utf-8-sig') as f:
+        w = csv.DictWriter(f, fieldnames=list(out[0].keys())); w.writeheader(); w.writerows(out)
+    print(f'wrote {OUT_USERS_CSV.relative_to(ROOT.parent)}')
+    return 0
 
 
 def main() -> int:
     selftest()
     check = '--check' in sys.argv
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    forbidden = set(yaml.safe_load(USER_PROPS_YAML.read_text(encoding='utf-8')).get('forbidden_l4', []))
+    if '--users' in sys.argv:
+        src = pathlib.Path(args[0]) if args else USERS_CSV
+        if not src.exists():
+            print(f'無用戶屬性導出 {src}'); return 1
+        rc = run_users(src, check, forbidden)
+        print('properties self-test OK' if rc == 0 else 'properties users FAILED'); return rc
     src = pathlib.Path(args[0]) if args else CLIENT_CSV
     if not src.exists() and check and OUT_CSV.exists():
         src = OUT_CSV   # 客戶原檔不進 repo：--check 以已產出檔的 property／display 兩欄重算後比對
@@ -150,7 +231,6 @@ def main() -> int:
         print(f'properties self-test OK（無客戶字典 {src}，略過產出）')
         return 0
     rows, issues = build(read_client(src))
-    forbidden = set(yaml.safe_load(USER_PROPS_YAML.read_text(encoding='utf-8')).get('forbidden_l4', []))
     missing = sorted(r['property'] for r in rows if r['decision'] == 'drop_l4' and r['property'] not in forbidden)
     c = collections.Counter((r['domain'], r['sensitivity'], r['decision']) for r in rows)
     print(f'properties={len(rows)} ' + ' '.join(f'{d}/{l}/{k}={v}' for (d, l, k), v in sorted(c.items())))
@@ -166,6 +246,8 @@ def main() -> int:
         if cur != rows:
             print('ISSUE sensors_properties.csv 與規則產出不一致，請重跑 python3 backend/migration/properties.py'); return 1
         if missing:
+            return 1
+        if OUT_USERS_CSV.exists() and run_users(OUT_USERS_CSV, True, forbidden):
             return 1
     else:
         with OUT_CSV.open('w', newline='', encoding='utf-8-sig') as f:
