@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/api/client';
 import type { Catalog } from '@/analytics/types';
-import type { IdentityGraph, Profile, TimelineResult } from './types';
+import type { IdentityGraph, Profile, Reveal, TimelineResult } from './types';
 
 type Tab = 'profile' | 'timeline' | 'identities';
 
@@ -17,6 +17,14 @@ export function ProfileDrawer({ oneId, cat, project, onClose }: { oneId: string;
   const [ig, setIg] = useState<IdentityGraph | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reveal, setReveal] = useState<{ field: string; reason: string; hours: number } | null>(null);
+  const [revealMsg, setRevealMsg] = useState<string | null>(null);
+  const requestReveal = async () => {
+    if (!reveal) return;
+    setBusy(true); setErr(null);
+    try { const r = await api.post<Reveal>('/v1/reveals', { field: reveal.field, one_id: oneId, reason: reveal.reason.trim(), hours: reveal.hours }); setRevealMsg(`已送出揭露申請 ${r.id}（${r.level}，${r.level === 'L3' ? '系統管理員' : '數位經營'}審批）；核可後 ${r.hours} 小時內本畫像該欄位顯示明文。`); setReveal(null); }
+    catch (e) { setErr(e instanceof ApiError ? e.message : '申請失敗'); } finally { setBusy(false); }
+  };
   const qs = (extra: Record<string, string | number | undefined> = {}) => { const p = new URLSearchParams({ reason: granted ?? '', ...(project ? { project } : {}) }); for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== '') p.set(k, String(v)); return p.toString(); };
   const loadTl = async (cursor?: string, ev = tlEvent) => {
     setBusy(true);
@@ -52,6 +60,15 @@ export function ProfileDrawer({ oneId, cat, project, onClose }: { oneId: string;
             {tab === 'profile' && prof && (
               <div className="stack">
                 <div className="tiles"><div className="tile"><span className="sub">近 {prof.summary.days} 天事件</span><b>{prof.summary.total.toLocaleString()}</b></div><div className="tile"><span className="sub">分群</span><b style={{ fontSize: 14 }}>{prof.segments.length ? prof.segments.join('、') : '—'}</b></div></div>
+                {Object.keys(prof.masked).length > 0 && (reveal ? (
+                  <div className="row" style={{ marginTop: 0, background: 'var(--soft)', padding: 10, borderRadius: 10 }}>
+                    <select aria-label="揭露欄位" value={reveal.field} onChange={(e) => setReveal({ ...reveal, field: e.target.value })}>{Object.keys(prof.masked).map((f) => <option key={f} value={f}>{f === 'one_id' ? 'one_id' : propCn(f)}（{prof.masked[f]}）</option>)}</select>
+                    <input aria-label="揭露理由" placeholder="理由（必填，4–200 字）" value={reveal.reason} onChange={(e) => setReveal({ ...reveal, reason: e.target.value })} />
+                    <select aria-label="揭露時效" value={reveal.hours} onChange={(e) => setReveal({ ...reveal, hours: Number(e.target.value) })}>{[1, 4, 24].map((h) => <option key={h} value={h}>{h} 小時</option>)}</select>
+                    <button className="btn-primary" disabled={busy || reveal.reason.trim().length < 4} onClick={() => void requestReveal()}>送審</button><button className="btn-ghost" onClick={() => setReveal(null)}>取消</button>
+                  </div>
+                ) : <div className="row" style={{ marginTop: 0 }}><span className="sub">遮罩欄位：{Object.keys(prof.masked).join('、')}（只對這位用戶、限時）</span><button className="btn-ghost sm" onClick={() => setReveal({ field: Object.keys(prof.masked)[0], reason: '', hours: 24 })}>申請揭露</button></div>)}
+                {revealMsg && <p className="note">{revealMsg}</p>}
                 <div className="tbl-wrap"><table className="tbl"><thead><tr><th>屬性</th><th>值</th></tr></thead><tbody>
                   {Object.entries(prof.props).map(([k, v]) => <tr key={k}><td>{propCn(k)}{prof.masked[k] && <span className="sub">遮罩</span>}</td><td className="mono">{v === null || v === undefined ? '—' : typeof v === 'boolean' ? (v ? '是' : '否') : String(v)}</td></tr>)}
                 </tbody></table></div>

@@ -38,3 +38,5 @@ export interface Approval { id: string; type: 'export' | 'segment' | 'push' | 'r
 export type ExportStatus = 'pending_approval' | 'approved' | 'rejected' | 'generated' | 'downloaded' | 'expired';
 export interface ExportRequest { kind: 'users' | 'segment_members'; rule?: UsersQuery; segment_id?: string; basetime?: string; columns?: string[]; purpose: string; retention_days?: number }
 export interface Export { id: string; kind: string; requester: string; purpose: string; retention_days: number; rows_estimate: number; rows: number | null; columns: string[]; masked: Record<string, string>; status: ExportStatus; approval_id: string; watermark_id: string | null; created_at: string; approved_at: string | null; expires_at: string | null; generated_at: string | null; downloaded_at: string | null; note: string; what?: string }
+
+export interface Reveal { id: string; field: string; level: 'L2' | 'L3'; one_id: string | null; requester: string; reason: string; hours: number; status: 'pending_approval' | 'active' | 'rejected' | 'expired'; approval_id: string; created_at: string; expires_at: string | null; views: number }

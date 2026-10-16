@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
-import type { Approval, Export } from '@/users/types';
+import type { Approval, Export, Reveal } from '@/users/types';
 import { APPROVAL_PILL, APPROVAL_STATUS_CN, APPROVAL_TYPE_CN, EXPORT_PILL, EXPORT_STATUS_CN, exportNext, expiresText } from './approvals';
 
 export function ApprovalsPage() {
@@ -13,7 +13,8 @@ export function ApprovalsPage() {
 
 function ApprovalsInner() {
   const { me } = useAuth();
-  const [tab, setTab] = useState<'to_me' | 'mine' | 'exports'>('to_me');
+  const [tab, setTab] = useState<'to_me' | 'mine' | 'exports' | 'reveals'>('to_me');
+  const [rvs, setRvs] = useState<Reveal[]>([]);
   const [list, setList] = useState<Approval[]>([]);
   const [exps, setExps] = useState<Export[]>([]);
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -23,6 +24,7 @@ function ApprovalsInner() {
     setErr(null);
     try {
       if (tab === 'exports') setExps(await api.get<Export[]>('/v1/exports'));
+      else if (tab === 'reveals') setRvs(await api.get<Reveal[]>('/v1/reveals'));
       else setList(await api.get<Approval[]>(`/v1/approvals?scope=${tab}`));
     } catch (e) { setErr(e instanceof ApiError ? e.message : '讀取失敗'); }
   };
@@ -37,9 +39,17 @@ function ApprovalsInner() {
   return (
     <div className="page">
       <div className="page-h"><div><h1>審批與匯出</h1><p>匯出、分群生效、推送、欄位揭露、agent 提議都走審批單；類型決定審批角色（匯出與分群 = 數位經營、L3 揭露 = 系統管理員），不能審自己的申請，7 天未審自動逾期。匯出核可後 7 天內由申請者本人產檔下載，檔案帶浮水印、欄位比畫面再嚴一級。</p></div></div>
-      <div className="seg">{([['to_me', '待我審批'], ['mine', '我的申請'], ['exports', '匯出申請']] as const).map(([k, cn]) => <a key={k} href="#" className={tab === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setTab(k); }}>{cn}</a>)}</div>
+      <div className="seg">{([['to_me', '待我審批'], ['mine', '我的申請'], ['exports', '匯出申請'], ['reveals', '揭露申請']] as const).map(([k, cn]) => <a key={k} href="#" className={tab === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setTab(k); }}>{cn}</a>)}</div>
       {err && <div className="alert" style={{ marginBottom: 12 }}>{err}</div>}
-      {tab !== 'exports' ? (
+      {tab === 'reveals' ? (
+        <div className="card flush"><div className="tbl-wrap"><table className="tbl">
+          <thead><tr><th>揭露單</th><th>欄位</th><th>範圍</th><th>理由</th><th>狀態</th><th>申請者</th></tr></thead>
+          <tbody>{rvs.map((r) => (
+            <tr key={r.id}><td className="mono">{r.id}<span className="sub">{r.created_at.slice(0, 16)}</span></td><td><b>{r.field}</b><span className="sub">{r.level} · {r.hours} 小時</span></td><td className="mono sub">{r.one_id ?? '全部'}</td><td className="sub">{r.reason}</td>
+              <td><span className={`pill ${r.status === 'active' ? 'blue' : r.status === 'pending_approval' ? 'amber' : r.status === 'rejected' ? 'red' : 'gray'}`}>{{ pending_approval: '待審批', active: '揭露中', rejected: '已退回', expired: '已到期' }[r.status]}</span>{r.status === 'active' && <span className="sub">{expiresText(r.expires_at)} · 已查看 {r.views} 次</span>}</td><td className="sub">{r.requester}</td></tr>))}
+            {!rvs.length && <tr><td colSpan={6} className="sub" style={{ textAlign: 'center', padding: 24 }}>沒有揭露申請</td></tr>}
+          </tbody></table></div></div>
+      ) : tab !== 'exports' ? (
         <div className="card flush"><div className="tbl-wrap"><table className="tbl">
           <thead><tr><th>類型</th><th>內容</th><th>申請者</th><th>狀態</th><th>時間</th><th>{tab === 'to_me' ? '審批' : '結果'}</th></tr></thead>
           <tbody>{list.map((a) => (
