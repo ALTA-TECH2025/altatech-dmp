@@ -4,7 +4,8 @@
   DMP_IDP_MODE          broker | direct（覆寫 idp.yaml）
   DMP_SECRETS_JSON      secret_ref → 明文 的 JSON 檔路徑（只在執行節點，由密鑰庫掛載）；沒有時所有 secret_ref 解析失敗
   CLICKHOUSE_URL / CLICKHOUSE_USER / CLICKHOUSE_PASSWORD
-  DMP_STORE_PATH        控制面 JSON 檔（單機開發用；正式環境換 PostgreSQL）
+  DMP_PG_DSN_REF        控制面 PostgreSQL 連線字串的 secret_ref（正式）；本機開發可用 DMP_PG_DSN 明文；兩者都沒有才用 DMP_STORE_PATH JSON 檔
+  DMP_STORE_PATH        控制面 JSON 檔（單機開發用）
   DMP_EXPORT_DIR        匯出檔目錄（核可後產生的 CSV；正式環境換物件儲存 + 到期清理）
   DMP_API_KEY_PEM / DMP_API_PUB_PEM   API token 簽章金鑰檔（沒有就不開 /auth/token）
 """
@@ -43,7 +44,11 @@ def build() -> Any:
     if os.environ.get("DMP_SECRETS_JSON"):
         secrets = json.loads(Path(os.environ["DMP_SECRETS_JSON"]).read_text(encoding="utf-8"))
     resolver = lambda ref: secrets[ref]
-    store = MemoryStore(Path(os.environ["DMP_STORE_PATH"]) if os.environ.get("DMP_STORE_PATH") else None)
+    if os.environ.get("DMP_PG_DSN_REF") or os.environ.get("DMP_PG_DSN"):
+        from .store_pg import PostgresStore
+        store: Any = PostgresStore(resolver(os.environ["DMP_PG_DSN_REF"]) if os.environ.get("DMP_PG_DSN_REF") else os.environ["DMP_PG_DSN"])
+    else:
+        store = MemoryStore(Path(os.environ["DMP_STORE_PATH"]) if os.environ.get("DMP_STORE_PATH") else None)
     sessions = SessionManager(cfg["session"], SessionMemory(), lambda e, d: store.audit(e, d), now=time.time, admin_requires=cfg["role_mapping"].get("admin_requires"))
     providers: dict[str, Any] = {}
     for key, p in cfg["providers"].items():

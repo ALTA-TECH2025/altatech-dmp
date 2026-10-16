@@ -14,6 +14,7 @@
 | Great Expectations / Soda Core | 1.x | Apache-2.0 | 資料品質 | — | GX Labs（美）／Soda（比） |
 | OpenMetadata / OpenLineage | 1.5 / 1.x | Apache-2.0 | 中繼資料／血緣 | — | Collate（美）／LF AI & Data |
 | PostgreSQL / pgvector / CloudNativePG | 16 / 0.7 / 1.24 | PostgreSQL / PostgreSQL / Apache-2.0 | 控制面 | — | PGDG／個人（美）／EDB（義） |
+| asyncpg | 0.29+ | Apache-2.0 | 控制面 PostgreSQL 驅動（`backend/api/store_pg.py`） | 純 Python + Cython，無 libpq；pip-audit 在 security.yml | MagicStack（加） |
 | Valkey | 8 | BSD-3 | 快取 | 取代 Redis（RSAL/SSPL/AGPL） | Linux Foundation |
 | SeaweedFS | 3.x | Apache-2.0 | 機房物件儲存 | 取代 MinIO（AGPL）；GCP 用 GCS | SeaweedFS Inc.（美；作者大陸出生） |
 | OpenBao / OpenTofu | 2.x / 1.8 | MPL-2.0 | 密鑰／IaC | 取代 Vault / Terraform（BSL） | Linux Foundation |

@@ -58,8 +58,8 @@ def login(c: TestClient, sm: SessionManager, roles: list[str], user: str) -> Non
     c.headers["X-CSRF-Token"] = s.csrf
 
 
-def main() -> None:
-    cfg = load_cfg(); store = MemoryStore(); ch = FakeClickHouse()
+def main(store: Any | None = None) -> None:
+    cfg = load_cfg(); store = store or MemoryStore(); ch = FakeClickHouse()
     sm = SessionManager(cfg["session"], SessionMemory(), lambda e, d: store.audit(e, d), admin_requires=cfg["role_mapping"]["admin_requires"])
     app = create_app(AuthService(cfg, {}, sm, None), store, ch)
     c = TestClient(app, base_url="https://dmp.internal")

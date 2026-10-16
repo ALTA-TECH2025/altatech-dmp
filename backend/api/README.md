@@ -25,7 +25,7 @@ python3 -m backend.api                      # 自測：假 ClickHouse、假 sess
 CLICKHOUSE_URL=http://127.0.0.1:8123 DMP_SECRETS_JSON=secrets.json uvicorn backend.api.main:app --port 8000   # 正式啟動（前端 vite 代理到 8000）
 ```
 
-- 儲存：`store.py` 的 Protocol；骨架用記憶體／JSON 檔（`DMP_STORE_PATH`），正式換 PostgreSQL（iam_roles、iam_assignments、audit_log）。
+- 儲存：`store.py` 的 Protocol；`store_pg.py` 是 PostgreSQL 實作（schema `dmp`：iam_roles／iam_assignments／segments／items（審批單、匯出單）各一張 id + jsonb 表、audit_log append-only；asyncpg 放在背景事件迴圈，表名一律帶 schema 因為連線池歸還會 RESET 會話），`DMP_PG_DSN_REF`（secret_ref）或 `DMP_PG_DSN` 設了就用；都沒設才用記憶體／JSON 檔（`DMP_STORE_PATH`）。自測 `python3 -m backend.api.store_pg` 用獨立 schema 跑 CRUD、併發審計與整套 API 自測後刪除。
 - 密鑰：`DMP_SECRETS_JSON` 是 secret_ref → 明文 的對照（只在執行節點由密鑰庫掛載）；程式碼與設定檔只出現 secret_ref。
 - 端到端：`backend/integration/e2e_clickhouse.py` 最後跑 `api/e2e_stage.py`，以 admin 與行銷兩種身分打 `/v1/analytics/events`／funnel／retention／`/v1/users/list`，結果需與直接執行編譯器 SQL 相同；數據分析身分打細查三端點。
 - 之後：路徑／歸因端點（等編譯器樣板）、export 審批流程、schemathesis 契約測試、五角色 × 端點權限矩陣自動展開。

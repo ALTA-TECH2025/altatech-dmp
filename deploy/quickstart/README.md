@@ -23,3 +23,5 @@ deploy/quickstart/run_local.sh down
 神策連線鑑權兩種都支援：舊版 `?token=`（專案設定 › 查詢 API 的 API Secret）與 SBP「開放 API 金鑰」（HTTP header `sensorsdata-token`）。`test` 會先用設定的模式，失敗自動試另一種並告訴你該改哪個。金鑰只能放環境變數 `SA_API_SECRET`（正式環境是 secret_ref），不要寫進命令列或設定檔。
 
 前端：`vite preview` 不代理 `/auth`、`/v1`，正式請用 nginx 把三者放同一網域；開發時改用 `cd web && npm run dev`（已設代理到 :8000）。登入需要 IdP（docs/24）；沒有 IdP 時可先用 `python3 -m backend.api` 的假 session 方式測 API。
+
+控制面儲存：quickstart 預設用 JSON 檔（`DMP_STORE_PATH`）；要用 PostgreSQL 時起一個 PostgreSQL 16（`docker run -e POSTGRES_PASSWORD=… postgres:16`），設 `DMP_PG_DSN`（正式用 `DMP_PG_DSN_REF` 指到密鑰）後重啟 API，表會自動建立在 schema `dmp`。
