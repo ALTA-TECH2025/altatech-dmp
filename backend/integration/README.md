@@ -23,6 +23,7 @@ python3 -m backend.integration.modeling          # 建模引擎自測
 python3 -m backend.integration.scheduler         # 排程器自測（模擬時鐘：依賴、重試、暫停、手動）
 python3 -m backend.integration.e2e_clickhouse    # 乾跑（不連 ClickHouse）
 CLICKHOUSE_BIN=/path/to/clickhouse python3 -m backend.integration.e2e_clickhouse   # 真 ClickHouse（單一執行檔，https://builds.clickhouse.com）
+CLICKHOUSE_URL=http://127.0.0.1:8123 CLICKHOUSE_USER=e2e CLICKHOUSE_PASSWORD=... python3 -m backend.integration.e2e_clickhouse   # 連現成伺服器（CI 用 clickhouse-server 服務容器）
 ```
 
 ## 設計要點

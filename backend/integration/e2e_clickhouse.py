@@ -88,7 +88,7 @@ def main() -> int:
         if binary or url:
             if binary:
                 proc = start_clickhouse(binary, work); url = f"http://127.0.0.1:{HTTP_PORT}"
-            ch = ClickHouseHTTP(url, timeout=3600)
+            ch = ClickHouseHTTP(url, user=os.environ.get("CLICKHOUSE_USER", "default"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), timeout=3600)
             ch.query("DROP DATABASE IF EXISTS dmp")       # 現成伺服器（CI）可能殘留上一輪的表
             for st in local_ddl((ROOT / "clickhouse" / "schema.sql").read_text(encoding="utf-8")):
                 ch.query(st, settings={"allow_experimental_json_type": 1})
