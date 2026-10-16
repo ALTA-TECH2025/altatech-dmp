@@ -20,10 +20,11 @@ BigQuery 讀取以注入的 client 進行（正式：google-cloud-bigquery Stora
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterable, Protocol
+from typing import Any, Protocol
 
 import yaml
 
@@ -133,13 +134,13 @@ class BigQueryClient:
     """正式環境的 BigQueryLike：google-cloud-bigquery（Apache-2.0；docs/08 已列）。憑證走 Workload Identity／服務帳號金鑰的 secret_ref。
     大表（日批 2,000 萬列）建議改走 EXPORT DATA OPTIONS(uri='gs://…/events_YYYYMMDD_*.parquet') → ClickHouse s3()，本類別的 rows() 用在串流表與小批。"""
     def __init__(self, project: str, location: str = "asia-east1", page_size: int = 50_000):
-        from google.cloud import bigquery   # 延遲載入：本機測試不需要這個套件
+        from google.cloud import bigquery  # 延遲載入：本機測試不需要這個套件
         self.bq = bigquery; self.client = bigquery.Client(project=project, location=location); self.page_size = page_size
 
     def table_exists(self, table: str) -> bool:
         try:
             self.client.get_table(table); return True
-        except Exception as e:   # noqa: BLE001 — NotFound 與權限錯誤都視為「不可用」
+        except Exception as e:
             if type(e).__name__ == "NotFound": return False
             raise
 
@@ -176,8 +177,8 @@ def ga4_row(i: int, ts_us: int, name: str = "page_view", uid: str | None = None,
 
 
 if __name__ == "__main__":
-    bq = FakeBigQuery(); now = datetime(2026, 10, 16, 1, 15, tzinfo=timezone.utc)   # 台北 09:15
-    base = int(datetime(2026, 10, 16, 0, 0, tzinfo=timezone.utc).timestamp() * 1_000_000)
+    bq = FakeBigQuery(); now = datetime(2026, 10, 16, 1, 15, tzinfo=UTC)   # 台北 09:15
+    base = int(datetime(2026, 10, 16, 0, 0, tzinfo=UTC).timestamp() * 1_000_000)
     bq.tables["ds.events_intraday_20261016"] = [ga4_row(i, base + i * 60_000_000, "kh_apply" if i % 3 else "page_view", uid="v1_abc" if i % 2 else None) for i in range(60)]
     b1 = read(bq, {"kind": "ga4", "dataset": "ds", "table_kind": "intraday"}, watermark=None, now=now, batch_id="b1")
     assert len(b1.rows) == 60 and b1.unknown_events == {} and b1.rows[1]["one_id"] == "v1_abc" and b1.rows[0]["one_id"] == "p1"

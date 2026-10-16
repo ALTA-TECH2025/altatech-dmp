@@ -1,0 +1,18 @@
+# ruff 規則：CI（.github/workflows/ci.yml）與本機同一份。先鎖定一組穩定規則，避免 ruff 版本更新時預設規則漂移把 CI 弄紅。
+target-version = "py312"
+line-length = 220
+extend-exclude = ["prototype", "deploy", "docs"]
+
+[lint]
+select = ["E4", "E9", "F", "I", "UP", "B", "SIM", "RUF100"]   # 不選 E7：骨架與測試大量使用單行多敘述（E701／E702）
+ignore = [
+  "E731",   # lambda 指派：骨架與測試裡大量用小 lambda
+  "E741",
+  "B008",   # 參數預設呼叫
+  "B905",   # zip strict
+  "SIM102", "SIM108", "SIM401",
+  "UP007",
+]
+
+[lint.per-file-ignores]
+"backend/integration/e2e_clickhouse.py" = ["E501"]

@@ -11,10 +11,11 @@ from __future__ import annotations
 import json
 import sqlite3
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 DDL = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS known_fields (task_id TEXT PRIMARY KEY, fields TEXT N
 CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, task_id TEXT, level TEXT NOT NULL, message TEXT NOT NULL);
 """
 
-iso = lambda d: d.astimezone(timezone.utc).isoformat(timespec="seconds")
+iso = lambda d: d.astimezone(UTC).isoformat(timespec="seconds")
 parse = lambda s: datetime.fromisoformat(s)
 
 
@@ -105,10 +106,10 @@ class Scheduler:
                  source: dict[str, Any] | None = None, now: datetime | None = None) -> None:
         assert (cron is None) != (interval_min is None), "cron 與 interval_min 擇一"
         assert schema_change in ("auto_map", "ignore", "pause")
-        if cron: cron_match(cron, datetime(2026, 1, 1, tzinfo=timezone.utc))   # 語法檢查
+        if cron: cron_match(cron, datetime(2026, 1, 1, tzinfo=UTC))   # 語法檢查
         self.db.execute("INSERT OR REPLACE INTO tasks VALUES (?,?,?,?,?,?,?,?,?,1,NULL,?,?)",
                         (id, model_path, cron, interval_min, mode, json.dumps(depends_on or []), retries, backoff_s, schema_change,
-                         json.dumps(source or {}), iso(now or datetime.now(timezone.utc))))
+                         json.dumps(source or {}), iso(now or datetime.now(UTC))))
         self.db.commit()
 
     def set_enabled(self, task_id: str, enabled: bool, reason: str | None = None) -> None:
@@ -154,7 +155,7 @@ class Scheduler:
         return True, ""
 
     def status(self, now: datetime | None = None) -> list[dict[str, Any]]:
-        now = now or datetime.now(timezone.utc); out = []
+        now = now or datetime.now(UTC); out = []
         for t in self.tasks():
             last = self.runs(t["id"], 1)
             out.append({"id": t["id"], "enabled": bool(t["enabled"]), "paused_reason": t["paused_reason"], "schedule": t["cron"] or f"every {t['interval_min']}m",
@@ -165,7 +166,7 @@ class Scheduler:
 
     # ---- tick：一次掃描，啟動到期且上游就緒的任務；處理到期的重試
     def tick(self, now: datetime | None = None) -> list[dict[str, Any]]:
-        now = now or datetime.now(timezone.utc); started = []
+        now = now or datetime.now(UTC); started = []
         # 到期的重試
         for r in self.db.execute("SELECT * FROM runs WHERE status='retry_wait' AND next_retry_at<=? ORDER BY id", (iso(now),)).fetchall():
             t = self.task(r["task_id"])
@@ -184,7 +185,7 @@ class Scheduler:
         return started
 
     def run_now(self, task_id: str, now: datetime | None = None) -> dict[str, Any]:
-        now = now or datetime.now(timezone.utc)
+        now = now or datetime.now(UTC)
         return self._execute(self.task(task_id), now.replace(second=0, microsecond=0), 1, "manual", now)
 
     def _log_skip(self, task_id: str, slot: datetime, why: str, now: datetime) -> None:
@@ -228,7 +229,7 @@ class Scheduler:
             self.set_enabled(t["id"], False, f"schema change: {e.new_fields}")
             self._alert(now, t["id"], "error", f"來源 Schema 變更 {e.new_fields}，任務已暫停待確認")
             status = "paused"
-        except Exception as e:   # noqa: BLE001 — 任何失敗都要進紀錄與重試
+        except Exception as e:
             err = f"{type(e).__name__}: {e}"; logs.append(traceback.format_exc(limit=3))
             if attempt <= t["retries"]:
                 delay = t["backoff_s"] * (2 ** (attempt - 1)); status = "retry_wait"
@@ -266,7 +267,7 @@ if __name__ == "__main__":
 
     with tempfile.TemporaryDirectory() as d:
         fr = FakeRunner(); s = Scheduler(Path(d) / "sched.db", fr)
-        t0 = datetime(2026, 10, 16, 5, 29, tzinfo=timezone.utc)
+        t0 = datetime(2026, 10, 16, 5, 29, tzinfo=UTC)
         s.add_task("sync_instrument", "m1.yaml", cron="30 5 * * *", mode="full", retries=1, backoff_s=60, schema_change="pause", now=t0)
         s.add_task("sync_orders", "m2.yaml", cron="*/15 * * * *", depends_on=["sync_instrument"], retries=2, backoff_s=30, schema_change="auto_map", now=t0)
         # 05:29：兩個任務的最近窗口（昨日 05:30、今日 05:15）都早於建立時間 → 不補跑

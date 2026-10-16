@@ -36,11 +36,11 @@ paths:
             schema: { type: array, items: { $ref: '#/components/schemas/Event' } }
       responses: { '202': { description: accepted } }
   /v1/semantic/metrics:
-    get: { tags: [Semantic], summary: 指標目錄, responses: { '200': { description: ok } } }
+    get: { tags: [Semantic], summary: '指標目錄', responses: { '200': { description: ok } } }
   /v1/semantic/events:
-    get: { tags: [Semantic], summary: 事件字典, responses: { '200': { description: ok } } }
+    get: { tags: [Semantic], summary: '事件字典', responses: { '200': { description: ok } } }
   /v1/semantic/dimensions:
-    get: { tags: [Semantic], summary: 維度目錄, responses: { '200': { description: ok } } }
+    get: { tags: [Semantic], summary: '維度目錄', responses: { '200': { description: ok } } }
   /v1/semantic/compile:
     post:
       tags: [Semantic]
@@ -48,109 +48,109 @@ paths:
       requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SemanticQuery' } } } }
       responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/CompiledQuery' } } } } }
   /v1/analytics/events:
-    post: { tags: [Analytics], summary: 事件分析, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SemanticQuery' } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AnalyticsResult' } } } } } }
+    post: { tags: [Analytics], summary: '事件分析', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SemanticQuery' } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AnalyticsResult' } } } } } }
   /v1/analytics/funnel:
-    post: { tags: [Analytics], summary: 漏斗, responses: { '200': { description: ok } } }
+    post: { tags: [Analytics], summary: '漏斗', responses: { '200': { description: ok } } }
   /v1/analytics/retention:
-    post: { tags: [Analytics], summary: 留存, responses: { '200': { description: ok } } }
+    post: { tags: [Analytics], summary: '留存', responses: { '200': { description: ok } } }
   /v1/analytics/path:
-    post: { tags: [Analytics], summary: 路徑, responses: { '200': { description: ok } } }
+    post: { tags: [Analytics], summary: '路徑', responses: { '200': { description: ok } } }
   /v1/analytics/interval:
-    post: { tags: [Analytics], summary: 間隔, responses: { '200': { description: ok } } }
+    post: { tags: [Analytics], summary: '間隔', responses: { '200': { description: ok } } }
   /v1/analytics/distribution:
-    post: { tags: [Analytics], summary: 分布, responses: { '200': { description: ok } } }
+    post: { tags: [Analytics], summary: '分布', responses: { '200': { description: ok } } }
   /v1/analytics/attribution:
-    post: { tags: [Analytics], summary: 歸因, responses: { '200': { description: ok } } }
+    post: { tags: [Analytics], summary: '歸因', responses: { '200': { description: ok } } }
   /v1/analytics/ltv:
-    post: { tags: [Analytics], summary: LTV, responses: { '200': { description: ok } } }
+    post: { tags: [Analytics], summary: 'LTV', responses: { '200': { description: ok } } }
   /v1/analytics/session:
-    post: { tags: [Analytics], summary: Session, responses: { '200': { description: ok } } }
+    post: { tags: [Analytics], summary: 'Session', responses: { '200': { description: ok } } }
   /v1/profiles/{one_id}:
-    get: { tags: [Profile], summary: 畫像（脫敏）, parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Profile], summary: '畫像（脫敏）', parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/profiles/{one_id}/timeline:
-    get: { tags: [Profile], summary: 行為序列（用戶細查，需 reason）, parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }, { name: reason, in: query, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Profile], summary: '行為序列（用戶細查，需 reason）', parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }, { name: reason, in: query, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/oneid/resolve:
-    get: { tags: [OneID], summary: 解析 ID → one_id（接入時歸戶規則見 docs/19；一個 ID 只屬一個用戶）, parameters: [{ name: type, in: query, schema: { type: string } }, { name: value, in: query, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [OneID], summary: '解析 ID → one_id（接入時歸戶規則見 docs/19；一個 ID 只屬一個用戶）', parameters: [{ name: type, in: query, schema: { type: string } }, { name: value, in: query, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/oneid/bind:
     post: { tags: [OneID], summary: '綁定指令（CRM 主檔 {login_id, account_no} 等；等同一條共現資料，套同一套歸戶規則）', responses: { '200': { description: ok } } }
   /v1/oneid/unbind:
-    post: { tags: [OneID], summary: 解綁（login_id 不可解綁；審計 oneid.unbound）, responses: { '200': { description: ok }, '409': { description: 不可解綁 } } }
+    post: { tags: [OneID], summary: '解綁（login_id 不可解綁；審計 oneid.unbound）', responses: { '200': { description: ok }, '409': { description: 不可解綁 } } }
   /v1/oneid/merge:
-    post: { tags: [OneID], summary: 人工合併兩個用戶（唯一會改寫事件 one_id 的操作；由資訊管理發起、系統管理員審批）, responses: { '202': { description: pending_approval } } }
+    post: { tags: [OneID], summary: '人工合併兩個用戶（唯一會改寫事件 one_id 的操作；由資訊管理發起、系統管理員審批）', responses: { '202': { description: pending_approval } } }
   /v1/oneid/{one_id}/history:
-    get: { tags: [OneID], summary: 綁定／改綁／升級／衝突歷史, parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [OneID], summary: '綁定／改綁／升級／衝突歷史', parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/oneid/backfills:
     get: { tags: [OneID], summary: '登入改寫批次（近 7 天匿名事件改寫到登入客戶；docs/19 §2.5）：待套用／已套用、筆數、視窗', responses: { '200': { description: ok } } }
   /v1/oneid/erase:
-    post: { tags: [OneID], summary: DSAR 刪除, responses: { '202': { description: accepted } } }
+    post: { tags: [OneID], summary: 'DSAR 刪除', responses: { '202': { description: accepted } } }
   /v1/segments:
-    get: { tags: [Segments], summary: 列出分群, responses: { '200': { description: ok } } }
-    post: { tags: [Segments], summary: 建立分群（agent 提議者為 pending_approval）, responses: { '201': { description: created } } }
+    get: { tags: [Segments], summary: '列出分群', responses: { '200': { description: ok } } }
+    post: { tags: [Segments], summary: '建立分群（agent 提議者為 pending_approval）', responses: { '201': { description: created } } }
   /v1/segments/{id}/preview:
-    post: { tags: [Segments], summary: 預估人數與畫像, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    post: { tags: [Segments], summary: '預估人數與畫像', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/segments/{id}:
-    get: { tags: [Segments], summary: 分群詳情（基礎資訊、規則、最新版本、更新方式、存儲設定）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Segments], summary: '分群詳情（基礎資訊、規則、最新版本、更新方式、存儲設定）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
     put: { tags: [Segments], summary: '編輯分群（結果保存分群不可改規則；手動分群不可改更新方式；例行分群可改時間範圍與最早計算時間，不可改頻率）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/segments/{id}/versions:
-    get: { tags: [Segments], summary: 歷史版本（basetime、人數、計算狀態；可下鑽用戶、另存新分群、下載）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Segments], summary: '歷史版本（basetime、人數、計算狀態；可下鑽用戶、另存新分群、下載）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/segments/{id}/versions/{basetime}/members:
-    get: { tags: [Segments], summary: 某版本的用戶列表（下載需審批與浮水印）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: basetime, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Segments], summary: '某版本的用戶列表（下載需審批與浮水印）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: basetime, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/segments/{id}/compute:
     post: { tags: [Segments], summary: '手動更新（以今日 00:00 為基準時間，覆蓋原版本）或例行分群回溯', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: queued } } }
   /v1/segments/{id}/pause:
-    post: { tags: [Segments], summary: 暫停／啟動例行分群, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    post: { tags: [Segments], summary: '暫停／啟動例行分群', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/segments/{id}/copy:
-    post: { tags: [Segments], summary: 複製規則建立新分群, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '201': { description: created } } }
+    post: { tags: [Segments], summary: '複製規則建立新分群', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '201': { description: created } } }
   /v1/segments/{id}/lineage:
-    get: { tags: [Segments], summary: 血緣關係（上游標籤／分群／事件／屬性；下游推送、規則、分析）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Segments], summary: '血緣關係（上游標籤／分群／事件／屬性；下游推送、規則、分析）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/segments/{id}/recycle:
-    post: { tags: [Segments], summary: 移入回收站（有下游依賴時回 409 需確認；支援批量）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok }, '409': { description: has_dependents } } }
+    post: { tags: [Segments], summary: '移入回收站（有下游依賴時回 409 需確認；支援批量）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok }, '409': { description: has_dependents } } }
   /v1/segments/{id}/restore:
-    post: { tags: [Segments], summary: 從回收站恢復, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    post: { tags: [Segments], summary: '從回收站恢復', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/segments/{id}/purge:
-    delete: { tags: [Segments], summary: 徹底刪除（系統管理員；不可恢復；回收站保留天數到期自動執行）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
+    delete: { tags: [Segments], summary: '徹底刪除（系統管理員；不可恢復；回收站保留天數到期自動執行）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
   /v1/segments/estimate:
     post: { tags: [Segments], summary: '規則預估人數（預設 1/16 抽樣，比例可後台配置）', responses: { '200': { description: ok } } }
   /v1/segments/import:
     post: { tags: [Segments], summary: '導入創建：上傳 txt／csv，指定匹配屬性（任一 ID 欄位或用戶屬性）、是否保留未匹配 ID；先做 L4 欄位掃描', responses: { '202': { description: queued } } }
   /v1/tags:
-    get: { tags: [Segments], summary: 標籤目錄, responses: { '200': { description: ok } } }
-    post: { tags: [Segments], summary: 建立標籤, responses: { '201': { description: created } } }
+    get: { tags: [Segments], summary: '標籤目錄', responses: { '200': { description: ok } } }
+    post: { tags: [Segments], summary: '建立標籤', responses: { '201': { description: created } } }
   /v1/tags/{id}:
-    get: { tags: [Segments], summary: 標籤詳情（基礎資訊、所屬目錄、創建方式、規則、更新方式、存儲、審批、自定義欄位）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
-    put: { tags: [Segments], summary: 編輯標籤（基礎資訊、規則或重新上傳、存儲設定；留變更記錄）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Segments], summary: '標籤詳情（基礎資訊、所屬目錄、創建方式、規則、更新方式、存儲、審批、自定義欄位）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    put: { tags: [Segments], summary: '編輯標籤（基礎資訊、規則或重新上傳、存儲設定；留變更記錄）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/tags/{id}/distribution:
-    get: { tags: [Segments], summary: 標籤值分布（最新可用版本或指定 basetime；經數據權限過濾；排序與顯示數量）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: basetime, in: query, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Segments], summary: '標籤值分布（最新可用版本或指定 basetime；經數據權限過濾；排序與顯示數量）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: basetime, in: query, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/tags/{id}/versions:
-    get: { tags: [Segments], summary: 歷史詳情（每個計算結果的分布與人數）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Segments], summary: '歷史詳情（每個計算結果的分布與人數）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/tags/{id}/lineage:
-    get: { tags: [Segments], summary: 血緣（含某計算結果依賴的上游 basetime）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Segments], summary: '血緣（含某計算結果依賴的上游 basetime）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/tags/{id}/pause:
-    post: { tags: [Segments], summary: 停用／啟用（有下游依賴時提醒）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    post: { tags: [Segments], summary: '停用／啟用（有下游依賴時提醒）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/tags/{id}/backfill:
     post: { tags: [Segments], summary: '回溯指定 basetime 區間重算；終止計算用 DELETE /v1/tags/{id}/runs/current', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: queued } } }
   /v1/tags/{id}/approve:
     post: { tags: [Segments], summary: '審批（通過／退回／拒絕）；數位經營或系統管理員', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/tags/{id}/recycle:
-    post: { tags: [Segments], summary: 移入回收站（保留 N 天後自動徹底刪除）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    post: { tags: [Segments], summary: '移入回收站（保留 N 天後自動徹底刪除）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/tags/custom-fields:
-    get: { tags: [Segments], summary: 標籤自定義欄位定義（字串／日期；文字框、單選、多選、日期）, responses: { '200': { description: ok } } }
+    get: { tags: [Segments], summary: '標籤自定義欄位定義（字串／日期；文字框、單選、多選、日期）', responses: { '200': { description: ok } } }
   /v1/sql/tables:
-    get: { tags: [SQL], summary: 自定義 SQL 可用的數據庫表與欄位（依數據表權限；含中間表）, responses: { '200': { description: ok } } }
+    get: { tags: [SQL], summary: '自定義 SQL 可用的數據庫表與欄位（依數據表權限；含中間表）', responses: { '200': { description: ok } } }
   /v1/sql/query:
     post: { tags: [SQL], summary: '執行 SQL（唯讀；脫敏預校驗，涉及脫敏欄位直接報錯；行級規則與列級遮罩；每人最多 5 條同時；掃描與逾時上限；結果預覽 1000 列）', responses: { '200': { description: ok }, '400': { description: masked_field_or_non_select }, '429': { description: too_many_running } } }
   /v1/sql/query/{run_id}/download:
-    get: { tags: [SQL], summary: 下載查詢結果（Excel／CSV；上限 10 萬列；L2 區間化、浮水印；審計 export）, parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [SQL], summary: '下載查詢結果（Excel／CSV；上限 10 萬列；L2 區間化、浮水印；審計 export）', parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/sql/saved:
-    get: { tags: [SQL], summary: 已存查詢目錄（分組）, responses: { '200': { description: ok } } }
-    post: { tags: [SQL], summary: 添加到查詢／保存至概覽或書籤（含動態參數與可視化設定）, responses: { '201': { description: created } } }
+    get: { tags: [SQL], summary: '已存查詢目錄（分組）', responses: { '200': { description: ok } } }
+    post: { tags: [SQL], summary: '添加到查詢／保存至概覽或書籤（含動態參數與可視化設定）', responses: { '201': { description: created } } }
   /v1/sql/history:
-    get: { tags: [SQL], summary: 查詢記錄（最近 30 天內最近 100 條；成功者可重新下載）, responses: { '200': { description: ok } } }
+    get: { tags: [SQL], summary: '查詢記錄（最近 30 天內最近 100 條；成功者可重新下載）', responses: { '200': { description: ok } } }
   /v1/sql/mid-tables:
     post: { tags: [SQL], summary: '保存到中間表：建立 SQL 任務（名稱、調度週期、授權）→ 任務管理與數據表管理各一筆', responses: { '201': { description: created } } }
   /v1/triggers:
-    get: { tags: [Triggers], summary: 即時規則, responses: { '200': { description: ok } } }
-    post: { tags: [Triggers], summary: 建立規則, responses: { '201': { description: created } } }
+    get: { tags: [Triggers], summary: '即時規則', responses: { '200': { description: ok } } }
+    post: { tags: [Triggers], summary: '建立規則', responses: { '201': { description: created } } }
   /v1/insights:
     get:
       tags: [Insights]
@@ -160,15 +160,15 @@ paths:
         - { name: kind, in: query, schema: { type: string } }
         - { name: status, in: query, schema: { type: string } }
       responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Insight' } } } } } }
-    post: { tags: [Insights], summary: 建立洞察, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Insight' } } } }, responses: { '201': { description: created } } }
+    post: { tags: [Insights], summary: '建立洞察', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Insight' } } } }, responses: { '201': { description: created } } }
   /v1/insights/{id}/feedback:
-    post: { tags: [Insights], summary: 回饋（useful / not_useful / wrong）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '201': { description: created } } }
+    post: { tags: [Insights], summary: '回饋（useful / not_useful / wrong）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '201': { description: created } } }
   /v1/insights/subscriptions:
-    post: { tags: [Insights], summary: 訂閱洞察, responses: { '201': { description: created } } }
+    post: { tags: [Insights], summary: '訂閱洞察', responses: { '201': { description: created } } }
   /v1/agents:
-    get: { tags: [Agents], summary: agent 註冊表, responses: { '200': { description: ok } } }
+    get: { tags: [Agents], summary: 'agent 註冊表', responses: { '200': { description: ok } } }
   /v1/agents/{id}/run:
-    post: { tags: [Agents], summary: 手動執行 agent, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+    post: { tags: [Agents], summary: '手動執行 agent', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
   /v1/agents/ask:
     post:
       tags: [Agents]
@@ -176,23 +176,23 @@ paths:
       requestBody: { content: { application/json: { schema: { type: object, properties: { question: { type: string }, context: { type: object } }, required: [question] } } } }
       responses: { '200': { description: text/event-stream } }
   /v1/agents/runs/{run_id}:
-    get: { tags: [Agents], summary: 執行紀錄（計畫、工具呼叫、成本）, parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Agents], summary: '執行紀錄（計畫、工具呼叫、成本）', parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/iam/roles:
-    get: { tags: [IAM], summary: 角色列表（內建 + 自訂，含模組權限矩陣與範圍）, responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Role' } } } } } } }
-    post: { tags: [IAM], summary: 建立自訂角色（需 iam.admin；寫入審計 role.changed，正式環境需雙人複核）, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } } }, responses: { '201': { description: created } } }
+    get: { tags: [IAM], summary: '角色列表（內建 + 自訂，含模組權限矩陣與範圍）', responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Role' } } } } } } }
+    post: { tags: [IAM], summary: '建立自訂角色（需 iam.admin；寫入審計 role.changed，正式環境需雙人複核）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } } }, responses: { '201': { description: created } } }
   /v1/iam/roles/{key}:
-    put: { tags: [IAM], summary: 更新角色名稱、說明、範圍、權限勾選, parameters: [{ name: key, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } } }, responses: { '200': { description: ok } } }
+    put: { tags: [IAM], summary: '更新角色名稱、說明、範圍、權限勾選', parameters: [{ name: key, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } } }, responses: { '200': { description: ok } } }
     delete: { tags: [IAM], summary: '刪除角色（系統管理員；admin 角色本身不可刪；仍有指派時需帶 reassign_to 改派，否則 409；審計 role.deleted，雙人複核）', parameters: [{ name: key, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
   /v1/iam/roles/{key}/copy:
-    post: { tags: [IAM], summary: 複製角色為新草稿, parameters: [{ name: key, in: path, required: true, schema: { type: string } }], responses: { '201': { description: created } } }
+    post: { tags: [IAM], summary: '複製角色為新草稿', parameters: [{ name: key, in: path, required: true, schema: { type: string } }], responses: { '201': { description: created } } }
   /v1/iam/assignments:
-    get: { tags: [IAM], summary: 使用者指派清單（角色、數據範圍、到期、SSO 群組、最近登入；臨時提權標記）, responses: { '200': { description: ok } } }
-    post: { tags: [IAM], summary: 指派角色給使用者（多角色；範圍：組織樹節點／營業員客戶／專案／分群限制／回溯天數；到期日；需 iam.d；審計 iam.assignment.created）, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Assignment' } } } }, responses: { '201': { description: created } } }
+    get: { tags: [IAM], summary: '使用者指派清單（角色、數據範圍、到期、SSO 群組、最近登入；臨時提權標記）', responses: { '200': { description: ok } } }
+    post: { tags: [IAM], summary: '指派角色給使用者（多角色；範圍：組織樹節點／營業員客戶／專案／分群限制／回溯天數；到期日；需 iam.d；審計 iam.assignment.created）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Assignment' } } } }, responses: { '201': { description: created } } }
   /v1/iam/assignments/{id}:
-    patch: { tags: [IAM], summary: 修改範圍／到期, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
-    delete: { tags: [IAM], summary: 撤銷（含臨時提權）；審計 iam.assignment.revoked, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: revoked } } }
+    patch: { tags: [IAM], summary: '修改範圍／到期', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    delete: { tags: [IAM], summary: '撤銷（含臨時提權）；審計 iam.assignment.revoked', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: revoked } } }
   /v1/iam/scope/simulate:
-    post: { tags: [IAM], summary: 行級規則模擬：給角色＋範圍，回查詢編譯器會加的 WHERE 與遮罩欄位（UI／API／agent 共用）, requestBody: { content: { application/json: { schema: { type: object, properties: { role: { type: string }, scope: { type: object } } } } } }, responses: { '200': { description: ok } } }
+    post: { tags: [IAM], summary: '行級規則模擬：給角色＋範圍，回查詢編譯器會加的 WHERE 與遮罩欄位（UI／API／agent 共用）', requestBody: { content: { application/json: { schema: { type: object, properties: { role: { type: string }, scope: { type: object } } } } } }, responses: { '200': { description: ok } } }
   /v1/sync/tags:
     get:
       tags: [Sync]
@@ -206,95 +206,95 @@ paths:
       parameters: [{ name: since, in: query, required: true, schema: { type: string, format: date-time } }, { name: tag_ids, in: query, schema: { type: string } }, { name: page_token, in: query, schema: { type: string } }, { name: page_size, in: query, schema: { type: integer, default: 10000, maximum: 10000 } }]
       responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/TagChange' } }, next_page_token: { type: string } } } } } } }
   /v1/sync/segments/{id}/members:
-    get: { tags: [Sync], summary: 分群成員（分頁；或以 export=gcs 產生 Parquet manifest）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: export, in: query, schema: { type: string, enum: [page, gcs] } }], responses: { '200': { description: ok } } }
+    get: { tags: [Sync], summary: '分群成員（分頁；或以 export=gcs 產生 Parquet manifest）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: export, in: query, schema: { type: string, enum: [page, gcs] } }], responses: { '200': { description: ok } } }
   /v1/sync/exports:
-    post: { tags: [Sync], summary: 觸發批次匯出（全量／增量 Parquet 到 GCS dmp-sync，含 manifest 與 checksum；寫審計 sync.delivered）, responses: { '202': { description: accepted } } }
+    post: { tags: [Sync], summary: '觸發批次匯出（全量／增量 Parquet 到 GCS dmp-sync，含 manifest 與 checksum；寫審計 sync.delivered）', responses: { '202': { description: accepted } } }
   /v1/sync/subscriptions:
-    get: { tags: [Sync], summary: 下游訂閱清單（Kafka consumer group、Webhook、GCS），含最後同步時間與落後量, responses: { '200': { description: ok } } }
+    get: { tags: [Sync], summary: '下游訂閱清單（Kafka consumer group、Webhook、GCS），含最後同步時間與落後量', responses: { '200': { description: ok } } }
   /v1/meta/events:
-    get: { tags: [Meta], summary: 事件字典（含狀態 live/draft/quarantine/deprecated、屬性、負責人、日均量）, parameters: [{ name: status, in: query, schema: { type: string } }, { name: q, in: query, schema: { type: string } }], responses: { '200': { description: ok } } }
-    post: { tags: [Meta], summary: 登記事件（草稿或直接上線；上線檢查：命名、負責人、屬性型別與敏感等級、無 L4；需 governance.d；審計 meta.event.published）, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/MetaEvent' } } } }, responses: { '201': { description: created }, '422': { description: 檢查未通過（含逐項原因） } } }
+    get: { tags: [Meta], summary: '事件字典（含狀態 live/draft/quarantine/deprecated、屬性、負責人、日均量）', parameters: [{ name: status, in: query, schema: { type: string } }, { name: q, in: query, schema: { type: string } }], responses: { '200': { description: ok } } }
+    post: { tags: [Meta], summary: '登記事件（草稿或直接上線；上線檢查：命名、負責人、屬性型別與敏感等級、無 L4；需 governance.d；審計 meta.event.published）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/MetaEvent' } } } }, responses: { '201': { description: created }, '422': { description: 檢查未通過（含逐項原因） } } }
   /v1/meta/events/{name}:
-    get: { tags: [Meta], summary: 事件定義（含版本歷史、使用它的模組／標籤／agent 工具）, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
-    patch: { tags: [Meta], summary: 修改定義；上線事件的屬性型別／敏感等級變更會建立變更單（需審批）而非直接生效, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok }, '202': { description: 已建立變更單 } } }
+    get: { tags: [Meta], summary: '事件定義（含版本歷史、使用它的模組／標籤／agent 工具）', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    patch: { tags: [Meta], summary: '修改定義；上線事件的屬性型別／敏感等級變更會建立變更單（需審批）而非直接生效', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok }, '202': { description: 已建立變更單 } } }
   /v1/meta/events/{name}/status:
-    post: { tags: [Meta], summary: 狀態轉移（draft→live、quarantine→live、live→deprecated）；改名不允許, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { to: { type: string, enum: [live, deprecated] }, reason: { type: string } } } } } }, responses: { '200': { description: ok } } }
+    post: { tags: [Meta], summary: '狀態轉移（draft→live、quarantine→live、live→deprecated）；改名不允許', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { to: { type: string, enum: [live, deprecated] }, reason: { type: string } } } } } }, responses: { '200': { description: ok } } }
   /v1/meta/quarantine:
-    get: { tags: [Meta], summary: 隔離區：未登記事件與屬性的種類、筆數、首見時間、樣本（脫敏）；30 天未登記自動丟棄, responses: { '200': { description: ok } } }
+    get: { tags: [Meta], summary: '隔離區：未登記事件與屬性的種類、筆數、首見時間、樣本（脫敏）；30 天未登記自動丟棄', responses: { '200': { description: ok } } }
   /v1/meta/properties:
-    get: { tags: [Meta], summary: 全域屬性字典（型別、敏感等級、來源、枚舉、關聯 Item、使用事件數）, responses: { '200': { description: ok } } }
-    post: { tags: [Meta], summary: 登記屬性；L4 一律拒絕；型別只能放寬、敏感等級只能升, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/MetaProperty' } } } }, responses: { '201': { description: created }, '422': { description: 拒絕（L4 或收窄型別／降級） } } }
+    get: { tags: [Meta], summary: '全域屬性字典（型別、敏感等級、來源、枚舉、關聯 Item、使用事件數）', responses: { '200': { description: ok } } }
+    post: { tags: [Meta], summary: '登記屬性；L4 一律拒絕；型別只能放寬、敏感等級只能升', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/MetaProperty' } } } }, responses: { '201': { description: created }, '422': { description: 拒絕（L4 或收窄型別／降級） } } }
   /v1/meta/virtual-events:
-    get: { tags: [Meta], summary: 虛擬事件（多事件 OR 組合＋屬性條件，語意層展開）, responses: { '200': { description: ok } } }
-    post: { tags: [Meta], summary: 建立虛擬事件, responses: { '201': { description: created } } }
+    get: { tags: [Meta], summary: '虛擬事件（多事件 OR 組合＋屬性條件，語意層展開）', responses: { '200': { description: ok } } }
+    post: { tags: [Meta], summary: '建立虛擬事件', responses: { '201': { description: created } } }
   /v1/meta/user-properties:
-    get: { tags: [Meta], summary: 用戶表屬性（來源、更新頻率、敏感等級、可篩選／分組、覆蓋率）, responses: { '200': { description: ok } } }
-    post: { tags: [Meta], summary: 登記用戶屬性（來自建模映射或 profile_* 協議）；同步到 dimensions.yaml, responses: { '201': { description: created } } }
+    get: { tags: [Meta], summary: '用戶表屬性（來源、更新頻率、敏感等級、可篩選／分組、覆蓋率）', responses: { '200': { description: ok } } }
+    post: { tags: [Meta], summary: '登記用戶屬性（來自建模映射或 profile_* 協議）；同步到 dimensions.yaml', responses: { '201': { description: created } } }
   /v1/meta/oneid/rules:
-    get: { tags: [Meta], summary: OneID 識別類型優先序、強度與合併策略；合併／拆分統計, responses: { '200': { description: ok } } }
-    put: { tags: [Meta], summary: 更新規則（需 governance.d 與稽核審批；影響標籤重算）, responses: { '200': { description: ok } } }
+    get: { tags: [Meta], summary: 'OneID 識別類型優先序、強度與合併策略；合併／拆分統計', responses: { '200': { description: ok } } }
+    put: { tags: [Meta], summary: '更新規則（需 governance.d 與稽核審批；影響標籤重算）', responses: { '200': { description: ok } } }
   /v1/meta/dimension-tables:
-    get: { tags: [Meta], summary: 維度表清單（主鍵、item_type、關聯條件 events/users.<屬性> = dim.<主鍵>、來源任務、列數、欄位與敏感等級、曝露為關聯屬性的欄位）, responses: { '200': { description: ok } } }
-    post: { tags: [Meta], summary: 新增維度表（指定同步任務的目標表 → 主鍵（須唯一）→ 關聯屬性 → 曝露欄位）；> 100 萬列自動改 dictionary 引擎, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/DimensionTable' } } } }, responses: { '201': { description: created }, '422': { description: 主鍵不唯一或關聯屬性不存在 } } }
+    get: { tags: [Meta], summary: '維度表清單（主鍵、item_type、關聯條件 events/users.<屬性> = dim.<主鍵>、來源任務、列數、欄位與敏感等級、曝露為關聯屬性的欄位）', responses: { '200': { description: ok } } }
+    post: { tags: [Meta], summary: '新增維度表（指定同步任務的目標表 → 主鍵（須唯一）→ 關聯屬性 → 曝露欄位）；> 100 萬列自動改 dictionary 引擎', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/DimensionTable' } } } }, responses: { '201': { description: created }, '422': { description: 主鍵不唯一或關聯屬性不存在 } } }
   /v1/meta/dimension-tables/{id}:
-    get: { tags: [Meta], summary: 維度表定義, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
-    patch: { tags: [Meta], summary: 修改關聯條件／曝露欄位／顯示名（敏感等級只能升）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Meta], summary: '維度表定義', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    patch: { tags: [Meta], summary: '修改關聯條件／曝露欄位／顯示名（敏感等級只能升）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/meta/dimension-tables/{id}/sync:
-    post: { tags: [Meta], summary: 立即執行其來源同步任務（審計 dimension.sync）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+    post: { tags: [Meta], summary: '立即執行其來源同步任務（審計 dimension.sync）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
   /v1/meta/dictionaries:
-    get: { tags: [Meta], summary: 維度字典清單（屬性 → 值／顯示名映射，1:1 或 N:1）, responses: { '200': { description: ok } } }
+    get: { tags: [Meta], summary: '維度字典清單（屬性 → 值／顯示名映射，1:1 或 N:1）', responses: { '200': { description: ok } } }
   /v1/meta/dictionaries/{property}:
-    put: { tags: [Meta], summary: 上傳字典（CSV 值,顯示名；mode=append|overwrite；只限文字／數值屬性；審計 dictionary.uploaded）, parameters: [{ name: property, in: path, required: true, schema: { type: string } }, { name: mode, in: query, schema: { type: string, enum: [append, overwrite], default: append } }], responses: { '200': { description: ok } } }
-    get: { tags: [Meta], summary: 下載字典, parameters: [{ name: property, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    put: { tags: [Meta], summary: '上傳字典（CSV 值→顯示名；mode=append|overwrite；只限文字／數值屬性；審計 dictionary.uploaded）', parameters: [{ name: property, in: path, required: true, schema: { type: string } }, { name: mode, in: query, schema: { type: string, enum: [append, overwrite], default: append } }], responses: { '200': { description: ok } } }
+    get: { tags: [Meta], summary: '下載字典', parameters: [{ name: property, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/meta/virtual-properties:
-    get: { tags: [Meta], summary: 虛擬屬性（表達式組合屬性與維度表欄位；查詢時計算）, responses: { '200': { description: ok } } }
-    post: { tags: [Meta], summary: 建立虛擬屬性（名稱不可與既有屬性重複；表達式 ≤ 1024 字元；型別推斷與預覽）, responses: { '201': { description: created } } }
+    get: { tags: [Meta], summary: '虛擬屬性（表達式組合屬性與維度表欄位；查詢時計算）', responses: { '200': { description: ok } } }
+    post: { tags: [Meta], summary: '建立虛擬屬性（名稱不可與既有屬性重複；表達式 ≤ 1024 字元；型別推斷與預覽）', responses: { '201': { description: created } } }
   /v1/ops/pipeline:
-    get: { tags: [Ops], summary: 端到端資料流各段吞吐、延遲、狀態（Prometheus 供數）與資料品質指標, responses: { '200': { description: ok } } }
+    get: { tags: [Ops], summary: '端到端資料流各段吞吐、延遲、狀態（Prometheus 供數）與資料品質指標', responses: { '200': { description: ok } } }
   /v1/ops/query-perf:
-    get: { tags: [Ops], summary: 各模組查詢 P50/P95/P99、掃描量、快取命中、SLA 達成（query_log 彙總）, parameters: [{ name: window, in: query, schema: { type: string, default: 24h } }], responses: { '200': { description: ok } } }
+    get: { tags: [Ops], summary: '各模組查詢 P50/P95/P99、掃描量、快取命中、SLA 達成（query_log 彙總）', parameters: [{ name: window, in: query, schema: { type: string, default: 24h } }], responses: { '200': { description: ok } } }
   /v1/ops/batch-jobs:
-    get: { tags: [Ops], summary: 批次作業狀態（Airflow）與儲存用量, responses: { '200': { description: ok } } }
+    get: { tags: [Ops], summary: '批次作業狀態（Airflow）與儲存用量', responses: { '200': { description: ok } } }
   /v1/ops/batch-jobs/{name}/rerun:
-    post: { tags: [Ops], summary: 重跑作業（需 governance.d；審計 batch.rerun）, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+    post: { tags: [Ops], summary: '重跑作業（需 governance.d；審計 batch.rerun）', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
   /v1/migration/inventory:
-    get: { tags: [Migration], summary: 神策歷史資料盤點（資料集、來源表、日期範圍、筆數、導出方式、目標表、狀態；docs/22 §3）, responses: { '200': { description: ok } } }
+    get: { tags: [Migration], summary: '神策歷史資料盤點（資料集、來源表、日期範圍、筆數、導出方式、目標表、狀態；docs/22 §3）', responses: { '200': { description: ok } } }
   /v1/migration/bridge:
-    get: { tags: [Migration], summary: 神策 → GA4 埋點銜接表（由 events.yaml 產生：sensors_event、ga4_event、kind、參數、未解議題；可下載 CSV 給 360 導入商）, responses: { '200': { description: ok } } }
+    get: { tags: [Migration], summary: '神策 → GA4 埋點銜接表（由 events.yaml 產生：sensors_event、ga4_event、kind、參數、未解議題；可下載 CSV 給 360 導入商）', responses: { '200': { description: ok } } }
   /v1/migration/exports:
-    get: { tags: [Migration], summary: 導出／載入任務（按日分片進度、筆數、校驗、重跑）, responses: { '200': { description: ok } } }
+    get: { tags: [Migration], summary: '導出／載入任務（按日分片進度、筆數、校驗、重跑）', responses: { '200': { description: ok } } }
     post: { tags: [Migration], summary: '建立導出任務（資料集、日期範圍、方式 impala|api；需 governance.d；審計 migration.export.created）', responses: { '202': { description: accepted } } }
   /v1/migration/exports/{id}/rerun:
-    post: { tags: [Migration], summary: 重跑指定日期分片（差異 > 0.1% 時）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+    post: { tags: [Migration], summary: '重跑指定日期分片（差異 > 0.1% 時）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
   /v1/migration/reconcile:
-    get: { tags: [Migration], summary: 新舊對帳（每事件每日：神策筆數 vs 載入筆數；並行期：神策 vs GA360 筆數與差異；用戶銜接率）, responses: { '200': { description: ok } } }
+    get: { tags: [Migration], summary: '新舊對帳（每事件每日：神策筆數 vs 載入筆數；並行期：神策 vs GA360 筆數與差異；用戶銜接率）', responses: { '200': { description: ok } } }
   /v1/integration/tables:
-    get: { tags: [Integration], summary: 數據表管理：已登記的外部表（數據源、表、主鍵、增量欄位、欄位數、Schema 版本、變更、使用它的任務）, responses: { '200': { description: ok } } }
-    post: { tags: [Integration], summary: 從數據源探索並登記表（讀 schema 與樣本；個資欄位標 L4 不可選；設主鍵與增量欄位）, responses: { '201': { description: created } } }
+    get: { tags: [Integration], summary: '數據表管理：已登記的外部表（數據源、表、主鍵、增量欄位、欄位數、Schema 版本、變更、使用它的任務）', responses: { '200': { description: ok } } }
+    post: { tags: [Integration], summary: '從數據源探索並登記表（讀 schema 與樣本；個資欄位標 L4 不可選；設主鍵與增量欄位）', responses: { '201': { description: created } } }
   /v1/integration/tables/{id}/rescan:
-    post: { tags: [Integration], summary: 重新探索 Schema，產生變更清單（新欄位／改型別），依任務的 schema_change 設定處理, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    post: { tags: [Integration], summary: '重新探索 Schema，產生變更清單（新欄位／改型別），依任務的 schema_change 設定處理', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/integration/sync-tasks:
-    get: { tags: [Integration], summary: 同步任務清單（來源表 → 目標：events 只增量／users upsert／dim_* upsert 或全量／oneid_bind／tags；全量／增量／流任務；排程、依賴、最近執行、狀態）, responses: { '200': { description: ok } } }
-    post: { tags: [Integration], summary: 建立任務（可視化建模精靈的產物：數據源 → 表與主鍵 → 目標類型 → 字段映射與轉換 → 清洗規則 → 預覽驗證 → 排程）, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SyncTask' } } } }, responses: { '201': { description: created } } }
+    get: { tags: [Integration], summary: '同步任務清單（來源表 → 目標：events 只增量／users upsert／dim_* upsert 或全量／oneid_bind／tags；全量／增量／流任務；排程、依賴、最近執行、狀態）', responses: { '200': { description: ok } } }
+    post: { tags: [Integration], summary: '建立任務（可視化建模精靈的產物：數據源 → 表與主鍵 → 目標類型 → 字段映射與轉換 → 清洗規則 → 預覽驗證 → 排程）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SyncTask' } } } }, responses: { '201': { description: created } } }
   /v1/integration/sync-tasks/{id}/run:
-    post: { tags: [Integration], summary: 立即執行／重跑（流任務為重啟；審計 task.rerun）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+    post: { tags: [Integration], summary: '立即執行／重跑（流任務為重啟；審計 task.rerun）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
   /v1/integration/sync-tasks/{id}/runs:
-    get: { tags: [Integration], summary: 執行紀錄（筆數、耗時、隔離數、失敗原因、重試次數）與日誌, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Integration], summary: '執行紀錄（筆數、耗時、隔離數、失敗原因、重試次數）與日誌', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/integration/sync-tasks/{id}/preview:
-    post: { tags: [Integration], summary: 以樣本（預設 1,000 列）跑映射與清洗規則，回通過／隔離／拒絕與原因、個資命中、新屬性, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    post: { tags: [Integration], summary: '以樣本（預設 1,000 列）跑映射與清洗規則，回通過／隔離／拒絕與原因、個資命中、新屬性', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/integration/connectors:
-    get: { tags: [Integration], summary: 連接器目錄（類型、鑑權方式與欄位、最小權限清單、輪替政策；來自 connectors.yaml）, responses: { '200': { description: ok } } }
+    get: { tags: [Integration], summary: '連接器目錄（類型、鑑權方式與欄位、最小權限清單、輪替政策；來自 connectors.yaml）', responses: { '200': { description: ok } } }
   /v1/integration/connections:
-    get: { tags: [Integration], summary: 連線清單（密鑰一律遮罩，只回 secret_ref 與輪替狀態、最後測試）, responses: { '200': { description: ok } } }
+    get: { tags: [Integration], summary: '連線清單（密鑰一律遮罩，只回 secret_ref 與輪替狀態、最後測試）', responses: { '200': { description: ok } } }
     post:
       tags: [Integration]
       summary: 建立連線。密鑰不入庫：請求可帶 secret_ref，或帶一次性明文由 API 直接寫入密鑰庫後只保留參照（回應不回顯）；需 integration.d 權限；寫審計 integration.connection.created
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConnectionCreate' } } } }
       responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Connection' } } } }, '422': { description: 欄位／secret_ref 格式錯誤或疑似明文密鑰 } }
   /v1/integration/connections/{id}:
-    get: { tags: [Integration], summary: 連線詳情（遮罩）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
-    patch: { tags: [Integration], summary: 更新非機密欄位或換 secret_ref（換參照視同輪替）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
-    delete: { tags: [Integration], summary: 停用連線（保留審計；有模型依賴時拒絕）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: disabled } } }
+    get: { tags: [Integration], summary: '連線詳情（遮罩）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    patch: { tags: [Integration], summary: '更新非機密欄位或換 secret_ref（換參照視同輪替）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    delete: { tags: [Integration], summary: '停用連線（保留審計；有模型依賴時拒絕）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: disabled } } }
   /v1/integration/connections/{id}/test:
     post:
       tags: [Integration]
@@ -302,16 +302,16 @@ paths:
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
       responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/ConnectionTest' } } } } }
   /v1/integration/connections/{id}/rotate:
-    post: { tags: [Integration], summary: 輪替密鑰（新 secret_ref；新舊並存 24 小時；短效憑證回 409）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok }, '409': { description: 短效憑證不需輪替 } } }
+    post: { tags: [Integration], summary: '輪替密鑰（新 secret_ref；新舊並存 24 小時；短效憑證回 409）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok }, '409': { description: 短效憑證不需輪替 } } }
   /v1/integration/connections/{id}/privileges:
-    get: { tags: [Integration], summary: 權限自檢結果（對照 least_privilege 清單逐項 ✓／✗）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Integration], summary: '權限自檢結果（對照 least_privilege 清單逐項 ✓／✗）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/destinations:
-    get: { tags: [Activation], summary: 目的地清單（webhook / kafka / gcs；皆為內部系統）, responses: { '200': { description: ok } } }
-    post: { tags: [Activation], summary: 建立目的地（需 segments.approve；新目的地首次推送另需稽核核可）, requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Destination' } } } }, responses: { '201': { description: created } } }
+    get: { tags: [Activation], summary: '目的地清單（webhook / kafka / gcs；皆為內部系統）', responses: { '200': { description: ok } } }
+    post: { tags: [Activation], summary: '建立目的地（需 segments.approve；新目的地首次推送另需稽核核可）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Destination' } } } }, responses: { '201': { description: created } } }
   /v1/destinations/{id}/test:
-    post: { tags: [Activation], summary: 送測試事件（audience.test，3 筆假資料）並回傳接收端回應, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    post: { tags: [Activation], summary: '送測試事件（audience.test，3 筆假資料）並回傳接收端回應', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/destinations/{id}/rotate-secret:
-    post: { tags: [Activation], summary: 輪替 Webhook secret（新舊並存 24 小時）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    post: { tags: [Activation], summary: '輪替 Webhook secret（新舊並存 24 小時）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/audiences/{id}/push:
     post:
       tags: [Activation]
@@ -320,15 +320,15 @@ paths:
       requestBody: { content: { application/json: { schema: { type: object, properties: { destination_ids: { type: array, items: { type: string } }, mode: { type: string, enum: [delta, full] }, schedule: { type: string, enum: [now, after_batch, realtime, cron] }, cron: { type: string }, include_tags: { type: array, items: { type: string } } } } } } }
       responses: { '202': { description: accepted（pending_approval 或已排程） } }
   /v1/deliveries:
-    get: { tags: [Activation], summary: 交付紀錄（受眾包、目的地、版本、批次、狀態、重試、下游回應）, parameters: [{ name: audience_id, in: query, schema: { type: string } }, { name: status, in: query, schema: { type: string, enum: [ok, retrying, failed, dlq] } }], responses: { '200': { description: ok } } }
+    get: { tags: [Activation], summary: '交付紀錄（受眾包、目的地、版本、批次、狀態、重試、下游回應）', parameters: [{ name: audience_id, in: query, schema: { type: string } }, { name: status, in: query, schema: { type: string, enum: [ok, retrying, failed, dlq] } }], responses: { '200': { description: ok } } }
   /v1/deliveries/{id}/replay:
-    post: { tags: [Activation], summary: 重放失敗交付（沿用同一 Delivery-Id）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+    post: { tags: [Activation], summary: '重放失敗交付（沿用同一 Delivery-Id）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
   /v1/dictionary/events:
-    get: { tags: [Governance], summary: 事件字典（含未登記隔離事件）, responses: { '200': { description: ok } } }
+    get: { tags: [Governance], summary: '事件字典（含未登記隔離事件）', responses: { '200': { description: ok } } }
   /v1/lineage/{entity}:
-    get: { tags: [Governance], summary: 血緣, parameters: [{ name: entity, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Governance], summary: '血緣', parameters: [{ name: entity, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/audit:
-    get: { tags: [Governance], summary: 審計（含 agent.tool_called）, responses: { '200': { description: ok } } }
+    get: { tags: [Governance], summary: '審計（含 agent.tool_called）', responses: { '200': { description: ok } } }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer }

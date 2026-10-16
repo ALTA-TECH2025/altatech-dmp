@@ -11,9 +11,10 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from . import modeling
 from .scheduler import RunResult

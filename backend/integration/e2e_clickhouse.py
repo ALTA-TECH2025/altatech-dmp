@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import json
 import os
 import random
@@ -17,8 +16,9 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from . import modeling
 from .runner import ClickHouseHTTP, LocalRunner, local_ddl
@@ -91,7 +91,7 @@ def main() -> int:
             print("ClickHouse", ch.query("SELECT version()").strip(), "· tables:", ch.query("SELECT count() FROM system.tables WHERE database='dmp'").strip())
         runner = LocalRunner(ch)
         s = Scheduler(work / "sched.db", runner)
-        t0 = datetime(2026, 10, 16, 1, 0, tzinfo=timezone.utc)   # 09:00 台北
+        t0 = datetime(2026, 10, 16, 1, 0, tzinfo=UTC)   # 09:00 台北
         s.add_task("sync_instrument", str(ROOT / "integration" / "models.instrument.yaml"), cron="30 5 * * *", mode="full", retries=2, backoff_s=300,
                    schema_change="pause", source={"kind": "csv", "path": str(files["instrument"])}, now=t0)
         s.add_task("sync_orders", str(ROOT / "integration" / "models.example.yaml"), cron="*/15 * * * *", mode="incremental", depends_on=["sync_instrument"],
@@ -177,6 +177,7 @@ def main() -> int:
 # ---------------------------------------------------------------- 神策格式檔（FormatImporter 的輸入）→ DMP；MSSQL（DB-API）排程抽取 → DMP
 def sensors_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3) -> None:
     import time as _t
+
     from .sensors_format import SensorsLoader
     rnd = random.Random(rnd_seed); src = work / "sa_20261016.jsonl"
     base = 1_792_000_000_000   # 2026-10-15 前後
@@ -224,7 +225,7 @@ def dbapi_stage(ch: ClickHouseHTTP | None, work: Path, rows: list[dict[str, Any]
     conn.executemany(f"INSERT INTO fact_order_hist VALUES ({', '.join('?' * len(cols))})", [[r[c] for c in cols] for r in rows[:12000]]); conn.commit(); conn.close()
     runner = LocalRunner(ch, db_connections={"dwh_trade": lambda: sqlite3.connect(db)})
     s = Scheduler(work / "sched_db.db", runner)
-    t0 = datetime(2026, 10, 16, 1, 0, tzinfo=timezone.utc)
+    t0 = datetime(2026, 10, 16, 1, 0, tzinfo=UTC)
     s.add_task("sync_orders_mssql", str(ROOT / "integration" / "models.example.yaml"), cron="*/15 * * * *", mode="incremental", retries=2, backoff_s=60, schema_change="auto_map",
                source={"kind": "dbapi", "connection": "dwh_trade", "table": "fact_order_hist", "incremental_field": "UPDATED_AT", "paramstyle": "?"}, now=t0)
     r1 = s.tick(t0 + timedelta(minutes=15)); assert r1[0]["status"] == "success", r1
@@ -242,7 +243,7 @@ def ga4_stage(ch: ClickHouseHTTP, work: Path, n_per_tick: int = 20000) -> None:
     from .ga4_source import FakeBigQuery, ga4_row
     bq = FakeBigQuery(); rnd = random.Random(5)
     runner = LocalRunner(ch, bq_clients={"ga_bq": bq}); s = Scheduler(work / "sched_ga4.db", runner)
-    t0 = datetime(2026, 10, 16, 1, 0, tzinfo=timezone.utc)   # 台北 09:00
+    t0 = datetime(2026, 10, 16, 1, 0, tzinfo=UTC)   # 台北 09:00
     base_us = int(t0.timestamp() * 1_000_000)
     src = {"kind": "ga4", "connection": "ga_bq", "dataset": "analytics_1", "tz_offset_hours": 8}
     s.add_task("ga360_intraday", "", cron="*/15 * * * *", mode="incremental", retries=2, backoff_s=60, schema_change="ignore", source={**src, "table_kind": "intraday"}, now=t0)

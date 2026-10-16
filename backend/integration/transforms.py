@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -38,7 +38,7 @@ def to_ms_utc(v: Any, tz: str = "Asia/Taipei") -> int | None:
         v = datetime.fromisoformat(v)
     if v.tzinfo is None:
         v = v.replace(tzinfo=ZoneInfo(tz))
-    return int(v.astimezone(timezone.utc).timestamp() * 1000)
+    return int(v.astimezone(UTC).timestamp() * 1000)
 
 
 def hmac_sha256(v: Any, key: bytes) -> str | None:
@@ -64,7 +64,7 @@ def age_band(age: int | None) -> str | None:
 
 if __name__ == "__main__":
     assert to_ms_utc(1760400000123456) == 1760400000123
-    assert to_ms_utc("2026-10-14 13:58:00") == int(datetime(2026, 10, 14, 5, 58, tzinfo=timezone.utc).timestamp() * 1000)
+    assert to_ms_utc("2026-10-14 13:58:00") == int(datetime(2026, 10, 14, 5, 58, tzinfo=UTC).timestamp() * 1000)
     assert pii_scan({"memo": "請回電 0912345678"}) == ["memo:mobile"]
     assert age_band(37) == "35-44"
     print("transforms ok")

@@ -14,7 +14,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from . import modeling
 from .runner import ClickHouseHTTP, LocalRunner, read_source
@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "compile":
         print(modeling.compile_sql(modeling.load(args.model), args.raw_table)); return 0
     ch = ClickHouseHTTP(args.ch) if args.ch else None
-    s = Scheduler(args.db, LocalRunner(ch)); now = datetime.fromisoformat(args.now) if args.now else datetime.now(timezone.utc)
+    s = Scheduler(args.db, LocalRunner(ch)); now = datetime.fromisoformat(args.now) if args.now else datetime.now(UTC)
     if args.scmd == "add":
         src = dict(kv.split("=", 1) for kv in args.source.split(","))
         s.add_task(args.id, args.model, cron=args.cron, interval_min=args.every, mode=args.mode, depends_on=args.depends, retries=args.retries,

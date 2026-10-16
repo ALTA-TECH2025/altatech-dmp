@@ -10,7 +10,12 @@
 - 只有來源是 GA360（App／Web 埋點）的事件要給 360 導入商埋；MA、數據中台、渠道回傳等事件走各自的接入，不進 GA。
 - 神策預置事件（$ 開頭）對應 GA4 自動／建議事件；對不上的改為自訂事件。
 """
-import csv, re, sys, pathlib, collections
+import collections
+import csv
+import pathlib
+import re
+import sys
+
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]

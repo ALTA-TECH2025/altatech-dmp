@@ -11,10 +11,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import yaml
 
@@ -81,9 +82,9 @@ class Connection:
         days = spec.get("rotation_days")
         if not days:
             return {"kind": "short_lived", "note": "短效憑證／無密鑰，不需輪替"}
-        base = self.rotated_at or datetime.now(timezone.utc)
+        base = self.rotated_at or datetime.now(UTC)
         due = base + timedelta(days=days)
-        left = (due - datetime.now(timezone.utc)).days
+        left = (due - datetime.now(UTC)).days
         return {"kind": "rotating", "every_days": days, "due": due.date().isoformat(), "days_left": left,
                 "state": "expired" if left < 0 else "warn" if left <= ROTATION["warn_days_before"] else "ok"}
 
@@ -129,7 +130,7 @@ def test_connection(conn: Connection, probes: dict[str, Callable[[Connection], t
     """probes：每一步的實際探測函式（由各連接器實作）；此處只負責順序、短路、計時與結果格式。"""
     steps = CONNECTORS["connection_test"]["steps"]
     errs = conn.validate()
-    result: dict[str, Any] = {"conn_id": conn.id, "at": datetime.now(timezone.utc).isoformat(), "ok": not errs, "steps": []}
+    result: dict[str, Any] = {"conn_id": conn.id, "at": datetime.now(UTC).isoformat(), "ok": not errs, "steps": []}
     if errs:
         result["steps"].append({"step": "validate", "ok": False, "detail": "; ".join(errs)})
         return result
@@ -155,7 +156,7 @@ def rotate(conn: Connection, new_ref: str, audit: Callable[[dict], None]) -> dic
         return {"ok": False, "reason": "此鑑權方式為短效憑證，無需輪替"}
     old = conn.secret_refs.get(sf[0])
     conn.secret_refs[sf[0]] = new_ref
-    conn.rotated_at = datetime.now(timezone.utc)
+    conn.rotated_at = datetime.now(UTC)
     overlap_until = conn.rotated_at + timedelta(hours=ROTATION["overlap_hours"])
     audit({"event": "integration.connection.rotated", "conn_id": conn.id, "old_ref": old, "new_ref": new_ref, "overlap_until": overlap_until.isoformat()})
     return {"ok": True, "overlap_until": overlap_until.isoformat()}
@@ -177,7 +178,7 @@ if __name__ == "__main__":
     r = test_connection(good, probes)
     assert r["ok"] is False and r["steps"][-1]["step"] == "tls" and "ca_bundle_ref" in r["steps"][-1]["fix"]
     # 輪替
-    pw = Connection(id="crm_pg", type="postgresql", auth_method="password", fields={"host": "h", "port": 5432, "database": "crm", "username": "dmp_ro"}, secret_refs={"password": "projects/p/secrets/crm-pg/versions/3"}, rotated_at=datetime.now(timezone.utc) - timedelta(days=80))
+    pw = Connection(id="crm_pg", type="postgresql", auth_method="password", fields={"host": "h", "port": 5432, "database": "crm", "username": "dmp_ro"}, secret_refs={"password": "projects/p/secrets/crm-pg/versions/3"}, rotated_at=datetime.now(UTC) - timedelta(days=80))
     assert pw.rotation_status()["state"] == "warn"
     assert rotate(pw, "projects/p/secrets/crm-pg/versions/4", audit_log.append)["ok"] and pw.rotation_status()["state"] == "ok"
     # 密鑰解析只在執行節點，並寫審計

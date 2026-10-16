@@ -6,8 +6,9 @@ import hmac
 import json
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 RETRY_SCHEDULE = [60, 300, 900, 3600, 21600]
 BATCH_SIZE = 5000

@@ -16,10 +16,11 @@ import ast
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import yaml
 
@@ -203,7 +204,7 @@ class Semantic:
     dim_tables: dict[str, dict[str, Any]]
 
     @classmethod
-    def load(cls) -> "Semantic":
+    def load(cls) -> Semantic:
         ev = yaml.safe_load((SEMANTIC / "events.yaml").read_text(encoding="utf-8"))["events"]
         up = yaml.safe_load((SEMANTIC / "user_properties.yaml").read_text(encoding="utf-8"))
         dt = yaml.safe_load((SEMANTIC / "dimension_tables.yaml").read_text(encoding="utf-8"))
@@ -322,7 +323,7 @@ def apply(model: Model, rows: list[dict[str, Any]], *, known_fields: set[str] | 
           now: datetime | None = None, batch_id: str = "") -> Outcome:
     """欄位映射 + 清洗；輸出符合目標表的列。known_fields 給了就偵測來源新欄位（Schema drift）。"""
     out = Outcome()
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     sem_time = model.raw.get("time") or {}
     for row in rows:
         if known_fields is not None:
@@ -414,12 +415,12 @@ def preview(model: Model, rows: list[dict[str, Any]], limit: int = 1000) -> dict
 # ---------------------------------------------------------------- ClickHouse 列與 SQL
 def ms_to_dt(ms: int) -> str:
     """毫秒 → 'YYYY-MM-DD HH:MM:SS.mmm'（UTC）。JSONEachRow 寫 DateTime64 不能給整數毫秒：會被當成秒而飽和到 9999-12-31（e2e 實測）。"""
-    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S.") + f"{ms % 1000:03d}"
+    return datetime.fromtimestamp(ms / 1000, tz=UTC).strftime("%Y-%m-%d %H:%M:%S.") + f"{ms % 1000:03d}"
 
 
 def to_ch_row(model: Model, rec: dict[str, Any], project: str = "altatech_dmp", ingest_ms: int | None = None) -> dict[str, Any]:
     """apply() 的輸出 → events／users／dim 表的 JSONEachRow 列（時間欄位一律字串，見 ms_to_dt）。"""
-    ingest_ms = ingest_ms or int(datetime.now(timezone.utc).timestamp() * 1000)
+    ingest_ms = ingest_ms or int(datetime.now(UTC).timestamp() * 1000)
     if model.entity == "event":
         props = dict(rec["props"])
         row = {"project": project, "time": ms_to_dt(rec["time"]), "event": rec["event"], "source": model.id, "one_id": rec["one_id"],
@@ -512,7 +513,7 @@ if __name__ == "__main__":
         {"ORD_NO": "A5", "STATUS": "NEW", "ORD_TIME": "2026-10-15 09:06:00", "CUST_ID": "C005", "ACCT_NO": "9800000003", "STK_CODE": "2454", "MKT": "T", "BS_FLAG": "B", "ORD_TYPE": "LMT", "PRICE": "1", "QTY": "1", "CHANNEL": "A", "MEMO": "請回電 0912345678"},
         {"ORD_NO": "A6", "STATUS": "NEW", "ORD_TIME": "2026-01-01 09:06:00", "CUST_ID": "C006", "ACCT_NO": "9800000004", "STK_CODE": "2454", "MKT": "T", "BS_FLAG": "B", "ORD_TYPE": "LMT", "PRICE": "1", "QTY": "1", "CHANNEL": "A"},
     ]
-    o = apply(m, rows, now=datetime(2026, 10, 16, tzinfo=timezone.utc), known_fields=set(rows[0]))
+    o = apply(m, rows, now=datetime(2026, 10, 16, tzinfo=UTC), known_fields=set(rows[0]))
     assert o.summary == {"in": 7, "ok": 2, "quarantined": 4, "rejected": 1}, o.summary
     reasons = sorted(r for _, r in o.quarantined)
     assert reasons[:3] == ["enum:market=None", "no_transition:WEIRD", "required:qty"] and reasons[3].startswith("time_window:"), reasons
