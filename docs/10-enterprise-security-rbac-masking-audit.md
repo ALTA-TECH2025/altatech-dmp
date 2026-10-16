@@ -4,6 +4,8 @@
 
 ## 1. 模型總覽
 
+> 身分整合（Keycloak 代理／直連 Entra ID 與 AD、session、step-up、群組 → 角色）的設計與代碼見 docs/24；本文件只管角色、模組、數據、欄位權限與審計。
+
 ```
 身分（SSO / OIDC / AD）
   └─ 使用者（SSO 群組 → 角色）

@@ -35,7 +35,9 @@ docs/
   13-capacity-plan-gcp.md                          GCP 容量規劃：3 年 200 億事件（首年含舊資料）、每日 500–1,000 標籤、API 同步、50 人上線；正式 A 檔 6 台或 D 檔 3 台大機型／測試 3 台
 prototype/                                          可直接開啟的前端原型（純靜態，無建置步驟）
   index.html  css/app.css  js/app.js  js/data.js  vercel.json
+web/                                                正式前端（React + Vite + TypeScript）：大框架、登入（SSO／AD）、路由守門、權限中心；設計見 docs/24
 backend/                                            後端骨架（可讀、可跑的最小實作與設定）
+  auth/idp.yaml  oidc.py  ldap.py  session.py  mapping.py  api.py   登入整合：Keycloak 代理或直連 Entra ID（OIDC+PKCE）／AD（LDAPS）、群組 → 角色、session／CSRF／API token、FastAPI 路由（自測）
   openapi.yaml                                     人與 agent 共用的 API
   semantic/{events,metrics,dimensions,dimension_tables,user_properties,oneid_rules,ga4_mapping}.yaml   語意層定義（事件、指標、維度、維度表／字典／虛擬屬性、用戶表、OneID 規則；agent 的資料地圖）
   mcp/tools.yaml  mcp/server.py                    Agent Tool Gateway（工具目錄 + 權限/預算/脫敏/審計骨架）
