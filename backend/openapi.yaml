@@ -91,6 +91,21 @@ paths:
     get: { tags: [OneID], summary: '登入改寫批次（近 7 天匿名事件改寫到登入客戶；docs/19 §2.5）：待套用／已套用、筆數、視窗', responses: { '200': { description: ok } } }
   /v1/oneid/erase:
     post: { tags: [OneID], summary: 'DSAR 刪除', responses: { '202': { description: accepted } } }
+  /v1/approvals:
+    get: { tags: [Approvals], summary: '審批單（待我審批 = 類型的審批角色含我的角色；我的申請 = 我發起的；admin 全看）', parameters: [{ name: status, in: query, schema: { type: string, enum: [pending, approved, rejected, expired] } }, { name: type, in: query, schema: { type: string } }, { name: scope, in: query, schema: { type: string, enum: [to_me, mine, all], default: to_me } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Approval' } } } } } } }
+  /v1/approvals/{id}:
+    get: { tags: [Approvals], summary: '審批單詳情', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Approval' } } } } } }
+  /v1/approvals/{id}/decide:
+    post: { tags: [Approvals], summary: '核可／退回（審批角色依類型：匯出與分群 = 數位經營；L3 揭露 = admin；不能審自己的申請；審計 approval.decided 並回寫受控物件）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { approve: { type: boolean, default: true }, note: { type: string } } } } } }, responses: { '200': { description: ok }, '409': { description: 不在待審批 } } }
+  /v1/exports:
+    get: { tags: [Exports], summary: '匯出申請（我的；admin／數位經營全看）', responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Export' } } } } } } }
+    post: { tags: [Exports], summary: '申請匯出用戶列表或分群成員（需 users.export；附用途、保存天數；先估列數，上限 100,000；建立審批單給數位經營；審計 export.requested）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/ExportRequest' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Export' } } } }, '400': { description: 列數超過上限或條件不合法 }, '403': { description: 無 users.export } } }
+  /v1/exports/{id}:
+    get: { tags: [Exports], summary: '匯出申請詳情', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Export' } } } } } }
+  /v1/exports/{id}/run:
+    post: { tags: [Exports], summary: '核可後產生檔案（申請者本人；匯出遮罩比 UI 嚴一級：L2 區間化、L3 尾碼；每列帶浮水印欄、檔頭帶申請單號／使用者／時間；審計 export.generated）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Export' } } } }, '409': { description: 未核可或已過期 } } }
+  /v1/exports/{id}/download:
+    get: { tags: [Exports], summary: '下載 CSV（申請者本人；核可後 7 天內；審計 export.downloaded）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { text/csv: { schema: { type: string } } } }, '409': { description: 尚未產生或已過期 } } }
   /v1/segments:
     get: { tags: [Segments], summary: '列出分群（q 搜尋、status、kind；回收站用 status=recycled）', parameters: [{ name: q, in: query, schema: { type: string } }, { name: status, in: query, schema: { type: string } }, { name: kind, in: query, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Segment' } } } } } } }
     post: { tags: [Segments], summary: '建立分群（規則 = UsersQuery；行銷與 agent 提議者為 pending_approval，數據分析／數位經營／admin 直接 active；每專案 ≤ 500）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SegmentCreate' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Segment' } } } }, '400': { description: 規則不合法 }, '409': { description: 名稱重複或超過上限 } } }
@@ -669,6 +684,54 @@ components:
         profile: { type: object, additionalProperties: { type: array, items: { type: object, properties: { value: { type: string }, users: { type: integer } } } }, description: 'lifecycle／tier／aum_bucket／branch_id 各取前 10 值' }
         sql: { type: string }
         warnings: { type: array, items: { type: string } }
+    Approval:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [export, segment, push, reveal_l2, reveal_l3, agent_proposal], description: 類型決定審批角色（docs/10 §6） }
+        requester: { type: string }
+        approver_roles: { type: array, items: { type: string } }
+        summary: { type: string, description: 一行說明（給審批者看） }
+        detail: { type: object, description: 附件（匯出：用途、列數、保存天數、條件摘要） }
+        object: { type: object, properties: { kind: { type: string }, id: { type: string } }, description: 受控物件（核可後回寫狀態） }
+        status: { type: string, enum: [pending, approved, rejected, expired] }
+        created_at: { type: string }
+        expires_at: { type: string, description: 逾期未審自動 expired }
+        decided_at: { type: string, nullable: true }
+        decided_by: { type: string, nullable: true }
+        note: { type: string }
+    ExportRequest:
+      type: object
+      required: [kind, purpose]
+      properties:
+        kind: { type: string, enum: [users, segment_members] }
+        rule: { $ref: '#/components/schemas/UsersQuery', description: 'kind=users：用戶列表條件' }
+        segment_id: { type: string, description: 'kind=segment_members' }
+        basetime: { type: string, default: latest }
+        columns: { type: array, items: { type: string } }
+        purpose: { type: string, minLength: 4, maxLength: 200, description: 用途（必填，進審批單與浮水印） }
+        retention_days: { type: integer, minimum: 1, maximum: 90, default: 30, description: 申請者承諾的保存期限 }
+    Export:
+      type: object
+      properties:
+        id: { type: string }
+        kind: { type: string }
+        requester: { type: string }
+        purpose: { type: string }
+        retention_days: { type: integer }
+        rows_estimate: { type: integer }
+        rows: { type: integer, nullable: true, description: 實際匯出列數 }
+        columns: { type: array, items: { type: string } }
+        masked: { type: object, additionalProperties: { type: string } }
+        status: { type: string, enum: [pending_approval, approved, rejected, generated, downloaded, expired] }
+        approval_id: { type: string }
+        watermark_id: { type: string, nullable: true }
+        created_at: { type: string }
+        approved_at: { type: string, nullable: true }
+        expires_at: { type: string, nullable: true, description: 核可後 7 天內可下載 }
+        generated_at: { type: string, nullable: true }
+        downloaded_at: { type: string, nullable: true }
+        note: { type: string }
     FunnelResult:
       type: object
       properties:
