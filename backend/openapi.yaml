@@ -56,7 +56,7 @@ paths:
   /v1/analytics/retention:
     post: { tags: [Analytics], summary: '留存分析：初始行為與回訪行為各自可選事件與篩選；四模型（date 第 N 期當期回訪、interval N 期內任一期、continuous 連續 N 期、churn 第 N 期起不再回訪）；日／週／月、期數、含當期、單維分組（取初始事件）；回每個同期群 × 期的人數、留存人數、比例；K 匿名抑制', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/RetentionQuery' } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/RetentionResult' } } } } } }
   /v1/analytics/path:
-    post: { tags: [Analytics], summary: '路徑', responses: { '200': { description: ok } } }
+    post: { tags: [Analytics], summary: '行為路徑（起點或終點事件、之後／之前 1–10 步、會話切割、節點拆分與合併、離開節點；預設抽樣 1/10；Top N 路徑 + 桑基節點／連線；K 匿名）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/PathQuery' } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/PathResult' } } } } } }
   /v1/analytics/interval:
     post: { tags: [Analytics], summary: '間隔', responses: { '200': { description: ok } } }
   /v1/analytics/distribution:
@@ -470,6 +470,33 @@ components:
         group_by: { type: array, items: { type: string } }
         segment: { type: string }
         compare: { type: string, enum: [previous_period, segment] }
+    PathQuery:
+      type: object
+      required: [anchor, time]
+      properties:
+        project: { type: string }
+        anchor: { type: object, required: [event], properties: { event: { type: string, description: '事件名或拆分後節點（event:值）' }, filters: { type: array, items: { type: object } } }, description: 起點（direction=after）或終點（before） }
+        direction: { type: string, enum: [after, before], default: after }
+        steps: { type: integer, minimum: 1, maximum: 10, default: 5 }
+        session: { type: object, properties: { mode: { type: string, enum: [gap, id, cross], default: gap, description: 'gap = 依間隔切會話；id = 用 session_id；cross = 期間內整個用戶一條序列' }, gap_minutes: { type: integer, default: 30 }, max_events: { type: integer, default: 200, description: 每會話最多保留的事件數 } } }
+        nodes: { type: object, properties: { events: { type: array, items: { type: string }, description: 只把這些事件當節點（空 = 全部） }, collapse_other: { type: boolean, default: false, description: 不在 events 裡的事件折成「其他」而不是略過 }, split: { type: array, items: { type: object, required: [event, field], properties: { event: { type: string }, field: { type: string } } }, description: '事件依屬性值拆成子節點（event:值）' }, merge_repeats: { type: boolean, default: true, description: 連續重複節點合併 }, exit_node: { type: boolean, default: true, description: 會話結束補「離開」節點（$AppEnd 或會話逾時） } } }
+        filters: { type: array, items: { type: object } }
+        segment: { type: string }
+        sample: { type: number, nullable: true, description: '預設 0.1（按用戶分桶）；null = 不抽樣' }
+        top_n: { type: integer, default: 100, maximum: 1000 }
+        time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string }, now: { type: string } } }
+    PathResult:
+      type: object
+      properties:
+        paths: { type: array, items: { type: object, properties: { path: { type: array, items: { type: string } }, users: { type: integer, nullable: true }, sessions: { type: integer, nullable: true }, share: { type: number, nullable: true, description: 占起點用戶比例 }, avg_ms: { type: number, nullable: true }, suppressed: { type: boolean } } } }
+        anchor_users: { type: integer, description: 經過起點的用戶數（抽樣後） }
+        nodes: { type: array, items: { type: object, properties: { level: { type: integer }, node: { type: string }, users: { type: integer } } }, description: 桑基節點（由未抑制的路徑彙總） }
+        links: { type: array, items: { type: object, properties: { level: { type: integer }, from: { type: string }, to: { type: string }, users: { type: integer } } } }
+        sampled: { type: number, nullable: true }
+        sql: { type: string }
+        lineage: { type: array, items: { type: string } }
+        cost: { type: object }
+        warnings: { type: array, items: { type: string } }
     FunnelQuery:
       type: object
       required: [steps, window, time]
@@ -535,8 +562,10 @@ components:
       description: 從分析結果的某個落點下鑽成用戶列表（漏斗某步到達／流失、留存某同期群某期留存／未留存、事件分析某桶某分組）
       required: [type, query]
       properties:
-        type: { type: string, enum: [funnel, retention, events] }
-        query: { type: object, description: 原分析查詢（FunnelQuery／RetentionQuery／SemanticQuery） }
+        type: { type: string, enum: [funnel, retention, events, path] }
+        query: { type: object, description: 原分析查詢（FunnelQuery／RetentionQuery／SemanticQuery／PathQuery） }
+        node: { type: string, description: 'path：節點名' }
+        level: { type: integer, description: 'path：節點所在步（0 = 起點）' }
         step: { type: integer, description: funnel：步驟序號（1 起） }
         reached: { type: boolean, default: true, description: funnel：true = 到達該步；false = 在該步流失（到達前一步但未到達此步，step ≥ 2） }
         bucket: { type: string, description: funnel 趨勢桶／events 時間桶 }
