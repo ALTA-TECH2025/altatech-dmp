@@ -118,7 +118,7 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 - Policy 注入：行級 WHERE、欄位遮罩（`mask_plan`）、K 匿名（分組人數 < 20 → 抑制）、預算（`max_bytes_to_read`、`max_execution_time`、`max_result_rows`）。
 - 測試門檻：編譯器單元 ≥ 90%；golden 答案集（固定 1 千萬筆合成資料 × 40 條查詢）誤差 0；每條 SQL `EXPLAIN ESTIMATE` 掃描量不得超過預期 1.5 倍（守住效能回歸）。
 
-### 4.4 api（FastAPI）— 20 人日
+### 4.4 api（FastAPI）— 20 人日（已有骨架：`backend/api/`，auth + iam + semantic/compile + analytics/events，自測與端到端通過）
 
 - 由 `openapi.yaml` 生成 schema；每個 router 只做：驗證 → Policy → 呼叫服務 → 審計。不在 router 寫 SQL。
 - 查詢結果快取 Valkey 5 分鐘（key = 編譯後 SQL hash + 身分）。

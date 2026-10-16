@@ -39,6 +39,7 @@ prototype/                                          可直接開啟的前端原�
   index.html  css/app.css  js/app.js  js/data.js  vercel.json
 web/                                                正式前端（React + Vite + TypeScript）：大框架、登入（SSO／AD）、路由守門、權限中心；設計見 docs/24
 backend/                                            後端骨架（可讀、可跑的最小實作與設定）
+  api/app.py  main.py  iam.py  analytics.py  store.py  e2e_stage.py   REST API（FastAPI）：auth + 權限中心（角色／指派／行級模擬）+ 查詢編譯 dry-run + 事件分析執行與審計；自測與端到端
   auth/idp.yaml  oidc.py  ldap.py  session.py  mapping.py  api.py   登入整合：Keycloak 代理或直連 Entra ID（OIDC+PKCE）／AD（LDAPS）、群組 → 角色、session／CSRF／API token、FastAPI 路由（自測）
   openapi.yaml                                     人與 agent 共用的 API
   semantic/{events,metrics,dimensions,dimension_tables,user_properties,oneid_rules,ga4_mapping}.yaml   語意層定義（事件、指標、維度、維度表／字典／虛擬屬性、用戶表、OneID 規則；agent 的資料地圖）

@@ -171,6 +171,8 @@ def main() -> int:
             from ..semantic.compiler.golden import compiler_stage  # 語意查詢編譯器：30 條黃金查詢 oracle vs SQL 誤差 0
             print("--- compiler golden")
             compiler_stage(ch)
+            from ..api.e2e_stage import api_stage  # REST：/v1/analytics/events 結果 == 直接執行編譯器 SQL
+            api_stage(ch)
         print("status:", json.dumps([{k: x[k] for k in ('id', 'enabled', 'last', 'watermark')} for x in s.status(t0 + timedelta(hours=1))], ensure_ascii=False, default=str)[:600])
         print("alerts:", [a["message"] for a in s.alerts()])
         print("E2E OK")
