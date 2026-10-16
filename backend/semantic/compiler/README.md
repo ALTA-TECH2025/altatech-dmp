@@ -78,7 +78,7 @@ python3 -m backend.integration.e2e_clickhouse                        # 端到端
 每個條件各自一個 Bitmap（`groupBitmapState(one_id_uint)`），交／併／差後 `bitmapCardinality` 估數；列表用同一個 bitmap `bitmapContains` 過濾用戶寬表，keyset 游標 `(排序鍵, one_id_uint)` 分頁（NULL 以哨兵值墊底），每頁 ≤ 500、最多瀏覽 10 萬筆（之後走匯出審批）。母體是用戶寬表：只有事件沒有用戶列的人不在列表裡。
 欄位依 `Decision.field_policies` 遮罩（one_id 尾碼、aum／churn_score 區間；hide 略過並 warning）；admin 的 one_id 明文但 L2 金額類仍是區間（masking.yaml 的 plain_roles）。
 細查：`compile_profile`（寬表一列）、`compile_summary`（近 N 天事件摘要）、`compile_timeline`（時間倒序 keyset 分頁；props 去 L4 鍵）、`compile_identities` + `identity_graph`（id_edges → 節點／邊，ID 值依 one_id 策略遮罩）；reason 與 `profile.use` 由 API 層檢查。
-oracle `run_users` 以同口徑算集合；15 條黃金用戶列表（屬性、分群、巢狀或、做過 ≥ n／between／未做過、or 組合、漏斗到達／流失含趨勢桶、留存留存／流失／週分組、事件落點含分組與合計、分公司範圍 + 回溯、日期屬性、排序）在 ClickHouse 25.8：估數 == 集合大小、每頁 7 筆走完 == 同一集合且順序單調；7 條必拒。
+分群條件 `seg.<id>` 取 `dmp.segment_members` 最新版本、`seg.<id>@<n>` 取指定版本（分群引擎見 `backend/segments/`）。oracle `run_users` 以同口徑算集合；15 條黃金用戶列表（屬性、分群、巢狀或、做過 ≥ n／between／未做過、or 組合、漏斗到達／流失含趨勢桶、留存留存／流失／週分組、事件落點含分組與合計、分公司範圍 + 回溯、日期屬性、排序）在 ClickHouse 25.8：估數 == 集合大小、每頁 7 筆走完 == 同一集合且順序單調；7 條必拒。
 
 ## 之後
 

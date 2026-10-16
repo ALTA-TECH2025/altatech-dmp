@@ -87,7 +87,10 @@ class Catalog:
         if k.startswith(("user.", "users.")):
             return self._user(key, k.split(".", 1)[1])
         if k.startswith("seg."):
-            return FieldRef(key, "segment", "segment", k[4:], k[4:])
+            sid, _, ver = k[4:].partition("@")           # seg.<id>（最新版本）或 seg.<id>@<version>（指定版本）
+            if ver and not ver.isdigit():
+                raise ValueError(f"分群版本需為整數：{key}")
+            return FieldRef(key, "segment", "segment", ver, sid)
         raise ValueError(f"未知欄位 {key}：請在 dimensions.yaml／user_properties.yaml 登記，或用 props.<key>")
 
     def _json(self, key: str, path: str, t: str) -> FieldRef:

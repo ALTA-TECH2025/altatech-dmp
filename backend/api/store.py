@@ -18,6 +18,9 @@ class Store(Protocol):
     def delete_assignment(self, id_: str) -> None: ...
     def audit(self, event: str, data: dict[str, Any]) -> None: ...
     def audit_tail(self, n: int = 100) -> list[dict[str, Any]]: ...
+    def segments(self) -> list[dict[str, Any]]: ...
+    def put_segment(self, seg: dict[str, Any]) -> None: ...
+    def delete_segment(self, id_: str) -> None: ...
 
 
 class MemoryStore:
@@ -62,3 +65,14 @@ class MemoryStore:
 
     def audit_tail(self, n: int = 100) -> list[dict[str, Any]]:
         return self.d["audit"][-n:]
+
+    def segments(self) -> list[dict[str, Any]]:
+        return list(self.d.setdefault("segments", {}).values())
+
+    def put_segment(self, seg: dict[str, Any]) -> None:
+        with self.lock:
+            self.d.setdefault("segments", {})[seg["id"]] = seg; self._save()
+
+    def delete_segment(self, id_: str) -> None:
+        with self.lock:
+            self.d.setdefault("segments", {}).pop(id_, None); self._save()

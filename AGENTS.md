@@ -22,6 +22,7 @@ AltaTech DMP：數位軌跡／客戶數據中台。`docs/` 是設計文件，`pr
 python3 backend/security/policy.py            # 權限引擎自測
 python3 backend/oneid/attribution.py          # OneID 歸戶 20 個情境（含 v1.2 血緣、傳遞映射、合併拆分）
 python3 -m backend.api                        # REST API 自測：角色 CRUD、指派、行級模擬、/v1/semantic/compile、/v1/analytics/events（假 ClickHouse）、審計、CSRF
+python3 -m backend.segments                   # 分群引擎自測：建立／審批／計算（版本保留）／例行 tick／編輯限制／回收站／成員列表／權限（假 ClickHouse）
 python3 -m backend.auth                       # 登入整合自測：假 Entra ID（PKCE／JWKS／amr／overage）、假 AD（bind／巢狀群組／限流）、session／CSRF／step-up、API token、FastAPI 路由
 python3 backend/integration/transforms.py     # 轉換函式自測
 python3 -m backend.integration.modeling       # 建模引擎自測（映射、清洗、SQL 編譯）

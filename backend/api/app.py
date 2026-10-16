@@ -12,11 +12,12 @@ from fastapi.responses import JSONResponse
 from ..auth.api import AuthService, subject_from_request
 from ..auth.api import build_router as auth_router
 from ..security.policy import Subject
-from . import analytics, iam, users
+from ..segments import SegmentService
+from . import analytics, iam, segments, users
 from .store import Store
 
 
-def create_app(auth: AuthService, store: Store, ch: Any | None = None) -> FastAPI:
+def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_service: SegmentService | None = None) -> FastAPI:
     app = FastAPI(title="AltaTech DMP API", version="0.1.0", docs_url="/v1/docs", openapi_url="/v1/openapi.json")
 
     def get_subject(request: Request) -> Subject:
@@ -28,6 +29,7 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None) -> FastAP
     app.include_router(iam.build_router(store, get_subject))
     app.include_router(analytics.build_router(store, get_subject, ch))
     app.include_router(users.build_router(store, get_subject, ch))
+    app.include_router(segments.build_router(store, get_subject, segment_service or SegmentService(store, ch)))
 
     @app.exception_handler(PermissionError)
     def _perm(_: Request, e: PermissionError) -> JSONResponse:

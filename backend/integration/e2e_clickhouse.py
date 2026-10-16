@@ -173,6 +173,8 @@ def main() -> int:
             compiler_stage(ch)
             from ..api.e2e_stage import api_stage  # REST：/v1/analytics/events 結果 == 直接執行編譯器 SQL
             api_stage(ch)
+            from ..segments.e2e_stage import segments_stage  # 分群：建立 → 計算 → 成員 == oracle；版本保留；seg.<id> 最新版本；例行 tick
+            segments_stage(ch)
         print("status:", json.dumps([{k: x[k] for k in ('id', 'enabled', 'last', 'watermark')} for x in s.status(t0 + timedelta(hours=1))], ensure_ascii=False, default=str)[:600])
         print("alerts:", [a["message"] for a in s.alerts()])
         print("E2E OK")

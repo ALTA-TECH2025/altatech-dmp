@@ -127,7 +127,7 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 - 查詢結果快取 Valkey 5 分鐘（key = 編譯後 SQL hash + 身分）。
 - 契約測試 schemathesis；權限測試五角色 × 每個端點，期望值由 `rbac.yaml` 自動展開。
 
-### 4.5 segments／tags — 26 人日
+### 4.5 segments／tags — 26 人日（已有最小版：`backend/segments/`，規則 = UsersQuery → Bitmap → `segment_members` 版本表；審批、例行 tick、版本保留、回收站、血緣；自測與端到端通過）
 
 - 規則 → 編譯器的 filter AST → Bitmap SQL（`groupBitmapState(one_id_uint)`）；估數走 1/16 抽樣；交／聯／差在 Bitmap 上做。
 - 例行更新由 Airflow 觸發 dbt；版本表保留 N 版；回收站為軟刪除 + 30 天清除。

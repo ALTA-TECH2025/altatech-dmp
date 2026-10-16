@@ -46,7 +46,8 @@ def cond_sql(c: Cond, ctx: Ctx) -> str:
     f, op, v = c.field, c.op, c.value
     x = ctx.expr(f)
     if f.kind == "segment":
-        sub = f"SELECT one_id_uint FROM dmp.segment_members WHERE segment_id = {q(f.name)}"
+        ver = f"version = {int(f.sql)}" if f.sql else f"version = (SELECT max(version) FROM dmp.segment_members WHERE segment_id = {q(f.name)})"   # 預設最新版本
+        sub = f"SELECT one_id_uint FROM dmp.segment_members WHERE segment_id = {q(f.name)} AND {ver}"
         return f"e.one_id_uint {'IN' if op == 'in' else 'NOT IN'} ({sub})"
     if f.type == "string":
         if op == "eq": return f"{x} = {q(v)}"
