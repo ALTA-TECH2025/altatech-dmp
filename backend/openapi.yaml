@@ -50,7 +50,9 @@ paths:
   /v1/analytics/events:
     post: { tags: [Analytics], summary: '事件分析', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SemanticQuery' } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AnalyticsResult' } } } } } }
   /v1/analytics/funnel:
-    post: { tags: [Analytics], summary: '漏斗', responses: { '200': { description: ok } } }
+    post: { tags: [Analytics], summary: '漏斗分析：2–10 步（每步事件 + 篩選）、窗口 1 分鐘–90 天、寬鬆／嚴格順序、關聯屬性（業務 ID 串流程）、用戶數／次數口徑、單維分組、趨勢；回每步人數、相對上一步與第一步轉換率；K 匿名抑制', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/FunnelQuery' } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/FunnelResult' } } } } } }
+  /v1/semantic/catalog:
+    get: { tags: [Semantic], summary: '語意目錄（給查詢建構器）：事件字典、維度、用戶屬性（可篩選／可分組）、聚合與運算子清單；依身分過濾 L3 以上欄位', responses: { '200': { description: ok } } }
   /v1/analytics/retention:
     post: { tags: [Analytics], summary: '留存', responses: { '200': { description: ok } } }
   /v1/analytics/path:
@@ -458,6 +460,30 @@ components:
         group_by: { type: array, items: { type: string } }
         segment: { type: string }
         compare: { type: string, enum: [previous_period, segment] }
+    FunnelQuery:
+      type: object
+      required: [steps, window, time]
+      properties:
+        project: { type: string }
+        steps: { type: array, minItems: 2, maxItems: 10, items: { type: object, required: [event], properties: { event: { type: string }, alias: { type: string }, filters: { type: array, items: { type: object } } } } }
+        window: { type: object, required: [value, unit], properties: { value: { type: integer, minimum: 1 }, unit: { type: string, enum: [minute, hour, day] } }, description: 最長 90 天 }
+        order: { type: string, enum: [loose, strict], default: loose }
+        relation: { type: string, description: 關聯屬性（業務 ID）：entity_id 或 props.<key>；同一值的事件才算同一流程 }
+        metric: { type: string, enum: [users, times], default: users, description: times 需指定 relation（計算流程數） }
+        group_by: { type: array, maxItems: 1, items: { type: string }, description: 分組值取自第一步事件 }
+        trend: { type: string, enum: [day, week, month], description: 依第一步發生日期分桶 }
+        filters: { type: object, description: 全局篩選（同 SemanticQuery.filters） }
+        segment: { type: string }
+        sample: { type: number, description: 按用戶抽樣比例 (0,1) }
+        time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string } } }
+    FunnelResult:
+      type: object
+      properties:
+        rows: { type: array, items: { type: object, properties: { bucket: { type: string }, g1: { type: string }, step: { type: integer }, alias: { type: string }, event: { type: string }, users: { type: integer, nullable: true }, rate_prev: { type: number, nullable: true }, rate_first: { type: number, nullable: true }, suppressed: { type: boolean } } } }
+        sql: { type: string }
+        lineage: { type: array, items: { type: string } }
+        cost: { type: object }
+        warnings: { type: array, items: { type: string } }
     CompiledQuery:
       type: object
       properties:
