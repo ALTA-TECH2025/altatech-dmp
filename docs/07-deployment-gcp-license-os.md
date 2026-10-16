@@ -59,7 +59,7 @@ deploy/
 | 層 | 選用元件 | 授權 | 風險 | 刻意不用（授權） |
 |---|---|---|---|---|
 | 事件匯流排 | Apache Kafka 3.8（KRaft） | Apache-2.0 | 無 | Confluent Platform 元件：Schema Registry、ksqlDB（Confluent Community License）→ 改用 **Apicurio Registry**（Apache-2.0） |
-| CDC | Debezium、Flink CDC | Apache-2.0 | 無 | Airbyte（ELv2）、Fivetran（商業） |
+| CDC | Debezium | Apache-2.0 | 無 | Airbyte（ELv2）、Fivetran（商業）；Flink CDC（阿里巴巴起源）不用，見 docs/25 |
 | 串流 | Apache Flink 1.19 + Kubernetes Operator | Apache-2.0 | 無 | — |
 | OLAP | ClickHouse 24.8 LTS、ClickHouse Keeper、clickhouse-operator（Altinity） | Apache-2.0 | 無 | Druid／Pinot 亦 Apache-2.0 可替代；Snowflake／Databricks 商業 |
 | 批次／湖 | Apache Spark 3.5、Apache Iceberg、Trino | Apache-2.0 | 無 | Databricks Delta（Apache-2.0 但生態綁定） |
@@ -67,7 +67,7 @@ deploy/
 | 快取 | **Valkey 8**（BSD-3） | BSD-3 | 無 | **Redis ≥ 7.4（RSALv2／SSPL；8.0 起另有 AGPL）**：排除 |
 | 關聯式 DB | PostgreSQL 16 + pgvector、CloudNativePG | PostgreSQL／PostgreSQL／Apache-2.0 | 無 | MongoDB（SSPL）排除 |
 | 排程 | Apache Airflow 2.10 | Apache-2.0 | 無 | Prefect（Apache-2.0 可）、Dagster（Apache-2.0 可）；Astronomer 商業 |
-| 批次整合 | Apache SeaTunnel、dlt | Apache-2.0 | 無 | Airbyte（ELv2）、Talend（商業） |
+| 批次整合 | dlt + 自建 Python | Apache-2.0 | 無 | Airbyte（ELv2）、Talend（商業）；SeaTunnel（大陸起源）不用，見 docs/25 |
 | 資料品質 | Great Expectations、Soda Core | Apache-2.0 | 無 | — |
 | 中繼資料／血緣 | OpenMetadata、OpenLineage | Apache-2.0 | 無 | Collibra／Alation 商業 |
 | BI／看板（選配） | Apache Superset | Apache-2.0 | 無 | **Metabase（AGPL）**、**Grafana（AGPL-3.0 自 8.0）**、Tableau／Power BI 商業 |
@@ -75,7 +75,7 @@ deploy/
 | 密鑰 | Cloud KMS／Secret Manager；機房：**OpenBao**（MPL-2.0） | MPL-2.0 | 無 | **HashiCorp Vault／Terraform（BSL 1.1）**：排除 → **OpenTofu**（MPL-2.0） |
 | 身分 | Keycloak | Apache-2.0 | 無 | Okta／Auth0 商業 |
 | API／閘道 | FastAPI、Uvicorn；Envoy／Kong OSS | MIT／BSD；Apache-2.0 | 無 | Kong Enterprise 商業 |
-| 前端 | React、Vite、TypeScript、**Apache ECharts** | MIT／MIT／Apache-2.0／Apache-2.0 | 無 | Highcharts（商業）、AG Grid Enterprise（商業；Community 版 MIT 可） |
+| 前端 | React、Vite、TypeScript、**自繪 SVG + D3**（ECharts 為百度起源，不用，見 docs/25） | MIT／MIT／Apache-2.0／ISC | 無 | Highcharts（商業）、AG Grid Enterprise（商業；Community 版 MIT 可） |
 | Agent／LLM | 官方 `mcp` SDK（MIT）、LangGraph（MIT）選配；模型經企業閘道 | MIT | 模型授權另計（Claude API 商業條款；本地開源模型注意 Llama 社群授權非 OSI） | — |
 | 容器基底 | Red Hat **UBI 9**（免費再散布）、Debian 12 slim、distroless | UBI EULA（免費）、多種 | 無 | — |
 | K8s（機房） | RKE2 或 kubeadm；Operators：Strimzi、Flink、Altinity clickhouse-operator、CloudNativePG | Apache-2.0 | 無 | OpenShift（訂閱）、Rancher Prime（訂閱） |

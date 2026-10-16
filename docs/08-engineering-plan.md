@@ -6,11 +6,11 @@
 
 | 元件 | 語言 | 框架／函式庫 | 理由 |
 |---|---|---|---|
-| Web 前端 | TypeScript 5 | React 18 + Vite、TanStack Query/Table、Zustand、**Apache ECharts**（桑基、漏斗、折線）、React Flow（可視化建模畫布，MIT） | 生態成熟、授權寬鬆；原型 `prototype/` 的頁面與互動直接移植 |
+| Web 前端 | TypeScript 5 | React 18 + Vite、TanStack Query/Table、Zustand、**自繪 SVG + D3 scale/shape**（桑基、漏斗、折線；ECharts 為百度起源不用，見 docs/25）、React Flow（可視化建模畫布，MIT） | 生態成熟、授權寬鬆；原型 `prototype/` 的頁面與互動直接移植 |
 | Collector（高吞吐入口） | **Go 1.23** | net/http + franz-go（Kafka，BSD-3）、sonic/jsoniter | 每節點 5 萬 req/s、低記憶體、單一二進位 |
 | API / 語意層 / 分群標籤服務 / 治理 | **Python 3.12** | FastAPI、Pydantic v2、SQLGlot（SQL 生成與方言）、clickhouse-connect、asyncpg | 與 agent 同語言、資料團隊熟悉、SQL 生成邏輯易測 |
 | Agent Runtime / Tool Gateway | Python 3.12 | 官方 `mcp` SDK、LangGraph（選配）、httpx、pgvector | MCP 生態以 Python/TS 最完整 |
-| 串流作業（標準化、事件化、OneID、Session、CEP、即時標籤） | **Flink SQL ＋ Flink CDC 3 YAML pipeline**（主）；Java 17 僅 OneID 合併一個 job | Flink 1.19、Flink CDC、Debezium、RoaringBitmap | SQL-first：LLM 寫 SQL 正確率高、弱點面小；見 docs/11 |
+| 串流作業（標準化、事件化、OneID、Session、CEP、即時標籤） | **Flink SQL**（主；CDC 一律 Debezium，Flink CDC 不用，見 docs/25）；Java 17 僅 OneID 合併一個 job | Flink 1.19、Flink CDC、Debezium、RoaringBitmap | SQL-first：LLM 寫 SQL 正確率高、弱點面小；見 docs/11 |
 | 批次作業（標籤、ID 校正、觸點表、匯入） | **ClickHouse SQL ＋ dbt-core**（主）；PySpark 僅 BigQuery 匯入與 ML | dbt-core、Spark 3.5 | 減少 JVM 面；dbt 提供版本化、測試與血緣 |
 | 基礎設施 | HCL / YAML | OpenTofu、Helm、Kustomize、Ansible（機房） | — |
 | 測試 | — | Vitest/Playwright（前端）、pytest（Python）、JUnit（Java）、k6（負載）、Great Expectations（資料） | — |
@@ -31,7 +31,7 @@ altatech-dmp/
 | 工作流 | 人數 | 負責 |
 |---|---|---|
 | WS1 平台與部署 | 1.5 | GKE/機房 K8s、Helm/OpenTofu、Operators、觀測、安全基線、授權審查、OS 驗證 |
-| WS2 接入與串流 | 2 | Collector（Go）、GA360 Importer、Debezium/Flink CDC、事件化狀態機、OneID、Session、即時規則 |
+| WS2 接入與串流 | 2 | Collector（Go）、GA360 Importer、Debezium、事件化狀態機、OneID、Session、即時規則 |
 | WS3 資料與效能 | 1.5 | ClickHouse 表設計、MV、Bitmap 標籤引擎、dbt 模型、效能測試（百億級） |
 | WS4 後端 API 與語意層 | 1.5 | 語意層、查詢編譯器、六個 P0 模組 API、分群標籤服務、治理 API、權限 |
 | WS5 前端 | 1.5 | 六個 P0 頁面、可視化建模畫布、AI 洞察介面、看板 |

@@ -6,7 +6,7 @@
 
 | 題目 | 決定 | 為什麼 |
 |---|---|---|
-| 前端框架 | React 19 + Vite + TypeScript + React Router；無狀態管理庫（Context + fetch）；圖表 Apache ECharts（後續）；設計 token 與原型同一套 | 白名單授權（MIT／Apache-2.0）、團隊 TypeScript 一條線、原型的版面可直接搬 |
+| 前端框架 | React 19 + Vite + TypeScript + React Router；無狀態管理庫（Context + fetch）；圖表自繪 SVG + D3 scale／shape（後續；ECharts 不用，見 docs/25）；設計 token 與原型同一套 | 白名單授權（MIT／Apache-2.0）、團隊 TypeScript 一條線、原型的版面可直接搬 |
 | 登入架構 | **BFF（Backend-for-Frontend）**：瀏覽器只有 httpOnly session cookie；IdP token 只在後端用一次就丟；非 GET 帶 CSRF header | XSS 拿不到 token；金融業稽核熟悉的 session 模型；登出可集中撤銷 |
 | 身分來源 | **預設 broker 模式：Keycloak 當身分代理**（Entra ID 以 OIDC 掛進 Keycloak、機房 AD 以 LDAP User Federation 掛進 Keycloak），本系統只對 Keycloak 講 OIDC；**direct 模式**（客戶不准多一層時）：後端直接對 Entra ID（OIDC）與 AD（LDAPS bind） | 一條協定、MFA／Conditional Access 在 IdP 端、換 IdP 不改應用；direct 模式兩條路徑都已寫好並自測 |
 | 角色來源 | IdP 群組 → 角色（`backend/auth/idp.yaml` role_mapping），登入時套用；本地指派只能加自訂角色、限範圍、設到期或拒絕某角色 | 和 docs/10 §2「SSO 群組 → 角色」一致；離職停帳號即失效 |
@@ -37,7 +37,7 @@ web/
 - **頁面 = 路由 + 模組 + 動作**。`<RequireGrant module="iam" action="admin">` 包住寫入 UI；沒有權限顯示 403 頁並說明去哪申請。
 - **資料存取只走 `api` 客戶端**：沒有 token 存在 localStorage；所有寫入帶 CSRF header；401 統一導回登入並帶 `return_to`（只接受站內路徑，防 open redirect）。
 - **狀態**：伺服器狀態用 fetch + 頁面本地 state；跨頁只共用 `me`。之後若查詢頁需要快取再引入 TanStack Query（MIT）。
-- **設計系統**：token 與原型一致，正式元件逐頁從原型搬；圖表用 ECharts（Apache-2.0）並遵守 dataviz 規範（固定類別色、單軸）。
+- **設計系統**：token 與原型一致，正式元件逐頁從原型搬；圖表自繪 SVG（原型已全部自繪）+ D3 scale／shape（ISC）並遵守 dataviz 規範（固定類別色、單軸）。
 - **建置與 CI**：`npm ci && npm run typecheck && npm test && npm run build`；輸出靜態檔由 `apps.web` 映像（nginx）提供，API 同網域反向代理（cookie 同源）。
 
 ## 2. 身分整合

@@ -18,12 +18,12 @@
 | 層 | 元件 | Vuln | HA | Main | Vibe | 總評 | 備註 / 決定 |
 |---|---|---|---|---|---|---|---|
 | 前端 | React 18 + Vite + TypeScript | 4 | — | 5 | **5** | 4.7 | LLM 最熟；相依樹用 `pnpm audit` + Renovate 控制 |
-| 前端 | Apache ECharts | 4 | — | 5 | 4 | 4.3 | 桑基／漏斗／折線皆原生；採用 |
+| 前端 | 自繪 SVG + D3（scale／shape） | 5 | — | 5 | 5 | 5.0 | 原型已全部自繪；ECharts（百度起源）依客戶供應商評分改不採用（docs/25） |
 | 後端 | Python 3.12 + FastAPI + Pydantic v2 | 4 | 5 | 5 | **5** | 4.8 | 採用；所有業務服務統一此棧 |
 | 後端 | SQLGlot（SQL 生成） | 4 | — | 4 | 4 | 4.0 | 語意層編譯器；純 Python，無原生相依 |
 | 入口 | Go 1.23 Collector | **5** | 5 | 5 | 4 | 4.8 | 靜態二進位、distroless、CVE 極少；只放熱路徑，程式量小 |
 | 匯流排 | Apache Kafka 3.8（KRaft）+ Strimzi | 4 | 5 | 5 | 3 | 4.3 | 採用；KRaft 去掉 ZooKeeper 減少一個元件；Java 相依樹需定期更新 |
-| CDC | Debezium 2.7 / **Flink CDC 3.x（YAML pipeline）** | 3 | 4 | 5 | 4 | 4.0 | 採用；Flink CDC 3 以 YAML 定義 pipeline，幾乎不寫 Java |
+| CDC | Debezium 2.7 | 3 | 4 | 5 | 4 | 4.0 | 採用；Flink CDC（阿里巴巴起源）不用（docs/25） |
 | 串流 | Apache Flink 1.19 + K8s Operator | 3 | 4 | 5 | **2（DataStream Java）/ 4（Flink SQL）** | 3.5 / 4.0 | **採用但 SQL-first**：規則用 `MATCH_RECOGNIZE`、轉換用 Flink SQL；自訂 Java 只保留 OneID 合併一個 job |
 | OLAP | ClickHouse 24.8 LTS + Altinity Operator | 4 | 4 | 5 | **5** | 4.5 | 採用；LLM 對 ClickHouse SQL 很熟；LTS 每季安全修補 |
 | 批次 | ClickHouse SQL + **dbt-core**（主）；Spark 3.5（僅 BigQuery 匯入、ML） | 4 / 3 | 4 | 5 | 5 / 3 | 4.5 / 3.8 | **修訂**：標籤與聚合盡量用 dbt 管理的 SQL，Spark 降為輔助，減少 Java/JVM 面 |
@@ -31,7 +31,7 @@
 | 控制面 | PostgreSQL 16 + pgvector（Cloud SQL / CloudNativePG） | 5 | 5 | 5 | 5 | **5.0** | 採用 |
 | 快取 | Valkey 8 | 5 | 4 | 4 | 5 | 4.5 | 採用（Redis 協定相容，LLM 等同熟悉；Memorystore 有託管版） |
 | 排程 | Apache Airflow 2.10 | 3 | 4 | 5 | 4 | 4.0 | 採用；GCP 可用 Cloud Composer；DAG 由建模產物生成，不手寫 |
-| 整合 | Apache SeaTunnel 2.3 / **dlt** | 3 / 4 | 3 | 3 / 4 | 3 / 5 | 3.0 / 4.3 | **修訂**：批次整合優先 dlt（Python，LLM 友善）；SeaTunnel 僅用於 JDBC 大表 |
+| 整合 | **dlt** + 自建 Python（backend/integration） | 4 | 3 | 4 | 5 | 4.0 | **修訂**：SeaTunnel（大陸起源）不採用（docs/25）；批次整合一律 dlt／自建 |
 | 品質 | Great Expectations / Soda Core | 4 | — | 4 | 4 | 4.0 | 二選一即可；建議 Soda Core（YAML 檢查，簡單） |
 | 中繼資料 | OpenMetadata | 3 | 3 | 4 | 3 | 3.3 | **降為選配**：一期先以 PostgreSQL 自建字典／血緣（OpenLineage 事件），二期再評估 |
 | 物件儲存 | GCS（雲）／ SeaweedFS（機房） | 5 / 3 | 5 / 3 | 5 / 3 | 5 / 3 | 5.0 / 3.0 | GCP 一律 GCS；機房備選 **Ceph（Rook）**：更主流但更重，需專人 |
