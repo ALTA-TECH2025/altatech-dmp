@@ -12,8 +12,9 @@ from ..auth.session import SessionManager
 from ..security.policy import Subject, authorize
 from ..semantic.compiler import Catalog, compile_query
 from ..semantic.compiler.funnel import compile_funnel, parse_funnel, with_rates
-from ..semantic.compiler.golden import FUNNELS, PROJECT, QUERIES, RETENTIONS, run_sql
+from ..semantic.compiler.golden import FUNNELS, PROJECT, QUERIES, RETENTIONS, USERS, run_sql
 from ..semantic.compiler.retention import compile_retention, parse_retention
+from ..semantic.compiler.users import compile_estimate, compile_identities, compile_list, compile_profile, compile_timeline, identity_graph, parse_list, parse_users
 from .app import create_app
 from .store import MemoryStore
 
@@ -24,7 +25,7 @@ def api_stage(ch: Any) -> None:
     app = create_app(AuthService(cfg, {}, sm, None), store, ch)
     c = TestClient(app, base_url="https://dmp.internal")
     cat = Catalog()
-    checked = 0
+    checked = 0; checked_users = 0
     for role, user in (("admin", "adm"), ("marketing", "mkt")):
         s = sm.create(user_id=f"entra:{user}", username=user, name=user, email="", provider="entra", roles=[role], groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()))
         c.cookies.set("dmp_sid", s.sid); c.cookies.set("dmp_csrf", s.csrf); c.headers["X-CSRF-Token"] = s.csrf
@@ -49,6 +50,32 @@ def api_stage(ch: Any) -> None:
             checked += 1
         est = c.post("/v1/semantic/compile", json={**QUERIES[0][1], "project": PROJECT}).json()
         assert est["estimated_scan_rows"] is not None and est["sql"]
-    ev = [x for x in store.audit_tail(200) if x["event"] == "query.executed"]
+        for name, raw, _ in USERS[:8]:                        # 用戶列表：估數與第一頁 == 直接 SQL（one_id 依角色遮罩）
+            d = authorize(Subject(f"entra:{user}", [role]), "use", "users"); uq = parse_users(q := {**raw, "project": PROJECT}, cat)
+            ce = compile_estimate(uq, cat, d); cl = compile_list(uq, parse_list({"page_size": 20}, cat), cat, d)
+            r = c.post("/v1/users/list", json={**q, "page_size": 20}); assert r.status_code == 200, (name, r.text[:200])
+            body = r.json(); direct = run_sql(ch, cl.sql, cl.settings)
+            assert body["total"] == run_sql(ch, ce.sql, ce.settings)[0]["users"] and body["rows"] == [{k: v for k, v in x.items() if k not in ("_s", "_u")} for x in direct], name
+            assert (body["next_cursor"] is not None) == (len(direct) == 20) and (("one_id" not in body["masked"]) if role == "admin" else ("one_id" in body["masked"])), name   # admin：one_id 明文，但 L2 分數仍區間
+            checked_users += 1
+    # 細查：數據分析（one_id 遮罩）看畫像／序列／身分圖 == 直接 SQL；範圍外 404；審計有 reason 無明文 one_id
+    s = sm.create(user_id="entra:ana", username="ana", name="ana", email="", provider="entra", roles=["data_analyst"], groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()))
+    c.cookies.set("dmp_sid", s.sid); c.cookies.set("dmp_csrf", s.csrf); c.headers["X-CSRF-Token"] = s.csrf
+    oid = run_sql(ch, "SELECT one_id FROM dmp.id_edges FINAL WHERE source LIKE 'golden.%' ORDER BY one_id LIMIT 1", {})[0]["one_id"]
+    d = authorize(Subject("entra:ana", ["data_analyst"]), "use", "profile", {"reason": "e2e"})
+    pr = c.get(f"/v1/profiles/{oid}", params={"reason": "e2e 客訴調查", "project": PROJECT, "now": "2026-10-16"}); assert pr.status_code == 200, pr.text[:200]
+    cp = compile_profile(oid, cat, d); direct = run_sql(ch, cp.sql, cp.settings)[0]
+    assert pr.json()["one_id"] == direct["one_id"] and pr.json()["one_id"].endswith("****") and pr.json()["props"]["tier"] == direct["tier"] and pr.json()["summary"]["total"] > 0, pr.json()["summary"]
+    tl = c.get(f"/v1/profiles/{oid}/timeline", params={"reason": "e2e 客訴調查", "project": PROJECT, "from": "2026-09-20", "to": "2026-10-16", "limit": 30, "now": "2026-10-16"}).json()
+    from datetime import date as _d
+    ct = compile_timeline(oid, PROJECT, _d(2026, 9, 20), _d(2026, 10, 16), cat, d, limit=30, now=_d(2026, 10, 16)); dt = run_sql(ch, ct.sql, ct.settings)
+    assert [x["event_id"] for x in tl["rows"]] == [x["event_id"] for x in dt] and all("cn" in x and isinstance(x["props"], dict) for x in tl["rows"]), len(tl["rows"])
+    ig = c.get(f"/v1/profiles/{oid}/identities", params={"reason": "e2e 客訴調查"}).json()
+    ci = compile_identities(oid); assert ig == identity_graph(run_sql(ch, ci.sql, ci.settings), d) and ig["edges"], ig
+    assert c.get("/v1/profiles/no-such-user", params={"reason": "e2e 客訴調查"}).status_code == 404
+    pv = [x for x in store.audit_tail(300) if x["event"] == "profile.viewed"]; assert pv and pv[-1]["reason"] == "e2e 客訴調查" and oid not in str(pv[-1])
+    ev = [x for x in store.audit_tail(400) if x["event"] == "query.executed"]
     assert len(ev) == checked and any(x["masked"] for x in ev if x["user"] == "entra:mkt")   # 行銷的金額查詢有遮罩紀錄
-    print(f"api stage OK: {checked} queries via /v1/analytics/events+funnel+retention == direct SQL (admin + marketing), audit query.executed={len(ev)}")
+    ul = [x for x in store.audit_tail(400) if x["event"] == "users.listed"]
+    assert len(ul) == checked_users and any(x["masked"] for x in ul if x["user"] == "entra:mkt")
+    print(f"api stage OK: {checked} queries via /v1/analytics/events+funnel+retention + {checked_users} via /v1/users/list == direct SQL (admin + marketing), profile/timeline/identities (data_analyst), audit query.executed={len(ev)} users.listed={len(ul)}")

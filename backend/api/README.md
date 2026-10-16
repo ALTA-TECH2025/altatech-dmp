@@ -13,6 +13,8 @@ docs/23 §4.4：router 只做「驗證 → Policy → 呼叫服務 → 審計」
 | `POST /v1/analytics/retention` | 留存：四模型 × 日週月 → 同期群 × 期的人數／留存／比例 + complete；審計 | events.use |
 | `GET /v1/semantic/catalog` | 查詢建構器目錄（事件、維度、用戶屬性、聚合、運算子；L3 不給） | events.view |
 | `POST /v1/analytics/events` | 編譯 → ClickHouse → rows + chart_spec + cost；審計 query.executed | events.use |
+| `POST /v1/users/estimate`、`/v1/users/list` | 用戶列表：條件 → Bitmap 估數；keyset 分頁列表（欄位依角色遮罩、每頁 ≤ 500、最多 10 萬筆）；審計 users.estimated／users.listed | users.use |
+| `GET /v1/profiles/{one_id}`、`/timeline`、`/identities` | 用戶細查：畫像 + 近 30 天摘要 + 分群、行為序列（倒序分頁、props 去 L4 鍵）、身分圖（id_edges）；需 reason 4–200 字；範圍外 404；審計 profile.viewed／timeline／identities 只記 one_id 雜湊 | profile.use |
 | `GET /v1/audit` | 審計尾端（行銷／分析只看自己） | audit.view |
 
 ```bash
@@ -22,5 +24,5 @@ CLICKHOUSE_URL=http://127.0.0.1:8123 DMP_SECRETS_JSON=secrets.json uvicorn backe
 
 - 儲存：`store.py` 的 Protocol；骨架用記憶體／JSON 檔（`DMP_STORE_PATH`），正式換 PostgreSQL（iam_roles、iam_assignments、audit_log）。
 - 密鑰：`DMP_SECRETS_JSON` 是 secret_ref → 明文 的對照（只在執行節點由密鑰庫掛載）；程式碼與設定檔只出現 secret_ref。
-- 端到端：`backend/integration/e2e_clickhouse.py` 最後跑 `api/e2e_stage.py`，以 admin 與行銷兩種身分打 `/v1/analytics/events`，結果需與直接執行編譯器 SQL 相同。
-- 之後：漏斗／留存／路徑／歸因端點（等編譯器樣板）、users／profile 端點、export 審批流程、schemathesis 契約測試、五角色 × 端點權限矩陣自動展開。
+- 端到端：`backend/integration/e2e_clickhouse.py` 最後跑 `api/e2e_stage.py`，以 admin 與行銷兩種身分打 `/v1/analytics/events`／funnel／retention／`/v1/users/list`，結果需與直接執行編譯器 SQL 相同；數據分析身分打細查三端點。
+- 之後：路徑／歸因端點（等編譯器樣板）、用戶列表「存為分群」與 export 審批流程、schemathesis 契約測試、五角色 × 端點權限矩陣自動展開。
