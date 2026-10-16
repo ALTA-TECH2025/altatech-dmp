@@ -102,9 +102,9 @@
 `POST /v1/analytics/events`，請求體 = `SemanticQuery`（見 openapi.yaml）。回應含 `rows`、`chart_spec`、`sql`、`cost`、`warnings`。
 
 ### 1.3 ClickHouse 實作
-- 不分組且指標為 count/uniq：優先走 `events_daily_agg`（AggregatingMergeTree，`uniqState(one_id)`）。
+- 指標為 count／sum(amount) 且欄位在物化視圖鍵內：走 `events_daily_agg`（AggregatingMergeTree）；用戶數需精確時走明細。
 - 分鐘／小時粒度或有事件屬性篩選：走 `events` 明細，`PREWHERE event IN (...) AND event_date BETWEEN`。
-- `uniq_users` 預設 `uniqCombined64`（誤差 < 1%），報表級精確值用 `uniqExact` 僅限 ≤ 7 天。
+- `uniq_users` **預設精確**（`uniqExact`，不抽樣；評分表要求大量資料可不抽樣）；使用者打開「快速估算」才用 `uniqCombined64` 或按用戶抽樣（`SAMPLE`），結果標示。黃金測試以精確值比對（docs/26 衝突 1）。
 - 使用者屬性篩選：`one_id_uint IN (bitmap)`；標籤篩選：`bitmapContains(tag_bitmap, one_id_uint)`。
 
 ### 1.4 效能目標（百億級總量、單日 3 億）

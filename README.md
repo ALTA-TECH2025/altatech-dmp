@@ -28,6 +28,7 @@ docs/
   20-ga360-trading-instrumentation.md              GA360 埋點與交易事件打通：代碼化客戶 ID（HMAC）同款用於 GA user_id 與數據中台交易資料、手機／帳號去識別化、登入／登出埋點呼叫、匯出欄位映射；行為與交易事件只靠客戶代碼歸戶、不做逐筆對應
   22-sensors-to-ga360-migration.md                 神策 → GA360 遷移與歷史資料銜接（本案主軸）：埋點設計建議（橋接表 bridge.py）、神策資料盤點／導出／載入、新舊整合測試 T1–T9、交易結合分析、第一階段時程；AI 延後第二階段
   23-phase1-backend-design-and-staffing.md         第一階段後端代碼設計規劃與分工：必留／簡化／延後功能清單、微批架構（第一階段不上 Flink／Kafka）、代碼結構、十個模組設計要點與人日、六人分工 × 里程碑、沒有 ClickHouse／Flink 專家的克服方式、驗收門檻
+  26-vendor-questionnaire-analysis-and-conflicts.md   客戶評分表「分析功能」逐項回覆（可直接填入）與規格衝突檢查（精確去重預設、間隔／分佈升第一階段、熱圖錄影不在範圍、看板共享待補、MCP 閘道保留）
   25-component-origin-review.md                    元件原產地與治理單位盤點（供客戶供應商評分表）：移除 SeaTunnel／Flink CDC、ECharts 改自繪 SVG + D3、ClickHouse 俄羅斯起源與大陸籍作者元件揭露
   24-frontend-framework-and-identity.md           前端大框架（React + Vite + TS、BFF）、權限與資料管理頁、Keycloak 代理或直連 Entra ID／AD、session／CSRF／step-up、威脅對照
   17-product-spec.md                               產品規格書 v0.7（總規格：架構圖、元件模組圖、數據流圖、資料模型、18 個模組規格、非功能、開發測試計畫、待確認索引；同步原型 v0.7.0；第一階段不含 AI）
