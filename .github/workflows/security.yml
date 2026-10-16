@@ -6,8 +6,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }   # gitleaks 掃 push 的整段 commit 範圍，淺層 checkout 會找不到起點 commit
-      - name: Secrets scan (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
+      - name: Secrets scan (gitleaks CLI；gitleaks-action v2 對組織帳號要求付費授權，改用 MIT 的 CLI，固定版本)
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar xz gitleaks
+          ./gitleaks detect --source . --no-banner --redact --exit-code 1
       - name: SAST (Semgrep OSS)
         uses: semgrep/semgrep-action@v1
         with: { config: "p/default" }
