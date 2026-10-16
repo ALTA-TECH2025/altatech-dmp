@@ -26,6 +26,7 @@ export interface Catalog {
   aggs: string[];
   ops: Record<string, string[]>;
   funnel: { window_units: string[]; max_window_days: number; max_steps: number; orders: string[]; metrics: string[] };
+  path?: { max_steps: number; session_modes: string[]; default_sample: number; max_days: number; exit_node: string };
 }
 
 export interface RetentionQuery {
@@ -61,3 +62,19 @@ export interface EventsQuery {
 }
 export type EventsRow = Record<string, string | number | boolean | null | undefined>;
 export interface EventsResult { rows: EventsRow[]; columns: string[]; chart_spec: Record<string, unknown>; sql: string; lineage: string[]; cost: { ms: number; rows: number; layer: string }; warnings: string[]; masked: Record<string, string> }
+
+export interface PathQuery {
+  project?: string;
+  anchor: { event: string; filters?: Cond[] };
+  direction: 'after' | 'before';
+  steps: number;
+  session?: { mode?: 'gap' | 'id' | 'cross'; gap_minutes?: number; max_events?: number };
+  nodes?: { events?: string[]; collapse_other?: boolean; split?: { event: string; field: string }[]; merge_repeats?: boolean; exit_node?: boolean };
+  filters?: Cond[];
+  segment?: string;
+  sample?: number | null;
+  top_n?: number;
+  time: { from: string; to: string; now?: string };
+}
+export interface PathRow { path: string[]; users: number | null; sessions: number | null; share: number | null; avg_ms: number | null; suppressed: boolean }
+export interface PathResult { paths: PathRow[]; anchor_users: number; nodes: { level: number; node: string; users: number }[]; links: { level: number; from: string; to: string; users: number }[]; sampled: number | null; sql: string; lineage: string[]; cost: { ms: number; rows: number; layer: string }; warnings: string[]; chart_spec: Record<string, unknown> }

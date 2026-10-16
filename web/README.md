@@ -27,6 +27,7 @@ npm run build          # dist/（由 apps.web 映像的 nginx 提供，與 API �
 | `src/users/ProfileDrawer.tsx` | 用戶細查抽屜：理由（4–200 字）→ 畫像（屬性脫敏、近 30 天摘要、分群）→ 行為序列（倒序分頁、事件篩選）→ 身分圖（節點／邊） |
 | `src/segments/SegmentsPage.tsx`、`segments.ts` | 分群頁：列表（全部／待審批／回收站、搜尋）、新建與編輯（同一套 RuleBuilder、更新方式／頻率／最早時間／保留版本）、詳情（狀態與審批列、立即計算、預覽畫像長條、成員列表、歷史版本、血緣、暫停／複製／回收站／恢復／徹底刪除）；`actionsFor` 依 grants 決定可做的動作，有單元測試 |
 | 漏斗／留存／事件分析頁 | 落點下鑽：漏斗每步「到達／流失」、留存格子（點：留存；Shift+點：未留存）、事件分析表格列 → `navigate('/users', { state: { source } })` |
+| `src/analytics/PathPage.tsx`、`PathChart.tsx`、`sankey.ts` | 行為路徑頁（起點／終點、步數、節點只留／折疊／拆分／合併／離開、會話切割、抽樣）與自繪 SVG 桑基圖（節點高度與連線寬度 ∝ 人數、固定類別色、滑過高亮與提示、點節點設為新起點或下鑽用戶列表）；`sankey.ts` 版面純函式有單元測試 |
 | `src/analytics/RetentionPage.tsx` | 留存分析頁（初始／回訪行為、四模型、日週月、期數、含當期、分組）與同期群 × 期矩陣（單色深淺 = 比例，未過期數灰階） |
 | `src/iam/IamPage.tsx` | 權限中心：角色矩陣、使用者指派、數據權限模擬、欄位隱碼、我的 session |
 | `src/styles/app.css` | 設計 token 與原型同一套（含深色模式） |

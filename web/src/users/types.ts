@@ -2,7 +2,7 @@
 import type { Cond } from '@/analytics/types';
 
 export interface UsersBehavior { event: string; filters?: Cond[]; done?: boolean; count?: { op: 'gte' | 'lte' | 'eq' | 'between'; value: number | [number, number] }; time?: { from: string; to: string } }
-export interface UsersSource { type: 'funnel' | 'retention' | 'events'; query: Record<string, unknown>; step?: number; reached?: boolean; bucket?: string; group?: unknown; cohort?: string; period?: number; retained?: boolean | null; metric?: string; label?: string }
+export interface UsersSource { type: 'funnel' | 'retention' | 'events' | 'path'; query: Record<string, unknown>; step?: number; reached?: boolean; bucket?: string; group?: unknown; cohort?: string; period?: number; retained?: boolean | null; metric?: string; node?: string; level?: number; label?: string }
 export interface UsersQuery {
   project?: string;
   filters?: Cond[];
