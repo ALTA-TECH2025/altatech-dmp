@@ -7,6 +7,7 @@ import { AppShell } from '@/shell/AppShell';
 import { IamPage } from '@/iam/IamPage';
 import { FunnelPage } from '@/analytics/FunnelPage';
 import { RetentionPage } from '@/analytics/RetentionPage';
+import { EventsPage } from '@/analytics/EventsPage';
 import type { Module } from '@/api/types';
 
 function Placeholder({ title, module }: { title: string; module: Module }) {
@@ -27,7 +28,7 @@ export function App() {
           <Route element={<RequireAuth><AppShell /></RequireAuth>}>
             <Route index element={<Navigate to="/overview" replace />} />
             <Route path="/overview" element={<Placeholder title="總覽" module="overview" />} />
-            <Route path="/events" element={<Placeholder title="事件分析" module="events" />} />
+            <Route path="/events" element={<EventsPage />} />
             <Route path="/funnel" element={<FunnelPage />} />
             <Route path="/retention" element={<RetentionPage />} />
             <Route path="/path" element={<Placeholder title="行為路徑" module="path" />} />

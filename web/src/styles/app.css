@@ -5,6 +5,8 @@
   --ink: #1C2B33; --ink2: #33424B; --body: #56646D; --muted: #7C8992; --faint: #9AA6AD;
   --bg: #F3F6F8; --panel: #FFFFFF; --soft: #F5F8FA; --line: #E2E8EC; --line2: #EDF1F3;
   --nav: #121E2B; --nav2: #1A2A3A; --nav-ink: #E7EEF1; --nav-muted: #8A9AA6; --nav-group: #64757F;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+  --grid: #EDF1F3; --axis: #C9D2D8;
   --st-good: #1E9E63; --st-warn: #D8871F; --st-serious: #D23B3B; --st-critical: #8E1B1B;
   --sidebar-w: 236px; --topbar-h: 56px; --radius: 12px;
   --shadow: 0 1px 2px rgba(16,24,40,.05); --shadow-lg: 0 12px 32px rgba(20,45,60,.1);
@@ -21,6 +23,7 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 input, select, textarea { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; }
 select, input { max-width: 100%; min-width: 0; }
 .row > select.grow { flex: 1 1 180px; width: auto; }
+.row > select:not(.grow), .row > input { width: auto; flex: 0 1 240px; }
 .row > * { min-width: 0; }
 label { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--body); }
 a { color: inherit; text-decoration: none; }
@@ -106,3 +109,13 @@ ul.priv { padding-left: 18px; font-size: 13px; color: var(--body); line-height: 
   .grid.c2, .grid.c3, .grid.c21 { grid-template-columns: minmax(0, 1fr); }
   .page-h { flex-direction: column; }
 }
+
+/* charts */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--body); margin-top: 6px; }
+.legend i, .tooltip i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.tooltip { margin-top: 6px; font-size: 12px; background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: inline-block; min-width: 220px; }
+.tooltip b { display: block; margin-bottom: 4px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.tile { background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.tile b { font-size: 24px; font-variant-numeric: tabular-nums; }
+select[multiple] { min-height: 74px; }

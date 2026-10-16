@@ -107,6 +107,7 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 
 - 現況（2026-10-16）：parser／catalog／events 樣板（L1 日聚合 MV 或 L0 明細自動選層）／policy 注入（行級、遮罩、K 匿名、預算）／oracle 參考實作／30 條黃金查詢 + 10 條必拒查詢，在 ClickHouse 26.10 與 25.8 LTS 逐列誤差 0，每條 SQL 的 `EXPLAIN ESTIMATE` 掃描列數 ≤ 期間事件數 × 1.5 + 顆粒餘量。CI 用 ClickHouse 服務容器跑同一套。口徑與用法見 `backend/semantic/compiler/README.md`。
 - 漏斗樣板已完成（windowFunnel、關聯屬性、分組、趨勢、K 匿名；9 條黃金漏斗誤差 0；API `/v1/analytics/funnel` 與前端漏斗頁已接）。
+- 前端事件分析頁已接 `/v1/analytics/events`（自繪 SVG 折線／長條、數字卡、表格、對比上期）。
 - 留存樣板已完成（四模型、日／週／月、含當期、分組、K 匿名；8 條黃金留存誤差 0；API `/v1/analytics/retention` 與前端留存頁已接）。
 - 未做：路徑、歸因兩個樣板；1 千萬筆 × 40 條效能基準；`SemanticQuery` 契約擴充（contract PR）。
 

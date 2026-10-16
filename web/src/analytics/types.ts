@@ -44,3 +44,20 @@ export interface RetentionQuery {
 }
 export interface RetentionRow { cohort: string; g1?: string | null; period: number; users: number | null; retained: number | null; rate: number | null; complete: boolean; suppressed?: boolean }
 export interface RetentionResult { rows: RetentionRow[]; sql: string; lineage: string[]; cost: { ms: number; rows: number; layer: string }; warnings: string[]; chart_spec: Record<string, unknown> }
+
+export interface EventsMetric { event?: string | null; agg: string; field?: string; alias?: string; filters?: Cond[] }
+export interface EventsQuery {
+  project?: string;
+  metric?: string;
+  metrics: EventsMetric[];
+  formulas?: { alias: string; expr: string }[];
+  filters?: Cond[];
+  group_by?: string[];
+  top_n?: number;
+  time: { from: string; to: string; grain: 'minute' | 'hour' | 'day' | 'week' | 'month' | 'total'; now?: string };
+  compare?: 'previous_period';
+  sample?: number;
+  segment?: string;
+}
+export type EventsRow = Record<string, string | number | boolean | null | undefined>;
+export interface EventsResult { rows: EventsRow[]; columns: string[]; chart_spec: Record<string, unknown>; sql: string; lineage: string[]; cost: { ms: number; rows: number; layer: string }; warnings: string[]; masked: Record<string, string> }
