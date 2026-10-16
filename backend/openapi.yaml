@@ -62,7 +62,7 @@ paths:
   /v1/analytics/distribution:
     post: { tags: [Analytics], summary: '分布', responses: { '200': { description: ok } } }
   /v1/analytics/attribution:
-    post: { tags: [Analytics], summary: '歸因', responses: { '200': { description: ok } } }
+    post: { tags: [Analytics], summary: '歸因（轉化目標 × 待歸因觸點；首次／末次／線性／位置／時間衰減／自訂權重，可多模型同時比較；回溯窗口 1–90 天；觸點可依維度拆分；K 匿名）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/AttributionQuery' } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AttributionResult' } } } } } }
   /v1/analytics/ltv:
     post: { tags: [Analytics], summary: 'LTV', responses: { '200': { description: ok } } }
   /v1/analytics/session:
@@ -512,6 +512,32 @@ components:
         lineage: { type: array, items: { type: string } }
         cost: { type: object }
         warnings: { type: array, items: { type: string } }
+    AttributionQuery:
+      type: object
+      required: [target, touches, time]
+      properties:
+        project: { type: string }
+        target: { type: object, required: [event], properties: { event: { type: string }, filters: { type: array, items: { type: object } }, value_field: { type: string, description: '轉化價值欄位（例 amount）；不給 = 每次轉化計 1' } } }
+        touches: { type: array, minItems: 1, maxItems: 10, items: { type: object, required: [event], properties: { event: { type: string }, alias: { type: string }, filters: { type: array, items: { type: object } }, weight: { type: number, description: 自訂權重模型用（預設 1） } } } }
+        split: { type: string, description: 觸點再依此欄位拆分（例 utm_source、platform） }
+        models: { type: array, minItems: 1, items: { type: string, enum: [first, last, linear, position, decay, custom] }, default: [first, last, linear] }
+        position_weights: { type: object, properties: { first: { type: number, default: 0.4 }, last: { type: number, default: 0.4 } }, description: U 型：首末各占，中間平分其餘 }
+        half_life_days: { type: number, default: 7, description: 時間衰減半衰期 }
+        window_days: { type: integer, minimum: 1, maximum: 90, default: 7, description: 回溯窗口：轉化前 N 天內的觸點 }
+        filters: { type: array, items: { type: object } }
+        segment: { type: string }
+        sample: { type: number }
+        time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string }, now: { type: string } }, description: 轉化事件的日期範圍（觸點可往前回溯 window_days） }
+    AttributionResult:
+      type: object
+      properties:
+        rows: { type: array, items: { type: object, properties: { touch: { type: string, description: 觸點別名 }, event: { type: string }, split: { type: string, nullable: true }, models: { type: object, additionalProperties: { type: object, properties: { conversions: { type: number, nullable: true }, value: { type: number, nullable: true }, share: { type: number, nullable: true } } } }, users: { type: integer, nullable: true, description: 被歸到此觸點的轉化用戶數 }, suppressed: { type: boolean } } } }
+        summary: { type: object, properties: { conversions: { type: integer, description: 期間轉化次數 }, converters: { type: integer }, touched: { type: integer, description: 窗口內至少一個觸點的轉化次數 }, untouched: { type: integer }, value: { type: number }, avg_touches: { type: number, nullable: true } } }
+        models: { type: array, items: { type: string } }
+        sql: { type: string }
+        lineage: { type: array, items: { type: string } }
+        cost: { type: object }
+        warnings: { type: array, items: { type: string } }
     FunnelQuery:
       type: object
       required: [steps, window, time]
@@ -577,14 +603,15 @@ components:
       description: 從分析結果的某個落點下鑽成用戶列表（漏斗某步到達／流失、留存某同期群某期留存／未留存、事件分析某桶某分組）
       required: [type, query]
       properties:
-        type: { type: string, enum: [funnel, retention, events, path] }
-        query: { type: object, description: 原分析查詢（FunnelQuery／RetentionQuery／SemanticQuery／PathQuery） }
+        type: { type: string, enum: [funnel, retention, events, path, attribution] }
+        query: { type: object, description: 原分析查詢（FunnelQuery／RetentionQuery／SemanticQuery／PathQuery／AttributionQuery） }
+        touch: { type: string, description: 'attribution：觸點別名（轉化前窗口內有此觸點的轉化者）' }
         node: { type: string, description: 'path：節點名' }
         level: { type: integer, description: 'path：節點所在步（0 = 起點）' }
         step: { type: integer, description: funnel：步驟序號（1 起） }
         reached: { type: boolean, default: true, description: funnel：true = 到達該步；false = 在該步流失（到達前一步但未到達此步，step ≥ 2） }
         bucket: { type: string, description: funnel 趨勢桶／events 時間桶 }
-        group: { description: 'funnel／retention 的 g1 值，或 events 的 [g1, g2, …]' }
+        group: { description: 'funnel／retention 的 g1 值，events 的 [g1, g2, …]，attribution 的 split 值' }
         cohort: { type: string, description: retention：同期群 }
         period: { type: integer, description: retention：期數 }
         retained: { type: boolean, nullable: true, description: retention：true 留存／false 未留存／null 整個同期群 }
