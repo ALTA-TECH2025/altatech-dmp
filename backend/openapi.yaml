@@ -54,7 +54,7 @@ paths:
   /v1/semantic/catalog:
     get: { tags: [Semantic], summary: '語意目錄（給查詢建構器）：事件字典、維度、用戶屬性（可篩選／可分組）、聚合與運算子清單；依身分過濾 L3 以上欄位', responses: { '200': { description: ok } } }
   /v1/analytics/retention:
-    post: { tags: [Analytics], summary: '留存', responses: { '200': { description: ok } } }
+    post: { tags: [Analytics], summary: '留存分析：初始行為與回訪行為各自可選事件與篩選；四模型（date 第 N 期當期回訪、interval N 期內任一期、continuous 連續 N 期、churn 第 N 期起不再回訪）；日／週／月、期數、含當期、單維分組（取初始事件）；回每個同期群 × 期的人數、留存人數、比例；K 匿名抑制', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/RetentionQuery' } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/RetentionResult' } } } } } }
   /v1/analytics/path:
     post: { tags: [Analytics], summary: '路徑', responses: { '200': { description: ok } } }
   /v1/analytics/interval:
@@ -476,6 +476,30 @@ components:
         segment: { type: string }
         sample: { type: number, description: 按用戶抽樣比例 (0,1) }
         time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string } } }
+    RetentionQuery:
+      type: object
+      required: [initial, time]
+      properties:
+        project: { type: string }
+        initial: { type: object, required: [event], properties: { event: { type: string }, filters: { type: array, items: { type: object } } }, description: 初始行為 }
+        return: { type: object, properties: { event: { type: string, nullable: true, description: 空 = 任一事件 }, filters: { type: array, items: { type: object } } }, description: 回訪行為（省略 = 任一事件） }
+        model: { type: string, enum: [date, interval, continuous, churn], default: date }
+        unit: { type: string, enum: [day, week, month], default: day }
+        periods: { type: integer, minimum: 1, maximum: 90, default: 7 }
+        include_day0: { type: boolean, default: false, description: 輸出第 0 期（當期回訪） }
+        group_by: { type: array, maxItems: 1, items: { type: string }, description: 分組值取自初始事件 }
+        filters: { type: object }
+        segment: { type: string }
+        sample: { type: number }
+        time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string } }, description: 初始行為的日期範圍（同期群） }
+    RetentionResult:
+      type: object
+      properties:
+        rows: { type: array, items: { type: object, properties: { cohort: { type: string }, g1: { type: string }, period: { type: integer }, users: { type: integer, nullable: true, description: 同期群人數 }, retained: { type: integer, nullable: true }, rate: { type: number, nullable: true }, complete: { type: boolean, description: 該期是否已過（未過的期數為不完整） }, suppressed: { type: boolean } } } }
+        sql: { type: string }
+        lineage: { type: array, items: { type: string } }
+        cost: { type: object }
+        warnings: { type: array, items: { type: string } }
     FunnelResult:
       type: object
       properties:
