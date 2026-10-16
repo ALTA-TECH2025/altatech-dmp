@@ -124,6 +124,7 @@ def main() -> int:
             by_event = ch.query("SELECT event, count() c FROM dmp.events GROUP BY event ORDER BY c DESC FORMAT TSV").strip().replace("\n", " | ")
             print("events by name:", by_event)
             assert ch.scalar("SELECT count() FROM dmp.events WHERE one_id NOT LIKE 'v1_%'") == 0        # 全部代碼化
+            assert ch.scalar("SELECT count() FROM dmp.events WHERE event_date NOT BETWEEN toDate('2026-10-15') AND toDate('2026-10-17')") == 0   # 時間欄位沒有飽和到 9999
             assert ch.scalar("SELECT count() FROM dmp.events WHERE props.`$identities`.`$identity_login_id` IS NULL") == 0
             assert ch.scalar("SELECT count() FROM dmp.dim_instrument") == 300
             print("quarantine by reason:", ch.query("SELECT splitByChar(':', reason)[1] r, count() FROM dmp.quarantine GROUP BY r ORDER BY r FORMAT TSV").strip().replace("\n", " | "))
@@ -156,6 +157,7 @@ def main() -> int:
             assert same_ids == n_ev, (same_ids, n_ev)   # Python 路徑的每一筆都能在 SQL 路徑找到同 event_id 同事件名
             print(f"compile_sql path: {n_sql} rows (superset before enum/range cleansing); event_id/event match with python path: {same_ids}/{n_ev}")
             sensors_stage(ch, work, int(os.environ.get("E2E_SENSORS_LINES", "200000")))
+            ga4_stage(ch, work, int(os.environ.get("E2E_GA4_PER_TICK", "20000")))
             dbapi_stage(ch, work, all_rows)
             if os.environ.get("E2E_USERS", "1") != "0":
                 main_users_bench(ch)
@@ -233,6 +235,57 @@ def dbapi_stage(ch: ClickHouseHTTP | None, work: Path, rows: list[dict[str, Any]
     assert run1["rows_in"] == 12000 and run2["rows_in"] == 8000 and run2["watermark_from"] == run1["watermark_to"], (run1["rows_in"], run2["rows_in"])
     assert all(x["rows_loaded"] == x["rows_ok"] for x in (run1, run2))
     print(f"dbapi (sqlite stand-in for MSSQL): window1 in={run1['rows_in']} ok={run1['rows_ok']} loaded={run1['rows_loaded']}; window2 in={run2['rows_in']} ok={run2['rows_ok']} loaded={run2['rows_loaded']}; watermark={run2['watermark_to']}")
+
+
+# ---------------------------------------------------------------- GA360 BigQuery 匯出：串流 → 日批覆蓋 → 72 小時重寫（假 BigQuery）
+def ga4_stage(ch: ClickHouseHTTP, work: Path, n_per_tick: int = 20000) -> None:
+    from .ga4_source import FakeBigQuery, ga4_row
+    bq = FakeBigQuery(); rnd = random.Random(5)
+    runner = LocalRunner(ch, bq_clients={"ga_bq": bq}); s = Scheduler(work / "sched_ga4.db", runner)
+    t0 = datetime(2026, 10, 16, 1, 0, tzinfo=timezone.utc)   # 台北 09:00
+    base_us = int(t0.timestamp() * 1_000_000)
+    src = {"kind": "ga4", "connection": "ga_bq", "dataset": "analytics_1", "tz_offset_hours": 8}
+    s.add_task("ga360_intraday", "", cron="*/15 * * * *", mode="incremental", retries=2, backoff_s=60, schema_change="ignore", source={**src, "table_kind": "intraday"}, now=t0)
+    s.add_task("ga360_daily", "", cron="30 6 * * *", mode="full", retries=5, backoff_s=600, schema_change="ignore", source={**src, "table_kind": "daily", "day_offset": 1}, now=t0)
+    s.add_task("ga360_restate", "", cron="0 7 * * *", mode="incremental", retries=2, backoff_s=600, schema_change="ignore", source={**src, "table_kind": "restate", "day_offset": 2}, now=t0)
+    names = ["page_view", "kh_apply", "hq_stockdetail_view", "stock_order_submit", "screen_view", "sip_purchase"]
+    mk = lambda i, ts: ga4_row(i, ts, rnd.choice(names), uid=f"v1_{rnd.randint(1, 30000):020d}" if rnd.random() < 0.7 else None, pseudo=f"p{rnd.randint(1, 50000)}",
+                               platform=rnd.choice(["WEB", "IOS", "ANDROID"]), seq=i, stream=rnd.choice(["s1", "s2"]))
+    tbl = "analytics_1.events_intraday_20261016"; bq.tables[tbl] = []; total = 0
+    for k in range(1, 4):                                          # 09:15、09:30、09:45：串流表持續追加，含 5% 亂序（時間戳落在上一窗口）
+        for i in range(n_per_tick):
+            ts = base_us + (k * 15 - rnd.randint(0, 25 if rnd.random() < 0.05 else 14)) * 60_000_000 - rnd.randint(0, 59_000_000)
+            bq.tables[tbl].append(mk(total + i, ts))
+        total += n_per_tick
+        r = s.tick(t0 + timedelta(minutes=15 * k)); assert [x["status"] for x in r] == ["success"], r
+    runs = s.runs("ga360_intraday", 3)
+    assert sum(x["rows_in"] for x in runs) > total                   # 重疊窗口有重讀
+    ch.query("OPTIMIZE TABLE dmp.events FINAL")
+    n_intraday = ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_intraday'")
+    assert n_intraday == total, (n_intraday, total)                  # 去重後 = 串流表筆數
+    assert ch.scalar("SELECT count() FROM dmp.events WHERE source='ga360_intraday' AND event LIKE 'ga.%'") == 0
+    # 隔天 06:30 台北：日批未到 → 0 筆成功（記錄 skipped 原因）；日批到齊（多 300 筆遲到 + 欄位更完整）→ 整天重載覆蓋串流版本
+    r = s.tick(t0 + timedelta(days=1, minutes=-30 + 5*60 + 30 - 60))  # 06:30 台北 = 前一日 22:30 UTC
+    daily = "analytics_1.events_20261016"
+    assert any(x["task_id"] == "ga360_daily" for x in r) and "尚未到齊" in s.runs("ga360_daily", 1)[0]["log"]
+    bq.tables[daily] = list(bq.tables[tbl]) + [mk(total + i, base_us + 60 * 60_000_000 + i * 1000) for i in range(300)]
+    del bq.tables[tbl]                                               # GA 在日批到齊後刪除串流表
+    r = s.run_now("ga360_daily", t0 + timedelta(days=1)); assert r["status"] == "success"
+    ch.query("OPTIMIZE TABLE dmp.events FINAL")
+    n_day = ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source IN ('ga360_intraday','ga360_daily') AND event_date = toDate('2026-10-16')")
+    n_daily_src = ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_daily'")
+    assert n_day == total + 300 and n_daily_src == total + 300, (n_day, n_daily_src)     # 日批覆蓋了全部串流列（同 event_id，ingest_time 較新）
+    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_intraday'") == 0
+    # 隔兩天 07:00：GA 重寫日表（+120 筆遲到）→ restate 偵測列數變化重載
+    r = s.run_now("ga360_restate", t0 + timedelta(days=2)); assert r["status"] == "success" and s.runs("ga360_restate", 1)[0]["rows_in"] == total + 300
+    bq.tables[daily] += [mk(total + 300 + i, base_us + 70 * 60_000_000 + i * 1000) for i in range(120)]
+    r = s.run_now("ga360_restate", t0 + timedelta(days=2, minutes=1)); assert s.runs("ga360_restate", 1)[0]["rows_in"] == total + 420
+    r = s.run_now("ga360_restate", t0 + timedelta(days=2, minutes=2)); assert s.runs("ga360_restate", 1)[0]["rows_in"] == 0 and "未變" in s.runs("ga360_restate", 1)[0]["log"]
+    ch.query("OPTIMIZE TABLE dmp.events FINAL")
+    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_daily'") == total + 420
+    assert ch.scalar("SELECT count() FROM (SELECT event_id FROM dmp.events FINAL WHERE source LIKE 'ga360%' GROUP BY event_id HAVING count() > 1)") == 0
+    print(f"ga360 bigquery: intraday 3 ticks in={sum(x['rows_in'] for x in runs):,} (incl. overlap re-reads) → unique {n_intraday:,}; daily replaced all ({n_daily_src:,}); restate +120 → {total + 420:,}; dup event_id after FINAL: 0")
+    print("  by source/event:", ch.query("SELECT event, count() FROM dmp.events FINAL WHERE source='ga360_daily' GROUP BY event ORDER BY 2 DESC FORMAT TSV").strip().replace("\n", " | "))
 
 
 # ---------------------------------------------------------------- 用戶表規模測試：N 萬用戶 × 300 屬性（寬表），日批快照覆蓋、即時微批、dictionary、事件關聯、SAMPLE

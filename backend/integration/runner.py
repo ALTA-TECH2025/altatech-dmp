@@ -91,12 +91,33 @@ def read_source(src: dict[str, Any]) -> list[dict[str, Any]]:
 
 class LocalRunner:
     def __init__(self, ch: ClickHouseHTTP | None, project: str = "altatech_dmp", sem: modeling.Semantic | None = None,
-                 db_connections: dict[str, Callable[[], Any]] | None = None):
+                 db_connections: dict[str, Callable[[], Any]] | None = None, bq_clients: dict[str, Any] | None = None):
         self.ch, self.project, self.sem = ch, project, sem
         self.db_connections = db_connections or {}     # connection id（connectors.yaml 的連線）→ DB-API connect 工廠
+        self.bq_clients = bq_clients or {}             # connection id → BigQuery client（ga4_source.BigQueryLike）
+
+    def _run_ga4(self, task: dict[str, Any], *, watermark: str | None, batch_id: str, now: datetime, log: Callable[[str], None]) -> RunResult:
+        from . import ga4_source
+        src = task["source"]
+        b = ga4_source.read(self.bq_clients[src["connection"]], src, watermark=watermark, now=now, batch_id=batch_id, project=self.project)
+        log(f"table={b.table} rows={len(b.rows)} watermark={watermark}" + (f" skipped: {b.skipped_reason}" if b.skipped_reason else ""))
+        res = RunResult(rows_in=len(b.rows), rows_ok=len(b.rows), watermark_to=b.watermark_to)
+        if b.unknown_events:
+            log(f"unknown GA event names (kept with ga. prefix; register in 元事件管理): {b.unknown_events}")
+        if self.ch is None or not b.rows:
+            res.rows_loaded = res.rows_ok; return res
+        for i in range(0, len(b.rows), 50_000):
+            self.ch.insert_json("dmp.events", b.rows[i:i + 50_000])
+        res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'")
+        at = now.strftime("%Y-%m-%d %H:%M:%S.") + f"{now.microsecond // 1000:03d}"
+        self.ch.insert_json("dmp.ingest_recon", [{"task_id": task["id"], "batch_id": batch_id, "at": at, "rows_in": res.rows_in, "rows_ok": res.rows_ok,
+                                                  "rows_quarantined": 0, "rows_rejected": 0, "rows_loaded": res.rows_loaded}])
+        return res
 
     def run(self, task: dict[str, Any], *, watermark: str | None, batch_id: str, known_fields: set[str] | None,
             now: datetime, log: Callable[[str], None]) -> RunResult:
+        if task["source"].get("kind") == "ga4":
+            return self._run_ga4(task, watermark=watermark, batch_id=batch_id, now=now, log=log)
         model = modeling.load(task["model_path"])
         errs = modeling.validate(model, self.sem)
         if errs:

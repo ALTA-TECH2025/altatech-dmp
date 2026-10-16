@@ -13,6 +13,7 @@
 | `e2e_clickhouse.py` | 端到端：啟動單機 ClickHouse、建表、合成 2 萬筆委託 + 300 筆商品、排程器跑三個增量窗口、驗證筆數／隔離／對帳／水位／依賴／關聯屬性 JOIN／漏斗樣板，再以 `compile_sql` 路徑比對 event_id |
 | `cli.py` | 命令列：validate／preview／compile；sched add／tick／status／runs／run／enable／disable |
 | `sensors_format.py` | 神策資料格式檔（FormatImporter 的輸入）→ DMP：Python 串流預處理（登入 ID 代碼化、去 `$ip`／L4、壞行隔離）→ ClickHouse `file()` 讀入 `raw_sensors` → track → events（別名轉正式名）、profile_* → user_prop_log、track_signup → id_map；對帳 |
+| `ga4_source.py` | GA360 BigQuery 匯出 → events：三種表（intraday／fresh／daily）、三個任務（串流每 15 分鐘含 30 分鐘重疊窗口、日批到齊才跑、D-2／D-3 列數變了才重載）、GA4 schema 攤平（event_params、device／geo／app_info／流量來源、同意）、橋接表轉事件名、event_id 去重鍵；`BigQueryClient` 正式用、`FakeBigQuery` 測試用 |
 | `runner.read_dbapi` | DB-API 2.0 來源（MSSQL 用 pyodbc／pymssql、PostgreSQL 用 psycopg）：增量 `WHERE inc > 水位 ORDER BY inc`、fetchmany 串流；connect 工廠由部署注入 |
 
 ## 跑
@@ -32,6 +33,18 @@ CLICKHOUSE_BIN=/path/to/clickhouse python3 -m backend.integration.e2e_clickhouse
 - **三方對帳**：每批 `rows_in → rows_ok → rows_loaded`（以 `batch_id` 回查 ClickHouse），差異寫 `dmp.ingest_recon` 並告警。
 - **排序鍵含 event_id**：`dmp.events` 是 ReplacingMergeTree，排序鍵 `(project, event_date, event, one_id_uint, time, event_id)` 加 `SAMPLE BY one_id_uint`（按用戶分桶、一致抽樣）；e2e 實測少了 `event_id` 時，同客戶同事件同秒的兩筆會在合併時被去重成一筆。
 - **Schema 變更**：runner 回報來源新欄位；任務策略 `pause` 會停用任務並告警，`auto_map` 記錄後照跑。
+
+## GA360 BigQuery：更新頻率與排程（已在 e2e 驗證）
+
+| GA 匯出表 | 更新頻率（GA 口徑） | 我們的任務 | 排程 |
+|---|---|---|---|
+| `events_intraday_YYYYMMDD` 串流 | 事件後數分鐘持續追加；無遲到回補；日批到齊後 GA 刪掉它 | `ga360_intraday` | 每 15 分鐘；讀 `event_timestamp > 水位 − 30 分鐘`（吃亂序），重讀列靠 event_id 去重 |
+| `events_YYYYMMDD` 日批 | 隔日數小時內到齊，GA 只保證 72 小時；72 小時內可能整表重寫 | `ga360_daily` | 每日 06:30 起輪詢，表到齊才整天重載；ingest_time 較新 → 覆蓋串流版本 |
+| 同上（D-2、D-3） | 遲到事件造成重寫 | `ga360_restate` | 每日 07:00 比對列數與上次，變了才重載 |
+| `events_fresh_YYYYMMDD`（360 Fresh daily） | 當天表一天內多次更新，欄位完整 | 取代 `ga360_intraday` | 每小時；設 `table_kind: fresh` 即可 |
+
+e2e（假 BigQuery 餵 GA4 匯出 schema）：串流三個窗口讀入 119,595 列（含重疊重讀）→ 去重後 60,000 = 串流表筆數；日批到齊前記 skipped；到齊後 60,300 列全部覆蓋串流版本（FINAL 後串流來源 0 筆）；D-2 重寫 +120 → 重載，列數未變不重載；FINAL 後無重複 event_id。
+延遲口徑：串流路徑 P95 ≈ GA 串流延遲（數分鐘）+ 15 分鐘窗口；日批完整版 T+1 早上；歸因欄位以日批為準。
 
 ## 交易資料的兩條導入路（都已在 e2e 驗證）
 

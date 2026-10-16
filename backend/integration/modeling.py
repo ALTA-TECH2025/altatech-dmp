@@ -412,24 +412,29 @@ def preview(model: Model, rows: list[dict[str, Any]], limit: int = 1000) -> dict
 
 
 # ---------------------------------------------------------------- ClickHouse 列與 SQL
+def ms_to_dt(ms: int) -> str:
+    """毫秒 → 'YYYY-MM-DD HH:MM:SS.mmm'（UTC）。JSONEachRow 寫 DateTime64 不能給整數毫秒：會被當成秒而飽和到 9999-12-31（e2e 實測）。"""
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S.") + f"{ms % 1000:03d}"
+
+
 def to_ch_row(model: Model, rec: dict[str, Any], project: str = "altatech_dmp", ingest_ms: int | None = None) -> dict[str, Any]:
-    """apply() 的輸出 → events／users／dim 表的 JSONEachRow 列。"""
+    """apply() 的輸出 → events／users／dim 表的 JSONEachRow 列（時間欄位一律字串，見 ms_to_dt）。"""
     ingest_ms = ingest_ms or int(datetime.now(timezone.utc).timestamp() * 1000)
     if model.entity == "event":
         props = dict(rec["props"])
-        row = {"project": project, "time": rec["time"], "event": rec["event"], "source": model.id, "one_id": rec["one_id"],
+        row = {"project": project, "time": ms_to_dt(rec["time"]), "event": rec["event"], "source": model.id, "one_id": rec["one_id"],
                "entity_type": rec.get("entity_type", ""), "entity_id": rec.get("entity_id") or "", "distinct_id": rec["distinct_id"],
                "session_id": "", "event_id": rec["event_id"], "platform": props.pop("platform", "") or "", "app_id": "",
                "symbol": props.pop("symbol", "") or "", "side": props.pop("side", "") or "", "channel": props.pop("channel", "") or "",
                "amount": props.pop("amount", None), "utm_source": "", "utm_campaign": "", "props": props,
-               "ingest_time": ingest_ms, "schema_version": 1, "late": 0, "batch_id": rec.get("batch_id", "")}
+               "ingest_time": ms_to_dt(ingest_ms), "schema_version": 1, "late": 0, "batch_id": rec.get("batch_id", "")}
         row["props"]["$identities"] = rec.get("identities", {})
         return row
     if model.entity == "user":   # 寬表：已登記屬性直接是欄位，未登記的進 props_extra
-        return {"one_id": rec["one_id"], **rec["props"], "props_extra": {}, "first_seen": ingest_ms, "updated_at": ingest_ms}
+        return {"one_id": rec["one_id"], **rec["props"], "props_extra": {}, "first_seen": ms_to_dt(ingest_ms), "updated_at": ms_to_dt(ingest_ms)}
     key = model.raw["target"]["key"]
     props = dict(rec["props"])
-    return {key: props.pop(key), "props": props, "updated_at": ingest_ms}
+    return {key: props.pop(key), "props": props, "updated_at": ms_to_dt(ingest_ms)}
 
 
 def compile_sql(model: Model, raw_table: str, project: str = "altatech_dmp", batch_id: str = "{batch_id}") -> str:
@@ -518,7 +523,7 @@ if __name__ == "__main__":
     assert o.ok[1]["event"] == "bond_deal" and o.ok[1]["props"]["filled_qty"] == "2000"
     assert a1["entity_id"] != "9801234567" and len(a1["entity_id"]) == 10 and a1["entity_id"].isdigit()   # FPE 保留格式
     ch = to_ch_row(m, a1)
-    assert ch["symbol"] == "2330" and ch["amount"] == 2_000_000.0 and "symbol" not in ch["props"] and ch["props"]["$identities"]["$identity_login_id"] == a1["one_id"]
+    assert ch["symbol"] == "2330" and ch["amount"] == 2_000_000.0 and "symbol" not in ch["props"] and ch["time"] == "2026-10-15 01:01:00.000" and ch["props"]["$identities"]["$identity_login_id"] == a1["one_id"]
     sql = compile_sql(m, "dmp.raw_orders")
     assert "transform(toString(STATUS)" in sql and "windowFunnel" not in sql and "toDateTime64(ORD_TIME, 3, 'Asia/Taipei')" in sql
     assert transform_sql("map({T: TSE, O: OTC})", "MKT") == "transform(MKT, ['T', 'O'], ['TSE', 'OTC'], NULL)"

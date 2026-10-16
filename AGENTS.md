@@ -20,6 +20,7 @@ python3 backend/integration/transforms.py     # 轉換函式自測
 python3 -m backend.integration.modeling       # 建模引擎自測（映射、清洗、SQL 編譯）
 python3 -m backend.integration.scheduler      # 排程器自測（模擬時鐘）
 python3 -m backend.integration.sensors_format # 神策格式檔預處理自測
+python3 -m backend.integration.ga4_source     # GA360 BigQuery 三種表／三個任務自測（假 BigQuery）
 python3 -m backend.integration.e2e_clickhouse # 接入端到端乾跑；設 CLICKHOUSE_BIN 走真 ClickHouse
 python3 backend/insight_agent/runtime.py      # agent 迴圈煙霧測試
 python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True)]"
