@@ -119,3 +119,21 @@ ul.priv { padding-left: 18px; font-size: 13px; color: var(--body); line-height: 
 .tile { background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
 .tile b { font-size: 24px; font-variant-numeric: tabular-nums; }
 select[multiple] { min-height: 74px; }
+
+/* 用戶列表／細查／分群 */
+.tbl td.sub { display: table-cell; font-size: 12px; }
+.pill { white-space: nowrap; }
+.tbl td .pill { margin-right: 2px; }
+.tbl tr.clickable, .tbl td.clickable { cursor: pointer; }
+.tbl td.clickable:hover { outline: 2px solid var(--brand); outline-offset: -2px; }
+.tbl tr.clickable:hover td { background: var(--soft); }
+.drawer-bk { position: fixed; inset: 0; background: rgba(16, 24, 40, .35); z-index: 20; display: flex; justify-content: flex-end; }
+.drawer { width: min(720px, 100%); height: 100%; overflow-y: auto; background: var(--panel); border-left: 1px solid var(--line); padding: 16px; box-shadow: var(--shadow-lg); }
+ol.timeline { list-style: none; display: flex; flex-direction: column; gap: 10px; border-left: 2px solid var(--line); padding-left: 14px; }
+ol.timeline li { display: flex; flex-direction: column; gap: 2px; position: relative; font-size: 13px; }
+ol.timeline li::before { content: ''; position: absolute; left: -19px; top: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--brand); border: 2px solid var(--panel); }
+.bars { display: flex; flex-direction: column; gap: 6px; }
+.bar { display: grid; grid-template-columns: 90px minmax(0, 1fr) 60px; align-items: center; gap: 8px; font-size: 12.5px; }
+.bar span { color: var(--body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar i { display: block; height: 10px; border-radius: 4px; background: var(--s1); min-width: 2px; }
+.bar em { font-style: normal; text-align: right; color: var(--body); }

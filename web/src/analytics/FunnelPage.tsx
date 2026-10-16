@@ -1,6 +1,7 @@
 // 漏斗分析：步驟（事件 + 篩選）、窗口、順序、關聯屬性（業務 ID）、口徑、分組、趨勢、時間 → POST /v1/analytics/funnel。
 // 圖：自繪 SVG 漏斗（每步一條橫柱，寬度 = 相對第一步）；表：人數、相對上一步、相對第一步；SQL 可展開；K 匿名抑制列以「< K」顯示。
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
@@ -16,7 +17,8 @@ export function FunnelPage() {
 function today(offset = 0): string { const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); }
 
 function FunnelInner() {
-  const { me } = useAuth();
+  const { me, can } = useAuth();
+  const nav = useNavigate();
   const [cat, setCat] = useState<Catalog | null>(null);
   const [q, setQ] = useState<FunnelQuery>({ steps: [{ event: '' }, { event: '' }], window: { value: 7, unit: 'day' }, order: 'loose', metric: 'users', time: { from: today(-30), to: today() } });
   const [res, setRes] = useState<FunnelResult | null>(null);
@@ -90,11 +92,12 @@ function FunnelInner() {
               <div className="card-h"><h3>{key === '|' ? '整體' : key.replace('|', ' · ').replace(/^ · | · $/g, '')}</h3><span className="sub">{res.cost.ms} ms · {res.cost.layer}</span></div>
               <FunnelChart rows={rows} k={k} />
               <div className="tbl-wrap" style={{ marginTop: 10 }}><table className="tbl">
-                <thead><tr><th>步驟</th><th>事件</th><th className="num">{q.metric === 'times' ? '流程數' : '用戶數'}</th><th className="num">相對上一步</th><th className="num">相對第一步</th></tr></thead>
+                <thead><tr><th>步驟</th><th>事件</th><th className="num">{q.metric === 'times' ? '流程數' : '用戶數'}</th><th className="num">相對上一步</th><th className="num">相對第一步</th>{can('users', 'use') && <th>用戶</th>}</tr></thead>
                 <tbody>{rows.map((r) => (
                   <tr key={r.step}><td>{r.step}. {r.alias}</td><td className="mono sub">{r.event}</td>
                     <td className="num mono">{r.suppressed ? `< ${k}` : (r.users ?? 0).toLocaleString()}</td>
-                    <td className="num mono">{pct(r.rate_prev)}</td><td className="num mono">{pct(r.rate_first)}</td></tr>))}</tbody>
+                    <td className="num mono">{pct(r.rate_prev)}</td><td className="num mono">{pct(r.rate_first)}</td>
+                    {can('users', 'use') && <td className="sub">{(['reached', 'lost'] as const).filter((m) => m === 'reached' || r.step > 1).map((m) => <button key={m} className="btn-ghost sm" style={{ marginRight: 4 }} onClick={() => nav('/users', { state: { source: { type: 'funnel', query: q, step: r.step, reached: m === 'reached', bucket: r.bucket, group: r.g1, label: `漏斗「${q.steps.map((st) => st.alias || st.event).join(' → ')}」第 ${r.step} 步${m === 'reached' ? '到達' : '流失'}${r.bucket ? `（${r.bucket}）` : ''}${r.g1 != null ? ` · ${r.g1}` : ''}` } } })}>{m === 'reached' ? '到達' : '流失'}</button>)}</td>}</tr>))}</tbody>
               </table></div>
             </div>
           ))}

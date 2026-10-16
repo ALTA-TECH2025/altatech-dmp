@@ -1,6 +1,7 @@
 // 留存分析：初始行為、回訪行為（可任一事件）、四模型、日／週／月、期數、含當期、分組 → POST /v1/analytics/retention。
 // 結果：同期群 × 期矩陣（單一色相深淺 = 留存比例；未過的期數灰階「—」；K 匿名抑制「< K」）；分組時每組一張矩陣；SQL 可展開。
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
@@ -16,7 +17,8 @@ export function RetentionPage() {
 function today(offset = 0): string { const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); }
 
 function RetentionInner() {
-  const { me } = useAuth();
+  const { me, can } = useAuth();
+  const nav = useNavigate();
   const [cat, setCat] = useState<Catalog | null>(null);
   const [q, setQ] = useState<RetentionQuery>({ initial: { event: '' }, return: { event: '' }, model: 'date', unit: 'day', periods: 7, include_day0: false, time: { from: today(-14), to: today() } });
   const [res, setRes] = useState<RetentionResult | null>(null);
@@ -69,7 +71,7 @@ function RetentionInner() {
           {groups.map(([g, rows]) => (
             <div className="card" style={{ marginTop: 16 }} key={g}>
               <div className="card-h"><h3>{g || '整體'}</h3><span className="sub">{res.cost.ms} ms · {rows.length} 列</span></div>
-              <RetentionMatrix rows={rows} k={k} display={display} unit={q.unit} />
+              <RetentionMatrix rows={rows} k={k} display={display} unit={q.unit} onCell={can('users', 'use') ? (r, retained) => nav('/users', { state: { source: { type: 'retention', query: q, cohort: r.cohort, period: r.period, retained, group: r.g1, label: `留存「${q.initial.event}」${r.cohort} 同期群第 ${r.period} 期${retained ? '留存' : '未留存'}${r.g1 != null ? ` · ${r.g1}` : ''}` } } }) : undefined} />
             </div>
           ))}
           {showSql && <div className="card" style={{ marginTop: 16 }}><div className="card-h"><h3>SQL</h3><span className="sub">{res.lineage.join(' · ')}</span></div><pre className="code">{res.sql}</pre></div>}
@@ -80,7 +82,7 @@ function RetentionInner() {
 }
 
 /** 同期群 × 期矩陣：單一色相（品牌藍）深淺代表比例（順序色），未過期數灰階，抑制列顯示 < K。顏色之外同時印數字，不靠顏色辨識。 */
-export function RetentionMatrix({ rows, k, display, unit }: { rows: RetentionRow[]; k: number; display: 'rate' | 'users'; unit: 'day' | 'week' | 'month' }) {
+export function RetentionMatrix({ rows, k, display, unit, onCell }: { rows: RetentionRow[]; k: number; display: 'rate' | 'users'; unit: 'day' | 'week' | 'month'; onCell?: (r: RetentionRow, retained: boolean) => void }) {
   const periods = Array.from(new Set(rows.map((r) => r.period))).sort((a, b) => a - b);
   const cohorts = Array.from(new Set(rows.map((r) => r.cohort)));
   const byKey = new Map(rows.map((r) => [`${r.cohort}|${r.period}`, r]));
@@ -92,7 +94,7 @@ export function RetentionMatrix({ rows, k, display, unit }: { rows: RetentionRow
         const first = byKey.get(`${c}|${periods[0]}`);
         return (
           <tr key={c}><td className="mono">{c}</td><td className="num mono">{first?.suppressed ? `< ${k}` : (first?.users ?? 0).toLocaleString()}</td>
-            {periods.map((p) => { const r = byKey.get(`${c}|${p}`); return <td key={p} className="num mono" style={cellStyle(r)}>{cellText(r, k, display)}</td>; })}
+            {periods.map((p) => { const r = byKey.get(`${c}|${p}`); const clickable = !!onCell && !!r && !r.suppressed && r.complete; return <td key={p} className={`num mono${clickable ? ' clickable' : ''}`} style={cellStyle(r)} title={clickable ? '點：留存用戶；Shift+點：未留存用戶' : undefined} onClick={clickable ? (e) => onCell?.(r as RetentionRow, !e.shiftKey) : undefined}>{cellText(r, k, display)}</td>; })}
           </tr>);
       })}</tbody>
     </table></div>

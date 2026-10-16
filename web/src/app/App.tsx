@@ -8,6 +8,8 @@ import { IamPage } from '@/iam/IamPage';
 import { FunnelPage } from '@/analytics/FunnelPage';
 import { RetentionPage } from '@/analytics/RetentionPage';
 import { EventsPage } from '@/analytics/EventsPage';
+import { UsersPage } from '@/users/UsersPage';
+import { SegmentsPage } from '@/segments/SegmentsPage';
 import type { Module } from '@/api/types';
 
 function Placeholder({ title, module }: { title: string; module: Module }) {
@@ -34,8 +36,9 @@ export function App() {
             <Route path="/path" element={<Placeholder title="行為路徑" module="path" />} />
             <Route path="/attribution" element={<Placeholder title="歸因分析" module="attribution" />} />
             <Route path="/sql" element={<Placeholder title="自定義 SQL" module="events" />} />
-            <Route path="/users" element={<Placeholder title="用戶列表" module="users" />} />
-            <Route path="/segments" element={<Placeholder title="分群與標籤" module="segments" />} />
+            <Route path="/users" element={<UsersPage />} />
+            <Route path="/segments" element={<SegmentsPage />} />
+            <Route path="/segments/:id" element={<SegmentsPage />} />
             <Route path="/triggers" element={<Placeholder title="即時觸發" module="triggers" />} />
             <Route path="/integration" element={<Placeholder title="數據整合" module="integration" />} />
             <Route path="/governance/*" element={<Placeholder title="資料治理" module="governance" />} />

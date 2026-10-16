@@ -23,6 +23,10 @@ npm run build          # dist/（由 apps.web 映像的 nginx 提供，與 API �
 | `src/lib/policy.ts` | `can`／`visibleModules`／`display`（遮罩渲染）／`toggleAction`／`unionGrants` |
 | `src/analytics/EventsPage.tsx`、`LineChart.tsx`、`series.ts` | 事件分析頁（多指標、篩選、分組 ≤3、粒度、對比、Top N、抽樣）與自繪 SVG 折線／長條（固定類別色、十字線提示、抑制點空心）、數字卡、表格 |
 | `src/analytics/FunnelPage.tsx`、`FunnelChart.tsx` | 漏斗分析頁（步驟／窗口／順序／關聯屬性／口徑／分組／趨勢）與自繪 SVG 漏斗圖；目錄來自 `/v1/semantic/catalog` |
+| `src/users/UsersPage.tsx`、`RuleBuilder.tsx`、`UsersTable.tsx`、`rule.ts` | 用戶列表頁：條件建構器（用戶屬性／分群、做過／未做過 × 次數 × 期間 × 事件屬性、且／或、來自漏斗／留存／事件分析的落點來源）→ 估數 → keyset 分頁列表（欄位、排序、遮罩提示）→ 存為分群；`rule.ts` 純函式（欄位目錄、值轉型、規則中文摘要、有效性）有單元測試 |
+| `src/users/ProfileDrawer.tsx` | 用戶細查抽屜：理由（4–200 字）→ 畫像（屬性脫敏、近 30 天摘要、分群）→ 行為序列（倒序分頁、事件篩選）→ 身分圖（節點／邊） |
+| `src/segments/SegmentsPage.tsx`、`segments.ts` | 分群頁：列表（全部／待審批／回收站、搜尋）、新建與編輯（同一套 RuleBuilder、更新方式／頻率／最早時間／保留版本）、詳情（狀態與審批列、立即計算、預覽畫像長條、成員列表、歷史版本、血緣、暫停／複製／回收站／恢復／徹底刪除）；`actionsFor` 依 grants 決定可做的動作，有單元測試 |
+| 漏斗／留存／事件分析頁 | 落點下鑽：漏斗每步「到達／流失」、留存格子（點：留存；Shift+點：未留存）、事件分析表格列 → `navigate('/users', { state: { source } })` |
 | `src/analytics/RetentionPage.tsx` | 留存分析頁（初始／回訪行為、四模型、日週月、期數、含當期、分組）與同期群 × 期矩陣（單色深淺 = 比例，未過期數灰階） |
 | `src/iam/IamPage.tsx` | 權限中心：角色矩陣、使用者指派、數據權限模擬、欄位隱碼、我的 session |
 | `src/styles/app.css` | 設計 token 與原型同一套（含深色模式） |

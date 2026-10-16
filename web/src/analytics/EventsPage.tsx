@@ -1,6 +1,7 @@
 // 事件分析：多指標（事件 × 聚合 × 欄位）、全局篩選、分組（≤3）、粒度、時間、對比上期、Top N → POST /v1/analytics/events。
 // 結果：時間粒度 → 折線；合計 + 分組 → 長條；合計不分組 → 數字卡；表格；SQL／血緣可展開；K 匿名抑制以空心點與「< K」呈現。
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
@@ -20,7 +21,8 @@ export function EventsPage() {
 function today(offset = 0): string { const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); }
 
 function EventsInner() {
-  const { me } = useAuth();
+  const { me, can } = useAuth();
+  const nav = useNavigate();
   const [cat, setCat] = useState<Catalog | null>(null);
   const [q, setQ] = useState<EventsQuery>({ metrics: [{ event: '', agg: 'total' }], filters: [], group_by: [], time: { from: today(-14), to: today(), grain: 'day' } });
   const [res, setRes] = useState<EventsResult | null>(null);
@@ -100,7 +102,7 @@ function EventsInner() {
           </div>
           <div className="card flush" style={{ marginTop: 16 }}><div className="tbl-wrap"><table className="tbl">
             <thead><tr>{res.columns.filter((c) => c !== '_k' && c !== 'suppressed').map((c) => <th key={c} className={aliases.includes(c) || c.endsWith('_prev') ? 'num' : ''}>{c === 'bucket' ? '時間' : c.startsWith('g') && c.length === 2 ? (q.group_by?.[Number(c[1]) - 1] ?? c) : labels[c] ?? (c.endsWith('_prev') ? `${labels[c.slice(0, -5)] ?? c}（上期）` : c)}</th>)}</tr></thead>
-            <tbody>{res.rows.slice(0, 500).map((r, i) => <tr key={i} className={r.suppressed ? 'warnrow' : ''}>{res.columns.filter((c) => c !== '_k' && c !== 'suppressed').map((c) => <td key={c} className={typeof r[c] === 'number' ? 'num mono' : 'mono'}>{c === 'bucket' ? String(r[c]) : c.startsWith('g') && c.length === 2 ? groupLabel({ [c]: r[c] }) : r.suppressed ? `< ${k}` : typeof r[c] === 'number' ? fmtNum(r[c] as number) : String(r[c] ?? '—')}</td>)}</tr>)}</tbody>
+            <tbody>{res.rows.slice(0, 500).map((r, i) => <tr key={i} className={`${r.suppressed ? 'warnrow' : ''}${can('users', 'use') && !r.suppressed ? ' clickable' : ''}`} title={can('users', 'use') ? '點：這個落點的用戶列表' : undefined} onClick={can('users', 'use') && !r.suppressed ? () => nav('/users', { state: { source: { type: 'events', query: q, bucket: r.bucket != null ? String(r.bucket) : undefined, group: q.group_by?.length ? q.group_by.map((_, gi) => r[`g${gi + 1}`] ?? null) : undefined, metric: aliases[0], label: `事件分析 ${labels[aliases[0]]}${r.bucket != null ? ` ${String(r.bucket)}` : ''}${q.group_by?.length ? ` · ${q.group_by.map((_, gi) => groupLabel({ [`g${gi + 1}`]: r[`g${gi + 1}`] })).join(' / ')}` : ''}` } } }) : undefined}>{res.columns.filter((c) => c !== '_k' && c !== 'suppressed').map((c) => <td key={c} className={typeof r[c] === 'number' ? 'num mono' : 'mono'}>{c === 'bucket' ? String(r[c]) : c.startsWith('g') && c.length === 2 ? groupLabel({ [c]: r[c] }) : r.suppressed ? `< ${k}` : typeof r[c] === 'number' ? fmtNum(r[c] as number) : String(r[c] ?? '—')}</td>)}</tr>)}</tbody>
           </table></div>{res.rows.length > 500 && <p className="note">只顯示前 500 列；完整結果請匯出（走審批）。</p>}</div>
           {showSql && <div className="card" style={{ marginTop: 16 }}><div className="card-h"><h3>SQL</h3><span className="sub">{res.lineage.join(' · ')}</span></div><pre className="code">{res.sql}</pre></div>}
         </>
