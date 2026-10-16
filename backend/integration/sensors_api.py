@@ -118,11 +118,15 @@ class SensorsQueryAPI:
             except Exception as e:
                 out.append(Step(name, False, round((time.perf_counter() - t0) * 1000), _redact(str(e)[:200], self._token), fix)); return False
 
-        if not timed("dns", lambda: ", ".join(sorted({a[4][0] for a in socket.getaddrinfo(host, port)})), "確認主機名與 DNS／hosts；私有化環境常需內部 DNS"):
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+        if proxy:                                              # 經 HTTP 代理出去：DNS／TCP／TLS 由代理做，直連檢查無意義，直接驗 auth
+            for n in ("dns", "tcp", "tls"):
+                out.append(Step(n, True, 0, f"經代理 {proxy.split('@')[-1]} 連線，略過直連檢查"))
+        if not proxy and not timed("dns", lambda: ", ".join(sorted({a[4][0] for a in socket.getaddrinfo(host, port)})), "確認主機名與 DNS／hosts；私有化環境常需內部 DNS"):
             return out
-        if not timed("tcp", lambda: (socket.create_connection((host, port), timeout=5).close(), f"{host}:{port}")[1], "防火牆／出口 IP 白名單；私有化查詢 API 常在 8107 埠或經 nginx 的 443"):
+        if not proxy and not timed("tcp", lambda: (socket.create_connection((host, port), timeout=5).close(), f"{host}:{port}")[1], "防火牆／出口 IP 白名單；私有化查詢 API 常在 8107 埠或經 nginx 的 443"):
             return out
-        if u.scheme == "https":
+        if not proxy and u.scheme == "https":
             def tls() -> str:
                 ctx = ssl.create_default_context()
                 with socket.create_connection((host, port), timeout=5) as s, ctx.wrap_socket(s, server_hostname=host) as ss:
