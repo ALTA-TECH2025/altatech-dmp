@@ -38,6 +38,7 @@ def start_clickhouse(binary: str, workdir: Path) -> subprocess.Popen:
   <mark_cache_size>268435456</mark_cache_size><max_server_memory_usage_to_ram_ratio>0.5</max_server_memory_usage_to_ram_ratio>
   <users><default><password></password><networks><ip>127.0.0.1</ip></networks><profile>default</profile><quota>default</quota><access_management>1</access_management></default></users>
   <profiles><default><allow_experimental_json_type>1</allow_experimental_json_type></default></profiles><quotas><default/></quotas>
+  <named_collections><dmp_dict><host>127.0.0.1</host><port>{TCP_PORT}</port><user>default</user><password></password></dmp_dict></named_collections>
 </clickhouse>""")
     p = subprocess.Popen([binary, "server", f"--config-file={cfg}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(60):
@@ -90,6 +91,8 @@ def main() -> int:
                 proc = start_clickhouse(binary, work); url = f"http://127.0.0.1:{HTTP_PORT}"
             ch = ClickHouseHTTP(url, user=os.environ.get("CLICKHOUSE_USER", "default"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), timeout=3600)
             ch.query("DROP DATABASE IF EXISTS dmp")       # 現成伺服器（CI）可能殘留上一輪的表
+            if not binary:                                 # 現成伺服器：字典來源的 named collection 用 SQL 建（需 named_collection_control）
+                ch.query(f"CREATE NAMED COLLECTION IF NOT EXISTS dmp_dict AS host = '127.0.0.1', port = {int(os.environ.get('CLICKHOUSE_TCP_PORT', '9000'))}, user = '{ch.user}', password = '{ch.password}'")
             for st in local_ddl((ROOT / "clickhouse" / "schema.sql").read_text(encoding="utf-8")):
                 ch.query(st, settings={"allow_experimental_json_type": 1})
             print("ClickHouse", ch.query("SELECT version()").strip(), "· tables:", ch.query("SELECT count() FROM system.tables WHERE database='dmp'").strip())

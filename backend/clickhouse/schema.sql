@@ -131,7 +131,7 @@ CREATE DICTIONARY IF NOT EXISTS dmp.users_dict
     last_active_at       DateTime64(3)
 )
 PRIMARY KEY one_id_uint
-SOURCE(CLICKHOUSE(QUERY 'SELECT one_id_uint, lifecycle, tier, age_band, gender, branch_id, first_utm_source, ifNull(signup_date, toDate(0)), ifNull(account_age_days, 0), aum_bucket, has_margin, ifNull(churn_score, 0), pref_market, ifNull(aum, 0), is_first_trade, last_active_at FROM dmp.users FINAL'))
+SOURCE(CLICKHOUSE(NAME dmp_dict QUERY 'SELECT one_id_uint, lifecycle, tier, age_band, gender, branch_id, first_utm_source, ifNull(signup_date, toDate(0)), ifNull(account_age_days, 0), aum_bucket, has_margin, ifNull(churn_score, 0), pref_market, ifNull(aum, 0), is_first_trade, last_active_at FROM dmp.users FINAL'))
 LAYOUT(HASHED())
 LIFETIME(MIN 300 MAX 600);
 -- <<< generated <<<

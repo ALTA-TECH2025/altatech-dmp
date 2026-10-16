@@ -59,24 +59,24 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
-    services:
-      clickhouse:
-        image: clickhouse/clickhouse-server:25.8.33.6   # LTS；版本鎖定，升版要同步 docs/11 與 deploy/
-        ports: ['8123:8123']
-        env: { CLICKHOUSE_USER: e2e, CLICKHOUSE_PASSWORD: e2e-ci, CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1' }   # 映像不設帳密會把 default 使用者鎖在容器內
-        options: >-
-          --health-cmd "wget -qO- http://127.0.0.1:8123/ping || exit 1"
-          --health-interval 5s --health-timeout 5s --health-retries 20
+    env: { CH_VERSION: 25.8.33.6 }   # LTS；版本鎖定，升版要同步 docs/11 與 deploy/
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install -r backend/requirements.txt
+      - uses: actions/cache@v4
+        id: ch
+        with: { path: ~/clickhouse, key: "clickhouse-${{ env.CH_VERSION }}-amd64" }
+      - name: 下載 ClickHouse 單一執行檔（官方 tgz，固定版本）
+        if: steps.ch.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/clickhouse && cd ~/clickhouse
+          curl -sSL "https://packages.clickhouse.com/tgz/lts/clickhouse-common-static-${CH_VERSION}-amd64.tgz" | tar xz --strip-components=3 "clickhouse-common-static-${CH_VERSION}/usr/bin/clickhouse"
+          ./clickhouse --version
       - name: 端到端（接入 → ClickHouse → 對帳 → 用戶表 → 查詢編譯器黃金測試）
         env:
-          CLICKHOUSE_URL: http://127.0.0.1:8123
-          CLICKHOUSE_USER: e2e
-          CLICKHOUSE_PASSWORD: e2e-ci
+          CLICKHOUSE_BIN: /home/runner/clickhouse/clickhouse
           E2E_USERS: '50000'
           E2E_EVENTS: '300000'
           E2E_SENSORS_LINES: '50000'
