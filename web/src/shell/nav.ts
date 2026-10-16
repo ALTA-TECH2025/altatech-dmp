@@ -17,6 +17,7 @@ export const NAV: NavGroup[] = [
   { id: 'users', cn: '用戶', items: [
     { path: '/users', cn: '用戶列表', module: 'users' },
     { path: '/segments', cn: '分群與標籤', module: 'segments' },
+    { path: '/approvals', cn: '審批與匯出', module: 'users' },
     { path: '/triggers', cn: '即時觸發', module: 'triggers' },
   ] },
   { id: 'data', cn: '數據', items: [

@@ -6,6 +6,7 @@ import { api, ApiError } from '@/api/client';
 import type { Catalog } from '@/analytics/types';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
+import { ExportDialog } from './ExportDialog';
 import { ProfileDrawer } from './ProfileDrawer';
 import { RuleBuilder } from './RuleBuilder';
 import { emptyRule, ruleValid, summarizeRule } from './rule';
@@ -36,6 +37,7 @@ function UsersInner() {
   const [showSql, setShowSql] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [saving, setSaving] = useState<{ name: string; mode: 'manual' | 'routine' } | null>(null);
+  const [exporting, setExporting] = useState(false);
   const body = (cursor?: string): UsersListRequest => ({ ...q, filters: q.filters?.length ? q.filters : undefined, behaviors: q.behaviors?.length ? q.behaviors : undefined, columns: cols, sort: sort ?? undefined, page_size: 50, cursor });
   const list = async (cursor?: string) => {
     setBusy(true); setErr(null);
@@ -71,7 +73,8 @@ function UsersInner() {
         <div className="card">
           <RuleBuilder q={q} cat={cat} segments={segOpts} onChange={(nq) => { setQ(nq); setEst(null); setRes(null); setCursors([]); }} />
           <div className="row"><button className="btn-ghost" disabled={!valid || busy} onClick={() => void estimate()}>估人數</button><button className="btn-primary" disabled={!valid || busy} onClick={() => { setCursors([]); void list(); }}>{busy ? '查詢中…' : '查詢列表'}</button>
-            {res && can('segments', 'use') && <button className="btn-ghost" onClick={() => setSaving({ name: '', mode: 'manual' })}>存為分群</button>}{res && <button className="btn-ghost" onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</button>}{err && <span className="alert">{err}</span>}</div>
+            {res && can('segments', 'use') && <button className="btn-ghost" onClick={() => setSaving({ name: '', mode: 'manual' })}>存為分群</button>}{res && can('users', 'export') && <button className="btn-ghost" onClick={() => setExporting(true)}>匯出（審批）</button>}{res && <button className="btn-ghost" onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</button>}{err && <span className="alert">{err}</span>}</div>
+          {exporting && <ExportDialog base={{ kind: 'users', rule: { ...q, filters: q.filters?.length ? q.filters : undefined, behaviors: q.behaviors?.length ? q.behaviors : undefined }, columns: cols }} onClose={() => setExporting(false)} />}
           {saving && <div className="row" style={{ background: 'var(--soft)', padding: 10, borderRadius: 10 }}><input aria-label="分群名稱" placeholder="分群名稱" value={saving.name} onChange={(e) => setSaving({ ...saving, name: e.target.value })} />
             <select value={saving.mode} aria-label="更新方式" onChange={(e) => setSaving({ ...saving, mode: e.target.value as 'manual' | 'routine' })}><option value="manual">手動更新</option><option value="routine">每天 06:00 例行更新</option></select>
             <button className="btn-primary" disabled={!saving.name.trim() || busy} onClick={() => void saveSegment()}>建立</button><button className="btn-ghost" onClick={() => setSaving(null)}>取消</button></div>}

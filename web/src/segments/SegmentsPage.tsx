@@ -5,6 +5,7 @@ import { api, ApiError } from '@/api/client';
 import type { Catalog } from '@/analytics/types';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
+import { ExportDialog } from '@/users/ExportDialog';
 import { ProfileDrawer } from '@/users/ProfileDrawer';
 import { RuleBuilder } from '@/users/RuleBuilder';
 import { emptyRule, ruleValid, summarizeRule } from '@/users/rule';
@@ -120,6 +121,7 @@ function SegmentDetail({ seg, cat, segOpts, me, can, onChanged, busy, setBusy, s
   const [lineage, setLineage] = useState<{ up: string[]; down: string[] } | null>(null);
   const [note, setNote] = useState('');
   const [open, setOpen] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   useEffect(() => { setEditing(false); setPreview(null); setMembers(null); setCursors([]); api.get<SegmentVersion[]>(`/v1/segments/${seg.id}/versions`).then(setVersions).catch(() => setVersions([])); api.get<{ up: string[]; down: string[] }>(`/v1/segments/${seg.id}/lineage`).then(setLineage).catch(() => undefined); }, [seg.id, seg.updated_at]);
   const act = async (a: SegAction, body?: unknown) => {
     setBusy(true); setErr(null);
@@ -153,7 +155,9 @@ function SegmentDetail({ seg, cat, segOpts, me, can, onChanged, busy, setBusy, s
           {actions.filter((a) => a !== 'approve').map((a) => <button key={a} className={`btn-ghost${a === 'purge' ? ' danger' : ''}`} disabled={busy} onClick={() => void act(a)}>{ACTION_CN[a]}</button>)}
           <button className="btn-ghost" disabled={busy} onClick={() => void loadPreview()}>預覽人數與畫像</button>
           {seg.latest?.status === 'success' && can('users', 'use') && <button className="btn-ghost" disabled={busy} onClick={() => { setCursors([]); void loadMembers(); }}>看成員</button>}
+          {seg.latest?.status === 'success' && can('users', 'export') && <button className="btn-ghost" disabled={busy} onClick={() => setExporting(true)}>匯出成員（審批）</button>}
         </div>
+        {exporting && <ExportDialog base={{ kind: 'segment_members', segment_id: seg.id, basetime: 'latest' }} onClose={() => setExporting(false)} />}
         {actions.includes('approve') && <div className="row" style={{ background: 'var(--soft)', padding: 10, borderRadius: 10 }}><input aria-label="審批意見" placeholder="審批意見（退回時必填）" value={note} onChange={(e) => setNote(e.target.value)} /><button className="btn-primary" disabled={busy} onClick={() => void act('approve', { approve: true, note })}>核可</button><button className="btn-ghost danger" disabled={busy || !note.trim()} onClick={() => void act('approve', { approve: false, note })}>退回</button></div>}
       </div>
       {preview && <div className="card"><div className="card-h"><h3>預覽</h3><span className="sub">{preview.users.toLocaleString()} 人（精確）</span></div>

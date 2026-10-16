@@ -11,6 +11,7 @@ import { EventsPage } from '@/analytics/EventsPage';
 import { PathPage } from '@/analytics/PathPage';
 import { UsersPage } from '@/users/UsersPage';
 import { SegmentsPage } from '@/segments/SegmentsPage';
+import { ApprovalsPage } from '@/approvals/ApprovalsPage';
 import type { Module } from '@/api/types';
 
 function Placeholder({ title, module }: { title: string; module: Module }) {
@@ -40,6 +41,7 @@ export function App() {
             <Route path="/users" element={<UsersPage />} />
             <Route path="/segments" element={<SegmentsPage />} />
             <Route path="/segments/:id" element={<SegmentsPage />} />
+            <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/triggers" element={<Placeholder title="即時觸發" module="triggers" />} />
             <Route path="/integration" element={<Placeholder title="數據整合" module="integration" />} />
             <Route path="/governance/*" element={<Placeholder title="資料治理" module="governance" />} />
