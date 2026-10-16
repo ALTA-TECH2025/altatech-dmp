@@ -101,7 +101,7 @@ class Ctx:
         return f.sql
 
     def now_sql(self) -> str:
-        return f"toDate({q(self.q.time.now.isoformat())})" if self.q.time.now else f"today('{TZ}')"
+        return f"toDate({q(self.q.time.now.isoformat())})" if self.q.time.now else f"toDate(now(), '{TZ}')"      # today() 不吃時區參數
 
 
 def bucket_sql(grain: str, ctx: Ctx) -> str | None:

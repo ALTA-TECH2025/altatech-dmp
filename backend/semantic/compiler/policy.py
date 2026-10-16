@@ -103,3 +103,18 @@ def inject(decision: Any, qr: Query, cat: Catalog, ctx: Any, msql: list[str]) ->
         if pol != "plain":
             masked[f"g{i + 1}"] = pol
     return rows, out, masked, warnings
+
+
+def mask_value(policy: str, v: Any) -> Any:
+    """Python 端遮罩（身分圖的 ID 值、oracle 比對用）；與 mask_sql 同口徑。"""
+    if v is None: return None
+    name, arg = parse_policy(policy)
+    if name == "plain": return v
+    if name == "bucket": return bucket_label(float(v), arg)                          # type: ignore[arg-type]
+    if name == "round": return round(float(v) / arg) * arg                           # type: ignore[operator]
+    if name == "mask_tail":
+        s = str(v); n = int(arg)                                                     # type: ignore[arg-type]
+        return s[: max(len(s) - n, 0)] + "*" * min(len(s), n)
+    if name == "mask_all": return "***"
+    if name == "hide": return None
+    raise ValueError(f"遮罩策略 {name} 不能用在輸出")

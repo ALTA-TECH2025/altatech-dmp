@@ -13,7 +13,7 @@ import math
 import os
 import random
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -40,6 +40,7 @@ class Dataset:
     users: dict[str, dict[str, Any]]
     events: list[dict[str, Any]]          # oracle 用：time 為台北時間（naive）
     segments: dict[str, set[str]]
+    edges: list[dict[str, Any]] = field(default_factory=list)     # id_edges（身分圖；用戶細查用）
 
 
 def build(n_users: int = 400, n_events: int = 24_000, seed: int = SEED) -> Dataset:
@@ -59,7 +60,13 @@ def build(n_users: int = 400, n_events: int = 24_000, seed: int = SEED) -> Datas
             "aum": aum, "is_first_trade": rng.randrange(0, 2), "last_active_at": datetime(2026, 10, 15, 12, 0, 0),
         }
         ids.append(oid)
-    segments = {"vip": {o for o, u in users.items() if u["tier"] == "P1"}}
+    segments = {"vip": {o for o, u in users.items() if u["tier"] == "P1"}, "golden_all": set(users)}   # golden_all：用戶表是全公司共用（沒有 project），純屬性的黃金查詢用它把母體框在資料集內
+    edges: list[dict[str, Any]] = []
+    for i, oid in enumerate(ids[:60]):                           # 前 60 人有身分圖：login ↔ device，偶數再加 cookie
+        base = {"source": "golden.login", "evidence_event_id": f"golden-ev-{i}", "first_seen": "2026-09-01 00:00:00.000", "last_seen": "2026-10-15 12:00:00.000", "seen_count": 3 + i % 5, "confidence": 1.0, "status": "active", "one_id": oid, "version": 1}
+        edges.append({**base, "id_type_a": "login_id", "id_a": f"L{i:05d}", "id_type_b": "device_id", "id_b": f"D{i:05d}a"})
+        if i % 2 == 0:
+            edges.append({**base, "source": "golden.cooccur", "confidence": 0.8, "id_type_a": "login_id", "id_a": f"L{i:05d}", "id_type_b": "cookie_id", "id_b": f"C{i:05d}"})
     events: list[dict[str, Any]] = []
     for i in range(n_events):
         oid = rng.choice(ids)
@@ -82,10 +89,10 @@ def build(n_users: int = 400, n_events: int = 24_000, seed: int = SEED) -> Datas
             "utm_source": rng.choices(["google", "facebook", "line", ""], [3, 2, 1, 4])[0], "symbol": rng.choice(["2330", "2317", "0050", "2454", "00878", ""]),
             "amount": amount, "props": props, "event_id": hashlib.sha256(f"golden|{i}".encode()).hexdigest()[:32],
         })
-    return Dataset(users, events, segments)
+    return Dataset(users, events, segments, edges)
 
 
-def ch_rows(ds: Dataset) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+def ch_rows(ds: Dataset) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """oracle 列 → ClickHouse JSONEachRow 列（時間轉 UTC 字串，見 modeling.ms_to_dt 的教訓）。"""
     ing = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.000")
     ev = []
@@ -100,7 +107,7 @@ def ch_rows(ds: Dataset) -> tuple[list[dict[str, Any]], list[dict[str, Any]], li
         row["first_seen"] = "2026-09-01 00:00:00.000"; row["updated_at"] = "2026-10-16 05:00:00.000"
         us.append(row)
     seg = [{"segment_id": s, "version": 1, "one_id": o, "computed_at": "2026-10-16 06:00:00"} for s, members in ds.segments.items() for o in sorted(members)]
-    return ev, us, seg
+    return ev, us, seg, list(ds.edges)
 
 
 # ---------------------------------------------------------------- 查詢集（名稱, 查詢, 角色或 Decision）
@@ -187,6 +194,34 @@ FUNNEL_REJECTED: list[tuple[str, dict[str, Any], str]] = [
     ("FR4 關聯屬性是用戶屬性", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "relation": "user.tier", "time": T}, "業務 ID"),
     ("FR5 未登記事件", {"steps": [{"event": "bond_order"}, {"event": "nope"}], "window": W7, "time": T}, "事件字典"),
 ]
+BRANCH = Decision(True, row_filters=["branch_id IN ('B01','B02')", "event_date >= today()-10"], field_policies={"one_id": "mask_tail(4)", "churn_score": "bucket([0,40,70,100])"}, k_anonymity=20)   # 分公司範圍 + 回溯 10 天的自訂角色
+USERS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
+    ("U01 價值分級 P1/P2 且信用戶", {"segment": "golden_all", "filters": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}, {"field": "user.has_margin", "op": "true"}]}, "admin"),
+    ("U02 分群 vip + 生命週期", {"segment": "vip", "filters": [{"field": "user.lifecycle", "op": "in", "value": ["新客", "成長"]}]}, "admin"),
+    ("U03 資產 ≥ 100 萬 或 流失分 ≥ 70（排序流失分）", {"segment": "golden_all", "filters": {"op": "or", "items": [{"field": "user.aum", "op": "gte", "value": 1e6}, {"field": "user.churn_score", "op": "gte", "value": 70}]}}, "data_analyst"),
+    ("U04 做過成交 ≥ 3 次", {"behaviors": [{"event": "bond_deal", "count": {"op": "gte", "value": 3}, "time": T}]}, "admin"),
+    ("U05 近 7 天沒委託失敗 且 新客（頂層 time 預設）", {"segment": "golden_all", "filters": [{"field": "user.lifecycle", "op": "eq", "value": "新客"}], "behaviors": [{"event": "order_rejected", "done": False}], "time": {"from": "2026-10-10", "to": "2026-10-16", "now": NOW.isoformat()}}, "admin"),
+    ("U06 委託 1–3 次（金額 ≥ 10 萬）或 委託失敗 ≥ 1（or）", {"behaviors_op": "or", "behaviors": [{"event": "bond_order", "count": {"op": "between", "value": [1, 3]}, "filters": [{"field": "amount", "op": "gte", "value": 100000}], "time": T}, {"event": "order_rejected", "time": T}]}, "admin"),
+    ("U07 漏斗 F01 第 2 步到達", {"source": {"type": "funnel", "query": FUNNELS[0][1], "step": 2}}, "admin"),
+    ("U08 漏斗 F06 第 2 步流失，桶 10-12", {"source": {"type": "funnel", "query": FUNNELS[5][1], "step": 2, "reached": False, "bucket": "2026-10-12"}}, "admin"),
+    ("U09 留存 R02 同期群 10-03 第 1 期留存", {"source": {"type": "retention", "query": RETENTIONS[1][1], "cohort": "2026-10-03", "period": 1, "retained": True}}, "admin"),
+    ("U10 流失 R04 同期群 10-03 第 2 期起流失", {"source": {"type": "retention", "query": RETENTIONS[3][1], "cohort": "2026-10-03", "period": 2, "retained": True}}, "admin"),
+    ("U15 週留存 R05 同期群 09-28 第 1 期留存 × Android", {"source": {"type": "retention", "query": RETENTIONS[4][1], "cohort": "2026-09-28", "period": 1, "retained": True, "group": "Android"}}, "admin"),
+    ("U11 事件 Q08 桶 10-05 分組 TSE", {"source": {"type": "events", "query": QUERIES[7][1], "bucket": "2026-10-05", "group": ["TSE"]}}, "admin"),
+    ("U12 分公司範圍 + 回溯 10 天：做過委託（行銷遮罩）", {"behaviors": [{"event": "bond_order", "time": T_ALL}]}, BRANCH),
+    ("U13 日期屬性：近 3 天活躍 且 2025 年開戶（排序開戶日）", {"segment": "golden_all", "filters": [{"field": "user.last_active_at", "op": "rel", "value": {"days": 3}}, {"field": "user.signup_date", "op": "between", "value": ["2025-01-01", "2025-12-31"]}], "time": {"now": NOW.isoformat()}}, "marketing"),
+    ("U14 事件 Q10 合計、平台 iOS（巢狀篩選）+ 屬性", {"filters": [{"field": "user.pref_market", "op": "eq", "value": "US"}], "source": {"type": "events", "query": {**QUERIES[9][1], "group_by": ["platform"], "time": {**T, "grain": "total"}}, "group": ["iOS"]}}, "admin"),
+]
+USERS_SORT = {"U03": {"field": "churn_score", "dir": "desc"}, "U13": {"field": "signup_date", "dir": "asc"}}
+USERS_REJECTED: list[tuple[str, dict[str, Any], str]] = [
+    ("UR1 事件欄位當用戶條件", {"filters": [{"field": "platform", "op": "eq", "value": "iOS"}]}, "用戶屬性"),
+    ("UR2 L3 屬性", {"filters": [{"field": "user.customer_code", "op": "set"}]}, "L3"),
+    ("UR3 未登記事件", {"behaviors": [{"event": "nope", "time": T}]}, "事件字典"),
+    ("UR4 第 1 步流失", {"source": {"type": "funnel", "query": FUNNELS[0][1], "step": 1, "reached": False}}, "step ≥ 2"),
+    ("UR5 沒條件", {}, "至少"),
+    ("UR6 行為沒時間", {"behaviors": [{"event": "bond_order"}]}, "time"),
+    ("UR7 留存期數超出", {"source": {"type": "retention", "query": RETENTIONS[1][1], "cohort": "2026-10-03", "period": 9}}, "period"),
+]
 REJECTED: list[tuple[str, dict[str, Any], str, str]] = [   # 必須被拒絕的查詢（名稱, 查詢, 角色, 錯誤關鍵字）
     ("R01 未登記事件", {"metrics": [{"event": "no_such_event", "agg": "total"}], "time": T}, "admin", "事件字典"),
     ("R02 L4 個資屬性", {"metrics": [{"event": None, "agg": "total"}], "filters": [{"field": "user.mobile", "op": "set"}], "time": T}, "admin", "L4"),
@@ -267,8 +302,10 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
     """載入黃金資料集到 ClickHouse → 30 條查詢 oracle vs SQL 逐列比對 → EXPLAIN ESTIMATE 門檻 → 10 條必須拒絕。由 e2e 或 __main__ 呼叫。"""
     cat = Catalog()
     ds = ds or build()
-    ev, us, seg = ch_rows(ds)
+    ev, us, seg, edges = ch_rows(ds)
     ch.query("CREATE TABLE IF NOT EXISTS dmp.segment_members (segment_id LowCardinality(String), version UInt32, one_id String, one_id_uint UInt64 DEFAULT cityHash64(one_id), computed_at DateTime) ENGINE = MergeTree ORDER BY (segment_id, version, one_id_uint)")
+    ch.query("CREATE TABLE IF NOT EXISTS dmp.id_edges (id_type_a LowCardinality(String), id_a String, id_type_b LowCardinality(String), id_b String, source LowCardinality(String), evidence_event_id String, first_seen DateTime64(3, 'UTC'), last_seen DateTime64(3, 'UTC'), seen_count UInt32, confidence Float32, status LowCardinality(String), one_id String, version UInt64) ENGINE = ReplacingMergeTree(version) ORDER BY (id_type_a, id_a, id_type_b, id_b)")
+    ch.insert_json("dmp.id_edges", edges)
     ch.query(f"ALTER TABLE dmp.events DELETE WHERE project = '{PROJECT}'", settings={"mutations_sync": 2})
     for i in range(0, len(ev), 20_000):
         ch.insert_json("dmp.events", ev[i:i + 20_000])
@@ -327,6 +364,7 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
             assert kw in str(e), (name, e)
         else:
             raise AssertionError(name)
+    users_stage(ch, ds, oracle, cat, report)
     for name, raw, kw in FUNNEL_REJECTED:
         try:
             parse_funnel({**raw, "project": PROJECT}, cat)
@@ -344,8 +382,85 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
             raise AssertionError(f"{name}: 應被拒絕")
     if verbose:
         print("\n".join(report))
-        print(f"compiler golden OK: {len(QUERIES)} queries (layers {layers}) + {len(FUNNELS)} funnels (+strict) + {len(RETENTIONS)} retentions, {len(REJECTED)}+{len(FUNNEL_REJECTED)}+{len(RETENTION_REJECTED)} rejected, sample ok, MV==L0")
+        print(f"compiler golden OK: {len(QUERIES)} queries (layers {layers}) + {len(FUNNELS)} funnels (+strict) + {len(RETENTIONS)} retentions + {len(USERS)} user lists (+profile/timeline/identities), {len(REJECTED)}+{len(FUNNEL_REJECTED)}+{len(RETENTION_REJECTED)}+{len(USERS_REJECTED)} rejected, sample ok, MV==L0")
     return {"queries": len(QUERIES), "layers": layers}
+
+
+def users_stage(ch: Any, ds: Dataset, oracle: Oracle, cat: Catalog, report: list[str]) -> None:
+    """用戶列表：估數 == oracle 集合大小；每頁 7 筆走完 == 同一集合（one_id 依角色遮罩）、排序單調；細查：畫像／摘要／序列（分頁）／身分圖 == 資料集。"""
+    from .policy import mask_value
+    from .users import (
+        compile_estimate,
+        compile_identities,
+        compile_list,
+        compile_profile,
+        compile_segments_of,
+        compile_summary,
+        compile_timeline,
+        decode_cursor,
+        identity_graph,
+        next_cursor,
+        parse_list,
+        parse_users,
+        timeline_cursor,
+    )
+    first: str | None = None
+    for name, raw, spec in USERS:
+        d = decision_of(spec); uq = parse_users({**raw, "project": PROJECT}, cat)
+        expect = oracle.run_users(uq, d)
+        ce = compile_estimate(uq, cat, d); got = run_sql(ch, ce.sql, ce.settings)[0]["users"]
+        assert got == len(expect), (name, got, len(expect))
+        sort = USERS_SORT.get(name[:3]); spec_l = parse_list({"page_size": 7, "sort": sort}, cat); seen: list[dict[str, Any]] = []
+        while True:
+            cl = compile_list(uq, spec_l, cat, d); rows = run_sql(ch, cl.sql, cl.settings); seen += rows
+            nc = next_cursor(rows, spec_l, got)
+            if not nc: break
+            spec_l = parse_list({"page_size": 7, "sort": sort, "cursor": nc}, cat)
+            assert decode_cursor(nc)["t"] == got
+        pol = (d.field_policies.get("one_id", "plain") if d is not None else "plain")
+        assert len(seen) == len(expect) and {r["one_id"] for r in seen} == {mask_value(pol, o) for o in expect}, (name, len(seen), len(expect))
+        keys = [(r["_s"], r["_u"]) for r in seen]
+        assert keys == sorted(keys, reverse=(sort or {}).get("dir") == "desc") and len(set(keys)) == len(keys), (name, "分頁順序")
+        if d is not None and "churn_score" in cl.masked:
+            assert all(isinstance(r["churn_score"], str) or r["churn_score"] is None for r in seen), name
+        if first is None and expect: first = sorted(expect)[0]
+        report.append(f"  {name:<44} L0 users={got:<4} pages={-(-got // 7)} masked={list(cl.masked) or '-'}")
+    for name, raw, kw in USERS_REJECTED:
+        try:
+            parse_users({**raw, "project": PROJECT}, cat)
+        except ValueError as e:
+            assert kw in str(e), (name, e)
+        else:
+            raise AssertionError(name)
+    # 細查：admin 明文、數據分析 one_id 遮罩；摘要 == 近 30 天事件數；序列分頁走完 == 該用戶全部事件；身分圖 == 資料集的邊
+    assert first is not None
+    oid = next(o for o in sorted(ds.users) if any(e["one_id"] == o for e in ds.edges))
+    adm = authorize(Subject("u-adm", ["admin"]), "use", "profile", {"reason": "黃金測試"}); ana = authorize(Subject("u-ana", ["data_analyst"]), "use", "profile", {"reason": "黃金測試"})
+    p = run_sql(ch, (cp := compile_profile(oid, cat, adm)).sql, cp.settings)          # admin：one_id 明文；L2 金額類（aum／churn_score）admin 不在 plain_roles → 區間
+    assert len(p) == 1 and p[0]["one_id"] == oid and p[0]["tier"] == ds.users[oid]["tier"] and p[0]["churn_score"] == mask_value("bucket([0,40,70,100])", ds.users[oid]["churn_score"]) and cp.masked.get("aum") == "bucket([0,1e6,5e6])", p
+    p2 = run_sql(ch, (cp2 := compile_profile(oid, cat, ana)).sql, cp2.settings)      # 數據分析：one_id 遮罩；aum／churn_score 明文
+    assert p2[0]["one_id"] == mask_value("mask_tail(4)", oid) and cp2.masked == {"one_id": "mask_tail(4)"} and p2[0]["aum"] == ds.users[oid]["aum"] and p2[0]["churn_score"] == ds.users[oid]["churn_score"], p2
+    assert run_sql(ch, compile_profile("nope", cat, adm).sql, cp.settings) == []
+    sm = run_sql(ch, (cs := compile_summary(oid, PROJECT, cat, adm, now=NOW)).sql, cs.settings)
+    exp_n = sum(1 for e in ds.events if e["one_id"] == oid and NOW - timedelta(days=29) <= e["event_date"] <= NOW)
+    assert sum(r["n"] for r in sm) == exp_n and sm == sorted(sm, key=lambda r: (-r["n"], r["event"])), (sm, exp_n)
+    segs = run_sql(ch, (cg := compile_segments_of(oid)).sql, cg.settings); assert [r["segment_id"] for r in segs] == (["golden_all", "vip"] if oid in ds.segments["vip"] else ["golden_all"]), segs
+    all_rows: list[dict[str, Any]] = []; cur = None
+    while True:
+        ct = compile_timeline(oid, PROJECT, DAY0, NOW, cat, ana, limit=50, cursor=cur, now=NOW); rows = run_sql(ch, ct.sql, ct.settings); all_rows += rows
+        nc = timeline_cursor(rows, 50, cur)
+        if not nc: break
+        cur = decode_cursor(nc)
+    mine = [e for e in ds.events if e["one_id"] == oid]
+    assert len(all_rows) == len(mine) and {r["event_id"] for r in all_rows} == {e["event_id"] for e in mine}, (len(all_rows), len(mine))
+    assert [(r["time"], r["event_id"]) for r in all_rows] == sorted([(r["time"], r["event_id"]) for r in all_rows], reverse=True) and "amount" not in ct.masked and ct.columns[-1] == "props"
+    ctm = compile_timeline(oid, PROJECT, DAY0, NOW, cat, _subject("marketing"), events=["bond_deal"], limit=50, now=NOW); mrows = run_sql(ch, ctm.sql, ctm.settings)
+    assert ctm.masked == {"amount": "bucket([0,1e5,5e5,1e6,5e6])"} and all(r["event"] == "bond_deal" and (r["amount"] is None or isinstance(r["amount"], str)) for r in mrows), mrows[:2]
+    ci = compile_identities(oid); er = run_sql(ch, ci.sql, ci.settings); g = identity_graph(er, ana)
+    mine_e = [e for e in ds.edges if e["one_id"] == oid]
+    assert len(g["edges"]) == len(mine_e) and len(g["nodes"]) == len(mine_e) + 1 and all(n["value"].endswith("****") for n in g["nodes"]) and g["masked"] == {"id": "mask_tail(4)"}, g
+    assert all(not n["value"].endswith("****") for n in identity_graph(er, adm)["nodes"])
+    report.append(f"  {'細查 profile/summary/timeline/identities':<44} L0 events={len(all_rows)} edges={len(mine_e)} summary30d={exp_n}")
 
 
 def dry_run() -> None:
@@ -390,7 +505,19 @@ def dry_run() -> None:
     for name, raw, kw in RETENTION_REJECTED:
         try: parse_retention({**raw, "project": PROJECT}, cat); raise AssertionError(name)
         except ValueError as e: assert kw in str(e), (name, e)
-    print(f"compiler dry run OK: {len(QUERIES)} queries + {len(FUNNELS)} funnels + {len(RETENTIONS)} retentions compiled + oracle, {len(REJECTED)}+{len(FUNNEL_REJECTED)} rejected, sql digest {h.hexdigest()[:12]}")
+    from .users import compile_estimate, compile_list, parse_list, parse_users
+    for name, raw, spec in USERS:
+        uq = parse_users({**raw, "project": PROJECT}, cat); d = decision_of(spec)
+        c = compile_estimate(uq, cat, d); n = len(oracle.run_users(uq, d))
+        assert "bitmapCardinality(bm)" in c.sql and c.sql.count("(") == c.sql.count(")") and "dmp.users" in c.lineage, name
+        assert n > 0, name
+        cl = compile_list(uq, parse_list({"sort": USERS_SORT.get(name[:3]), "page_size": 50}, cat), cat, d)
+        assert cl.columns[:2] == ["one_id", "branch_id"] and cl.columns[-2:] == ["_s", "_u"] and "bitmapContains(bm, e.one_id_uint)" in cl.sql, name
+        h.update(c.sql.encode())
+    for name, raw, kw in USERS_REJECTED:
+        try: parse_users({**raw, "project": PROJECT}, cat); raise AssertionError(name)
+        except ValueError as e: assert kw in str(e), (name, e)
+    print(f"compiler dry run OK: {len(QUERIES)} queries + {len(FUNNELS)} funnels + {len(RETENTIONS)} retentions + {len(USERS)} user lists compiled + oracle, {len(REJECTED)}+{len(FUNNEL_REJECTED)}+{len(RETENTION_REJECTED)}+{len(USERS_REJECTED)} rejected, sql digest {h.hexdigest()[:12]}")
 
 
 if __name__ == "__main__":

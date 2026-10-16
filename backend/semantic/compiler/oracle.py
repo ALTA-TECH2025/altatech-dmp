@@ -17,6 +17,7 @@ from .funnel import FunnelQuery
 from .parser import Cond, Formula, Group, Metric, Query
 from .policy import bucket_label, parse_policy
 from .retention import RetentionQuery
+from .users import UsersQuery
 
 
 class Oracle:
@@ -42,7 +43,8 @@ class Oracle:
             u = self.users.get(r["one_id"])
             if u is None or f.name not in u or u[f.name] is None:
                 return self.hot_defaults[f.type] if f.kind == "user_hot" else None
-            return u[f.name]
+            v = u[f.name]
+            return (v + timedelta(hours=8)).date() if isinstance(v, datetime) else v     # 時間型屬性：台北日期（catalog 用 toDate(…, 'Asia/Taipei')）
         raise ValueError(f.kind)
 
     @staticmethod
@@ -287,9 +289,9 @@ class Oracle:
                 return i + 1
         return 0
 
-    def run_funnel(self, fq: FunnelQuery, decision: Any = None) -> list[dict[str, Any]]:
+    def _funnel_groups(self, fq: FunnelQuery, decision: Any = None) -> dict[tuple, list[tuple[tuple, int]]]:
+        """(趨勢桶, 分組值) → [(鏈鍵 (one_id, rel), 層級)]：漏斗結果與用戶列表下鑽共用。"""
         now = fq.time.now or date.today()
-        k = int(getattr(decision, "k_anonymity", 0) or 0)
         step_events = {s.event for s in fq.steps}
         rows = [r for r in self.events if r["project"] == fq.project and fq.time.start <= r["event_date"] <= fq.time.end and r["event"] in step_events
                 and self.group(fq.filters, r, now) and self._row_filters_ok(decision, r, now)]
@@ -324,6 +326,11 @@ class Oracle:
                 b = {"day": d.isoformat(), "week": (d - timedelta(days=d.weekday())).isoformat(), "month": d.replace(day=1).isoformat()}[fq.trend]
             g = first_g.get(key, (None, None))[1] if fq.group_by else None
             groups[(b, g)].append((key, lvl))
+        return groups
+
+    def run_funnel(self, fq: FunnelQuery, decision: Any = None) -> list[dict[str, Any]]:
+        k = int(getattr(decision, "k_anonymity", 0) or 0)
+        groups = self._funnel_groups(fq, decision)
         out = []
         for (b, g), members in sorted(groups.items(), key=lambda kv: tuple("" if x is None else str(x) for x in kv[0])):
             for step in range(1, len(fq.steps) + 1):
@@ -359,9 +366,9 @@ class Oracle:
         if model == "continuous": return all(x in ps for x in range(lo, n + 1))
         return not any(n <= p <= P for p in ps)
 
-    def run_retention(self, rq: RetentionQuery, decision: Any = None) -> list[dict[str, Any]]:
+    def _retention_members(self, rq: RetentionQuery, decision: Any = None) -> dict[tuple, list[tuple[str, set[int]]]]:
+        """(同期群, 分組值) → [(one_id, 回訪期集合)]：留存結果與用戶列表下鑽共用。"""
         now = rq.time.now or date.today()
-        k = int(getattr(decision, "k_anonymity", 0) or 0)
         if rq.sample:
             raise ValueError("oracle 不做抽樣")
         def ok(r: dict[str, Any]) -> bool:
@@ -383,6 +390,11 @@ class Oracle:
                 g = min(nn)[1] if nn else None
             periods = {self._diff(rq.unit, c, rb) for rb in returns.get(oid, set()) if rb >= c and self._diff(rq.unit, c, rb) <= rq.periods}
             members[(c, g)].append((oid, periods))
+        return members
+
+    def run_retention(self, rq: RetentionQuery, decision: Any = None) -> list[dict[str, Any]]:
+        k = int(getattr(decision, "k_anonymity", 0) or 0)
+        members = self._retention_members(rq, decision)
         P, lo = rq.periods, rq.lo
         out = []
         for (c, g), ms in sorted(members.items(), key=lambda kv: (kv[0][0].isoformat(), "" if kv[0][1] is None else str(kv[0][1]))):
@@ -395,4 +407,83 @@ class Oracle:
                 row.update({"period": n, "users": users, "retained": None if sup else retained, "rate": None if sup else retained / users})
                 if k: row["suppressed"] = sup
                 out.append(row)
+        return out
+
+
+    # ---- 用戶列表 ----
+    def _user_ok(self, decision: Any, u: dict[str, Any]) -> bool:
+        import re
+        for f in (getattr(decision, "row_filters", []) or []) if decision is not None else []:
+            m = re.search(r"branch_id IN \(([^)]*)\)", f)
+            if m and u.get("branch_id", "") not in {x.strip().strip("'") for x in m.group(1).split(",")}: return False
+            if f.strip() == "1=0": return False
+        return True
+
+    def run_users(self, uq: UsersQuery, decision: Any = None) -> set[str]:
+        """同口徑：母體 = 用戶寬表（屬性 NULL 照 SQL 語意：不墊預設值）；做過 = 期間內次數符合；未做過 = 0 次；下鑽 = 漏斗／留存／事件落點。"""
+        now = uq.now or date.today()
+        saved = self.hot_defaults
+        self.hot_defaults = {k: None for k in saved}                  # 寬表語意
+        try:
+            base = {oid for oid, u in self.users.items() if self.group(uq.filters, {"one_id": oid}, now) and self._user_ok(decision, u)}
+        finally:
+            self.hot_defaults = saved
+        if uq.behaviors:
+            sets: list[tuple[set[str], bool]] = []
+            for b in uq.behaviors:
+                counts: dict[str, int] = defaultdict(int)
+                for r in self.events:
+                    if r["project"] == uq.project and b.time.start <= r["event_date"] <= b.time.end and r["event"] == b.event and self.group(b.filters, r, now) and self._row_filters_ok(decision, r, now):
+                        counts[r["one_id"]] += 1
+                if not b.done:
+                    sets.append((set(counts), False)); continue
+                if b.count_op == "between": ok = {o for o, n in counts.items() if b.count[0] <= n <= b.count[1]}      # type: ignore[index]
+                elif b.count_op == "gte": ok = {o for o, n in counts.items() if n >= b.count}                        # type: ignore[operator]
+                elif b.count_op == "lte": ok = {o for o, n in counts.items() if n <= b.count}                        # type: ignore[operator]
+                else: ok = {o for o, n in counts.items() if n == b.count}
+                sets.append((ok, True))
+            if uq.behaviors_op == "and":
+                for s_, done in sets:
+                    base = (base & s_) if done else (base - s_)
+            else:
+                u: set[str] = set()
+                for s_, done in sets:
+                    u |= s_ if done else (base - s_)
+                base &= u
+        if uq.source:
+            base &= self._source_users(uq.source, decision)
+        return base
+
+    def _source_users(self, s: Any, decision: Any) -> set[str]:
+        if s.type == "funnel":
+            fq = s.query
+            best: dict[str, int] = defaultdict(int)
+            for (b, g), members in self._funnel_groups(fq, decision).items():
+                if s.bucket is not None and b != s.bucket: continue
+                if s.group is not None and g != s.group: continue
+                for key, lvl in members:
+                    best[key[0]] = max(best[key[0]], lvl)
+            return {o for o, lvl in best.items() if (lvl >= s.step if s.reached else lvl == s.step - 1)}
+        if s.type == "retention":
+            rq = s.query
+            out: set[str] = set()
+            for (c, g), ms in self._retention_members(rq, decision).items():
+                if c.isoformat() != s.cohort: continue
+                if s.group is not None and g != s.group: continue
+                for oid, ps in ms:
+                    if s.retained is None or self._retained(rq.model, ps, s.period, rq.lo, rq.periods) == s.retained:
+                        out.add(oid)
+            return out
+        qr = s.query; now = qr.time.now or date.today()
+        fp: dict[str, str] = dict(getattr(decision, "field_policies", {}) or {}) if decision is not None else {}
+        m = next(x for x in qr.metrics if x.alias == s.metric)
+        out = set()
+        for r in self.events:
+            if not (r["project"] == qr.project and qr.time.start <= r["event_date"] <= qr.time.end and self.group(qr.filters, r, now) and self._row_filters_ok(decision, r, now)): continue
+            if m.event and r["event"] != m.event: continue
+            if not self.group(m.filters, r, now): continue
+            if m.field and self.value(m.field, r) is None: continue
+            if s.bucket is not None and self.bucket(qr.time.grain, r) != s.bucket: continue
+            if s.group is not None and any(self._masked_group(fp, g, i, self.value(g, r)) != v for i, (g, v) in enumerate(zip(qr.group_by, s.group))): continue
+            out.add(r["one_id"])
         return out

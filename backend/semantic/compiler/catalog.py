@@ -105,6 +105,7 @@ class Catalog:
         if prop not in self.stored_props:
             raise ValueError(f"用戶屬性 {prop} 為 L3，不在分析倉用戶寬表（只在 id_map／CRM），不能用於查詢")
         t = {"enum": "string", "string": "string", "number": "number", "bool": "bool", "date": "date", "datetime": "date"}[p["type"]]
-        if prop in self.hot_props:
-            return FieldRef(key, "user_hot", t, f"dictGet('dmp.users_dict', '{prop}', e.one_id_uint)", prop)
-        return FieldRef(key, "user_cold", t, f"u.`{prop}`", prop)
+        sql = f"dictGet('dmp.users_dict', '{prop}', e.one_id_uint)" if prop in self.hot_props else f"u.`{prop}`"
+        if p["type"] == "datetime":
+            sql = f"toDate({sql}, '{TZ}')"            # 時間型用戶屬性以台北日期比較（rel／between 都是日期口徑）
+        return FieldRef(key, "user_hot" if prop in self.hot_props else "user_cold", t, sql, prop)

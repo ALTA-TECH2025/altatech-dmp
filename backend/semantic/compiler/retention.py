@@ -125,7 +125,27 @@ def bucket_expr(unit: str, col: str = "e.time") -> str:
     return {"day": d, "week": f"toMonday({d})", "month": f"toStartOfMonth({d})"}[unit]
 
 
-def compile_retention(rq: RetentionQuery, cat: Catalog | None = None, decision: Any = None, profile: str = "human") -> Compiled:
+@dataclass
+class RetentionParts:
+    """CTE c／r／u（同期群、回訪、每用戶 periods 陣列）與模型條件：留存結果與用戶列表下鑽共用。"""
+    with_sql: str                  # "c AS (…), r AS (…), u AS (…)"
+    gcols: list[str]
+    ctx: Ctx
+    warnings: list[str]
+    row_filters: list[str]
+    k: int
+
+    def model_cond(self, rq: RetentionQuery, period: str = "period") -> str:
+        P, lo = rq.periods, rq.lo
+        return {
+            "date": f"has(periods, {period})",
+            "interval": f"arrayExists(p -> p >= {lo} AND p <= {period}, periods)",
+            "continuous": f"arrayAll(n -> has(periods, n), range({lo}, {period} + 1))",
+            "churn": f"NOT arrayExists(p -> p >= {period} AND p <= {P}, periods)",
+        }[rq.model]
+
+
+def retention_parts(rq: RetentionQuery, cat: Catalog | None = None, decision: Any = None) -> RetentionParts:
     cat = cat or Catalog()
     ctx = Ctx(cat, rq.as_query(), "L0")
     def cond(b: Behavior) -> str:
@@ -153,16 +173,18 @@ def compile_retention(rq: RetentionQuery, cat: Catalog | None = None, decision: 
     diff = f"dateDiff('{rq.unit}', c.cohort, r.rb)"
     u_sql = (f"SELECT c.one_id AS one_id, c.cohort AS cohort{', c.g1 AS g1' if rq.group_by else ''}, "
              f"groupArrayIf({diff}, r.rb >= c.cohort AND {diff} <= {rq.periods}) AS periods FROM c LEFT JOIN r ON c.one_id = r.one_id GROUP BY {', '.join('c.' + x for x in ['one_id'] + gcols)}")
+    return RetentionParts(f"c AS ({c_sql}), r AS ({r_sql}), u AS ({u_sql})", gcols, ctx, warnings, row_filters, k)
+
+
+def compile_retention(rq: RetentionQuery, cat: Catalog | None = None, decision: Any = None, profile: str = "human") -> Compiled:
+    cat = cat or Catalog()
+    parts = retention_parts(rq, cat, decision)
+    gcols, ctx, warnings, row_filters, k = parts.gcols, parts.ctx, parts.warnings, parts.row_filters, parts.k
     P = rq.periods; lo = rq.lo
-    model_cond = {
-        "date": "has(periods, period)",
-        "interval": f"arrayExists(p -> p >= {lo} AND p <= period, periods)",
-        "continuous": f"arrayAll(n -> has(periods, n), range({lo}, period + 1))",
-        "churn": f"NOT arrayExists(p -> p >= period AND p <= {P}, periods)",
-    }[rq.model]
+    model_cond = parts.model_cond(rq)
     inner = f"SELECT {', '.join(gcols)}, period, uniqExact(one_id) AS users, uniqExactIf(one_id, {model_cond}) AS retained FROM u ARRAY JOIN range({lo}, {P + 1}) AS period GROUP BY {', '.join(gcols)}, period"
     sel = gcols + ["period", "users"] + ([f"if(users < {k}, NULL, retained) AS retained", f"if(users < {k}, NULL, retained / users) AS rate", f"users < {k} AS suppressed"] if k else ["retained", "retained / users AS rate"])
-    sql = f"WITH c AS ({c_sql}), r AS ({r_sql}), u AS ({u_sql}) SELECT {', '.join(sel)} FROM ({inner}) ORDER BY {', '.join(gcols)}, period"
+    sql = f"WITH {parts.with_sql} SELECT {', '.join(sel)} FROM ({inner}) ORDER BY {', '.join(gcols)}, period"
     from .policy import budget
     cols = gcols + ["period", "users", "retained", "rate"] + (["suppressed"] if k else [])
     fields = _fields(rq)

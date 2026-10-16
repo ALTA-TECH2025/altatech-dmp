@@ -114,7 +114,18 @@ def parse_funnel(raw: dict[str, Any], cat: Catalog | None = None) -> FunnelQuery
     return FunnelQuery(str(raw.get("project") or "altatech_dmp"), steps, window_s, order, relation, metric, group, trend or None, filters, TimeRange(start, end, "day", now), sample, raw)
 
 
-def compile_funnel(fq: FunnelQuery, cat: Catalog | None = None, decision: Any = None, profile: str = "human") -> Compiled:
+@dataclass
+class FunnelBase:
+    """每用戶[, 關聯屬性] 一列的 level（＋趨勢桶、分組值）：漏斗結果與用戶列表下鑽共用。"""
+    sql: str
+    outer_cols: list[str]
+    ctx: Ctx
+    warnings: list[str]
+    row_filters: list[str]
+    k: int
+
+
+def funnel_base(fq: FunnelQuery, cat: Catalog | None = None, decision: Any = None) -> FunnelBase:
     cat = cat or Catalog()
     ctx = Ctx(cat, fq.as_query(), "L0")
     conds = []
@@ -144,6 +155,13 @@ def compile_funnel(fq: FunnelQuery, cat: Catalog | None = None, decision: Any = 
     cold = f" LEFT JOIN (SELECT one_id, {', '.join('`' + n + '`' for n in ctx.cold)} FROM dmp.users FINAL) AS u ON u.one_id = e.one_id" if ctx.cold else ""
     sample = f" SAMPLE {fq.sample}" if fq.sample else ""
     base = f"SELECT {', '.join(sel)} FROM dmp.events AS e{sample}{cold} WHERE {' AND '.join(where)} GROUP BY {', '.join(keys)} HAVING level > 0"   # 沒做第一步的用戶不產生分組／趨勢桶
+    return FunnelBase(base, outer_cols, ctx, warnings, row_filters, k)
+
+
+def compile_funnel(fq: FunnelQuery, cat: Catalog | None = None, decision: Any = None, profile: str = "human") -> Compiled:
+    cat = cat or Catalog()
+    fb = funnel_base(fq, cat, decision)
+    base, outer_cols, ctx, warnings, row_filters, k = fb.sql, fb.outer_cols, fb.ctx, fb.warnings, fb.row_filters, fb.k
     agg = "uniqExactIf(one_id, level >= step)" if fq.metric == "users" else "countIf(level >= step)"
     kexpr = "uniqExactIf(one_id, level >= step)"
     grp = outer_cols + ["step"]

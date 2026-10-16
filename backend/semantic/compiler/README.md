@@ -72,6 +72,14 @@ python3 -m backend.integration.e2e_clickhouse                        # 端到端
 
 查詢形狀見 openapi `RetentionQuery`。同一用戶可屬多個同期群（每個做過初始行為的期）；回訪掃描範圍到最後同期群 + P 期；`periods` = 回訪期 − 同期群期。oracle 以同口徑計算，8 條黃金留存（四模型、日／週／月、含當期、分組、篩選、分群 + K 匿名）在 ClickHouse 25.8 逐列誤差 0。
 
+## 用戶列表與細查樣板（`users.py`）
+
+查詢形狀見 openapi `UsersQuery`／`UsersListRequest`。條件全部是「人」的條件：用戶屬性（`user.<key>`，只限寬表 L0–L2）、分群（`seg.<id>`）、做過／未做過（事件 × 次數 × 期間 × 事件屬性）、分析落點下鑽（漏斗某步到達／流失 = `max(level) ≥ n`／`= n−1`、留存某同期群某期留存／未留存 = u CTE 的模型條件、事件分析某桶某分組）。
+每個條件各自一個 Bitmap（`groupBitmapState(one_id_uint)`），交／併／差後 `bitmapCardinality` 估數；列表用同一個 bitmap `bitmapContains` 過濾用戶寬表，keyset 游標 `(排序鍵, one_id_uint)` 分頁（NULL 以哨兵值墊底），每頁 ≤ 500、最多瀏覽 10 萬筆（之後走匯出審批）。母體是用戶寬表：只有事件沒有用戶列的人不在列表裡。
+欄位依 `Decision.field_policies` 遮罩（one_id 尾碼、aum／churn_score 區間；hide 略過並 warning）；admin 的 one_id 明文但 L2 金額類仍是區間（masking.yaml 的 plain_roles）。
+細查：`compile_profile`（寬表一列）、`compile_summary`（近 N 天事件摘要）、`compile_timeline`（時間倒序 keyset 分頁；props 去 L4 鍵）、`compile_identities` + `identity_graph`（id_edges → 節點／邊，ID 值依 one_id 策略遮罩）；reason 與 `profile.use` 由 API 層檢查。
+oracle `run_users` 以同口徑算集合；15 條黃金用戶列表（屬性、分群、巢狀或、做過 ≥ n／between／未做過、or 組合、漏斗到達／流失含趨勢桶、留存留存／流失／週分組、事件落點含分組與合計、分公司範圍 + 回溯、日期屬性、排序）在 ClickHouse 25.8：估數 == 集合大小、每頁 7 筆走完 == 同一集合且順序單調；7 條必拒。
+
 ## 之後
 
 - 路徑、歸因兩個樣板（docs/23 §4.3），各自的 oracle 與黃金查詢加進 golden.py。
