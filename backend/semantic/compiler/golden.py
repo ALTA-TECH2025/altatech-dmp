@@ -163,6 +163,23 @@ FUNNELS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("F08 分群 vip + 行銷（K 匿名）", {"steps": [{"event": "app_login_success"}, {"event": "bond_deal"}], "window": W7, "segment": "vip", "group_by": ["user.tier"], "time": T_ALL}, "marketing"),
     ("F09 90 天窗口、月趨勢、分群 market", {"steps": [{"event": "hq_stockdetail_view"}, {"event": "bond_deal"}], "window": {"value": 90, "unit": "day"}, "trend": "month", "group_by": ["market"], "time": T_ALL}, "admin"),
 ]
+RETENTIONS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
+    ("R01 登入→任一事件 7 日留存（date）", {"initial": {"event": "app_login_success"}, "model": "date", "periods": 7, "time": T}, "admin"),
+    ("R02 看盤→成交 7 日內留存（interval，含當期）", {"initial": {"event": "hq_stockdetail_view"}, "return": {"event": "bond_deal"}, "model": "interval", "periods": 7, "include_day0": True, "time": T}, "admin"),
+    ("R03 連續留存 3 日", {"initial": {"event": "app_login_success"}, "return": {"event": "app_login_success"}, "model": "continuous", "periods": 3, "time": T}, "admin"),
+    ("R04 流失（第 n 日起不再回訪）", {"initial": {"event": "bond_order"}, "return": {"event": "bond_order"}, "model": "churn", "periods": 5, "time": T}, "admin"),
+    ("R05 週留存 × 平台分組", {"initial": {"event": "app_login_success"}, "model": "date", "unit": "week", "periods": 3, "group_by": ["platform"], "time": T_ALL}, "admin"),
+    ("R06 月留存（跨月）", {"initial": {"event": "hq_stockdetail_view"}, "return": {"event": "bond_order"}, "model": "interval", "unit": "month", "periods": 1, "include_day0": True, "time": T_ALL}, "admin"),
+    ("R07 篩選 + 用戶屬性 + 初始事件篩選", {"initial": {"event": "bond_order", "filters": [{"field": "amount", "op": "gte", "value": 100000}]}, "return": {"event": "bond_deal"}, "model": "date", "periods": 5,
+        "filters": [{"field": "user.lifecycle", "op": "in", "value": ["新客", "成長"]}], "time": T}, "admin"),
+    ("R08 分群 vip + 行銷（K 匿名）× tier", {"initial": {"event": "app_login_success"}, "model": "interval", "periods": 3, "segment": "vip", "group_by": ["user.tier"], "time": T}, "marketing"),
+]
+RETENTION_REJECTED: list[tuple[str, dict[str, Any], str]] = [
+    ("RR1 沒初始事件", {"model": "date", "time": T}, "初始行為"),
+    ("RR2 期數 91", {"initial": {"event": "bond_order"}, "periods": 91, "time": T}, "1–90"),
+    ("RR3 未知模型", {"initial": {"event": "bond_order"}, "model": "nope", "time": T}, "model"),
+    ("RR4 未登記回訪事件", {"initial": {"event": "bond_order"}, "return": {"event": "nope"}, "time": T}, "事件字典"),
+]
 FUNNEL_REJECTED: list[tuple[str, dict[str, Any], str]] = [
     ("FR1 一步", {"steps": [{"event": "bond_order"}], "window": W7, "time": T}, "2–10 步"),
     ("FR2 窗口 91 天", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": {"value": 91, "unit": "day"}, "time": T}, "90 天"),
@@ -297,6 +314,19 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
     fs = parse_funnel({**FUNNELS[0][1], "project": PROJECT, "order": "strict"}, cat); cs = compile_funnel(fs, cat, _subject("admin"))
     strict = run_sql(ch, cs.sql, cs.settings); loose = run_sql(ch, compile_funnel(parse_funnel({**FUNNELS[0][1], "project": PROJECT}, cat), cat, _subject("admin")).sql, cs.settings)
     assert [r["users"] for r in strict] == sorted([r["users"] for r in strict], reverse=True) and all(a["users"] <= b["users"] for a, b in zip(strict, loose)), (strict, loose)
+    from .retention import compile_retention, parse_retention
+    for name, raw, spec in RETENTIONS:
+        d = decision_of(spec); rq = parse_retention({**raw, "project": PROJECT}, cat); c = compile_retention(rq, cat, d)
+        got = run_sql(ch, c.sql, c.settings); expect = oracle.run_retention(rq, d)
+        compare(name, c.columns, expect, got, (2 if rq.group_by else 1) + 1)
+        report.append(f"  {name:<44} L0 rows={len(got):<4} cohorts={len({r['cohort'] for r in got})}")
+    for name, raw, kw in RETENTION_REJECTED:
+        try:
+            parse_retention({**raw, "project": PROJECT}, cat)
+        except ValueError as e:
+            assert kw in str(e), (name, e)
+        else:
+            raise AssertionError(name)
     for name, raw, kw in FUNNEL_REJECTED:
         try:
             parse_funnel({**raw, "project": PROJECT}, cat)
@@ -314,7 +344,7 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
             raise AssertionError(f"{name}: 應被拒絕")
     if verbose:
         print("\n".join(report))
-        print(f"compiler golden OK: {len(QUERIES)} queries (layers {layers}) + {len(FUNNELS)} funnels (+strict), {len(REJECTED)}+{len(FUNNEL_REJECTED)} rejected, sample ok, MV==L0")
+        print(f"compiler golden OK: {len(QUERIES)} queries (layers {layers}) + {len(FUNNELS)} funnels (+strict) + {len(RETENTIONS)} retentions, {len(REJECTED)}+{len(FUNNEL_REJECTED)}+{len(RETENTION_REJECTED)} rejected, sample ok, MV==L0")
     return {"queries": len(QUERIES), "layers": layers}
 
 
@@ -350,7 +380,17 @@ def dry_run() -> None:
     for name, raw, kw in FUNNEL_REJECTED:
         try: parse_funnel({**raw, "project": PROJECT}, cat); raise AssertionError(name)
         except ValueError as e: assert kw in str(e), (name, e)
-    print(f"compiler dry run OK: {len(QUERIES)} queries + {len(FUNNELS)} funnels compiled + oracle, {len(REJECTED)}+{len(FUNNEL_REJECTED)} rejected, sql digest {h.hexdigest()[:12]}")
+    from .retention import compile_retention, parse_retention, with_complete
+    for name, raw, spec in RETENTIONS:
+        rq = parse_retention({**raw, "project": PROJECT}, cat); c = compile_retention(rq, cat, decision_of(spec))
+        rows = oracle.run_retention(rq, decision_of(spec)); assert rows and "ARRAY JOIN range(" in c.sql and c.columns[:1] == ["cohort"], name
+        assert all(0 <= (r["rate"] or 0) <= 1 for r in rows), name
+        wc = with_complete(rows, rq, NOW); assert any(x["complete"] for x in wc), name
+        h.update(c.sql.encode())
+    for name, raw, kw in RETENTION_REJECTED:
+        try: parse_retention({**raw, "project": PROJECT}, cat); raise AssertionError(name)
+        except ValueError as e: assert kw in str(e), (name, e)
+    print(f"compiler dry run OK: {len(QUERIES)} queries + {len(FUNNELS)} funnels + {len(RETENTIONS)} retentions compiled + oracle, {len(REJECTED)}+{len(FUNNEL_REJECTED)} rejected, sql digest {h.hexdigest()[:12]}")
 
 
 if __name__ == "__main__":

@@ -27,6 +27,8 @@ class FakeClickHouse:
         if sql.startswith("EXPLAIN ESTIMATE"):
             return "dmp\tevents\t2\t16384\t2\n"
         assert settings and settings.get("max_execution_time") == 60, settings
+        if "ARRAY JOIN range(" in sql and "cohort" in sql:
+            return '{"cohort":"2026-10-01","period":1,"users":300,"retained":120,"rate":0.4,"suppressed":false}\n{"cohort":"2026-10-01","period":2,"users":300,"retained":90,"rate":0.3,"suppressed":false}\n{"cohort":"2026-10-15","period":1,"users":5,"retained":null,"rate":null,"suppressed":true}\n'
         if "windowFunnel" in sql:
             return '{"step":1,"users":200,"_k":200,"suppressed":false}\n{"step":2,"users":80,"_k":80,"suppressed":false}\n{"step":3,"users":null,"_k":10,"suppressed":true}\n'
         return '{"bucket":"2026-10-01","m1":120,"m2":35,"_k":35,"suppressed":false}\n{"bucket":"2026-10-02","m1":5,"m2":4,"_k":4,"suppressed":true}\n'
@@ -97,6 +99,10 @@ def main() -> None:
     assert "windowFunnel(604800)" in ch.sqls[-1] and fr.json()["chart_spec"]["type"] == "funnel"
     assert c.post("/v1/analytics/funnel", json={**fq, "window": {"value": 91, "unit": "day"}}).status_code == 400
     assert c.post("/v1/analytics/funnel", json={**fq, "metric": "times"}).status_code == 400
+    rq = {"initial": {"event": "app_login_success"}, "return": {"event": "bond_deal"}, "model": "interval", "periods": 2, "time": {**q["time"], "now": "2026-10-16"}}
+    rr = c.post("/v1/analytics/retention", json=rq); assert rr.status_code == 200, rr.text
+    rrows = rr.json()["rows"]; assert rrows[0]["complete"] is True and rrows[2]["complete"] is False and rrows[2]["suppressed"] is True and rr.json()["chart_spec"]["type"] == "retention_matrix", rrows
+    assert c.post("/v1/analytics/retention", json={**rq, "periods": 0}).status_code == 400
     catl = c.get("/v1/semantic/catalog").json()
     assert any(e["name"] == "bond_deal" for e in catl["events"]) and not any(u["key"] == "agent_id" for u in catl["user_props"]) and catl["funnel"]["max_window_days"] == 90 and "between" in catl["ops"]["number"]
     # 6. 審計：行銷只看自己；admin 全看
@@ -104,7 +110,7 @@ def main() -> None:
     login(c, sm, ["admin"], "adm"); allrows = c.get("/v1/audit").json(); assert len(allrows) > len(mine)
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":

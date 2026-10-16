@@ -7,6 +7,7 @@ parser.py    dict → AST（Query / Metric / Cond / Group / Formula / TimeRange�
 catalog.py   semantic/*.yaml + security/masking.yaml → 欄位解析（實體欄位 / JSON props / 用戶屬性 dictGet 或 JOIN / 分群）
 events.py    事件分析樣板：planner（L1 日聚合 MV 或 L0 明細）、聚合、分組、公式、top_n、mau、compare、K 匿名
 funnel.py    漏斗樣板：windowFunnel（寬鬆／嚴格）、關聯屬性（業務 ID）當分組鍵、用戶數／流程數、分組取第一步事件（argMinIf）、趨勢桶（minIf）、K 匿名；with_rates 補轉換率
+retention.py 留存樣板：同期群 × 期的 periods 陣列（LEFT JOIN 回訪）→ date／interval／continuous／churn 四模型條件；日／週／月；分組取初始事件；K 匿名；with_complete 標記未過期數
 policy.py    Decision → 行級 WHERE 改寫、欄位遮罩（bucket / round / mask_tail）、預算 settings（budgets.yaml）
 oracle.py    純 Python 參考實作（黃金測試的「正確答案」）
 golden.py    固定種子資料集（400 用戶 × 24,000 事件，跨月）＋ 30 條查詢 ＋ 10 條必拒查詢；oracle vs ClickHouse 逐列誤差 0；EXPLAIN ESTIMATE 門檻
@@ -67,8 +68,12 @@ python3 -m backend.integration.e2e_clickhouse                        # 端到端
 
 查詢形狀見 openapi `FunnelQuery`。oracle 複刻 ClickHouse `windowFunnel` 預設演算法（事件依 (時間, 條件序號) 排序；條件 0 每次出現重設鏈起點；條件 i 在條件 i-1 鏈起點 + 窗口內則延伸）；9 條黃金漏斗（窗口 30 分鐘到 90 天、關聯屬性 order_no、流程數口徑、分組、日／月趨勢、每步篩選、分群 + K 匿名）在 ClickHouse 25.8／26.10 逐列誤差 0；嚴格模式只檢查可執行且每步人數 ≤ 寬鬆模式。沒做第一步的用戶不產生分組／趨勢桶（`HAVING level > 0`）；分組值取最早且非 NULL 的第一步事件（`argMinIf` 跳過 NULL）。
 
+## 留存樣板
+
+查詢形狀見 openapi `RetentionQuery`。同一用戶可屬多個同期群（每個做過初始行為的期）；回訪掃描範圍到最後同期群 + P 期；`periods` = 回訪期 − 同期群期。oracle 以同口徑計算，8 條黃金留存（四模型、日／週／月、含當期、分組、篩選、分群 + K 匿名）在 ClickHouse 25.8 逐列誤差 0。
+
 ## 之後
 
-- 留存、路徑、歸因三個樣板（docs/23 §4.3），各自的 oracle 與黃金查詢加進 golden.py。
+- 路徑、歸因兩個樣板（docs/23 §4.3），各自的 oracle 與黃金查詢加進 golden.py。
 - 合成 1 千萬筆資料 × 40 條固定查詢的效能基準（tools/synth），每週跑。
 - `SemanticQuery` 契約擴充（多指標、巢狀條件、公式、top_n）：contract PR。

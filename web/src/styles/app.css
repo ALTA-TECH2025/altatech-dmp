@@ -77,6 +77,8 @@ a { color: inherit; text-decoration: none; }
 .tbl td { padding: 10px 12px; border-bottom: 1px solid var(--line2); vertical-align: top; }
 .tbl tr.warnrow td { background: #FFF8EC; }
 .tbl.matrix td.num { text-align: center; }
+.tbl.matrix-ret td { padding: 6px 10px; text-align: center; min-width: 64px; }
+.tbl.matrix-ret td:first-child, .tbl.matrix-ret td:nth-child(2) { text-align: right; }
 .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; margin-right: 4px; background: var(--soft); color: var(--body); border: 1px solid var(--line); }
 .pill.blue { background: var(--brand-soft); color: var(--brand); border-color: var(--brand-line); }
 .pill.amber { background: #FDF2E3; color: #9A5A0B; border-color: #F0D3A8; }

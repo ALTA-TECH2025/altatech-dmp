@@ -27,3 +27,20 @@ export interface Catalog {
   ops: Record<string, string[]>;
   funnel: { window_units: string[]; max_window_days: number; max_steps: number; orders: string[]; metrics: string[] };
 }
+
+export interface RetentionQuery {
+  project?: string;
+  initial: { event: string; filters?: Cond[] };
+  return?: { event: string; filters?: Cond[] };
+  model: 'date' | 'interval' | 'continuous' | 'churn';
+  unit: 'day' | 'week' | 'month';
+  periods: number;
+  include_day0?: boolean;
+  group_by?: string[];
+  filters?: Cond[];
+  segment?: string;
+  sample?: number;
+  time: { from: string; to: string; now?: string };
+}
+export interface RetentionRow { cohort: string; g1?: string | null; period: number; users: number | null; retained: number | null; rate: number | null; complete: boolean; suppressed?: boolean }
+export interface RetentionResult { rows: RetentionRow[]; sql: string; lineage: string[]; cost: { ms: number; rows: number; layer: string }; warnings: string[]; chart_spec: Record<string, unknown> }

@@ -12,7 +12,8 @@ from ..auth.session import SessionManager
 from ..security.policy import Subject, authorize
 from ..semantic.compiler import Catalog, compile_query
 from ..semantic.compiler.funnel import compile_funnel, parse_funnel, with_rates
-from ..semantic.compiler.golden import FUNNELS, PROJECT, QUERIES, run_sql
+from ..semantic.compiler.golden import FUNNELS, PROJECT, QUERIES, RETENTIONS, run_sql
+from ..semantic.compiler.retention import compile_retention, parse_retention
 from .app import create_app
 from .store import MemoryStore
 
@@ -41,8 +42,13 @@ def api_stage(ch: Any) -> None:
             r = c.post("/v1/analytics/funnel", json=q); assert r.status_code == 200, (name, r.text[:200])
             assert r.json()["rows"] == with_rates(run_sql(ch, cf.sql, cf.settings), fq.steps), name
             checked += 1
+        for name, raw, _ in RETENTIONS[:3]:
+            rq = parse_retention(q := {**raw, "project": PROJECT}, cat); cr = compile_retention(rq, cat, authorize(Subject(f"entra:{user}", [role]), "use", "events"))
+            r = c.post("/v1/analytics/retention", json=q); assert r.status_code == 200, (name, r.text[:200])
+            assert [{k: v for k, v in x.items() if k != "complete"} for x in r.json()["rows"]] == run_sql(ch, cr.sql, cr.settings), name
+            checked += 1
         est = c.post("/v1/semantic/compile", json={**QUERIES[0][1], "project": PROJECT}).json()
         assert est["estimated_scan_rows"] is not None and est["sql"]
     ev = [x for x in store.audit_tail(200) if x["event"] == "query.executed"]
     assert len(ev) == checked and any(x["masked"] for x in ev if x["user"] == "entra:mkt")   # 行銷的金額查詢有遮罩紀錄
-    print(f"api stage OK: {checked} queries via /v1/analytics/events+funnel == direct SQL (admin + marketing), audit query.executed={len(ev)}")
+    print(f"api stage OK: {checked} queries via /v1/analytics/events+funnel+retention == direct SQL (admin + marketing), audit query.executed={len(ev)}")

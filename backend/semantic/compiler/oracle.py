@@ -16,6 +16,7 @@ from .catalog import FieldRef
 from .funnel import FunnelQuery
 from .parser import Cond, Formula, Group, Metric, Query
 from .policy import bucket_label, parse_policy
+from .retention import RetentionQuery
 
 
 class Oracle:
@@ -334,5 +335,64 @@ class Oracle:
                 if fq.group_by: row["g1"] = g
                 row["step"] = step; row["users"] = None if (k and kk < k) else users; row["_k"] = kk
                 if k: row["suppressed"] = bool(kk < k)
+                out.append(row)
+        return out
+
+
+    # ---- 留存 ----
+    @staticmethod
+    def _bucket_of(unit: str, d: date) -> date:
+        if unit == "day": return d
+        if unit == "week": return d - timedelta(days=d.weekday())
+        return d.replace(day=1)
+
+    @staticmethod
+    def _diff(unit: str, c: date, r: date) -> int:
+        if unit == "day": return (r - c).days
+        if unit == "week": return (r - c).days // 7
+        return (r.year - c.year) * 12 + r.month - c.month
+
+    @staticmethod
+    def _retained(model: str, ps: set[int], n: int, lo: int, P: int) -> bool:
+        if model == "date": return n in ps
+        if model == "interval": return any(lo <= p <= n for p in ps)
+        if model == "continuous": return all(x in ps for x in range(lo, n + 1))
+        return not any(n <= p <= P for p in ps)
+
+    def run_retention(self, rq: RetentionQuery, decision: Any = None) -> list[dict[str, Any]]:
+        now = rq.time.now or date.today()
+        k = int(getattr(decision, "k_anonymity", 0) or 0)
+        if rq.sample:
+            raise ValueError("oracle 不做抽樣")
+        def ok(r: dict[str, Any]) -> bool:
+            return r["project"] == rq.project and self.group(rq.filters, r, now) and self._row_filters_ok(decision, r, now)
+        ret_end = rq.return_end()
+        cohorts: dict[tuple[str, date], list[tuple[Any, Any]]] = defaultdict(list)       # (one_id, cohort) → [(time, group value)]
+        returns: dict[str, set[date]] = defaultdict(set)
+        for r in self.events:
+            if not ok(r): continue
+            if rq.time.start <= r["event_date"] <= rq.time.end and (rq.initial.event is None or r["event"] == rq.initial.event) and self.group(rq.initial.filters, r, now):
+                cohorts[(r["one_id"], self._bucket_of(rq.unit, r["event_date"]))].append((r["time"], self.value(rq.group_by, r) if rq.group_by else None))
+            if rq.time.start <= r["event_date"] <= ret_end and (rq.ret.event is None or r["event"] == rq.ret.event) and self.group(rq.ret.filters, r, now):
+                returns[r["one_id"]].add(self._bucket_of(rq.unit, r["event_date"]))
+        members: dict[tuple, list[tuple[str, set[int]]]] = defaultdict(list)             # (cohort, g1) → [(one_id, periods)]
+        for (oid, c), evs in cohorts.items():
+            g = None
+            if rq.group_by:
+                nn = [(t, v) for t, v in evs if v is not None]                              # argMinIf 跳過 NULL
+                g = min(nn)[1] if nn else None
+            periods = {self._diff(rq.unit, c, rb) for rb in returns.get(oid, set()) if rb >= c and self._diff(rq.unit, c, rb) <= rq.periods}
+            members[(c, g)].append((oid, periods))
+        P, lo = rq.periods, rq.lo
+        out = []
+        for (c, g), ms in sorted(members.items(), key=lambda kv: (kv[0][0].isoformat(), "" if kv[0][1] is None else str(kv[0][1]))):
+            users = len({oid for oid, _ in ms})
+            for n in range(lo, P + 1):
+                retained = len({oid for oid, ps in ms if self._retained(rq.model, ps, n, lo, P)})
+                row: dict[str, Any] = {"cohort": c.isoformat()}
+                if rq.group_by: row["g1"] = g
+                sup = bool(k and users < k)
+                row.update({"period": n, "users": users, "retained": None if sup else retained, "rate": None if sup else retained / users})
+                if k: row["suppressed"] = sup
                 out.append(row)
         return out

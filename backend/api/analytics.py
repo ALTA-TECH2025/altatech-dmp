@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from datetime import date as _date
 from typing import Any, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,6 +13,7 @@ from ..security.policy import Subject, authorize
 from ..semantic.compiler import Catalog, Compiled, compile_query
 from ..semantic.compiler.funnel import compile_funnel, parse_funnel, with_rates
 from ..semantic.compiler.parser import AGGS, OPS
+from ..semantic.compiler.retention import compile_retention, parse_retention, with_complete
 from .store import Store
 
 
@@ -109,6 +111,31 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
         return {"rows": with_rates(rows, fq.steps), "steps": [{"event": s.event, "alias": s.alias} for s in fq.steps], "sql": c.sql, "lineage": c.lineage,
                 "cost": {"ms": ms, "rows": len(rows), "layer": c.layer}, "warnings": c.warnings, "columns": c.columns + ["alias", "event", "rate_prev", "rate_first"],
                 "chart_spec": {"type": "funnel", "x": "step", "series": ["users"], "group": ["g1"] if fq.group_by else [], "trend": fq.trend}}
+
+    @r.post("/v1/analytics/retention")
+    def retention(body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        d = authorize(subject, "use", "events")          # 留存屬 events 模組（rbac：事件／漏斗／路徑／歸因／留存）
+        if not d.allowed:
+            raise HTTPException(403, d.reason)
+        try:
+            rq = parse_retention(body, cat); c = compile_retention(rq, cat, d, str(body.get("profile") or "human"))
+        except PermissionError as e:
+            raise HTTPException(403, str(e)) from None
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        if ch is None:
+            raise HTTPException(503, "此環境未連接 ClickHouse")
+        t0 = time.perf_counter()
+        try:
+            rows = run_rows(ch, c)
+        except RuntimeError as e:
+            store.audit("query.failed", {"user": subject.user_id, "module": "retention", "error": str(e)[:200]})
+            raise HTTPException(502, f"查詢失敗：{str(e)[:300]}") from None
+        ms = round((time.perf_counter() - t0) * 1000)
+        store.audit("query.executed", {"user": subject.user_id, "module": "retention", "sql_hash": hashlib.sha256(c.sql.encode()).hexdigest()[:16], "rows": len(rows), "ms": ms, "row_policy": c.row_filters, "lineage": c.lineage})
+        today = rq.time.now or _date.today()
+        return {"rows": with_complete(rows, rq, today), "sql": c.sql, "lineage": c.lineage, "cost": {"ms": ms, "rows": len(rows), "layer": c.layer}, "warnings": c.warnings,
+                "columns": c.columns + ["complete"], "chart_spec": {"type": "retention_matrix", "x": "period", "y": "cohort", "value": "rate", "group": ["g1"] if rq.group_by else [], "model": rq.model, "unit": rq.unit, "periods": rq.periods, "lo": rq.lo}}
 
     @r.get("/v1/semantic/catalog")
     def catalog(subject: Subject = Depends(get_subject)) -> dict[str, Any]:
