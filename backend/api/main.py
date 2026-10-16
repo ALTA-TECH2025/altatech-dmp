@@ -5,6 +5,7 @@
   DMP_SECRETS_JSON      secret_ref → 明文 的 JSON 檔路徑（只在執行節點，由密鑰庫掛載）；沒有時所有 secret_ref 解析失敗
   CLICKHOUSE_URL / CLICKHOUSE_USER / CLICKHOUSE_PASSWORD
   DMP_STORE_PATH        控制面 JSON 檔（單機開發用；正式環境換 PostgreSQL）
+  DMP_EXPORT_DIR        匯出檔目錄（核可後產生的 CSV；正式環境換物件儲存 + 到期清理）
   DMP_API_KEY_PEM / DMP_API_PUB_PEM   API token 簽章金鑰檔（沒有就不開 /auth/token）
 """
 from __future__ import annotations
@@ -56,7 +57,7 @@ def build() -> Any:
         tokens = ApiTokens(cfg["session"]["api_token"], Path(os.environ["DMP_API_KEY_PEM"]).read_text(), Path(os.environ["DMP_API_PUB_PEM"]).read_text())
     ch = ClickHouseHTTP(os.environ["CLICKHOUSE_URL"], user=os.environ.get("CLICKHOUSE_USER", "default"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), timeout=120) if os.environ.get("CLICKHOUSE_URL") else None
     auth = AuthService(cfg, providers, sessions, tokens, store.assignments)
-    return create_app(auth, store, ch)
+    return create_app(auth, store, ch, export_dir=os.environ.get("DMP_EXPORT_DIR"))
 
 
 app = build() if os.environ.get("DMP_BUILD_APP", "1") == "1" and __name__ != "__main__" else None

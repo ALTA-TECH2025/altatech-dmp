@@ -21,6 +21,9 @@ class Store(Protocol):
     def segments(self) -> list[dict[str, Any]]: ...
     def put_segment(self, seg: dict[str, Any]) -> None: ...
     def delete_segment(self, id_: str) -> None: ...
+    def items(self, kind: str) -> list[dict[str, Any]]: ...
+    def put_item(self, kind: str, obj: dict[str, Any]) -> None: ...
+    def delete_item(self, kind: str, id_: str) -> None: ...
 
 
 class MemoryStore:
@@ -76,3 +79,14 @@ class MemoryStore:
     def delete_segment(self, id_: str) -> None:
         with self.lock:
             self.d.setdefault("segments", {}).pop(id_, None); self._save()
+
+    def items(self, kind: str) -> list[dict[str, Any]]:
+        return list(self.d.setdefault(kind, {}).values())
+
+    def put_item(self, kind: str, obj: dict[str, Any]) -> None:
+        with self.lock:
+            self.d.setdefault(kind, {})[obj["id"]] = obj; self._save()
+
+    def delete_item(self, kind: str, id_: str) -> None:
+        with self.lock:
+            self.d.setdefault(kind, {}).pop(id_, None); self._save()

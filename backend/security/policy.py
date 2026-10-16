@@ -42,6 +42,11 @@ def _grants(role: str, module: str) -> set[str]:
     return acts
 
 
+def has_grant(subject: Subject, action: str, module: str) -> bool:
+    """只看模組權限（不檢查審批／理由）：申請匯出時用它判斷「可申請」，真正產檔再走 authorize(action="export")。"""
+    return action in set().union(*(_grants(r, module) for r in subject.roles if r in RBAC["roles"]))
+
+
 def authorize(subject: Subject, action: str, module: str, context: dict[str, Any] | None = None) -> Decision:
     context = context or {}
     # 1. 模組權限：多角色取聯集

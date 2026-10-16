@@ -588,3 +588,13 @@ def identity_graph(rows: list[dict[str, Any]], decision: Any = None) -> dict[str
         a = node(str(r["id_type_a"]), str(r["id_a"])); b = node(str(r["id_type_b"]), str(r["id_b"]))
         edges.append({"a": a, "b": b, **{k: r.get(k) for k in ("source", "evidence_event_id", "first_seen", "last_seen", "seen_count", "confidence", "status")}})
     return {"nodes": list(nodes.values()), "edges": edges, "masked": {"id": pol} if pol != "plain" else {}}
+
+
+def compile_export(uq: UsersQuery, columns: list[str], cat: Catalog | None = None, decision: Any = None, max_rows: int = MAX_BROWSE, profile: str = "batch") -> Compiled:
+    """匯出：同一套列表 SQL，一次取到上限（不分頁）；欄位策略由 authorize(action="export", context={"export": True}) 給（比 UI 嚴一級）。"""
+    cat = cat or Catalog()
+    cols: list[str] = []
+    for c in columns or DEFAULT_COLUMNS:
+        if c != "one_id" and c not in cols:
+            _stored(cat, c); cols.append(c)
+    return compile_list(uq, ListSpec(cols, None, "asc", int(max_rows), None), cat, decision, profile)

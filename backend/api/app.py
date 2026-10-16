@@ -4,20 +4,22 @@ create_app(auth_service, store, ch) 讓測試能注入假 IdP／假 ClickHouse�
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from ..approvals import ApprovalService, ExportService
 from ..auth.api import AuthService, subject_from_request
 from ..auth.api import build_router as auth_router
 from ..security.policy import Subject
 from ..segments import SegmentService
-from . import analytics, iam, segments, users
+from . import analytics, exports, iam, segments, users
 from .store import Store
 
 
-def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_service: SegmentService | None = None) -> FastAPI:
+def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_service: SegmentService | None = None, export_dir: Any | None = None, approval_service: ApprovalService | None = None) -> FastAPI:
     app = FastAPI(title="AltaTech DMP API", version="0.1.0", docs_url="/v1/docs", openapi_url="/v1/openapi.json")
 
     def get_subject(request: Request) -> Subject:
@@ -29,7 +31,13 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     app.include_router(iam.build_router(store, get_subject))
     app.include_router(analytics.build_router(store, get_subject, ch))
     app.include_router(users.build_router(store, get_subject, ch))
-    app.include_router(segments.build_router(store, get_subject, segment_service or SegmentService(store, ch)))
+    approvals = approval_service or ApprovalService(store)
+    seg_svc = segment_service or SegmentService(store, ch)
+    seg_svc.approvals = approvals
+    import tempfile
+    exp = ExportService(store, ch, approvals, Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports", members_rule=seg_svc.members_rule)
+    app.include_router(segments.build_router(store, get_subject, seg_svc))
+    app.include_router(exports.build_router(store, get_subject, approvals, exp))
 
     @app.exception_handler(PermissionError)
     def _perm(_: Request, e: PermissionError) -> JSONResponse:

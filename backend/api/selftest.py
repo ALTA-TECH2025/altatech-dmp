@@ -26,7 +26,7 @@ class FakeClickHouse:
         self.sqls.append(sql)
         if sql.startswith("EXPLAIN ESTIMATE"):
             return "dmp\tevents\t2\t16384\t2\n"
-        assert settings and settings.get("max_execution_time") == 60, settings
+        assert settings and settings.get("max_execution_time") in (60, 600), settings        # human 60s；匯出走 batch 600s
         if "bitmapCardinality(" in sql:
             return '{"users":123}\n'
         if "bitmapContains(" in sql:
@@ -152,13 +152,32 @@ def main() -> None:
     ig = c.get("/v1/profiles/v1_abcdef1234/identities?reason=客訴單 C-1001").json()
     assert [n["value"] for n in ig["nodes"]] == ["L0****", "D00****"] and ig["edges"][0]["source"] == "ga360.login" and ig["masked"] == {"id": "mask_tail(4)"}, ig
     pv = [x for x in store.audit_tail(50) if x["event"] == "profile.viewed"]; assert pv and pv[-1]["reason"] == "客訴單 C-1001" and len(pv[-1]["one_id_hash"]) == 16 and "one_id" not in pv[-1]
+    # 5d. 匯出審批：數據分析申請（需用途）→ 審批單給數位經營 → 核可 → 本人產檔（遮罩、浮水印）→ 下載；行銷 403；自己不能審；分群待審批也開審批單
+    ex = c.post("/v1/exports", json={"kind": "users", "rule": uq, "purpose": "Q4 名單交付 MA（保存 30 天）", "retention_days": 30}); assert ex.status_code == 201, ex.text
+    eb = ex.json(); assert eb["status"] == "pending_approval" and eb["rows_estimate"] == 123 and eb["approval_id"].startswith("ap_"), eb
+    assert c.post("/v1/exports", json={"kind": "users", "rule": uq, "purpose": "x"}).status_code == 400
+    assert c.post(f"/v1/exports/{eb['id']}/run").status_code == 409 and c.post(f"/v1/approvals/{eb['approval_id']}/decide", json={}).status_code == 403
+    assert [a["id"] for a in c.get("/v1/approvals?scope=mine").json()] == [eb["approval_id"]] and c.get("/v1/approvals?scope=to_me").json() == []
+    login(c, sm, ["marketing"], "mkt"); assert c.post("/v1/exports", json={"kind": "users", "rule": uq, "purpose": "行銷想匯出"}).status_code == 403
+    mseg = c.post("/v1/segments", json={"name": "行銷待審", "rule": uq}).json(); assert mseg["status"] == "pending_approval"
+    login(c, sm, ["digital_ops"], "ops")
+    todo = c.get("/v1/approvals").json(); assert {a["type"] for a in todo} == {"export", "segment"} and all(a["status"] == "pending" for a in todo), todo
+    assert c.post(f"/v1/approvals/{eb['approval_id']}/decide", json={"approve": False}).status_code == 400          # 退回要意見
+    ap = c.post(f"/v1/approvals/{eb['approval_id']}/decide", json={"approve": True, "note": "ok"}).json(); assert ap["status"] == "approved" and ap["decided_by"] == "entra:ops"
+    seg_ap = next(a for a in todo if a["type"] == "segment"); c.post(f"/v1/approvals/{seg_ap['id']}/decide", json={"approve": True}); assert c.get(f"/v1/segments/{mseg['id']}").json()["status"] == "active"
+    assert c.get(f"/v1/exports/{eb['id']}").json()["status"] == "approved" and c.post(f"/v1/exports/{eb['id']}/run").status_code == 403           # 非申請者不能產檔
+    login(c, sm, ["data_analyst"], "ana")
+    gen = c.post(f"/v1/exports/{eb['id']}/run").json(); assert gen["status"] == "generated" and gen["rows"] == 1 and gen["watermark_id"] and gen["masked"].get("one_id") == "mask_tail(4)", gen
+    dl = c.get(f"/v1/exports/{eb['id']}/download"); assert dl.status_code == 200 and dl.headers["content-type"].startswith("text/csv") and "# AltaTech DMP 匯出" in dl.text and "_watermark" in dl.text and gen["watermark_id"] in dl.text, dl.text[:200]
+    assert c.get(f"/v1/exports/{eb['id']}").json()["status"] == "downloaded" and [e["id"] for e in c.get("/v1/exports").json()] == [eb["id"]]
+    evx = [x["event"] for x in store.audit_tail(100)]; assert {"export.requested", "approval.created", "approval.decided", "export.generated", "export.downloaded"} <= set(evx)
     login(c, sm, ["marketing"], "mkt")
     # 6. 審計：行銷只看自己；admin 全看
     mine = c.get("/v1/audit").json(); assert mine and all(x.get("user") == "entra:mkt" for x in mine)
     login(c, sm, ["admin"], "adm"); allrows = c.get("/v1/audit").json(); assert len(allrows) > len(mine)
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention+path+users+profile(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention+path+users+profile+exports/approvals(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":

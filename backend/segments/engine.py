@@ -25,6 +25,10 @@ from ..semantic.compiler import Catalog
 from ..semantic.compiler.events import q
 from ..semantic.compiler.users import _bitmaps, compile_estimate, parse_users
 
+
+def summarize(rule: dict[str, Any]) -> str:
+    return ", ".join(f"{k}={v}" for k, v in rule.items() if k != "project")[:300]
+
 STATUSES = ("draft", "pending_approval", "active", "paused", "recycled")
 KINDS = ("rule", "result")
 FREQS = ("daily", "weekly", "monthly")
@@ -39,9 +43,22 @@ class Conflict(Exception):
 
 
 class SegmentService:
-    def __init__(self, store: Any, ch: Any | None, cat: Catalog | None = None, now: Callable[[], datetime] | None = None):
+    def __init__(self, store: Any, ch: Any | None, cat: Catalog | None = None, now: Callable[[], datetime] | None = None, approvals: Any = None):
         self.store, self.ch, self.cat = store, ch, cat or Catalog()
         self.now = now or (lambda: datetime.now(ZoneInfo("Asia/Taipei")))
+        self._approvals = None
+        self.approvals = approvals
+
+    @property
+    def approvals(self) -> Any:
+        return self._approvals
+
+    @approvals.setter
+    def approvals(self, svc: Any) -> None:
+        """接上審批單服務：待審批的分群會開一張 segment 類型的審批單，從審批中心核可／退回會回寫分群。"""
+        self._approvals = svc
+        if svc is not None:
+            svc.hooks["segment"] = lambda a, ok, subject: self.approve(a["object"]["id"], ok, a.get("note", ""), subject, _from_ticket=True)
 
     # ---------------------------------------------------------------- 讀
     def list(self, q_: str | None = None, status: str | None = None, kind: str | None = None, project: str | None = None) -> list[dict[str, Any]]:
@@ -125,6 +142,8 @@ class SegmentService:
                "approval": {"status": "pending" if pending else "none", "by": None, "at": None, "note": ""}, "latest": None, "versions": [], "recycled_at": None}
         self.store.put_segment(seg)
         self.store.audit("segment.created", {"user": subject.user_id, "segment": seg["id"], "name": seg["name"], "kind": seg["kind"], "status": seg["status"], "lineage": seg["lineage"]["up"]})
+        if pending and self._approvals is not None:
+            self._approvals.create("segment", subject, f"分群「{seg['name']}」生效", {"kind": seg["kind"], "rule": summarize(seg["rule"]), "update": seg["update"]}, {"kind": "segment", "id": seg["id"]})
         return seg
 
     def update(self, id_: str, body: dict[str, Any], subject: Subject, decision: Any) -> dict[str, Any]:
@@ -157,14 +176,19 @@ class SegmentService:
             raise Conflict("只有 draft 可送審")
         seg["status"] = "pending_approval"; seg["approval"] = {"status": "pending", "by": None, "at": None, "note": ""}; seg["updated_at"] = self._ts()
         self.store.put_segment(seg); self.store.audit("segment.submitted", {"user": subject.user_id, "segment": id_})
+        if self._approvals is not None:
+            self._approvals.create("segment", subject, f"分群「{seg['name']}」生效（重新送審）", {"kind": seg["kind"], "rule": summarize(seg["rule"]), "update": seg["update"]}, {"kind": "segment", "id": seg["id"]})
         return seg
 
-    def approve(self, id_: str, approve: bool, note: str, subject: Subject) -> dict[str, Any]:
+    def approve(self, id_: str, approve: bool, note: str, subject: Subject, _from_ticket: bool = False) -> dict[str, Any]:
         seg = self.get(id_)
         if seg["status"] != "pending_approval":
+            if _from_ticket: return seg
             raise Conflict("不在待審批狀態")
         if seg["owner"] == subject.user_id and "admin" not in subject.roles:
             raise Conflict("不能審批自己建立的分群")
+        if not _from_ticket and self._approvals is not None:
+            self._approvals.close_for_object("segment", id_, approve, subject, note)
         seg["status"] = "active" if approve else "draft"
         seg["approval"] = {"status": "approved" if approve else "rejected", "by": subject.user_id, "at": self._ts(), "note": note}
         seg["updated_at"] = self._ts(); self.store.put_segment(seg)

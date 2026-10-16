@@ -147,7 +147,7 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 - `inventory`（手動登記 + Impala 統計）、`export_jobs`（分片狀態機：待執行／導出中／校驗／載入／對帳／完成／待人工）、`recon`（T2、T5、T6 三張對帳表）、`ga_spec_export`（CSV）。
 - 這個模組是第一階段最早要能跑的：M1 盤點、M2 歷史載入都靠它。
 
-### 4.9 governance／iam／ops — 22 人日
+### 4.9 governance／iam／ops — 22 人日（已有：`backend/approvals/` 審批單 + 匯出申請（用途、審批、遮罩嚴一級、浮水印、下載）；審批中心前端）
 
 - governance：元事件 CRUD + 上線檢查 + 變更單；維度表 upsert + dictionary 重載；用戶表屬性登記。
 - iam：`policy.py` 已有 authorize；補角色 CRUD（admin 可增刪、改派）、指派、審批流（單一表 `approvals`，類型欄區分）、審計查詢與看板 SQL。

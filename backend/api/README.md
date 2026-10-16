@@ -17,6 +17,7 @@ docs/23 §4.4：router 只做「驗證 → Policy → 呼叫服務 → 審計」
 | `POST /v1/users/estimate`、`/v1/users/list` | 用戶列表：條件 → Bitmap 估數；keyset 分頁列表（欄位依角色遮罩、每頁 ≤ 500、最多 10 萬筆）；審計 users.estimated／users.listed | users.use |
 | `GET /v1/profiles/{one_id}`、`/timeline`、`/identities` | 用戶細查：畫像 + 近 30 天摘要 + 分群、行為序列（倒序分頁、props 去 L4 鍵）、身分圖（id_edges）；需 reason 4–200 字；範圍外 404；審計 profile.viewed／timeline／identities 只記 one_id 雜湊 | profile.use |
 | `/v1/segments*` | 分群引擎最小版（`backend/segments/`）：建立／審批／估數與畫像／計算（版本保留）／例行 tick／成員列表／複製／暫停／血緣／回收站／徹底刪除 | segments.view／use／approve／admin |
+| `/v1/approvals*`、`/v1/exports*` | 審批單（類型決定審批角色、hook 回寫受控物件、逾期）與匯出申請（用途、估列數、核可後產檔：遮罩嚴一級 + 浮水印、下載）；`backend/approvals/` | users.export／類型審批角色 |
 | `GET /v1/audit` | 審計尾端（行銷／分析只看自己） | audit.view |
 
 ```bash

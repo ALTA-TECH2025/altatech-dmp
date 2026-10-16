@@ -175,6 +175,8 @@ def main() -> int:
             api_stage(ch)
             from ..segments.e2e_stage import segments_stage  # 分群：建立 → 計算 → 成員 == oracle；版本保留；seg.<id> 最新版本；例行 tick
             segments_stage(ch)
+            from ..approvals.e2e_stage import exports_stage  # 匯出：申請 → 審批 → 產檔（遮罩、浮水印）→ 下載
+            exports_stage(ch)
         print("status:", json.dumps([{k: x[k] for k in ('id', 'enabled', 'last', 'watermark')} for x in s.status(t0 + timedelta(hours=1))], ensure_ascii=False, default=str)[:600])
         print("alerts:", [a["message"] for a in s.alerts()])
         print("E2E OK")
