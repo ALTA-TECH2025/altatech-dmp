@@ -76,6 +76,8 @@
 - 交付：`ga360_tracking_spec.csv`（117 列：神策事件、中文名、分組、來源、平台、GA4 事件名、類型、參數、備註、別名）、埋點呼叫片段（docs/20 §3）、DebugView 核對清單、BigQuery 驗證 SQL（每事件每日筆數、必填參數非空率）。
 - 驗收：導入商在測試 property 上每個事件至少 1 筆進 BigQuery；`event_name` 全部能被橋接表轉回正式事件名（對不上的進隔離區登記）；必填參數非空率 ≥ 99%；`user_id` 格式 `v1_` + 20 字元。
 
+> 查詢 API 直連連接器已實作：`backend/integration/sensors_api.py`（兩種鑑權自動判別、逐步連線診斷、盤點、按日分頁導出接 `sensors_format`）；單機匯入驗證見 `deploy/quickstart/README.md`。
+
 ## 3. 工作二：神策資料盤點、導出、載入
 
 ### 3.1 盤點清單

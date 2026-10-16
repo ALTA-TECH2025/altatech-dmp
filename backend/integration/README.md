@@ -100,3 +100,18 @@ e2e 以 sqlite 當 MSSQL 替身（同為 DB-API）：兩個 15 分鐘窗口各�
 ## 還沒做（docs/23 §4.1）
 
 Parquet／Trino／BigQuery 來源讀取器（現在只有 CSV／JSONL）、用戶模型的 upsert 路徑、Airflow DAG 包裝、`/v1/integration/*` 的 FastAPI router。
+
+
+## 神策查詢 API 直連（sensors_api.py）
+
+`python3 -m backend.integration.sensors_api` 自測（假神策伺服器）；有金鑰時：
+
+```bash
+export SA_API_SECRET='…'   # 只放環境變數
+python3 -m backend.integration.sensors_api test      --base-url https://sn3.data-di.com --project taipei_uat            # dns → tcp → tls → auth（自動試 query_token／header）→ privilege → sample_read → clock_skew
+python3 -m backend.integration.sensors_api inventory --base-url … --project … --from 2026-10-01 --to 2026-10-07     # 每事件每日筆數（docs/22 盤點）
+python3 -m backend.integration.sensors_api columns   --base-url … --project …                                        # events 欄位（屬性攤平）
+python3 -m backend.integration.sensors_api export    --base-url … --project … --date 2026-10-01 --out sa_2026-10-01.jsonl   # 按日分頁導出成 FormatImporter 格式
+```
+
+導出檔接 `sensors_format.SensorsLoader.run_file`（代碼化、去個資、載入、對帳），與線下格式檔同一條路。沒有 `$is_login_id` 欄位時預設把 distinct_id 視為登入 ID（寧可多代碼化）；`--anonymous-when-missing` 反轉。單機完整流程見 `deploy/quickstart/README.md`。

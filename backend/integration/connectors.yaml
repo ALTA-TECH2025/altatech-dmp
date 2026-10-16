@@ -22,7 +22,7 @@ connectors:
     auth: [impala_kerberos, api_token]              # 建議順序：私有化直讀 Impala／HDFS（快、完整）> 查詢 API（按日切片、受併發與列數限制）
     auth_methods:
       impala_kerberos: { fields: [host, port, database, principal], secret_fields: [keytab], secret_ref_required: true, notes: "直讀 events／users／user_tag 等底層表；HDFS Parquet 可用 distcp 整段搬，最省時" }
-      api_token:       { fields: [base_url, project], secret_fields: [api_secret], secret_ref_required: true, rotation_days: 30, notes: "/api/sql/query，SQL 按 date 切片、分頁；遷移完成後撤銷 token" }
+      api_token:       { fields: [base_url, project, auth_mode, header_name], secret_fields: [api_secret], secret_ref_required: true, rotation_days: 30, notes: "/api/sql/query（sensors_api.py）：auth_mode=query_token（?token=）或 header（SBP 開放 API 金鑰，sensorsdata-token）；SQL 按 date 切片、ORDER BY time LIMIT/OFFSET 分頁；遷移完成後撤銷 token" }
     tls: { required: true, min_version: "1.2", verify_server_cert: true, ca_bundle_ref: optional }
     network: { private_ip: true, source_ip_allowlist: "Cloud NAT 固定 IP / 機房出口 IP", port_default: 443 }
     least_privilege:
