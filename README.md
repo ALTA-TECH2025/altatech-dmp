@@ -39,6 +39,7 @@ backend/                                            後端骨架（可讀、可�
   openapi.yaml                                     人與 agent 共用的 API
   semantic/{events,metrics,dimensions,dimension_tables,user_properties,oneid_rules,ga4_mapping}.yaml   語意層定義（事件、指標、維度、維度表／字典／虛擬屬性、用戶表、OneID 規則；agent 的資料地圖）
   mcp/tools.yaml  mcp/server.py                    Agent Tool Gateway（工具目錄 + 權限/預算/脫敏/審計骨架）
+  semantic/compiler/README.md  parser.py  catalog.py  events.py  policy.py  oracle.py  golden.py  budgets.yaml   語意查詢編譯器：事件分析樣板（MV／明細選層、公式、top_n、compare、K 匿名、遮罩、預算）＋ 30 條黃金查詢在真 ClickHouse 誤差 0
   insight_agent/agents.yaml  skills/*.md  evals/golden.yaml  runtime.py   agent 註冊、skill、評測、執行迴圈
   migration/bridge.py  ga360_tracking_spec.csv  semantic/sensors_ga4_bridge.yaml   神策 → GA360 埋點銜接：由事件字典產生 GA4 事件名／參數（給導入商）與接入用橋接表，檢查 GA4 限制（自測）
   integration/README.md  modeling.py  scheduler.py  runner.py  cli.py  e2e_clickhouse.py   可視化建模引擎（驗證／預覽／套用／SQL 編譯）、排程器（cron、依賴、重試、水位、Schema 變更）、執行器（檔案 → ClickHouse → 隔離 → 對帳）、端到端測試（真 ClickHouse）

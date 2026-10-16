@@ -1,8 +1,9 @@
 """端到端測試：啟動單機 ClickHouse → 建表 → 合成來源檔 → 排程器跑兩個任務（維度表全量、委託增量三個窗口）
 → 驗證 ClickHouse 內筆數、隔離區、對帳表、水位、依賴 → 以 compile_sql 的 INSERT…SELECT 路徑重算一次比對 Python 路徑。
 
-用法：CLICKHOUSE_BIN=/path/to/clickhouse python3 -m backend.integration.e2e_clickhouse
-沒有 CLICKHOUSE_BIN 時只做乾跑（不連 ClickHouse）。
+用法：CLICKHOUSE_BIN=/path/to/clickhouse python3 -m backend.integration.e2e_clickhouse      # 自己啟動單機 ClickHouse
+     CLICKHOUSE_URL=http://127.0.0.1:8123 python3 -m backend.integration.e2e_clickhouse   # 連現成的（CI 的 service container）
+沒有兩者時只做乾跑（不連 ClickHouse）。最後一段是語意查詢編譯器的黃金測試（semantic/compiler/golden.py）。
 """
 from __future__ import annotations
 
@@ -77,17 +78,20 @@ def synth(workdir: Path, n_orders: int = 20_000, seed: int = 7) -> dict[str, Pat
 
 
 def main() -> int:
-    binary = os.environ.get("CLICKHOUSE_BIN")
+    binary, url = os.environ.get("CLICKHOUSE_BIN"), os.environ.get("CLICKHOUSE_URL")
     work = Path(tempfile.mkdtemp(prefix="dmp-e2e-"))
     proc = None
     try:
         files = synth(work)
         modeling.set_key("k_idm", b"e2e-key-idm"); modeling.set_key("k_acct", b"e2e-key-acct")
         ch = None
-        if binary:
-            proc = start_clickhouse(binary, work); ch = ClickHouseHTTP(f"http://127.0.0.1:{HTTP_PORT}", timeout=3600)
+        if binary or url:
+            if binary:
+                proc = start_clickhouse(binary, work); url = f"http://127.0.0.1:{HTTP_PORT}"
+            ch = ClickHouseHTTP(url, timeout=3600)
+            ch.query("DROP DATABASE IF EXISTS dmp")       # 現成伺服器（CI）可能殘留上一輪的表
             for st in local_ddl((ROOT / "clickhouse" / "schema.sql").read_text(encoding="utf-8")):
-                ch.query(st)
+                ch.query(st, settings={"allow_experimental_json_type": 1})
             print("ClickHouse", ch.query("SELECT version()").strip(), "· tables:", ch.query("SELECT count() FROM system.tables WHERE database='dmp'").strip())
         runner = LocalRunner(ch)
         s = Scheduler(work / "sched.db", runner)
@@ -156,11 +160,14 @@ def main() -> int:
             same_ids = ch.scalar("SELECT count() FROM dmp.events e INNER JOIN dmp.events_sql s ON e.event_id = s.event_id AND e.event = s.event")
             assert same_ids == n_ev, (same_ids, n_ev)   # Python 路徑的每一筆都能在 SQL 路徑找到同 event_id 同事件名
             print(f"compile_sql path: {n_sql} rows (superset before enum/range cleansing); event_id/event match with python path: {same_ids}/{n_ev}")
-            sensors_stage(ch, work, int(os.environ.get("E2E_SENSORS_LINES", "200000")))
+            sensors_stage(ch, work, int(os.environ.get("E2E_SENSORS_LINES", "200000")), via_http=proc is None)   # 現成伺服器讀不到本機 user_files
             ga4_stage(ch, work, int(os.environ.get("E2E_GA4_PER_TICK", "20000")))
             dbapi_stage(ch, work, all_rows)
             if os.environ.get("E2E_USERS", "1") != "0":
                 main_users_bench(ch)
+            from ..semantic.compiler.golden import compiler_stage  # 語意查詢編譯器：30 條黃金查詢 oracle vs SQL 誤差 0
+            print("--- compiler golden")
+            compiler_stage(ch)
         print("status:", json.dumps([{k: x[k] for k in ('id', 'enabled', 'last', 'watermark')} for x in s.status(t0 + timedelta(hours=1))], ensure_ascii=False, default=str)[:600])
         print("alerts:", [a["message"] for a in s.alerts()])
         print("E2E OK")
@@ -175,7 +182,7 @@ def main() -> int:
 
 
 # ---------------------------------------------------------------- 神策格式檔（FormatImporter 的輸入）→ DMP；MSSQL（DB-API）排程抽取 → DMP
-def sensors_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3) -> None:
+def sensors_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3, via_http: bool = False) -> None:
     import time as _t
 
     from .sensors_format import SensorsLoader
@@ -200,7 +207,7 @@ def sensors_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 
                 f.write(json.dumps({"type": "track_signup", "event": "$SignUp", "distinct_id": cust, "original_id": anon, "time": base + i * 10, "properties": {}}) + "\n")
     size_mb = src.stat().st_size / 1048576
     loader = SensorsLoader(ch, local=True)
-    t0 = _t.perf_counter(); r = loader.run_file(src, work / "user_files", "sa_20261016", "k_idm"); dt = _t.perf_counter() - t0
+    t0 = _t.perf_counter(); r = loader.run_file(src, work / "user_files", "sa_20261016", "k_idm", via_http=via_http); dt = _t.perf_counter() - t0
     st = r["stage"]
     assert r["recon_ok"], r
     assert st["bad"] == st["lines"] - st["ok"] and st["bad"] > 0
@@ -353,7 +360,7 @@ def users_bench(ch: ClickHouseHTTP, n_users: int, n_props: int, n_events: int) -
     timed("q_users_history_asof", "SELECT snapshot_date, aum_bucket, count() FROM dmp.users_snapshot GROUP BY 1, 2 ORDER BY 1, 2 FORMAT TSV")
     # 2) 即時零星更新：5% 用戶 profile_set lifecycle → 微批合併進 users（每欄 if(mapContains) 由欄位清單產生）
     k = max(1, n_users // 20)
-    ch.query(f"INSERT INTO dmp.user_prop_log SELECT one_id, 'lifecycle', '流失', 'set', toDateTime64('2026-10-16 09:10:00', 3) FROM (SELECT {one_id} FROM numbers({k}))")
+    ch.query(f"INSERT INTO dmp.user_prop_log (one_id, prop, value, op, ts) SELECT one_id, 'lifecycle', '流失', 'set', toDateTime64('2026-10-16 09:10:00', 3) FROM (SELECT {one_id} FROM numbers({k}))")
     merged = ", ".join(f"if(mapContains(l.m, '{n}'), {CAST_OF[kd].format(v=f'l.m[\'{n}\']')}, u.`{n}`) AS `{n}`" for n, kd, _ in cat)
     timed("microbatch_merge_prop_log", f"""INSERT INTO dmp.users (one_id, {cols}, first_seen, updated_at)
         SELECT u.one_id, {merged}, u.first_seen, l.last_ts

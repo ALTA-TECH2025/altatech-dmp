@@ -1,0 +1,26 @@
+# 查詢預算（docs/23 §4.3）：編譯器把這些 settings 連同 SQL 一起送出；伺服器端另有同名 profile 兜底（deploy/ 的 users.xml）。
+profiles:
+  human:        # UI 互動查詢：60 秒、讀 50 GB、回 1 萬列
+    max_execution_time: 60
+    max_bytes_to_read: 53687091200
+    max_result_rows: 10000
+    result_overflow_mode: break
+    max_threads: 8
+    max_memory_usage: 8589934592
+  batch:        # 分群／標籤／報表例行：10 分鐘、讀 500 GB
+    max_execution_time: 600
+    max_bytes_to_read: 536870912000
+    max_result_rows: 1000000
+    result_overflow_mode: break
+    max_threads: 16
+    max_memory_usage: 34359738368
+  sql_user:     # 自定義 SQL 沙盒（docs/21）：30 秒、讀 10 GB、回 1 千列
+    max_execution_time: 30
+    max_bytes_to_read: 10737418240
+    max_result_rows: 1000
+    result_overflow_mode: break
+    max_threads: 4
+    max_memory_usage: 4294967296
+estimate:        # EXPLAIN ESTIMATE 門檻：估算列數不得超過查詢期間事件數的 1.5 倍（守住分區與主鍵裁剪）
+  max_rows_ratio: 1.5
+  granule_slack: 16384

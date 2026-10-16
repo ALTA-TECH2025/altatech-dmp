@@ -106,11 +106,18 @@ class SensorsLoader:
         self.ch, self.project = ch, project
         self.ch.query(RAW_DDL.format(engine="MergeTree" if local else "ReplicatedMergeTree('/ch/{shard}/dmp.raw_sensors', '{replica}')"))
 
-    def load_raw(self, staged: Path, batch_id: str) -> int:
-        """staged 檔需在 ClickHouse 的 user_files_path 下（正式環境是物件儲存：file() 換 s3()）。"""
-        self.ch.query(f"INSERT INTO dmp.raw_sensors (batch_id, type, event, distinct_id, is_login, original_id, time, project, properties, line_no) SELECT '{batch_id}', type, event, distinct_id, is_login, original_id, time, project, properties, line_no "
-                      f"FROM file('{staged.name}', 'JSONEachRow', 'type String, event String, distinct_id String, is_login UInt8, original_id String, time Int64, project String, properties String, line_no UInt64')",
-                      settings={"max_insert_threads": 4, "input_format_json_read_objects_as_strings": 1})
+    SCHEMA = "type String, event String, distinct_id String, is_login UInt8, original_id String, time Int64, project String, properties String, line_no UInt64"
+
+    def load_raw(self, staged: Path, batch_id: str, via_http: bool = False) -> int:
+        """staged 檔需在 ClickHouse 的 user_files_path 下（正式環境是物件儲存：file() 換 s3()）；
+        via_http：伺服器不在本機（CI 服務容器）時把檔案當 INSERT 本體送、以 input() 補 batch_id。"""
+        cols = "batch_id, type, event, distinct_id, is_login, original_id, time, project, properties, line_no"
+        sel = f"SELECT '{batch_id}', type, event, distinct_id, is_login, original_id, time, project, properties, line_no"
+        st = {"max_insert_threads": 4, "input_format_json_read_objects_as_strings": 1}
+        if via_http:
+            self.ch.query(f"INSERT INTO dmp.raw_sensors ({cols}) {sel} FROM input('{self.SCHEMA}') FORMAT JSONEachRow", data=staged.read_bytes(), settings=st)
+        else:
+            self.ch.query(f"INSERT INTO dmp.raw_sensors ({cols}) {sel} FROM file('{staged.name}', 'JSONEachRow', '{self.SCHEMA}')", settings=st)
         return self.ch.scalar(f"SELECT count() FROM dmp.raw_sensors WHERE batch_id = '{batch_id}'")
 
     def normalize(self, batch_id: str) -> dict[str, int]:
@@ -139,11 +146,12 @@ FROM dmp.raw_sensors WHERE batch_id = '{batch_id}' AND type = 'track_signup' AND
                 "id_map": q(f"SELECT count() FROM dmp.id_map FINAL WHERE id_type='$identity_anonymous_id' AND id_hash IN (SELECT original_id FROM dmp.raw_sensors WHERE batch_id='{batch_id}' AND type='track_signup')"),
                 "signup_anon_ids": q(f"SELECT uniqExact(original_id) FROM dmp.raw_sensors WHERE batch_id='{batch_id}' AND type='track_signup'")}
 
-    def run_file(self, src: Path, user_files_dir: Path, batch_id: str, key_ref: str = "k_idm") -> dict[str, Any]:
+    def run_file(self, src: Path, user_files_dir: Path, batch_id: str, key_ref: str = "k_idm", via_http: bool = False) -> dict[str, Any]:
+        user_files_dir.mkdir(parents=True, exist_ok=True)
         staged = user_files_dir / f"{src.stem}.staged.jsonl"; quarantine = user_files_dir / f"{src.stem}.quarantine.jsonl"
         up = yaml.safe_load((ROOT / "semantic" / "user_properties.yaml").read_text(encoding="utf-8"))
         st = stage(src, staged, quarantine, key_ref, up.get("forbidden_l4", []))
-        raw = self.load_raw(staged, batch_id)
+        raw = self.load_raw(staged, batch_id, via_http=via_http)
         counts = self.normalize(batch_id)
         return {"stage": st.__dict__ | {"bad_samples": st.bad_samples}, "raw": raw, **counts,
                 "recon_ok": raw == st.ok and counts["events"] == st.by_type.get("track", 0)}

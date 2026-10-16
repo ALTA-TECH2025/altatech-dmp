@@ -266,6 +266,18 @@ CREATE TABLE IF NOT EXISTS dmp.user_tags
 ENGINE = ReplicatedAggregatingMergeTree('/ch/{shard}/dmp.user_tags', '{replica}')
 ORDER BY (tag_id, tag_value, version);
 
+-- 分群成員（查詢編譯器 seg.<segment_id> 篩選用的最小版本；segments 模組上線後改為 Bitmap 版本表，docs/23 §4.5）
+CREATE TABLE IF NOT EXISTS dmp.segment_members
+(
+    segment_id   LowCardinality(String),
+    version      UInt32,
+    one_id       String,
+    one_id_uint  UInt64 DEFAULT cityHash64(one_id),
+    computed_at  DateTime
+)
+ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.segment_members', '{replica}')
+ORDER BY (segment_id, version, one_id_uint);
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS dmp.events_daily_agg
 ENGINE = ReplicatedAggregatingMergeTree('/ch/{shard}/dmp.events_daily_agg', '{replica}')
 ORDER BY (project, event_date, event, platform, channel, utm_source)

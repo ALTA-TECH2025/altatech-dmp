@@ -51,10 +51,34 @@ jobs:
       - name: 骨架自測
         run: |
           python3 backend/security/policy.py && python3 backend/integration/transforms.py && python3 backend/integration/auth.py && python3 backend/insight_agent/runtime.py && python3 backend/oneid/attribution.py
-          python3 -m backend.integration.modeling && python3 -m backend.integration.scheduler && python3 -m backend.integration.sensors_format && python3 -m backend.integration.ga4_source && python3 -m backend.integration.e2e_clickhouse
+          python3 -m backend.integration.modeling && python3 -m backend.integration.scheduler && python3 -m backend.integration.sensors_format && python3 -m backend.integration.ga4_source && python3 -m backend.semantic.compiler.golden && python3 -m backend.integration.e2e_clickhouse
           python3 backend/migration/bridge.py --check
       - name: pytest（若有 tests/）
         run: test -d tests && pytest -q tests || echo "no tests dir yet"
+  e2e-clickhouse:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.8.33.6   # LTS；版本鎖定，升版要同步 docs/11 與 deploy/
+        ports: ['8123:8123']
+        options: >-
+          --health-cmd "wget -qO- http://127.0.0.1:8123/ping || exit 1"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install -r backend/requirements.txt
+      - name: 端到端（接入 → ClickHouse → 對帳 → 用戶表 → 查詢編譯器黃金測試）
+        env:
+          CLICKHOUSE_URL: http://127.0.0.1:8123
+          E2E_USERS: '50000'
+          E2E_EVENTS: '300000'
+          E2E_SENSORS_LINES: '50000'
+          E2E_GA4_PER_TICK: '5000'
+        run: python3 -m backend.integration.e2e_clickhouse
   web:
     needs: changes
     if: needs.changes.outputs.web == 'true'

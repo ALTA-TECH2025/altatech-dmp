@@ -7,6 +7,7 @@ AltaTech DMP：數位軌跡／客戶數據中台。`docs/` 是設計文件，`pr
 | 想改… | 看這裡 | 不要碰 |
 |---|---|---|
 | 指標、維度、事件定義 | `backend/semantic/*.yaml` | 不要在程式裡硬編口徑 |
+| 查詢怎麼變 SQL | `backend/semantic/compiler/`（parser → events 樣板 → policy 注入），口徑見其 README | UI／API／agent 不得自己拼 SQL；新查詢能力 = 新樣板 + 黃金查詢 |
 | 角色、模組權限、隱碼 | `backend/security/rbac.yaml`、`masking.yaml`，邏輯在 `policy.py` | UI 不可自行判斷權限，一律呼叫 authorize() |
 | AI 工具與 agent | `backend/mcp/tools.yaml`、`backend/insight_agent/agents.yaml`、`skills/*.md` | 不要讓 agent 直接寫 SQL；新能力 = 新工具 |
 | 資料來源與映射 | `backend/integration/*.yaml`、`transforms.py` | 個資欄位（L4）永不進平台 |
@@ -22,7 +23,8 @@ python3 -m backend.integration.modeling       # 建模引擎自測（映射、�
 python3 -m backend.integration.scheduler      # 排程器自測（模擬時鐘）
 python3 -m backend.integration.sensors_format # 神策格式檔預處理自測
 python3 -m backend.integration.ga4_source     # GA360 BigQuery 三種表／三個任務自測（假 BigQuery）
-python3 -m backend.integration.e2e_clickhouse # 接入端到端乾跑；設 CLICKHOUSE_BIN 走真 ClickHouse
+python3 -m backend.semantic.compiler.golden   # 查詢編譯器黃金測試乾跑（30 條編譯 + oracle、10 條必拒）；設 CLICKHOUSE_BIN 走真 ClickHouse 逐列比對
+python3 -m backend.integration.e2e_clickhouse # 接入端到端乾跑；設 CLICKHOUSE_BIN（自啟）或 CLICKHOUSE_URL（現成伺服器）走真 ClickHouse，最後一段跑編譯器黃金測試
 python3 backend/insight_agent/runtime.py      # agent 迴圈煙霧測試
 python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True)]"
 node --check prototype/js/app.js && node --check prototype/js/data.js
