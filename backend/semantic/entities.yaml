@@ -22,12 +22,12 @@ subjects:
   - key: device
     cn: 裝置／瀏覽器
     ids: [$identity_device_id, $identity_cookie_id, $identity_anonymous_id]
-    relation: { to: customer, cardinality: "N:N", rebind: latest, note: 共用裝置最新登入者取得；歷史事件留在原用戶 }
+    relation: { to: customer, cardinality: "N:N", rebind: never_auto, note: 首次關聯固定（神策 IDM 2.0／3.0 同）；第二個客戶在同裝置登入 → 關聯失敗、記 conflict、事件歸登入客戶；要改綁走人工解綁 }
     shared_threshold: 3                                       # 一個裝置 ID 在 90 天內見過 ≥ 3 個客戶 → 視為共用裝置，信心降、不做傳遞映射
   - key: channel
     cn: 觸達渠道
     ids: [$identity_line_uid]
-    relation: { to: customer, cardinality: "N:1", rebind: latest }
+    relation: { to: customer, cardinality: "N:1", rebind: never_auto }
     participates_in_resolution: false                         # 只做輸出對應（推送），不參與歸戶
 
 edge:                                                         # dmp.id_edges 一列 = 一條關聯
@@ -39,8 +39,8 @@ edge:                                                         # dmp.id_edges 一
     shared_device_penalty: 0.4                                # 共用裝置上的 cooccur／login edge 信心乘以 (1 − 0.4)
     repeat_bonus_per_seen: 0.05                               # 同一 edge 每再出現一次 +0.05，上限 0.95（cooccur 類）
 
-transitive:                                                   # 傳遞性映射：A ~ B（弱–弱共現）、B ~ 客戶（登入）→ A 是否跟著歸客戶
-  enabled: true
+transitive:                                                   # 傳遞性映射（VeCDP 式）：預設關閉。神策的作法是「匿名用戶整個併入客戶」，不看信心；
+  enabled: false                                              # 本系統同神策（oneid_rules.anonymous_user.merge_into_existing_customer）。此段保留給第二階段評估
   max_hops: 2                                                 # 裝置 → cookie → 登入，最多兩跳
   min_confidence: 0.8                                         # 沿路 edge 信心相乘 ≥ 0.8 才歸戶
   follow_on_rebind: true                                      # 弱 ID 改綁到新客戶時，同匿名用戶下與它高信心共現的其他弱 ID 一起跟過去

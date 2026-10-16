@@ -3,7 +3,9 @@
 #   1. 歸戶在接入時決定，事件寫入即定 one_id；未登入的行為事件以 distinct_id（cookie／裝置／匿名 ID）歸到匿名用戶。
 #      登入事件到達時做歸戶，並把該 distinct_id 近 7 天仍屬匿名用戶的事件改寫到登入客戶（login_backfill）；更早的事件不動。
 #   2. 一個 ID 同一時刻只屬於一個用戶；兩個已存在的用戶不自動合併（只有人工工具可合併／拆分，需審批與審計）。
-#   3. 同一條資料裡多個 ID 分屬不同用戶 → 資料歸「優先級最高的 ID」所屬用戶；可改綁的 ID 從舊用戶解綁、綁到該用戶。
+#   3. 同一條資料裡多個 ID 分屬不同用戶 → 資料歸「優先級最高的 ID」所屬用戶（登入事件永遠以客戶代碼為準，裝置只是事件屬性）。
+#      弱 ID（裝置／cookie／匿名）已屬「已識別客戶」時不自動改綁：關聯失敗、記 conflict、事件仍歸客戶代碼的用戶（神策 IDM 2.0「關聯失敗」、
+#      IDM 3.0「小米 1 和 A2 無法成功關聯，行為歸 A2」的行為）；弱 ID 屬「匿名用戶」時整個匿名用戶併入客戶（神策方案三：合併並修復近 7 天事件）。
 #   4. 孤立的 ID 永遠不會打通：只有同一條資料（事件或 bind 指令）裡共現的 ID 才會建立關聯。
 #   5. 登入帳號（客戶代碼）優先級最高、單值、不可改、不可解綁。
 version: 1
@@ -13,15 +15,16 @@ ids:
   - { key: $identity_login_id,    cn: 客戶代碼（HMAC）, priority: 1, cardinality: single, rebind: never,  source: [crm, app_backend, ga360.user_id], note: 唯一錨點；一旦綁定不可改、不可解綁 }
   - { key: $identity_mobile_hash, cn: 手機（HMAC）,     priority: 2, cardinality: single, rebind: manual, source: [crm, account_open], note: 換號由 CRM 發 unbind+bind；同手機被第二個客戶綁定 → 不改綁、記 conflict 待人工 }
   - { key: $identity_account_no,  cn: 交易帳號（FPE）,  priority: 3, cardinality: multi,  rebind: manual, source: [trade_core, crm], note: 一客多戶；帳戶改隸罕見，需人工 }
-  - { key: $identity_device_id,   cn: 裝置 ID,          priority: 4, cardinality: multi,  rebind: latest, source: [ga360], note: 共用裝置：最新登入者取得，舊用戶保留歷史 }
-  - { key: $identity_cookie_id,   cn: GA client_id,     priority: 5, cardinality: multi,  rebind: latest, source: [ga360], note: 清 cookie 即新 ID；登入前事件先歸匿名用戶，登入時近 7 天改寫到客戶 }
-  - { key: $identity_anonymous_id, cn: 匿名 ID,         priority: 6, cardinality: multi,  rebind: latest, source: [collector], note: 兜底 }
+  - { key: $identity_device_id,   cn: 裝置 ID,          priority: 4, cardinality: multi,  rebind: never_auto, source: [ga360], note: 首次關聯後固定；第二個客戶登入 → 關聯失敗、記 conflict、事件仍歸登入客戶；之後的匿名事件歸首次關聯者（神策同） }
+  - { key: $identity_cookie_id,   cn: GA client_id,     priority: 5, cardinality: multi,  rebind: never_auto, source: [ga360], note: 清 cookie 即新 ID；登入前事件先歸匿名用戶，登入時整個匿名用戶併入客戶並改寫近 7 天事件；已屬他客戶則關聯失敗 }
+  - { key: $identity_anonymous_id, cn: 匿名 ID,         priority: 6, cardinality: multi,  rebind: never_auto, source: [collector], note: 兜底 }
   - { key: $identity_line_uid,    cn: LINE UID,         priority: 9, cardinality: multi,  rebind: latest, source: [ma], participates: false, note: 觸達渠道；只做輸出對應，不參與歸戶 }
 strong_ids: [$identity_login_id, $identity_mobile_hash, $identity_account_no]   # 有任一強 ID 的用戶才算「已識別客戶」
 anonymous_user:
   create_from: [$identity_cookie_id, $identity_device_id, $identity_anonymous_id]   # 只有弱 ID 的資料也建立用戶（匿名用戶），事件先歸它
   distinct_id: first_present_of_create_from   # 未登入事件的 distinct_id = 該筆資料裡第一個弱 ID（Web: cookie_id；App: device_id；Collector: anonymous_id），寫進 events.distinct_id
   upgrade_on_first_strong_bind: true      # 匿名用戶第一次與強 ID 共現且該強 ID 尚無用戶 → 直接升級為客戶（歷史匿名事件自動歸戶，不需改寫事件）
+  merge_into_existing_customer: true      # 匿名用戶第一次與「已存在的客戶」共現 → 整個匿名用戶（所有弱 ID）併入該客戶，近 7 天事件改寫（神策 IDM 2.0 方案三「合併並讀取過去 7 天 events 修復」）
 login_backfill:                           # 登入歸戶 + 近 7 天匿名行為改寫
   enabled: true
   trigger_events: [login, $SignUp, ga.login, oneid.bind]   # 帶 login_id 與 distinct_id 共現的資料都算「登入事件」
