@@ -177,6 +177,22 @@ paths:
       responses: { '200': { description: text/event-stream } }
   /v1/agents/runs/{run_id}:
     get: { tags: [Agents], summary: '執行紀錄（計畫、工具呼叫、成本）', parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /auth/providers:
+    get: { tags: [Auth], summary: '可用的身分提供者（broker：Keycloak；direct：Entra ID + AD）', responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { mode: { type: string, enum: [broker, direct] }, providers: { type: array, items: { type: object, properties: { key: { type: string }, cn: { type: string }, kind: { type: string, enum: [oidc, ldap] } } } } } } } } } } }
+  /auth/login:
+    get: { tags: [Auth], summary: '開始 OIDC 登入（授權碼 + PKCE；302 到 IdP；state 綁 dmp_login cookie）', parameters: [{ name: provider, in: query, required: true, schema: { type: string } }, { name: return_to, in: query, schema: { type: string, description: 只接受站內路徑 } }], responses: { '302': { description: 轉向 IdP } } }
+  /auth/callback:
+    get: { tags: [Auth], summary: 'IdP 回呼：換 token、驗 ID token（JWKS／iss／aud／nonce／amr／tid）、群組對應角色、建立 session（Set-Cookie dmp_sid HttpOnly + dmp_csrf）；無角色轉 /no-access；審計 auth.login.*', parameters: [{ name: code, in: query, schema: { type: string } }, { name: state, in: query, schema: { type: string } }], responses: { '302': { description: 轉向 return_to }, '401': { description: 驗證失敗 } } }
+  /auth/ldap:
+    post: { tags: [Auth], summary: '網域帳號登入（direct 模式）：LDAPS bind；第一步回 next=totp，第二步帶 totp；速率限制；審計', requestBody: { content: { application/json: { schema: { type: object, required: [username, password], properties: { username: { type: string }, password: { type: string }, totp: { type: string } } } } } }, responses: { '200': { description: ok 或 next=totp }, '401': { description: 帳號或密碼錯誤 } } }
+  /auth/logout:
+    post: { tags: [Auth], summary: '登出：刪 session、清 cookie；回 IdP end_session 網址供前端跳轉（RP-initiated logout）；需 X-CSRF-Token', responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean }, idp_logout: { type: string, nullable: true } } } } } } } }
+  /auth/token:
+    post: { tags: [Auth], summary: '以 session 換短效 API token（RS256，15 分鐘，roles claim）給 MCP／排程／CLI；審計 auth.token.issued', responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { access_token: { type: string }, token_type: { type: string }, expires_in: { type: integer } } } } } } } }
+  /v1/iam/me:
+    get: { tags: [IAM], summary: '目前身分：使用者、角色（active 標記）、模組權限聯集、欄位遮罩（最嚴格）、範圍、session（idp_mode／amr／step_up_needed／csrf_header）；前端啟動資料', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Me' } } } }, '401': { description: 未登入 } } }
+  /v1/iam/sessions:
+    get: { tags: [IAM], summary: '本人目前的 session 清單（建立、最近活動、IP 遮罩）', responses: { '200': { description: ok } } }
   /v1/iam/roles:
     get: { tags: [IAM], summary: '角色列表（內建 + 自訂，含模組權限矩陣與範圍）', responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Role' } } } } } } }
     post: { tags: [IAM], summary: '建立自訂角色（需 iam.admin；寫入審計 role.changed，正式環境需雙人複核）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } } }, responses: { '201': { description: created } } }
@@ -458,6 +474,16 @@ components:
         lineage: { type: array, items: { type: string } }
         cost: { type: object, properties: { scan_bytes: { type: number }, ms: { type: number } } }
         warnings: { type: array, items: { type: string } }
+    Me:
+      type: object
+      required: [user, roles, grants, masking, scope, session]
+      properties:
+        user: { type: object, properties: { id: { type: string, description: provider:subject }, username: { type: string }, name: { type: string }, email: { type: string }, provider: { type: string } } }
+        roles: { type: array, items: { type: object, properties: { key: { type: string }, cn: { type: string }, active: { type: boolean, description: admin 未 step-up 時為 false } } } }
+        grants: { type: object, additionalProperties: { type: array, items: { type: string, enum: [view, use, export, approve, admin] } } }
+        masking: { type: object, additionalProperties: { type: object, properties: { level: { type: string }, policy: { type: string } } } }
+        scope: { type: object, properties: { kind: { type: string, enum: [global, aggregate_only, restricted] }, k_anonymity: { type: integer }, lookback_days: { type: integer, nullable: true }, projects: { type: array, items: { type: string } }, branches: { type: array, items: { type: string } } } }
+        session: { type: object, properties: { idp_mode: { type: string, enum: [broker, direct] }, amr: { type: array, items: { type: string } }, auth_time: { type: integer }, step_up_needed: { type: boolean }, csrf_header: { type: string } } }
     Role:
       type: object
       required: [name, scope, grants]
