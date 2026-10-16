@@ -12,7 +12,8 @@ from ..auth.session import SessionManager
 from ..security.policy import Subject, authorize
 from ..semantic.compiler import Catalog, compile_query
 from ..semantic.compiler.funnel import compile_funnel, parse_funnel, with_rates
-from ..semantic.compiler.golden import FUNNELS, PROJECT, QUERIES, RETENTIONS, USERS, run_sql
+from ..semantic.compiler.golden import FUNNELS, PATHS, PROJECT, QUERIES, RETENTIONS, USERS, run_sql
+from ..semantic.compiler.path import compile_path, parse_path, sankey
 from ..semantic.compiler.retention import compile_retention, parse_retention
 from ..semantic.compiler.users import compile_estimate, compile_identities, compile_list, compile_profile, compile_timeline, identity_graph, parse_list, parse_users
 from .app import create_app
@@ -42,6 +43,11 @@ def api_stage(ch: Any) -> None:
             fq = parse_funnel(q := {**raw, "project": PROJECT}, cat); cf = compile_funnel(fq, cat, authorize(Subject(f"entra:{user}", [role]), "use", "funnel"))
             r = c.post("/v1/analytics/funnel", json=q); assert r.status_code == 200, (name, r.text[:200])
             assert r.json()["rows"] == with_rates(run_sql(ch, cf.sql, cf.settings), fq.steps), name
+            checked += 1
+        for name, raw, _ in PATHS[:3]:                        # 路徑：API 預設抽樣 0.1，這裡明確 sample=null 與直接 SQL 比
+            pq = parse_path(q := {**raw, "project": PROJECT, "sample": None}, cat); cp = compile_path(pq, cat, authorize(Subject(f"entra:{user}", [role]), "use", "path"))
+            r = c.post("/v1/analytics/path", json=q); assert r.status_code == 200, (name, r.text[:200])
+            assert r.json()["paths"] == sankey(run_sql(ch, cp.sql, cp.settings), pq)["paths"] and r.json()["sampled"] is None, name
             checked += 1
         for name, raw, _ in RETENTIONS[:3]:
             rq = parse_retention(q := {**raw, "project": PROJECT}, cat); cr = compile_retention(rq, cat, authorize(Subject(f"entra:{user}", [role]), "use", "events"))
@@ -78,4 +84,4 @@ def api_stage(ch: Any) -> None:
     assert len(ev) == checked and any(x["masked"] for x in ev if x["user"] == "entra:mkt")   # 行銷的金額查詢有遮罩紀錄
     ul = [x for x in store.audit_tail(400) if x["event"] == "users.listed"]
     assert len(ul) == checked_users and any(x["masked"] for x in ul if x["user"] == "entra:mkt")
-    print(f"api stage OK: {checked} queries via /v1/analytics/events+funnel+retention + {checked_users} via /v1/users/list == direct SQL (admin + marketing), profile/timeline/identities (data_analyst), audit query.executed={len(ev)} users.listed={len(ul)}")
+    print(f"api stage OK: {checked} queries via /v1/analytics/events+funnel+retention+path + {checked_users} via /v1/users/list == direct SQL (admin + marketing), profile/timeline/identities (data_analyst), audit query.executed={len(ev)} users.listed={len(ul)}")

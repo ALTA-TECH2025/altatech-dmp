@@ -72,6 +72,11 @@ python3 -m backend.integration.e2e_clickhouse                        # 端到端
 
 查詢形狀見 openapi `RetentionQuery`。同一用戶可屬多個同期群（每個做過初始行為的期）；回訪掃描範圍到最後同期群 + P 期；`periods` = 回訪期 − 同期群期。oracle 以同口徑計算，8 條黃金留存（四模型、日／週／月、含當期、分組、篩選、分群 + K 匿名）在 ClickHouse 25.8 逐列誤差 0。
 
+## 路徑樣板（`path.py`）
+
+查詢形狀見 openapi `PathQuery`。節點 = 事件（可依屬性拆成 `event:值`；可只留指定事件、其餘折成「其他」）；會話依間隔切（window function `lagInFrame` + 累計 sum）、或用 `session_id`、或跨會話整段；每會話最多 `max_events` 個事件（`arraySort` by (time, event_id) 後截斷）；連續重複可合併；會話結束補「離開」（`$AppEnd` 也映成「離開」）。起點之後／終點之前 N 步以 `ARRAY JOIN arrayEnumerate` 找起點位置再 `arraySlice`；路徑數 = 切片數、人數去重；`sankey()` 把路徑彙總成節點／連線（before 方向右對齊）。外層別名不可與內層欄位同名（ClickHouse 會把別名代入所有出現處，K 匿名條件會用到已變 NULL 的值）。
+oracle `run_path` 同口徑；8 條黃金路徑（之後／之前、拆分 + 折疊、跨會話不合併不補離開、session_id、起點條件 + 用戶屬性 + 間隔 120 分、分群 + K 匿名、終點「離開」）在 ClickHouse 25.8 逐列相等且 Top N 順序一致；5 條必拒。API 預設抽樣 1/10（明確給 `sample: null` 才不抽樣）。
+
 ## 用戶列表與細查樣板（`users.py`）
 
 查詢形狀見 openapi `UsersQuery`／`UsersListRequest`。條件全部是「人」的條件：用戶屬性（`user.<key>`，只限寬表 L0–L2）、分群（`seg.<id>`）、做過／未做過（事件 × 次數 × 期間 × 事件屬性）、分析落點下鑽（漏斗某步到達／流失 = `max(level) ≥ n`／`= n−1`、留存某同期群某期留存／未留存 = u CTE 的模型條件、事件分析某桶某分組）。

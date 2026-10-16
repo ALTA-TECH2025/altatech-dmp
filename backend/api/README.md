@@ -10,6 +10,7 @@ docs/23 §4.4：router 只做「驗證 → Policy → 呼叫服務 → 審計」
 | `POST /v1/iam/scope/simulate` | Policy 行級條件 + 編譯器對範例查詢注入後的 SQL | iam.view |
 | `POST /v1/semantic/compile` | 查詢編譯器 dry-run（SQL、層級、血緣、EXPLAIN ESTIMATE） | events.use |
 | `POST /v1/analytics/funnel` | 漏斗：編譯 → ClickHouse → 每步人數 + 轉換率；審計 | funnel.use |
+| `POST /v1/analytics/path` | 行為路徑：起點／終點 N 步、會話切割、節點拆分與折疊、離開節點；預設抽樣 1/10；Top N 路徑 + 桑基節點／連線；審計 | path.use |
 | `POST /v1/analytics/retention` | 留存：四模型 × 日週月 → 同期群 × 期的人數／留存／比例 + complete；審計 | events.use |
 | `GET /v1/semantic/catalog` | 查詢建構器目錄（事件、維度、用戶屬性、聚合、運算子；L3 不給） | events.view |
 | `POST /v1/analytics/events` | 編譯 → ClickHouse → rows + chart_spec + cost；審計 query.executed | events.use |

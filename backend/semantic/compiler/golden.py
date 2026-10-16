@@ -194,6 +194,23 @@ FUNNEL_REJECTED: list[tuple[str, dict[str, Any], str]] = [
     ("FR4 關聯屬性是用戶屬性", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "relation": "user.tier", "time": T}, "業務 ID"),
     ("FR5 未登記事件", {"steps": [{"event": "bond_order"}, {"event": "nope"}], "window": W7, "time": T}, "事件字典"),
 ]
+PATHS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
+    ("P01 登入之後 3 步（間隔 30 分切會話、合併重複、離開）", {"anchor": {"event": "app_login_success"}, "steps": 3, "time": T}, "admin"),
+    ("P02 成交之前 3 步", {"anchor": {"event": "bond_deal"}, "direction": "before", "steps": 3, "time": T}, "admin"),
+    ("P03 瀏覽依平台拆分 + 只留 3 個事件其餘折「其他」", {"anchor": {"event": "app_login_success"}, "steps": 4, "nodes": {"events": ["app_login_success", "$pageview", "bond_order"], "collapse_other": True, "split": [{"event": "$pageview", "field": "platform"}]}, "time": T}, "admin"),
+    ("P04 跨會話整段、不合併、不補離開、5 步", {"anchor": {"event": "bond_order"}, "steps": 5, "session": {"mode": "cross"}, "nodes": {"merge_repeats": False, "exit_node": False}, "time": {"from": "2026-10-10", "to": "2026-10-16", "now": NOW.isoformat()}}, "admin"),
+    ("P05 以 session_id 切（黃金資料沒有 → 一條）+ 每會話最多 30 事件", {"anchor": {"event": "hq_stockdetail_view"}, "steps": 2, "session": {"mode": "id", "max_events": 30}, "time": T}, "admin"),
+    ("P06 起點條件（委託金額 ≥ 10 萬）+ 用戶屬性 + 間隔 120 分", {"anchor": {"event": "bond_order", "filters": [{"field": "amount", "op": "gte", "value": 100000}]}, "steps": 3, "session": {"gap_minutes": 120}, "filters": [{"field": "user.has_margin", "op": "true"}], "time": T}, "admin"),
+    ("P07 分群 vip + 行銷（K 匿名）", {"anchor": {"event": "app_login_success"}, "steps": 2, "segment": "vip", "time": T}, "marketing"),
+    ("P08 終點「離開」之前 2 步", {"anchor": {"event": "離開"}, "direction": "before", "steps": 2, "top_n": 30, "time": T}, "admin"),
+]
+PATH_REJECTED: list[tuple[str, dict[str, Any], str]] = [
+    ("PR1 未登記事件", {"anchor": {"event": "nope"}, "time": T}, "事件字典"),
+    ("PR2 步數 11", {"anchor": {"event": "bond_order"}, "steps": 11, "time": T}, "1–10"),
+    ("PR3 方向", {"anchor": {"event": "bond_order"}, "direction": "sideways", "time": T}, "direction"),
+    ("PR4 超過 92 天", {"anchor": {"event": "bond_order"}, "time": {"from": "2026-01-01", "to": "2026-10-16"}}, "92 天"),
+    ("PR5 拆分欄位 one_id", {"anchor": {"event": "bond_order"}, "nodes": {"split": [{"event": "$pageview", "field": "one_id"}]}, "time": T}, "one_id"),
+]
 BRANCH = Decision(True, row_filters=["branch_id IN ('B01','B02')", "event_date >= today()-10"], field_policies={"one_id": "mask_tail(4)", "churn_score": "bucket([0,40,70,100])"}, k_anonymity=20)   # 分公司範圍 + 回溯 10 天的自訂角色
 USERS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("U01 價值分級 P1/P2 且信用戶", {"segment": "golden_all", "filters": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}, {"field": "user.has_margin", "op": "true"}]}, "admin"),
@@ -206,6 +223,8 @@ USERS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("U08 漏斗 F06 第 2 步流失，桶 10-12", {"source": {"type": "funnel", "query": FUNNELS[5][1], "step": 2, "reached": False, "bucket": "2026-10-12"}}, "admin"),
     ("U09 留存 R02 同期群 10-03 第 1 期留存", {"source": {"type": "retention", "query": RETENTIONS[1][1], "cohort": "2026-10-03", "period": 1, "retained": True}}, "admin"),
     ("U10 流失 R04 同期群 10-03 第 2 期起流失", {"source": {"type": "retention", "query": RETENTIONS[3][1], "cohort": "2026-10-03", "period": 2, "retained": True}}, "admin"),
+    ("U16 路徑 P01 第 1 步是看盤", {"source": {"type": "path", "query": PATHS[0][1], "node": "hq_stockdetail_view", "level": 1}}, "admin"),
+    ("U17 路徑 P02（之前）終點前一步是委託", {"source": {"type": "path", "query": PATHS[1][1], "node": "bond_order", "level": 2}}, "admin"),
     ("U15 週留存 R05 同期群 09-28 第 1 期留存 × Android", {"source": {"type": "retention", "query": RETENTIONS[4][1], "cohort": "2026-09-28", "period": 1, "retained": True, "group": "Android"}}, "admin"),
     ("U11 事件 Q08 桶 10-05 分組 TSE", {"source": {"type": "events", "query": QUERIES[7][1], "bucket": "2026-10-05", "group": ["TSE"]}}, "admin"),
     ("U12 分公司範圍 + 回溯 10 天：做過委託（行銷遮罩）", {"behaviors": [{"event": "bond_order", "time": T_ALL}]}, BRANCH),
@@ -364,6 +383,21 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
             assert kw in str(e), (name, e)
         else:
             raise AssertionError(name)
+    from .path import compile_path, parse_path, sankey
+    for name, raw, spec in PATHS:
+        d = decision_of(spec); pq = parse_path({**raw, "project": PROJECT}, cat); c = compile_path(pq, cat, d)
+        got = run_sql(ch, c.sql, c.settings); expect = oracle.run_path(pq, d)
+        compare(name, c.columns, expect, got, 1)
+        assert [tuple(r["path"]) for r in got] == [tuple(r["path"]) for r in expect], (name, "Top N 順序")
+        sk = sankey(got, pq); assert sk["anchor_users"] == (got[0]["anchor_users"] if got else 0) and all(n["users"] > 0 for n in sk["nodes"])
+        report.append(f"  {name:<44} L0 paths={len(got):<4} anchor_users={sk['anchor_users']} nodes={len(sk['nodes'])} links={len(sk['links'])} suppressed={sum(1 for r in got if r.get('suppressed'))}")
+    for name, raw, kw in PATH_REJECTED:
+        try:
+            parse_path({**raw, "project": PROJECT}, cat)
+        except ValueError as e:
+            assert kw in str(e), (name, e)
+        else:
+            raise AssertionError(name)
     users_stage(ch, ds, oracle, cat, report)
     for name, raw, kw in FUNNEL_REJECTED:
         try:
@@ -382,7 +416,7 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
             raise AssertionError(f"{name}: 應被拒絕")
     if verbose:
         print("\n".join(report))
-        print(f"compiler golden OK: {len(QUERIES)} queries (layers {layers}) + {len(FUNNELS)} funnels (+strict) + {len(RETENTIONS)} retentions + {len(USERS)} user lists (+profile/timeline/identities), {len(REJECTED)}+{len(FUNNEL_REJECTED)}+{len(RETENTION_REJECTED)}+{len(USERS_REJECTED)} rejected, sample ok, MV==L0")
+        print(f"compiler golden OK: {len(QUERIES)} queries (layers {layers}) + {len(FUNNELS)} funnels (+strict) + {len(RETENTIONS)} retentions + {len(PATHS)} paths + {len(USERS)} user lists (+profile/timeline/identities), {len(REJECTED)}+{len(FUNNEL_REJECTED)}+{len(RETENTION_REJECTED)}+{len(PATH_REJECTED)}+{len(USERS_REJECTED)} rejected, sample ok, MV==L0")
     return {"queries": len(QUERIES), "layers": layers}
 
 
@@ -505,6 +539,16 @@ def dry_run() -> None:
     for name, raw, kw in RETENTION_REJECTED:
         try: parse_retention({**raw, "project": PROJECT}, cat); raise AssertionError(name)
         except ValueError as e: assert kw in str(e), (name, e)
+    from .path import compile_path, parse_path, sankey
+    for name, raw, spec in PATHS:
+        pq = parse_path({**raw, "project": PROJECT}, cat); d = decision_of(spec); c = compile_path(pq, cat, d)
+        rows = oracle.run_path(pq, d); assert rows and "ARRAY JOIN arrayEnumerate(seq3)" in c.sql and c.columns[0] == "path" and c.sql.count("(") == c.sql.count(")"), name
+        assert all(r["path"][0 if pq.direction == "after" else -1] == pq.anchor for r in rows) and all(len(r["path"]) <= pq.steps + 1 for r in rows), name
+        sk = sankey(rows, pq); assert sk["paths"][0]["share"] is None or 0 < sk["paths"][0]["share"] <= 1, name
+        h.update(c.sql.encode())
+    for name, raw, kw in PATH_REJECTED:
+        try: parse_path({**raw, "project": PROJECT}, cat); raise AssertionError(name)
+        except ValueError as e: assert kw in str(e), (name, e)
     from .users import compile_estimate, compile_list, parse_list, parse_users
     for name, raw, spec in USERS:
         uq = parse_users({**raw, "project": PROJECT}, cat); d = decision_of(spec)
@@ -517,7 +561,7 @@ def dry_run() -> None:
     for name, raw, kw in USERS_REJECTED:
         try: parse_users({**raw, "project": PROJECT}, cat); raise AssertionError(name)
         except ValueError as e: assert kw in str(e), (name, e)
-    print(f"compiler dry run OK: {len(QUERIES)} queries + {len(FUNNELS)} funnels + {len(RETENTIONS)} retentions + {len(USERS)} user lists compiled + oracle, {len(REJECTED)}+{len(FUNNEL_REJECTED)}+{len(RETENTION_REJECTED)}+{len(USERS_REJECTED)} rejected, sql digest {h.hexdigest()[:12]}")
+    print(f"compiler dry run OK: {len(QUERIES)} queries + {len(FUNNELS)} funnels + {len(RETENTIONS)} retentions + {len(PATHS)} paths + {len(USERS)} user lists compiled + oracle, {len(REJECTED)}+{len(FUNNEL_REJECTED)}+{len(RETENTION_REJECTED)}+{len(PATH_REJECTED)}+{len(USERS_REJECTED)} rejected, sql digest {h.hexdigest()[:12]}")
 
 
 if __name__ == "__main__":

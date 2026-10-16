@@ -187,6 +187,13 @@ def _parse_source(raw: dict[str, Any], project: str, cat: Catalog) -> Source:
         if raw.get("group") is not None and not rq.group_by:
             raise ValueError("留存沒有 group_by，不能指定 group")
         return Source("retention", rq, cohort=str(cohort)[:10], period=None if period is None else int(period), retained=None if retained is None else bool(retained), group=raw.get("group"))
+    if t == "path":
+        from .path import parse_path
+        pq = parse_path(sq, cat)
+        node = raw.get("node"); level = raw.get("level")
+        if not node or level is None or not 0 <= int(level) <= pq.steps:
+            raise ValueError(f"path 下鑽需要 node 與 level（0–{pq.steps}）")
+        return Source("path", pq, group=str(node), period=int(level))
     if t == "events":
         qr = parse(sq, cat)
         alias = raw.get("metric") or qr.metrics[0].alias
@@ -201,7 +208,7 @@ def _parse_source(raw: dict[str, Any], project: str, cat: Catalog) -> Source:
         if g is not None and (not isinstance(g, list) or len(g) != len(qr.group_by)):
             raise ValueError(f"group 需是長度 {len(qr.group_by)} 的陣列（對應 group_by）")
         return Source("events", qr, bucket=raw.get("bucket"), group=g, metric=m.alias)
-    raise ValueError("source.type 只能是 funnel／retention／events")
+    raise ValueError("source.type 只能是 funnel／retention／events／path")
 
 
 def parse_list(raw: dict[str, Any], cat: Catalog | None = None) -> ListSpec:
@@ -370,6 +377,12 @@ def _source_sql(s: Source, cat: Catalog, decision: Any) -> tuple[str, list[str],
             conds.append(f"({mc})" if s.retained else f"NOT ({mc})")
         sub = f"WITH {parts.with_sql} SELECT one_id FROM u WHERE {' AND '.join(conds)}"
         return sub, ["dmp.events"] + [f"event:{b.event}" for b in (rq.initial, rq.ret) if b.event], parts.warnings, parts.row_filters
+    if s.type == "path":
+        from .path import path_parts
+        pq = s.query; parts = path_parts(pq, cat, decision)
+        pos = f"{int(s.period) + 1}" if pq.direction == "after" else f"length(path) - {pq.steps - int(s.period)}"     # before：從右對齊（終點 = 第 steps 層）
+        sub = f"WITH {parts.with_sql} SELECT DISTINCT one_id FROM r WHERE path[{pos}] = {q(s.group)}"
+        return sub, ["dmp.events", f"event:{pq.anchor_event}"], parts.warnings, parts.row_filters
     qr: Query = s.query
     ctx = Ctx(cat, qr, "L0")
     m = next(x for x in qr.metrics if x.alias == s.metric)

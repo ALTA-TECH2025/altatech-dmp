@@ -15,6 +15,7 @@ from typing import Any
 from .catalog import FieldRef
 from .funnel import FunnelQuery
 from .parser import Cond, Formula, Group, Metric, Query
+from .path import EXIT, OTHER, PathQuery
 from .policy import bucket_label, parse_policy
 from .retention import RetentionQuery
 from .users import UsersQuery
@@ -474,6 +475,12 @@ class Oracle:
                     if s.retained is None or self._retained(rq.model, ps, s.period, rq.lo, rq.periods) == s.retained:
                         out.add(oid)
             return out
+        if s.type == "path":
+            pq = s.query; out = set()
+            for oid, path, _ in self._path_slices(pq, decision):
+                i = int(s.period) if pq.direction == "after" else len(path) - 1 - (pq.steps - int(s.period))
+                if 0 <= i < len(path) and path[i] == s.group: out.add(oid)
+            return out
         qr = s.query; now = qr.time.now or date.today()
         fp: dict[str, str] = dict(getattr(decision, "field_policies", {}) or {}) if decision is not None else {}
         m = next(x for x in qr.metrics if x.alias == s.metric)
@@ -487,3 +494,68 @@ class Oracle:
             if s.group is not None and any(self._masked_group(fp, g, i, self.value(g, r)) != v for i, (g, v) in enumerate(zip(qr.group_by, s.group))): continue
             out.add(r["one_id"])
         return out
+
+
+    # ---- 路徑 ----
+    def _path_slices(self, pq: PathQuery, decision: Any = None) -> list[tuple[str, tuple[str, ...], float]]:
+        """每個起點（終點）出現 → (one_id, path, 耗時 ms)；與 SQL 的 ev→會話→合併→離開→切片同口徑。"""
+        now = pq.time.now or date.today()
+        if pq.sample:
+            raise ValueError("oracle 不做抽樣")
+        keep = set(pq.node_events) | {pq.anchor_event} | ({"$AppEnd"} if pq.exit_node else set())
+        split = dict(pq.splits)
+        def node(r: dict[str, Any]) -> str:
+            ev = r["event"]
+            if ev in split:
+                v = self.value(split[ev], r); n = f"{ev}:{'' if v is None else v}"
+            elif pq.exit_node and ev == "$AppEnd": n = EXIT
+            else: n = ev
+            if pq.node_events and pq.collapse_other and ev not in keep: return OTHER
+            return n
+        per_user: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for r in self.events:
+            if r["project"] != pq.project or not (pq.time.start <= r["event_date"] <= pq.time.end): continue
+            if pq.node_events and not pq.collapse_other and r["event"] not in keep: continue
+            if not self.group(pq.filters, r, now) or not self._row_filters_ok(decision, r, now): continue
+            per_user[r["one_id"]].append(r)
+        out: list[tuple[str, tuple[str, ...], float]] = []
+        for oid, rs in per_user.items():
+            rs.sort(key=lambda r: (r["time"], r["event_id"]))
+            sessions: dict[Any, list[tuple[datetime, str, bool, str]]] = defaultdict(list)
+            sid = 0; prev: datetime | None = None
+            for r in rs:
+                if pq.session_mode == "gap":
+                    if prev is not None and (r["time"].replace(microsecond=0) - prev.replace(microsecond=0)).total_seconds() > pq.gap_minutes * 60: sid += 1
+                    prev = r["time"]; key: Any = sid
+                elif pq.session_mode == "id": key = r.get("session_id", "")
+                else: key = 0
+                n = node(r)
+                sessions[key].append((r["time"], n, n == pq.anchor and self.group(pq.anchor_filters, r, now), r["event_id"]))
+            for seq in sessions.values():
+                seq = seq[: pq.max_events]
+                if pq.merge_repeats:
+                    seq = [x for i, x in enumerate(seq) if i == 0 or x[1] != seq[i - 1][1]]
+                if pq.exit_node and seq[-1][1] != EXIT:
+                    seq.append((seq[-1][0], EXIT, pq.anchor == EXIT, seq[-1][3]))
+                for i, x in enumerate(seq):
+                    if not x[2]: continue
+                    sl = seq[i: i + pq.steps + 1] if pq.direction == "after" else seq[max(0, i - pq.steps): i + 1]
+                    ms = (sl[-1][0].replace(microsecond=sl[-1][0].microsecond // 1000 * 1000) - sl[0][0].replace(microsecond=sl[0][0].microsecond // 1000 * 1000)).total_seconds() * 1000
+                    out.append((oid, tuple(y[1] for y in sl), ms))
+        return out
+
+    def run_path(self, pq: PathQuery, decision: Any = None) -> list[dict[str, Any]]:
+        k = int(getattr(decision, "k_anonymity", 0) or 0)
+        slices = self._path_slices(pq, decision)
+        anchor_users = len({o for o, _, _ in slices})
+        agg: dict[tuple[str, ...], tuple[set[str], int, float]] = {}
+        for oid, path, ms in slices:
+            u, n, t = agg.get(path, (set(), 0, 0.0)); u.add(oid); agg[path] = (u, n + 1, t + ms)
+        rows = []
+        for path, (u, n, t) in agg.items():
+            users = len(u); sup = bool(k and users < k)
+            row: dict[str, Any] = {"path": list(path), "users": None if sup else users, "sessions": None if sup else n, "avg_ms": None if sup else t / n, "anchor_users": anchor_users, "_k": users}
+            if k: row["suppressed"] = sup
+            rows.append(row)
+        rows.sort(key=lambda r: (-r["_k"], -(r["sessions"] if r["sessions"] is not None else agg[tuple(r["path"])][1]), r["path"]))
+        return rows[: pq.top_n]

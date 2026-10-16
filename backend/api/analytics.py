@@ -13,6 +13,7 @@ from ..security.policy import Subject, authorize
 from ..semantic.compiler import Catalog, Compiled, compile_query
 from ..semantic.compiler.funnel import compile_funnel, parse_funnel, with_rates
 from ..semantic.compiler.parser import AGGS, OPS
+from ..semantic.compiler.path import compile_path, parse_path, sankey
 from ..semantic.compiler.retention import compile_retention, parse_retention, with_complete
 from .store import Store
 
@@ -137,6 +138,31 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
         return {"rows": with_complete(rows, rq, today), "sql": c.sql, "lineage": c.lineage, "cost": {"ms": ms, "rows": len(rows), "layer": c.layer}, "warnings": c.warnings,
                 "columns": c.columns + ["complete"], "chart_spec": {"type": "retention_matrix", "x": "period", "y": "cohort", "value": "rate", "group": ["g1"] if rq.group_by else [], "model": rq.model, "unit": rq.unit, "periods": rq.periods, "lo": rq.lo}}
 
+    @r.post("/v1/analytics/path")
+    def path(body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        d = authorize(subject, "use", "path")
+        if not d.allowed:
+            raise HTTPException(403, d.reason)
+        raw = {**body, "sample": body["sample"] if "sample" in body else 0.1}          # 路徑預設抽樣 1/10（與神策同）；明確給 null 才不抽樣
+        try:
+            pq = parse_path(raw, cat); c = compile_path(pq, cat, d, str(body.get("profile") or "human"))
+        except PermissionError as e:
+            raise HTTPException(403, str(e)) from None
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        if ch is None:
+            raise HTTPException(503, "此環境未連接 ClickHouse")
+        t0 = time.perf_counter()
+        try:
+            rows = run_rows(ch, c)
+        except RuntimeError as e:
+            store.audit("query.failed", {"user": subject.user_id, "module": "path", "error": str(e)[:200]})
+            raise HTTPException(502, f"查詢失敗：{str(e)[:300]}") from None
+        ms = round((time.perf_counter() - t0) * 1000)
+        store.audit("query.executed", {"user": subject.user_id, "module": "path", "sql_hash": hashlib.sha256(c.sql.encode()).hexdigest()[:16], "rows": len(rows), "ms": ms, "row_policy": c.row_filters, "lineage": c.lineage, "sample": pq.sample})
+        return {**sankey(rows, pq), "sampled": pq.sample, "sql": c.sql, "lineage": c.lineage, "cost": {"ms": ms, "rows": len(rows), "layer": c.layer}, "warnings": c.warnings,
+                "chart_spec": {"type": "sankey", "direction": pq.direction, "steps": pq.steps, "anchor": pq.anchor}}
+
     @r.get("/v1/semantic/catalog")
     def catalog(subject: Subject = Depends(get_subject)) -> dict[str, Any]:
         """查詢建構器用的目錄：依身分過濾（L3 以上的用戶屬性不給）。"""
@@ -150,6 +176,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
             "user_props": [{"key": k, "cn": x.get("cn", k), "type": x.get("type", "string"), "values": x.get("values", []), "filterable": bool(x.get("filterable")), "groupable": bool(x.get("groupable"))} for k, x in cat.user_props.items() if k in cat.stored_props],
             "aggs": sorted(AGGS), "ops": {k: sorted(v) for k, v in OPS.items()},
             "funnel": {"window_units": ["minute", "hour", "day"], "max_window_days": 90, "max_steps": 10, "orders": ["loose", "strict"], "metrics": ["users", "times"]},
+            "path": {"max_steps": 10, "session_modes": ["gap", "id", "cross"], "default_sample": 0.1, "max_days": 92, "exit_node": "離開"},
         }
 
     return r

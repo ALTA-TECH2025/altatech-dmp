@@ -45,6 +45,8 @@ class FakeClickHouse:
             return '{"id_type_a":"login_id","id_a":"L00001","id_type_b":"device_id","id_b":"D00001a","source":"ga360.login","evidence_event_id":"ev1","first_seen":"2026-09-01 00:00:00.000","last_seen":"2026-10-15 12:00:00.000","seen_count":3,"confidence":1.0,"status":"active"}\n'
         if "ARRAY JOIN range(" in sql and "cohort" in sql:
             return '{"cohort":"2026-10-01","period":1,"users":300,"retained":120,"rate":0.4,"suppressed":false}\n{"cohort":"2026-10-01","period":2,"users":300,"retained":90,"rate":0.3,"suppressed":false}\n{"cohort":"2026-10-15","period":1,"users":5,"retained":null,"rate":null,"suppressed":true}\n'
+        if "arrayEnumerate(seq3)" in sql:
+            return '{"path":["app_login_success","hq_stockdetail_view","bond_order","離開"],"users":120,"sessions":131,"avg_ms":84000.5,"anchor_users":300,"_k":120,"suppressed":false}\n{"path":["app_login_success","離開"],"users":90,"sessions":95,"avg_ms":0,"anchor_users":300,"_k":90,"suppressed":false}\n{"path":["app_login_success","bond_deal","離開"],"users":null,"sessions":null,"avg_ms":null,"anchor_users":300,"_k":7,"suppressed":true}\n'
         if "windowFunnel" in sql:
             return '{"step":1,"users":200,"_k":200,"suppressed":false}\n{"step":2,"users":80,"_k":80,"suppressed":false}\n{"step":3,"users":null,"_k":10,"suppressed":true}\n'
         return '{"bucket":"2026-10-01","m1":120,"m2":35,"_k":35,"suppressed":false}\n{"bucket":"2026-10-02","m1":5,"m2":4,"_k":4,"suppressed":true}\n'
@@ -115,6 +117,13 @@ def main() -> None:
     assert "windowFunnel(604800)" in ch.sqls[-1] and fr.json()["chart_spec"]["type"] == "funnel"
     assert c.post("/v1/analytics/funnel", json={**fq, "window": {"value": 91, "unit": "day"}}).status_code == 400
     assert c.post("/v1/analytics/funnel", json={**fq, "metric": "times"}).status_code == 400
+    pq = {"anchor": {"event": "app_login_success"}, "steps": 3, "time": q["time"]}
+    pr = c.post("/v1/analytics/path", json=pq); assert pr.status_code == 200, pr.text
+    pb = pr.json(); assert pb["sampled"] == 0.1 and "SAMPLE 0.1" in ch.sqls[-1] and pb["anchor_users"] == 300 and pb["paths"][0]["share"] == 0.4 and pb["paths"][2]["suppressed"] is True and pb["paths"][2]["users"] is None, pb["paths"]
+    assert [n["node"] for n in pb["nodes"] if n["level"] == 0] == ["app_login_success"] and {(l["level"], l["from"], l["to"], l["users"]) for l in pb["links"] if l["level"] == 0} == {(0, "app_login_success", "hq_stockdetail_view", 120), (0, "app_login_success", "離開", 90)}, pb["links"]
+    assert pb["chart_spec"]["type"] == "sankey" and any("抽樣" in w for w in pb["warnings"])
+    assert "SAMPLE" not in c.post("/v1/analytics/path", json={**pq, "sample": None}).json()["sql"]
+    assert c.post("/v1/analytics/path", json={**pq, "steps": 11}).status_code == 400
     rq = {"initial": {"event": "app_login_success"}, "return": {"event": "bond_deal"}, "model": "interval", "periods": 2, "time": {**q["time"], "now": "2026-10-16"}}
     rr = c.post("/v1/analytics/retention", json=rq); assert rr.status_code == 200, rr.text
     rrows = rr.json()["rows"]; assert rrows[0]["complete"] is True and rrows[2]["complete"] is False and rrows[2]["suppressed"] is True and rr.json()["chart_spec"]["type"] == "retention_matrix", rrows
@@ -149,7 +158,7 @@ def main() -> None:
     login(c, sm, ["admin"], "adm"); allrows = c.get("/v1/audit").json(); assert len(allrows) > len(mine)
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention+users+profile(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention+path+users+profile(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":
