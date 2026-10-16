@@ -29,4 +29,9 @@ forbidden_l4: [name, id_no, mobile, email, full_account_no, birth_date, address,
   # 生日
   birthdt_evlogin, birthDT_ConfirmID,
   # 客戶銀行／信託／分戶帳帳號（完整帳號）
-  BANK_ACNO_1, BANK_ACNO_2, IO_BANK_ACNO, PO_BANK_ACNO, TRUST_ACNO, Bankact]
+  BANK_ACNO_1, BANK_ACNO_2, IO_BANK_ACNO, PO_BANK_ACNO, TRUST_ACNO, Bankact,
+  # 客戶神策用戶屬性（用戶屬性導出，sensors_user_properties.csv decision=drop_l4）：姓名、生日、手機、信箱（含社群登入信箱、通知手機）
+  s_name, openactname, latest_openactname, birth_dt, s_birth, s_birth_virtual,
+  cus_mtel, lack_cus_mtel, remove_sym_cus_mtel, openactmobile, latest_openactmobile, noticemobile, sleepycust_mobile, ec_sec_acc_mobile, richclub_order_phone,
+  cuadm, openactmail, latest_openactmail, googleloginmail, latest_googleloginmail, fbloginmail, latest_fbloginmail, appleloginmail, latest_appleloginmail,
+  sleepycust_email, ec_sec_acc_email, ec_sub_acc_email, richclub_order_email, latest_order_email]
