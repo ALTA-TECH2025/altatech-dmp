@@ -6,6 +6,7 @@ docs/23 §4.3 的「最關鍵模組」骨架。輸入語意查詢（dict），�
 parser.py    dict → AST（Query / Metric / Cond / Group / Formula / TimeRange）；對目錄檢查事件名、欄位、運算子、別名
 catalog.py   semantic/*.yaml + security/masking.yaml → 欄位解析（實體欄位 / JSON props / 用戶屬性 dictGet 或 JOIN / 分群）
 events.py    事件分析樣板：planner（L1 日聚合 MV 或 L0 明細）、聚合、分組、公式、top_n、mau、compare、K 匿名
+funnel.py    漏斗樣板：windowFunnel（寬鬆／嚴格）、關聯屬性（業務 ID）當分組鍵、用戶數／流程數、分組取第一步事件（argMinIf）、趨勢桶（minIf）、K 匿名；with_rates 補轉換率
 policy.py    Decision → 行級 WHERE 改寫、欄位遮罩（bucket / round / mask_tail）、預算 settings（budgets.yaml）
 oracle.py    純 Python 參考實作（黃金測試的「正確答案」）
 golden.py    固定種子資料集（400 用戶 × 24,000 事件，跨月）＋ 30 條查詢 ＋ 10 條必拒查詢；oracle vs ClickHouse 逐列誤差 0；EXPLAIN ESTIMATE 門檻
@@ -62,8 +63,12 @@ python3 -m backend.integration.e2e_clickhouse                        # 端到端
 
 實測（ClickHouse 26.10.1 與 25.8.33 LTS 皆通過）：30 條查詢 7 條走 L1、23 條走 L0；MV 與明細結果一致；SAMPLE 0.5 用戶抽樣落在 30–70%；10 條違規查詢（未登記事件、L4／L3 屬性、按 one_id 分組、mau 非按天、遮罩指標進公式、隱藏欄位、公式語法、漏斗型指標走錯樣板、authorize 拒絕）全部在編譯期擋下。
 
+## 漏斗樣板
+
+查詢形狀見 openapi `FunnelQuery`。oracle 複刻 ClickHouse `windowFunnel` 預設演算法（事件依 (時間, 條件序號) 排序；條件 0 每次出現重設鏈起點；條件 i 在條件 i-1 鏈起點 + 窗口內則延伸）；9 條黃金漏斗（窗口 30 分鐘到 90 天、關聯屬性 order_no、流程數口徑、分組、日／月趨勢、每步篩選、分群 + K 匿名）在 ClickHouse 25.8／26.10 逐列誤差 0；嚴格模式只檢查可執行且每步人數 ≤ 寬鬆模式。沒做第一步的用戶不產生分組／趨勢桶（`HAVING level > 0`）；分組值取最早且非 NULL 的第一步事件（`argMinIf` 跳過 NULL）。
+
 ## 之後
 
-- 漏斗、留存、路徑、歸因四個樣板（docs/23 §4.3），各自的 oracle 與黃金查詢加進 golden.py。
+- 留存、路徑、歸因三個樣板（docs/23 §4.3），各自的 oracle 與黃金查詢加進 golden.py。
 - 合成 1 千萬筆資料 × 40 條固定查詢的效能基準（tools/synth），每週跑。
 - `SemanticQuery` 契約擴充（多指標、巢狀條件、公式、top_n）：contract PR。

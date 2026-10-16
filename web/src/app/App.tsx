@@ -5,6 +5,7 @@ import { LoginPage, NoAccessPage } from '@/auth/LoginPage';
 import { RequireAuth, RequireGrant } from '@/auth/RequireGrant';
 import { AppShell } from '@/shell/AppShell';
 import { IamPage } from '@/iam/IamPage';
+import { FunnelPage } from '@/analytics/FunnelPage';
 import type { Module } from '@/api/types';
 
 function Placeholder({ title, module }: { title: string; module: Module }) {
@@ -26,7 +27,7 @@ export function App() {
             <Route index element={<Navigate to="/overview" replace />} />
             <Route path="/overview" element={<Placeholder title="總覽" module="overview" />} />
             <Route path="/events" element={<Placeholder title="事件分析" module="events" />} />
-            <Route path="/funnel" element={<Placeholder title="漏斗分析" module="funnel" />} />
+            <Route path="/funnel" element={<FunnelPage />} />
             <Route path="/retention" element={<Placeholder title="留存分析" module="events" />} />
             <Route path="/path" element={<Placeholder title="行為路徑" module="path" />} />
             <Route path="/attribution" element={<Placeholder title="歸因分析" module="attribution" />} />

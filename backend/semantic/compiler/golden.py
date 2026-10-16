@@ -75,6 +75,8 @@ def build(n_users: int = 400, n_events: int = 24_000, seed: int = SEED) -> Datas
         amount = None
         if ev in ("bond_order", "bond_deal") and rng.random() < 0.9:
             amount = float(rng.randrange(1, 50_001) * 100)
+        if ev in ("bond_order", "bond_deal", "order_rejected") and rng.random() < 0.95:
+            props["order_no"] = f"O{rng.randrange(1, 1500)}"              # 業務 ID：委託與成交共用同一池，讓關聯屬性能串起流程
         events.append({
             "project": PROJECT, "one_id": oid, "event": ev, "time": t, "event_date": d, "platform": plat, "channel": rng.choice(["app", "web", "agent"]),
             "utm_source": rng.choices(["google", "facebook", "line", ""], [3, 2, 1, 4])[0], "symbol": rng.choice(["2330", "2317", "0050", "2454", "00878", ""]),
@@ -147,6 +149,26 @@ QUERIES: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("Q28 exact 強制 L0 與 MV 結果一致", {"metrics": [{"event": "bond_order", "agg": "total"}, {"event": "bond_order", "agg": "sum", "field": "amount"}], "group_by": ["channel", "utm_source"], "filters": [{"field": "platform", "op": "neq", "value": "Web"}], "exact": True, "time": T}, "data_analyst"),
     ("Q29 分鐘粒度（單日）", {"metrics": [{"event": None, "agg": "total"}], "time": {"from": "2026-10-16", "to": "2026-10-16", "grain": "minute", "now": NOW.isoformat()}, "filters": [{"field": "$event_hour", "op": "eq", "value": 10}]}, "admin"),
     ("Q30 人均值 avg_val×渠道", {"metrics": [{"event": "bond_deal", "agg": "avg_val", "field": "amount"}, {"event": "bond_deal", "agg": "avg_per_user"}], "group_by": ["channel"], "time": {**T, "grain": "total"}}, "data_analyst"),
+]
+W7 = {"value": 7, "unit": "day"}
+FUNNELS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
+    ("F01 看盤→委託→成交 7 天", {"steps": [{"event": "hq_stockdetail_view"}, {"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "time": T_ALL}, "admin"),
+    ("F02 30 分鐘窗口", {"steps": [{"event": "app_login_success"}, {"event": "bond_order"}], "window": {"value": 30, "unit": "minute"}, "time": T_ALL}, "admin"),
+    ("F03 關聯屬性 order_no（委託→成交同一單）", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "relation": "props.order_no", "time": T_ALL}, "admin"),
+    ("F04 關聯屬性 + 次數口徑", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "relation": "props.order_no", "metric": "times", "time": T_ALL}, "admin"),
+    ("F05 分組 platform（取第一步事件）", {"steps": [{"event": "hq_stockdetail_view"}, {"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "group_by": ["platform"], "time": T}, "admin"),
+    ("F06 趨勢 day", {"steps": [{"event": "app_login_success"}, {"event": "bond_order"}], "window": {"value": 1, "unit": "day"}, "trend": "day", "time": {"from": "2026-10-10", "to": "2026-10-16", "now": NOW.isoformat()}}, "admin"),
+    ("F07 每步篩選 + 全局篩選 + 用戶屬性", {"steps": [{"event": "hq_stockdetail_view", "filters": [{"field": "symbol", "op": "set"}]}, {"event": "bond_order", "filters": [{"field": "amount", "op": "gte", "value": 100000}]}, {"event": "bond_deal"}],
+        "window": W7, "filters": [{"field": "platform", "op": "in", "value": ["iOS", "Android"]}, {"field": "user.has_margin", "op": "true"}], "time": T_ALL}, "admin"),
+    ("F08 分群 vip + 行銷（K 匿名）", {"steps": [{"event": "app_login_success"}, {"event": "bond_deal"}], "window": W7, "segment": "vip", "group_by": ["user.tier"], "time": T_ALL}, "marketing"),
+    ("F09 90 天窗口、月趨勢、分群 market", {"steps": [{"event": "hq_stockdetail_view"}, {"event": "bond_deal"}], "window": {"value": 90, "unit": "day"}, "trend": "month", "group_by": ["market"], "time": T_ALL}, "admin"),
+]
+FUNNEL_REJECTED: list[tuple[str, dict[str, Any], str]] = [
+    ("FR1 一步", {"steps": [{"event": "bond_order"}], "window": W7, "time": T}, "2–10 步"),
+    ("FR2 窗口 91 天", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": {"value": 91, "unit": "day"}, "time": T}, "90 天"),
+    ("FR3 次數口徑沒關聯屬性", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "metric": "times", "time": T}, "關聯屬性"),
+    ("FR4 關聯屬性是用戶屬性", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "relation": "user.tier", "time": T}, "業務 ID"),
+    ("FR5 未登記事件", {"steps": [{"event": "bond_order"}, {"event": "nope"}], "window": W7, "time": T}, "事件字典"),
 ]
 REJECTED: list[tuple[str, dict[str, Any], str, str]] = [   # 必須被拒絕的查詢（名稱, 查詢, 角色, 錯誤關鍵字）
     ("R01 未登記事件", {"metrics": [{"event": "no_such_event", "agg": "total"}], "time": T}, "admin", "事件字典"),
@@ -265,6 +287,23 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
     qs = parse_g({"metrics": [{"event": None, "agg": "total"}, {"event": None, "agg": "users"}], "sample": 0.5, "time": {**T_ALL, "grain": "total"}}, cat)
     cs = compile_events(qs, cat, _subject("admin")); rs = run_sql(ch, cs.sql, cs.settings)[0]
     assert "SAMPLE 0.5" in cs.sql and 0.3 * len(ds.events) < rs["m1"] < 0.7 * len(ds.events) and rs["m2"] <= len(ds.users), rs
+    # 漏斗：oracle（windowFunnel 演算法複刻）vs SQL 逐列；嚴格模式只檢查可執行且層級單調
+    from .funnel import compile_funnel, parse_funnel
+    for name, raw, spec in FUNNELS:
+        d = decision_of(spec); fq = parse_funnel({**raw, "project": PROJECT}, cat); c = compile_funnel(fq, cat, d)
+        got = run_sql(ch, c.sql, c.settings); expect = oracle.run_funnel(fq, d)
+        compare(name, c.columns, expect, got, (1 if fq.trend else 0) + (1 if fq.group_by else 0) + 1)
+        report.append(f"  {name:<44} L0 rows={len(got):<4} step1={next((r['users'] for r in got if r['step'] == 1), None)}")
+    fs = parse_funnel({**FUNNELS[0][1], "project": PROJECT, "order": "strict"}, cat); cs = compile_funnel(fs, cat, _subject("admin"))
+    strict = run_sql(ch, cs.sql, cs.settings); loose = run_sql(ch, compile_funnel(parse_funnel({**FUNNELS[0][1], "project": PROJECT}, cat), cat, _subject("admin")).sql, cs.settings)
+    assert [r["users"] for r in strict] == sorted([r["users"] for r in strict], reverse=True) and all(a["users"] <= b["users"] for a, b in zip(strict, loose)), (strict, loose)
+    for name, raw, kw in FUNNEL_REJECTED:
+        try:
+            parse_funnel({**raw, "project": PROJECT}, cat)
+        except ValueError as e:
+            assert kw in str(e), (name, e)
+        else:
+            raise AssertionError(name)
     # 必須拒絕
     for name, raw, role, kw in REJECTED:
         try:
@@ -275,7 +314,7 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
             raise AssertionError(f"{name}: 應被拒絕")
     if verbose:
         print("\n".join(report))
-        print(f"compiler golden OK: {len(QUERIES)} queries (layers {layers}), {len(REJECTED)} rejected, sample ok, MV==L0")
+        print(f"compiler golden OK: {len(QUERIES)} queries (layers {layers}) + {len(FUNNELS)} funnels (+strict), {len(REJECTED)}+{len(FUNNEL_REJECTED)} rejected, sample ok, MV==L0")
     return {"queries": len(QUERIES), "layers": layers}
 
 
@@ -302,7 +341,16 @@ def dry_run() -> None:
     assert c1.layer == "L1" and c4.layer == "L1" and "events_daily_agg" in c1.sql, (c1.layer, c4.layer)
     c19 = compile_events(parse_g(QUERIES[18][1], cat), cat, _subject("marketing"))
     assert c19.masked == {"m1": "bucket([0,1e5,5e5,1e6,5e6])", "m2": "bucket([0,1e5,5e5,1e6,5e6])"} and "multiIf" in c19.sql, c19.masked
-    print(f"compiler dry run OK: {len(QUERIES)} queries compiled + oracle, {len(REJECTED)} rejected, sql digest {h.hexdigest()[:12]}")
+    from .funnel import compile_funnel, parse_funnel, with_rates
+    for name, raw, spec in FUNNELS:
+        fq = parse_funnel({**raw, "project": PROJECT}, cat); c = compile_funnel(fq, cat, decision_of(spec))
+        rows = oracle.run_funnel(fq, decision_of(spec)); assert rows and "windowFunnel" in c.sql and c.columns[-1] in ("suppressed", "_k"), name
+        rated = with_rates(rows, fq.steps); assert rated[0]["rate_first"] in (1.0, None) and rated[0]["alias"], name
+        h.update(c.sql.encode())
+    for name, raw, kw in FUNNEL_REJECTED:
+        try: parse_funnel({**raw, "project": PROJECT}, cat); raise AssertionError(name)
+        except ValueError as e: assert kw in str(e), (name, e)
+    print(f"compiler dry run OK: {len(QUERIES)} queries + {len(FUNNELS)} funnels compiled + oracle, {len(REJECTED)}+{len(FUNNEL_REJECTED)} rejected, sql digest {h.hexdigest()[:12]}")
 
 
 if __name__ == "__main__":

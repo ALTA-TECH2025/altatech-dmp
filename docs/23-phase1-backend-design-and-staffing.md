@@ -106,7 +106,8 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 ### 4.3 semantic.compiler（編譯器）— 35 人日，最關鍵（已有可跑的骨架：`backend/semantic/compiler/`，事件分析樣板 + Policy 注入 + 黃金測試在真 ClickHouse 通過）
 
 - 現況（2026-10-16）：parser／catalog／events 樣板（L1 日聚合 MV 或 L0 明細自動選層）／policy 注入（行級、遮罩、K 匿名、預算）／oracle 參考實作／30 條黃金查詢 + 10 條必拒查詢，在 ClickHouse 26.10 與 25.8 LTS 逐列誤差 0，每條 SQL 的 `EXPLAIN ESTIMATE` 掃描列數 ≤ 期間事件數 × 1.5 + 顆粒餘量。CI 用 ClickHouse 服務容器跑同一套。口徑與用法見 `backend/semantic/compiler/README.md`。
-- 未做：漏斗、留存、路徑、歸因四個樣板；1 千萬筆 × 40 條效能基準；`SemanticQuery` 契約擴充（contract PR）。
+- 漏斗樣板已完成（windowFunnel、關聯屬性、分組、趨勢、K 匿名；9 條黃金漏斗誤差 0；API `/v1/analytics/funnel` 與前端漏斗頁已接）。
+- 未做：留存、路徑、歸因三個樣板；1 千萬筆 × 40 條效能基準；`SemanticQuery` 契約擴充（contract PR）。
 
 - 輸入：語意查詢（metric、filters 巢狀且／或、group_by、time、compare、segment）；輸出：SQL、估算 bytes、血緣、命中的 MV 層級。
 - 五個樣板（人寫、AI 補變體）：

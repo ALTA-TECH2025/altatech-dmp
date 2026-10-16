@@ -11,7 +11,8 @@ from ..auth.session import MemoryStore as SessionMemory
 from ..auth.session import SessionManager
 from ..security.policy import Subject, authorize
 from ..semantic.compiler import Catalog, compile_query
-from ..semantic.compiler.golden import PROJECT, QUERIES, run_sql
+from ..semantic.compiler.funnel import compile_funnel, parse_funnel, with_rates
+from ..semantic.compiler.golden import FUNNELS, PROJECT, QUERIES, run_sql
 from .app import create_app
 from .store import MemoryStore
 
@@ -35,8 +36,13 @@ def api_stage(ch: Any) -> None:
             assert body["rows"] == expect, (name, role, body["rows"][:2], expect[:2])
             assert body["cost"]["layer"] == comp.layer and body["columns"] == comp.columns
             checked += 1
+        for name, raw, _ in FUNNELS[:4]:
+            fq = parse_funnel(q := {**raw, "project": PROJECT}, cat); cf = compile_funnel(fq, cat, authorize(Subject(f"entra:{user}", [role]), "use", "funnel"))
+            r = c.post("/v1/analytics/funnel", json=q); assert r.status_code == 200, (name, r.text[:200])
+            assert r.json()["rows"] == with_rates(run_sql(ch, cf.sql, cf.settings), fq.steps), name
+            checked += 1
         est = c.post("/v1/semantic/compile", json={**QUERIES[0][1], "project": PROJECT}).json()
         assert est["estimated_scan_rows"] is not None and est["sql"]
     ev = [x for x in store.audit_tail(200) if x["event"] == "query.executed"]
     assert len(ev) == checked and any(x["masked"] for x in ev if x["user"] == "entra:mkt")   # 行銷的金額查詢有遮罩紀錄
-    print(f"api stage OK: {checked} queries via /v1/analytics/events == direct SQL (admin + marketing), audit query.executed={len(ev)}")
+    print(f"api stage OK: {checked} queries via /v1/analytics/events+funnel == direct SQL (admin + marketing), audit query.executed={len(ev)}")

@@ -9,10 +9,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from .catalog import FieldRef
+from .funnel import FunnelQuery
 from .parser import Cond, Formula, Group, Metric, Query
 from .policy import bucket_label, parse_policy
 
@@ -265,3 +266,73 @@ class Oracle:
             if m and r["event_date"] < now - timedelta(days=int(m.group(1))): return False
             if f.strip() == "1=0": return False
         return True
+
+
+    # ---- 漏斗（windowFunnel 預設模式；時間取秒）----
+    @staticmethod
+    def window_funnel(events: list[tuple[int, int]], window_s: int, n: int) -> int:
+        """ClickHouse AggregateFunctionWindowFunnel 的預設演算法：事件依 (時間, 條件序號) 排序；條件 0 每次出現都重設鏈的起點；
+        條件 i 在「條件 i-1 的鏈起點 + 窗口」內則延伸鏈；回傳最深層級。"""
+        ts: list[int | None] = [None] * n
+        for t, idx in sorted(events):
+            if idx == 0:
+                ts[0] = t
+            elif ts[idx - 1] is not None and t <= ts[idx - 1] + window_s:
+                ts[idx] = ts[idx - 1]
+                if idx + 1 == n:
+                    return n
+        for i in range(n - 1, -1, -1):
+            if ts[i] is not None:
+                return i + 1
+        return 0
+
+    def run_funnel(self, fq: FunnelQuery, decision: Any = None) -> list[dict[str, Any]]:
+        now = fq.time.now or date.today()
+        k = int(getattr(decision, "k_anonymity", 0) or 0)
+        step_events = {s.event for s in fq.steps}
+        rows = [r for r in self.events if r["project"] == fq.project and fq.time.start <= r["event_date"] <= fq.time.end and r["event"] in step_events
+                and self.group(fq.filters, r, now) and self._row_filters_ok(decision, r, now)]
+        if fq.sample:
+            raise ValueError("oracle 不做抽樣")
+        chains: dict[tuple, list[tuple[int, int]]] = defaultdict(list)
+        first_ev: dict[tuple, tuple[Any, dict[str, Any]]] = {}        # 鏈鍵 → (最早第一步時間, 列)：趨勢桶用（minIf）
+        first_g: dict[tuple, tuple[Any, Any]] = {}                     # 鏈鍵 → (最早「分組值非 NULL」的第一步時間, 值)：argMinIf 會跳過 NULL
+        for r in rows:
+            key = (r["one_id"], self.value(fq.relation, r) if fq.relation else None)
+            sec = int((r["time"] - timedelta(hours=8)).replace(tzinfo=UTC).timestamp())
+            for i, s in enumerate(fq.steps):
+                if r["event"] == s.event and self.group(s.filters, r, now):
+                    chains[key].append((sec, i))
+                    if i == 0 and (key not in first_ev or r["time"] < first_ev[key][0]):
+                        first_ev[key] = (r["time"], r)
+                    if i == 0 and fq.group_by:
+                        gv = self.value(fq.group_by, r)
+                        if gv is not None and (key not in first_g or r["time"] < first_g[key][0]):
+                            first_g[key] = (r["time"], gv)
+        levels = {key: self.window_funnel(evs, fq.window_s, len(fq.steps)) for key, evs in chains.items()}
+        # 分組值與趨勢桶取自「該用戶最早的第一步事件」（SQL：argMinIf／minIf 以 one_id[, rel] 分組）
+        groups: dict[tuple, list[tuple]] = defaultdict(list)
+        for key, lvl in levels.items():
+            if key not in first_ev:
+                groups[(None, None)].append((key, lvl)) if not (fq.trend or fq.group_by) else None
+                continue
+            t, r = first_ev[key]
+            b = None
+            if fq.trend:
+                d = r["event_date"]
+                b = {"day": d.isoformat(), "week": (d - timedelta(days=d.weekday())).isoformat(), "month": d.replace(day=1).isoformat()}[fq.trend]
+            g = first_g.get(key, (None, None))[1] if fq.group_by else None
+            groups[(b, g)].append((key, lvl))
+        out = []
+        for (b, g), members in sorted(groups.items(), key=lambda kv: tuple("" if x is None else str(x) for x in kv[0])):
+            for step in range(1, len(fq.steps) + 1):
+                reached = [key for key, lvl in members if lvl >= step]
+                users = len({key[0] for key in reached}) if fq.metric == "users" else len(reached)
+                kk = len({key[0] for key in reached})
+                row: dict[str, Any] = {}
+                if fq.trend: row["bucket"] = b
+                if fq.group_by: row["g1"] = g
+                row["step"] = step; row["users"] = None if (k and kk < k) else users; row["_k"] = kk
+                if k: row["suppressed"] = bool(kk < k)
+                out.append(row)
+        return out

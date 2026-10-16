@@ -21,6 +21,7 @@ npm run build          # dist/（由 apps.web 映像的 nginx 提供，與 API �
 | `src/auth/` | `AuthContext`（啟動抓 `/v1/iam/me`、登出）、`LoginPage`（依 `/auth/providers` 顯示 SSO 按鈕與 AD 表單 + TOTP）、`RequireGrant`（守門、403、step-up 提示） |
 | `src/shell/` | `nav.ts`（側欄定義，每項綁模組）、`AppShell`（側欄 + 頂欄 + Outlet；手機抽屜） |
 | `src/lib/policy.ts` | `can`／`visibleModules`／`display`（遮罩渲染）／`toggleAction`／`unionGrants` |
+| `src/analytics/FunnelPage.tsx`、`FunnelChart.tsx` | 漏斗分析頁（步驟／窗口／順序／關聯屬性／口徑／分組／趨勢）與自繪 SVG 漏斗圖；目錄來自 `/v1/semantic/catalog` |
 | `src/iam/IamPage.tsx` | 權限中心：角色矩陣、使用者指派、數據權限模擬、欄位隱碼、我的 session |
 | `src/styles/app.css` | 設計 token 與原型同一套（含深色模式） |
 
