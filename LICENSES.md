@@ -24,6 +24,9 @@
 | FastAPI / Pydantic / SQLGlot / clickhouse-connect | — | MIT / MIT / MIT / Apache-2.0 | 後端 | — |
 | React / Vite / TypeScript / Apache ECharts / React Flow | — | MIT / MIT / Apache-2.0 / Apache-2.0 / MIT | 前端 | — |
 | mcp（官方 SDK）/ LangGraph | — | MIT / MIT | Agent | — |
+| PyJWT / cryptography | 2.x / 4x | MIT / Apache-2.0 或 BSD-3 | 登入（OIDC ID token 驗證、API token） | — |
+| python-ldap | 3.x | PSF 式（permissive） | 直連 AD（direct 模式才需要；broker 模式不裝） | 需 libldap |
+| React Router / Vitest | 7.x / 3.x | MIT / MIT | 前端路由／測試 | — |
 | RoaringBitmap（Java）/ pyroaring | — | Apache-2.0 / MIT | Bitmap | — |
 | franz-go | — | BSD-3 | Go Kafka 客戶端 | — |
 | Eclipse Temurin JDK | 17/21 | GPLv2 + Classpath Exception | Java 執行環境 | 可自由使用 |

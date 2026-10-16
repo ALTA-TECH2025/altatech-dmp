@@ -12,12 +12,15 @@ AltaTech DMP：數位軌跡／客戶數據中台。`docs/` 是設計文件，`pr
 | AI 工具與 agent | `backend/mcp/tools.yaml`、`backend/insight_agent/agents.yaml`、`skills/*.md` | 不要讓 agent 直接寫 SQL；新能力 = 新工具 |
 | 資料來源與映射 | `backend/integration/*.yaml`、`transforms.py` | 個資欄位（L4）永不進平台 |
 | 原型頁面 | `prototype/js/app.js`（頁面函式 `pageXxx`）、`js/data.js`（模擬資料）、`css/app.css` | 不要加建置工具；保持純 ES module |
+| 正式前端 | `web/src/`（app 路由、auth、shell、iam、lib/policy），設計見 docs/24 | 資料存取只走 `api` 客戶端；權限只讀 `/v1/iam/me`，不得自行判斷 |
+| 登入／session | `backend/auth/`（idp.yaml、oidc.py、ldap.py、session.py、mapping.py、api.py） | 密鑰只能 secret_ref；不把 IdP token 交給瀏覽器 |
 | 部署 | `deploy/helm/altatech-dmp/values*.yaml`、`deploy/tofu/gcp` | 不要引入非白名單授權元件（見 `LICENSES.md`） |
 
 ## 怎麼驗證
 ```bash
 python3 backend/security/policy.py            # 權限引擎自測
 python3 backend/oneid/attribution.py          # OneID 歸戶 20 個情境（含 v1.2 血緣、傳遞映射、合併拆分）
+python3 -m backend.auth                       # 登入整合自測：假 Entra ID（PKCE／JWKS／amr／overage）、假 AD（bind／巢狀群組／限流）、session／CSRF／step-up、API token、FastAPI 路由
 python3 backend/integration/transforms.py     # 轉換函式自測
 python3 -m backend.integration.modeling       # 建模引擎自測（映射、清洗、SQL 編譯）
 python3 -m backend.integration.scheduler      # 排程器自測（模擬時鐘）
@@ -28,6 +31,7 @@ python3 -m backend.integration.e2e_clickhouse # 接入端到端乾跑；設 CLIC
 python3 backend/insight_agent/runtime.py      # agent 迴圈煙霧測試
 python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True)]"
 node --check prototype/js/app.js && node --check prototype/js/data.js
+cd web && npm ci && npm run typecheck && npm test && npm run build   # 正式前端（React + Vite + TS）：型別、單元測試、建置
 cd prototype && python3 -m http.server 8080   # 手動或 Playwright 檢視
 ```
 

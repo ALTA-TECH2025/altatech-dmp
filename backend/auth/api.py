@@ -1,0 +1,172 @@
+"""FastAPI 路由：/auth/*（登入、回呼、LDAP、登出、API token）與 /v1/iam/me。router 只做：驗證 → Policy → 呼叫服務 → 審計；不在這裡寫 SQL。
+
+依賴注入（AuthService）由部署組裝：providers（OIDC／LDAP）、SessionManager、ApiTokens、assignments 讀取。
+"""
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
+from urllib.parse import urlencode
+
+import yaml  # type: ignore
+from fastapi import APIRouter, HTTPException, Request, Response
+
+from ..security.policy import Subject, authorize
+from .ldap import LdapError, LdapProvider
+from .mapping import map_roles, me_payload
+from .oidc import LoginState, OIDCError, OIDCProvider
+from .session import ApiTokens, Session, SessionManager
+
+LOGIN_COOKIE = "dmp_login"
+
+
+@dataclass
+class AuthService:
+    cfg: dict[str, Any]
+    providers: dict[str, OIDCProvider | LdapProvider]
+    sessions: SessionManager
+    tokens: ApiTokens | None = None
+    assignments: Callable[[], list[dict[str, Any]]] = lambda: []
+    login_states: dict[str, LoginState] = field(default_factory=dict)     # 登入前狀態（正式環境：Valkey，TTL 10 分鐘）
+
+    @property
+    def mode(self) -> str:
+        return self.cfg.get("mode", "broker")
+
+    def visible_providers(self) -> list[dict[str, str]]:
+        keys = ["keycloak"] if self.mode == "broker" else ["entra", "ad"]
+        return [{"key": k, "cn": self.providers[k].cfg["cn"], "kind": self.providers[k].cfg["kind"]} for k in keys if k in self.providers]
+
+    def finish_login(self, ident: Any, ip: str) -> Session:
+        roles, scope, applied = map_roles(ident, self.cfg["role_mapping"], self.assignments(), now=self.sessions.now())
+        self.sessions.audit("iam.role_mapping.applied", {"user": f"{ident.provider}:{ident.subject}", "rules": applied, "roles": roles})
+        return self.sessions.create(user_id=f"{ident.provider}:{ident.subject}", username=ident.username, name=ident.name, email=ident.email, provider=ident.provider,
+                                    roles=roles, groups=ident.groups, amr=ident.amr, auth_time=ident.auth_time, scope=scope, ip=ip)
+
+
+def _set(resp: Response, headers: list[tuple[str, str]]) -> None:
+    for k, v in headers:
+        resp.headers.append(k, v)
+
+
+def current_session(svc: AuthService, req: Request) -> Session:
+    sid = req.cookies.get(svc.cfg["session"]["cookie"]["name"])
+    s = svc.sessions.resolve(sid, req.client.host if req.client else "")
+    if not s:
+        raise HTTPException(401, "未登入或 session 已逾時")
+    if req.method not in ("GET", "HEAD", "OPTIONS") and not svc.sessions.check_csrf(s, req.headers.get(svc.cfg["session"]["csrf"]["header"])):
+        raise HTTPException(403, "CSRF token 不符")
+    return s
+
+
+def build_router(svc: AuthService) -> APIRouter:
+    r = APIRouter()
+
+    @r.get("/auth/providers")
+    def providers() -> dict[str, Any]:
+        return {"mode": svc.mode, "providers": svc.visible_providers()}
+
+    @r.get("/auth/login")
+    def login(provider: str, return_to: str = "/") -> Response:
+        p = svc.providers.get(provider)
+        if not isinstance(p, OIDCProvider) or provider not in {x["key"] for x in svc.visible_providers()}:
+            raise HTTPException(400, "未知或未啟用的身分提供者")
+        url, st = p.begin(return_to)
+        svc.login_states[st.state] = st
+        resp = Response(status_code=302, headers={"Location": url})
+        resp.headers.append("Set-Cookie", f"{LOGIN_COOKIE}={st.state}; Path=/auth; HttpOnly; SameSite=Lax; Secure; Max-Age=600")
+        return resp
+
+    @r.get("/auth/callback")
+    def callback(req: Request) -> Response:
+        st = svc.login_states.pop(req.cookies.get(LOGIN_COOKIE, ""), None)
+        if not st:
+            raise HTTPException(400, "登入狀態不存在或已逾時，請重新登入")
+        p = svc.providers[st.provider]
+        assert isinstance(p, OIDCProvider)
+        try:
+            ident = p.callback(dict(req.query_params), st)
+        except OIDCError as e:
+            svc.sessions.audit("auth.login.failed", {"provider": st.provider, "why": str(e)[:120]})
+            raise HTTPException(401, str(e)) from None
+        s = svc.finish_login(ident, req.client.host if req.client else "")
+        resp = Response(status_code=302, headers={"Location": st.return_to if s.roles else "/no-access"})
+        _set(resp, svc.sessions.cookie_headers(s))
+        resp.headers.append("Set-Cookie", f"{LOGIN_COOKIE}=; Path=/auth; HttpOnly; SameSite=Lax; Secure; Max-Age=0")
+        return resp
+
+    @r.post("/auth/ldap")
+    def ldap_login(body: dict[str, Any], req: Request, resp: Response) -> dict[str, Any]:
+        p = svc.providers.get("ad")
+        if not isinstance(p, LdapProvider) or svc.mode != "direct":
+            raise HTTPException(400, "此環境未啟用網域帳號登入")
+        try:
+            ident = p.authenticate(str(body.get("username", "")), str(body.get("password", "")), req.client.host if req.client else "")
+        except LdapError as e:
+            svc.sessions.audit("auth.login.failed", {"provider": "ad", "user": str(body.get("username", ""))[:64], "why": str(e)})
+            raise HTTPException(401, str(e)) from None
+        if p.cfg.get("mfa") == "totp":
+            if not body.get("totp"):
+                return {"next": "totp", "message": "請輸入驗證器 6 位數"}       # 第二因子：前端再送一次含 totp 的請求（真正驗證在 totp 模組）
+            ident.amr = ["pwd", "mfa"]
+        s = svc.finish_login(ident, req.client.host if req.client else "")
+        _set(resp, svc.sessions.cookie_headers(s))
+        return {"ok": True, "roles": s.roles, "return_to": "/" if s.roles else "/no-access"}
+
+    @r.post("/auth/logout")
+    def logout(req: Request) -> Response:
+        s = current_session(svc, req)
+        svc.sessions.logout(s.sid)
+        p = svc.providers.get(s.provider)
+        url = p.logout_url() if isinstance(p, OIDCProvider) else None
+        resp = Response(status_code=200, content='{"ok": true, "idp_logout": ' + ('"' + url + '"' if url else "null") + "}", media_type="application/json")
+        _set(resp, svc.sessions.cookie_headers(None))
+        return resp
+
+    @r.get("/v1/iam/me")
+    def me(req: Request) -> dict[str, Any]:
+        s = current_session(svc, req)
+        subj = svc.sessions.subject(s)
+        return me_payload(subj, s, s.roles, svc.mode, step_up_needed="admin" in s.roles and "admin" not in subj.roles)
+
+    @r.post("/auth/token")
+    def token(req: Request) -> dict[str, Any]:
+        """短效 API token（MCP／CLI）：以現有 session 換發；角色 = 當下有效角色。"""
+        s = current_session(svc, req)
+        if not svc.tokens:
+            raise HTTPException(501, "此環境未設定 API token 簽章金鑰")
+        subj = svc.sessions.subject(s)
+        svc.sessions.audit("auth.token.issued", {"user": s.user_id, "roles": subj.roles})
+        return {"access_token": svc.tokens.issue(s, subj.roles), "token_type": "Bearer", "expires_in": svc.cfg["session"]["api_token"]["ttl_s"]}
+
+    @r.get("/v1/iam/sessions")
+    def sessions(req: Request) -> list[dict[str, Any]]:
+        s = current_session(svc, req)
+        d = authorize(svc.sessions.subject(s), "view", "iam")
+        if not d.allowed:
+            raise HTTPException(403, d.reason)
+        return [{"sid": x.sid[:8], "user": x.user_id, "provider": x.provider, "roles": x.roles, "created_at": x.created_at, "last_seen": x.last_seen, "ip_masked": x.attrs.get("ip", "")[:7] + "…"}
+                for x in svc.sessions.store.list_user(s.user_id)]
+
+    return r
+
+
+def subject_from_request(svc: AuthService, req: Request) -> Subject:
+    """其他 router 共用：cookie session 或 Bearer API token → Subject。"""
+    auth = req.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and svc.tokens:
+        try:
+            return svc.tokens.verify(auth[7:])
+        except Exception:
+            raise HTTPException(401, "API token 無效或過期") from None
+    return svc.sessions.subject(current_session(svc, req))
+
+
+def load_cfg() -> dict[str, Any]:
+    from pathlib import Path
+    return yaml.safe_load((Path(__file__).resolve().parent / "idp.yaml").read_text(encoding="utf-8"))
+
+
+def login_redirect(return_to: str) -> str:
+    return "/login?" + urlencode({"return_to": return_to})

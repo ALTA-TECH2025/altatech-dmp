@@ -9,10 +9,11 @@
 
 ## 收工前（每個 PR 都要）
 ```bash
-python3 backend/security/policy.py && python3 backend/integration/transforms.py && python3 backend/integration/auth.py && python3 backend/oneid/attribution.py
+python3 backend/security/policy.py && python3 backend/integration/transforms.py && python3 backend/integration/auth.py && python3 backend/oneid/attribution.py && python3 -m backend.auth
 python3 -m backend.integration.modeling && python3 -m backend.integration.scheduler && python3 -m backend.semantic.compiler.golden && python3 -m backend.integration.e2e_clickhouse
 python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True)]"
 node --check prototype/js/app.js && node --check prototype/js/data.js
+(cd web && npm ci && npm run typecheck && npm test && npm run build)
 ```
 再加上該工作流自己的測試（pytest / vitest / go test / Playwright）。PR 描述用 `.github/pull_request_template.md`，「跑過的驗證」欄位要貼實際輸出摘要，不要只寫「已測」。
 

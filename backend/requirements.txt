@@ -7,3 +7,4 @@ asyncpg>=0.29
 sqlglot>=25
 httpx>=0.27
 mcp>=1.1
+PyJWT[crypto]>=2.9          # OIDC ID token 驗證與 API token（MIT；crypto extra = cryptography，Apache-2.0/BSD）

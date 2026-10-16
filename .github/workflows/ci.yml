@@ -50,7 +50,7 @@ jobs:
       - run: ruff check backend
       - name: 骨架自測
         run: |
-          python3 backend/security/policy.py && python3 backend/integration/transforms.py && python3 backend/integration/auth.py && python3 backend/insight_agent/runtime.py && python3 backend/oneid/attribution.py
+          python3 backend/security/policy.py && python3 backend/integration/transforms.py && python3 backend/integration/auth.py && python3 backend/insight_agent/runtime.py && python3 backend/oneid/attribution.py && python3 -m backend.auth
           python3 -m backend.integration.modeling && python3 -m backend.integration.scheduler && python3 -m backend.integration.sensors_format && python3 -m backend.integration.ga4_source && python3 -m backend.semantic.compiler.golden && python3 -m backend.integration.e2e_clickhouse
           python3 backend/migration/bridge.py --check
       - name: pytest（若有 tests/）
@@ -91,6 +91,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
       - run: node --check prototype/js/app.js && node --check prototype/js/data.js
+      - name: 正式前端：型別、單元測試、建置
+        working-directory: web
+        run: npm ci --no-audit --no-fund && npm run typecheck && npm test && npm run build
       - name: Playwright 煙霧測試（桌機 1440 + 手機 390，無 console error、無橫向溢出）
         run: |
           npx --yes playwright@1.48.2 install --with-deps chromium
