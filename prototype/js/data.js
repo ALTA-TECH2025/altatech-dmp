@@ -703,10 +703,11 @@ export const ONEID_RULES = [
   // 對齊神策 IDM 3.0：歸戶在接入時決定、一個 ID 只屬一個用戶、不自動合併已存在的用戶、資料歸優先級最高的 ID；未登入事件以 distinct_id 歸匿名用戶，登入時近 7 天匿名事件改寫到客戶（docs/19）
   { id: '$identity_login_id', cn: '客戶代碼（HMAC）', strength: 'strong', priority: 1, card: '單值', rebind: '不可改、不可解綁', src: 'CRM / App 後台 / GA user_id', note: '唯一錨點；GA user_id 接入時視同此 ID（同一把 HMAC 金鑰，docs/20）' },
   { id: '$identity_mobile_hash', cn: '手機（HMAC）', strength: 'strong', priority: 2, card: '單值', rebind: '人工', src: 'CRM / 開戶', note: '同手機被第二個客戶帶入 → 不改綁、記 conflict 待人工；換號由 CRM 發 unbind+bind' },
-  { id: '$identity_account_no', cn: '交易帳號（FPE）', strength: 'strong', priority: 3, card: '多值', rebind: '人工', src: 'CRM 綁定 / 數據中台交易資料', note: '一客多戶；交易事件只帶帳號且未綁定 → 先建帳號用戶，CRM 綁定到達後升級為客戶' },
-  { id: '$identity_device_id', cn: '裝置 ID（IDFV／GAID）', strength: 'weak', priority: 4, card: '多值', rebind: '不自動改綁', src: 'GA360 app_instance_id', note: '未登入事件的 distinct_id（App）；共用裝置：第二個客戶登入 → 關聯失敗、事件歸登入客戶、裝置留在首次關聯者（神策同）；登出時 App 重置 app_instance_id' },
-  { id: '$identity_cookie_id', cn: 'GA client_id', strength: 'weak', priority: 5, card: '多值', rebind: '不自動改綁', src: 'GA360', note: '未登入事件的 distinct_id（Web）；登入前事件先歸匿名用戶，登入事件到達時近 7 天匿名事件改寫到登入客戶' },
-  { id: '$identity_anonymous_id', cn: '匿名 ID', strength: 'weak', priority: 6, card: '多值', rebind: '不自動改綁', src: 'Collector', note: '神策相容 SDK 的 distinct_id；兜底' },
+  { id: '$identity_email_hash', cn: 'Email（HMAC）', strength: 'strong', priority: 3, card: '單值', rebind: '人工', src: 'CRM', note: '神策預置順序 login > mobile > email；同 Email 第二客戶 → 記 conflict 待人工' },
+  { id: '$identity_account_no', cn: '交易帳號（FPE）', strength: 'strong', priority: 4, card: '多值', rebind: '人工', src: 'CRM 綁定 / 數據中台交易資料', note: '一客多戶；交易事件只帶帳號且未綁定 → 先建帳號用戶，CRM 綁定到達後升級為客戶' },
+  { id: '$identity_device_id', cn: '裝置 ID（IDFV／GAID）', strength: 'weak', priority: 5, card: '多值（上限 20，滾動解綁）', rebind: '不自動改綁', src: 'GA360 app_instance_id', note: '未登入事件的 distinct_id（App）；共用裝置：第二個客戶登入 → 關聯失敗、事件歸登入客戶、裝置留在首次關聯者（神策同）；登出時 App 重置 app_instance_id' },
+  { id: '$identity_cookie_id', cn: 'GA client_id', strength: 'weak', priority: 6, card: '多值（上限 50，滾動解綁）', rebind: '不自動改綁', src: 'GA360', note: '未登入事件的 distinct_id（Web）；登入前事件先歸匿名用戶，登入事件到達時近 7 天匿名事件改寫到登入客戶' },
+  { id: '$identity_anonymous_id', cn: '匿名 ID', strength: 'weak', priority: 7, card: '多值（上限 50，滾動解綁）', rebind: '不自動改綁', src: 'Collector', note: '神策相容 SDK 的 distinct_id；兜底' },
   { id: '$identity_line_uid', cn: 'LINE UID', strength: 'channel', priority: 9, card: '多值', rebind: '—', src: 'MA', note: '觸達渠道，不參與歸戶，只做輸出對應' },
 ];
 export const ONEID_CASES = [

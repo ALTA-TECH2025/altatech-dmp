@@ -12,7 +12,7 @@ subjects:
   - key: customer
     cn: 客戶
     anchor: true
-    ids: [$identity_login_id, $identity_mobile_hash]          # 客戶自己的 ID（代碼、手機）
+    ids: [$identity_login_id, $identity_mobile_hash, $identity_email_hash]   # 客戶自己的 ID（代碼、手機、Email），單值，順序同神策預置
     attributes_table: dmp.users
   - key: account
     cn: 交易帳戶

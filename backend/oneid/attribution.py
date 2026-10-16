@@ -45,6 +45,7 @@ class User:
     one_id: str
     one_id_uint: int
     ids: dict[str, set[str]] = field(default_factory=dict)      # key → values
+    bind_order: dict[str, list[str]] = field(default_factory=dict)   # key → 綁定順序（滾動解綁用）
 
     @property
     def is_identified(self) -> bool:
@@ -94,6 +95,12 @@ class OneIDService:
     def _bind(self, u: User, key: str, value: str) -> None:
         u.ids.setdefault(key, set()).add(value)
         self.index[(key, value)] = u.one_id
+        u.bind_order.setdefault(key, []).append(value)
+        limit = ID_SPEC[key].get("max_count")
+        if limit and ID_SPEC[key].get("over_limit", "rolling_unbind") == "rolling_unbind" and len(u.ids[key]) > limit:
+            oldest = u.bind_order[key].pop(0)                       # 神策超限策略「滾動解綁」：刪除最早的標識，新的繼續關聯
+            u.ids[key].discard(oldest); self.index.pop((key, oldest), None)
+            self.audit.append({"event": "oneid.rolling_unbound", "one_id": u.one_id, "key": key, "value": oldest, "limit": limit})
         if SUBJECT_OF.get(key) == "device" and u.is_identified:
             self.device_customers.setdefault((key, value), set()).add(u.one_id)
 
@@ -160,13 +167,19 @@ class OneIDService:
     def _unbind(self, u: User, key: str, value: str) -> None:
         u.ids.get(key, set()).discard(value)
         self.index.pop((key, value), None)
+        if value in u.bind_order.get(key, []): u.bind_order[key].remove(value)
+
+    def _would_exceed(self, u: User, key: str) -> bool:
+        """超限策略 intercept：多值 ID 已達上限 → 這筆資料的新 ID 不綁、記 conflict（神策「數據攔截」：整條數據攔截，已關聯的標識不變）"""
+        limit = ID_SPEC[key].get("max_count")
+        return bool(limit) and ID_SPEC[key].get("over_limit") == "intercept" and len(u.ids.get(key, ())) >= limit
 
     @staticmethod
     def normalize(identities: dict[str, Any]) -> list[tuple[str, str]]:
         out: list[tuple[str, str]] = []
         for k, v in identities.items():
             k = ALIAS.get(k, k)
-            if k not in ID_SPEC or not ID_SPEC[k].get("participates", True) or v in (None, ""):
+            if k not in ID_SPEC or not ID_SPEC[k].get("participates", True) or ID_SPEC[k].get("status", "enabled") == "disabled" or v in (None, ""):
                 continue
             for val in (v if isinstance(v, list) else [v]):
                 out.append((k, str(val)))
@@ -247,7 +260,10 @@ class OneIDService:
             if cur == winner.one_id:
                 continue
             if cur is None:
-                if winner.has_slot(k, v):
+                if self._would_exceed(winner, k):
+                    conflicts.append(f"{k}={v} 超過關聯上限 {ID_SPEC[k]['max_count']}（intercept）：不綁定，待查")
+                    self._edge((k, v), ids[0], winner.one_id, status="conflict")["conflict_kind"] = "over_limit"
+                elif winner.has_slot(k, v):
                     self._bind(winner, k, v); bound.append((k, v))
                 else:
                     conflicts.append(f"{k}={v} 無法綁定：{winner.one_id} 的單值欄位已有 {sorted(winner.ids[k])}")
@@ -368,8 +384,13 @@ class OneIDService:
             raise PermissionError(f"{key} 不可解綁")
         oid = self.index.get((key, value))
         if oid:
-            self._unbind(self.users[oid], key, value)
+            u = self.users[oid]
+            self._unbind(u, key, value)
             self.audit.append({"event": "oneid.unbound", "key": key, "one_id": oid, "by": by})
+            for ck, spec in ID_SPEC.items():                      # 父節點：父 ID 解綁時，子類型的 ID 一併解綁（神策「父節點」）
+                if spec.get("parent") == key:
+                    for cv in list(u.ids.get(ck, ())):
+                        self._unbind(u, ck, cv); self.audit.append({"event": "oneid.unbound", "key": ck, "one_id": oid, "by": by, "cascade_from": key})
 
 
 # ------------------------------------------------------------------ 自測：docs/19 的情境
@@ -516,6 +537,35 @@ if __name__ == "__main__":
     assert {n["subject"] for n in gph["nodes"]} >= {"customer", "device"} and gph["edges"] and all("confidence" in e and "evidence_event_id" in e for e in gph["edges"])
     assert gph["events"] == 9 and any(x["event"] == "oneid.anonymous_merged" for x in gph["timeline"])
     assert ("source", "ga360", "id_map", "dmp.id_map", "oneid.service") in sv.lineage
+    # S21 關聯上限與超限策略：裝置 max_count=20 滾動解綁（最早的被解綁、新的綁上）；帳號 max_count=50 intercept（第 51 戶不綁、記 conflict、事件仍歸客戶）
+    s21 = OneIDService(); z = s21.resolve({"$identity_login_id": "cust_Z"}, time_ms=T)
+    for i in range(22):
+        s21.track("app_login_success", T + i, {"$identity_device_id": f"DZ{i:02d}", "$identity_login_id": "cust_Z"})
+    assert len(s21.users[z.one_id].ids["$identity_device_id"]) == 20 and ("$identity_device_id", "DZ00") not in s21.index and ("$identity_device_id", "DZ21") in s21.index
+    assert sum(1 for a in s21.audit if a["event"] == "oneid.rolling_unbound") == 2
+    for i in range(50):
+        s21.resolve({"$identity_login_id": "cust_Z", "$identity_account_no": f"AZ{i:03d}"}, time_ms=T)
+    r = s21.resolve({"$identity_login_id": "cust_Z", "$identity_account_no": "AZ050"}, time_ms=T)
+    assert r.one_id == z.one_id and r.conflicts and ("$identity_account_no", "AZ050") not in s21.index and len(s21.users[z.one_id].ids["$identity_account_no"]) == 50
+    assert any(e.get("conflict_kind") == "over_limit" for e in s21.edges.values())
+    # S22 父節點：解綁客戶代碼被擋（never）；解綁 cookie 不影響；若把 parent 設在 mobile 上則解綁 mobile 連帶解綁子 ID —— 這裡驗證 cascade 規則本身
+    s22 = OneIDService(); ID_SPEC["$identity_cookie_id"]["parent"] = "$identity_mobile_hash"
+    try:
+        s22.resolve({"$identity_login_id": "cust_W", "$identity_mobile_hash": "MW", "$identity_cookie_id": "CW1", "$identity_device_id": "DW1"}, time_ms=T)
+        s22.unbind("$identity_mobile_hash", "MW", by="admin")
+        assert ("$identity_cookie_id", "CW1") not in s22.index and ("$identity_device_id", "DW1") in s22.index   # cookie 的父是 mobile → 連帶；device 的父是 login → 不受影響
+        assert any(a.get("cascade_from") == "$identity_mobile_hash" for a in s22.audit)
+    finally:
+        ID_SPEC["$identity_cookie_id"]["parent"] = "$identity_login_id"
+    # S23 停用的 ID 類型不參與歸戶；email 作為單值強 ID 排在 mobile 之後
+    ID_SPEC["$identity_email_hash"]["status"] = "disabled"
+    try:
+        r = s22.resolve({"$identity_login_id": "cust_W", "$identity_email_hash": "EW"}, time_ms=T); assert ("$identity_email_hash", "EW") not in s22.index
+    finally:
+        ID_SPEC["$identity_email_hash"]["status"] = "enabled"
+    r = s22.resolve({"$identity_login_id": "cust_W", "$identity_email_hash": "EW"}, time_ms=T); assert ("$identity_email_hash", "EW") in s22.index
+    r2 = s22.resolve({"$identity_login_id": "cust_V", "$identity_email_hash": "EW"}, time_ms=T); assert r2.conflicts and s22.index[("$identity_email_hash", "EW")] == r.one_id
+    assert ID_SPEC["$identity_mobile_hash"]["priority"] < ID_SPEC["$identity_email_hash"]["priority"] < ID_SPEC["$identity_account_no"]["priority"]
     # 不變量仍成立：一個 ID 只屬一個用戶
     assert all(v in sv.users and ((k, val) in {(kk, vv) for kk, vs in sv.users[v].ids.items() for vv in vs}) for (k, val), v in sv.index.items())
-    print(f"attribution self-test ok: S1–S20; users={len(svc.users) + len(sv.users)} edges={len(sv.edges)} conflicts={sum(1 for e in sv.edges.values() if e['status'] == 'conflict')} merge_log={len(sv.merge_log)}")
+    print(f"attribution self-test ok: S1–S23; users={len(svc.users) + len(sv.users)} edges={len(sv.edges)} conflicts={sum(1 for e in sv.edges.values() if e['status'] == 'conflict')} merge_log={len(sv.merge_log)}")

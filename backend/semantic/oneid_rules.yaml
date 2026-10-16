@@ -8,18 +8,21 @@
 #      IDM 3.0「小米 1 和 A2 無法成功關聯，行為歸 A2」的行為）；弱 ID 屬「匿名用戶」時整個匿名用戶併入客戶（神策方案三：合併並修復近 7 天事件）。
 #   4. 孤立的 ID 永遠不會打通：只有同一條資料（事件或 bind 指令）裡共現的 ID 才會建立關聯。
 #   5. 登入帳號（客戶代碼）優先級最高、單值、不可改、不可解綁。
+#   6. 神策 IDM 3.0「配置用戶關聯」的欄位本系統都有：優先級、關聯約束（單值／多值）、關聯上限（max_count）、超限策略（rolling_unbind 滾動解綁預設／intercept 整筆攔截）、
+#      父節點（parent：父 ID 解綁時子 ID 一併解綁）、狀態（status: enabled|disabled，停用的不參與歸戶）。神策沒有「衝突待人工」清單，那是本系統加的（id_edges status=conflict）。
 version: 1
 alias:                                   # 接入時先正規化：同源 ID 併成同一類型
   $identity_ga_user_id: $identity_login_id      # GA user_id 已是 HMAC 客戶代碼，直接視為 login_id
 ids:
   - { key: $identity_login_id,    cn: 客戶代碼（HMAC）, priority: 1, cardinality: single, rebind: never,  source: [crm, app_backend, ga360.user_id], note: 唯一錨點；一旦綁定不可改、不可解綁 }
   - { key: $identity_mobile_hash, cn: 手機（HMAC）,     priority: 2, cardinality: single, rebind: manual, source: [crm, account_open], note: 換號由 CRM 發 unbind+bind；同手機被第二個客戶綁定 → 不改綁、記 conflict 待人工 }
-  - { key: $identity_account_no,  cn: 交易帳號（FPE）,  priority: 3, cardinality: multi,  rebind: manual, source: [trade_core, crm], note: 一客多戶；帳戶改隸罕見，需人工 }
-  - { key: $identity_device_id,   cn: 裝置 ID,          priority: 4, cardinality: multi,  rebind: never_auto, source: [ga360], note: 首次關聯後固定；第二個客戶登入 → 關聯失敗、記 conflict、事件仍歸登入客戶；之後的匿名事件歸首次關聯者（神策同） }
-  - { key: $identity_cookie_id,   cn: GA client_id,     priority: 5, cardinality: multi,  rebind: never_auto, source: [ga360], note: 清 cookie 即新 ID；登入前事件先歸匿名用戶，登入時整個匿名用戶併入客戶並改寫近 7 天事件；已屬他客戶則關聯失敗 }
-  - { key: $identity_anonymous_id, cn: 匿名 ID,         priority: 6, cardinality: multi,  rebind: never_auto, source: [collector], note: 兜底 }
+  - { key: $identity_email_hash,  cn: Email（HMAC）,     priority: 3, cardinality: single, rebind: manual, source: [crm], status: enabled, note: 神策預置順序 login > mobile > email；同 email 第二客戶 → 記 conflict 待人工 }
+  - { key: $identity_account_no,  cn: 交易帳號（FPE）,  priority: 4, cardinality: multi,  rebind: manual, max_count: 50, over_limit: intercept, source: [trade_core, crm], note: 一客多戶；帳戶改隸罕見，需人工；超過 50 戶整筆攔截待查 }
+  - { key: $identity_device_id,   cn: 裝置 ID,          priority: 5, cardinality: multi,  rebind: never_auto, max_count: 20, over_limit: rolling_unbind, parent: $identity_login_id, source: [ga360], note: 首次關聯後固定；第二個客戶登入 → 關聯失敗、記 conflict、事件仍歸登入客戶；之後的匿名事件歸首次關聯者（神策同） }
+  - { key: $identity_cookie_id,   cn: GA client_id,     priority: 6, cardinality: multi,  rebind: never_auto, max_count: 50, over_limit: rolling_unbind, parent: $identity_login_id, source: [ga360], note: 清 cookie 即新 ID；登入前事件先歸匿名用戶，登入時整個匿名用戶併入客戶並改寫近 7 天事件；已屬他客戶則關聯失敗 }
+  - { key: $identity_anonymous_id, cn: 匿名 ID,         priority: 7, cardinality: multi,  rebind: never_auto, max_count: 50, over_limit: rolling_unbind, parent: $identity_login_id, source: [collector], note: 兜底 }
   - { key: $identity_line_uid,    cn: LINE UID,         priority: 9, cardinality: multi,  rebind: latest, source: [ma], participates: false, note: 觸達渠道；只做輸出對應，不參與歸戶 }
-strong_ids: [$identity_login_id, $identity_mobile_hash, $identity_account_no]   # 有任一強 ID 的用戶才算「已識別客戶」
+strong_ids: [$identity_login_id, $identity_mobile_hash, $identity_email_hash, $identity_account_no]   # 有任一強 ID 的用戶才算「已識別客戶」
 anonymous_user:
   create_from: [$identity_cookie_id, $identity_device_id, $identity_anonymous_id]   # 只有弱 ID 的資料也建立用戶（匿名用戶），事件先歸它
   distinct_id: first_present_of_create_from   # 未登入事件的 distinct_id = 該筆資料裡第一個弱 ID（Web: cookie_id；App: device_id；Collector: anonymous_id），寫進 events.distinct_id
