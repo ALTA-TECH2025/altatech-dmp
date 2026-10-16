@@ -113,9 +113,13 @@ tools:
     description: 以配置卡執行分析（內部分派到 metric.query / funnel.run / path.run / attribution.run / users.list），回傳與 UI 相同的結果結構。
     input: { config: object }
     scope: read
+  - name: users.estimate
+    description: 用戶列表人數預估：UsersQuery（用戶屬性／分群／做過未做過／分析落點下鑽）→ Bitmap 交併差 → 人數；對應 POST /v1/users/estimate。
+    input: { query: UsersQuery }
+    scope: read
   - name: users.list
-    description: 用戶列表：條件 → 人數預估（Bitmap）與分頁列表（脫敏、行級權限）。
-    input: { rules: object, page: int, page_size: int, columns: list }
+    description: 用戶列表分頁：UsersQuery + columns／sort／page_size／cursor → 列（one_id 與欄位依角色遮罩、行級權限）；對應 POST /v1/users/list；最多瀏覽 100,000 筆，之後走匯出審批。
+    input: { query: UsersQuery, columns: list, sort: object, page_size: int, cursor: string }
     scope: read
     masking: column_level
   - name: dashboard.explain

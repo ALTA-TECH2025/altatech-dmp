@@ -67,10 +67,16 @@ paths:
     post: { tags: [Analytics], summary: 'LTV', responses: { '200': { description: ok } } }
   /v1/analytics/session:
     post: { tags: [Analytics], summary: 'Session', responses: { '200': { description: ok } } }
+  /v1/users/estimate:
+    post: { tags: [Users], summary: '用戶列表人數預估（條件 → 各自 Bitmap 交併差 → bitmapCardinality；精確、< 1 s）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/UsersQuery' } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/UsersEstimate' } } } }, '400': { description: 條件不合法 }, '403': { description: users.use 未授權 } } }
+  /v1/users/list:
+    post: { tags: [Users], summary: '用戶列表分頁（keyset 游標；每頁 ≤ 500；最多瀏覽 100,000 筆，之後請走匯出審批；欄位依角色遮罩）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/UsersListRequest' } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/UsersListResult' } } } } } }
   /v1/profiles/{one_id}:
-    get: { tags: [Profile], summary: '畫像（脫敏）', parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Profile], summary: '畫像（用戶細查第一頁：用戶屬性脫敏、近 30 天事件摘要、所屬分群；需 reason，審計 profile.viewed；範圍外回 404）', parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }, { name: reason, in: query, required: true, schema: { type: string, minLength: 4, maxLength: 200 } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Profile' } } } }, '403': { description: profile.use 未授權或缺 reason }, '404': { description: 不存在或不在資料範圍 } } }
   /v1/profiles/{one_id}/timeline:
-    get: { tags: [Profile], summary: '行為序列（用戶細查，需 reason）', parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }, { name: reason, in: query, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Profile], summary: '行為序列（用戶細查，需 reason；時間倒序 keyset 分頁；金額等欄位依角色遮罩；props 去除 L4 鍵）', parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }, { name: reason, in: query, required: true, schema: { type: string } }, { name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }, { name: events, in: query, schema: { type: string }, description: 逗號分隔的事件名 }, { name: limit, in: query, schema: { type: integer, default: 100, maximum: 500 } }, { name: cursor, in: query, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/TimelineResult' } } } } } }
+  /v1/profiles/{one_id}/identities:
+    get: { tags: [Profile], summary: '身分圖（id_edges：節點 = ID 類型 × 遮罩後的值；邊 = 來源、證據事件、信心、狀態、首末次；需 reason）', parameters: [{ name: one_id, in: path, required: true, schema: { type: string } }, { name: reason, in: query, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/IdentityGraph' } } } } } }
   /v1/oneid/resolve:
     get: { tags: [OneID], summary: '解析 ID → one_id（接入時歸戶規則見 docs/19；一個 ID 只屬一個用戶）', parameters: [{ name: type, in: query, schema: { type: string } }, { name: value, in: query, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/oneid/bind:
@@ -500,6 +506,93 @@ components:
         lineage: { type: array, items: { type: string } }
         cost: { type: object }
         warnings: { type: array, items: { type: string } }
+    UsersQuery:
+      type: object
+      description: 用戶列表條件：全部是「人」的條件（用戶屬性／分群／做過未做過／來自分析結果的下鑽）；事件欄位請放在 behaviors.filters
+      properties:
+        project: { type: string }
+        filters: { description: 用戶屬性（user.<key>，只限寬表 L0–L2）與分群（seg.<id>）條件；可巢狀 and／or, oneOf: [{ type: array, items: { type: object } }, { type: object, properties: { op: { type: string, enum: [and, or] }, items: { type: array, items: { type: object } } } }] }
+        segment: { type: string, description: 等同 filters 加 seg.<id> in }
+        behaviors: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/UsersBehavior' } }
+        behaviors_op: { type: string, enum: [and, or], default: and }
+        time: { type: object, description: behaviors 未各自指定時的預設時間範圍, properties: { from: { type: string }, to: { type: string }, now: { type: string } } }
+        source: { $ref: '#/components/schemas/UsersSource' }
+    UsersBehavior:
+      type: object
+      required: [event]
+      properties:
+        event: { type: string }
+        filters: { type: array, items: { type: object }, description: 事件屬性條件 }
+        done: { type: boolean, default: true, description: false = 期間內一次都沒做過（忽略 count） }
+        count: { type: object, properties: { op: { type: string, enum: [gte, lte, eq, between], default: gte }, value: { description: '數字或 [a, b]' } } }
+        time: { type: object, properties: { from: { type: string }, to: { type: string } } }
+    UsersSource:
+      type: object
+      description: 從分析結果的某個落點下鑽成用戶列表（漏斗某步到達／流失、留存某同期群某期留存／未留存、事件分析某桶某分組）
+      required: [type, query]
+      properties:
+        type: { type: string, enum: [funnel, retention, events] }
+        query: { type: object, description: 原分析查詢（FunnelQuery／RetentionQuery／SemanticQuery） }
+        step: { type: integer, description: funnel：步驟序號（1 起） }
+        reached: { type: boolean, default: true, description: funnel：true = 到達該步；false = 在該步流失（到達前一步但未到達此步，step ≥ 2） }
+        bucket: { type: string, description: funnel 趨勢桶／events 時間桶 }
+        group: { description: 'funnel／retention 的 g1 值，或 events 的 [g1, g2, …]' }
+        cohort: { type: string, description: retention：同期群 }
+        period: { type: integer, description: retention：期數 }
+        retained: { type: boolean, nullable: true, description: retention：true 留存／false 未留存／null 整個同期群 }
+        metric: { type: string, description: events：指標別名（預設第一個） }
+    UsersEstimate:
+      type: object
+      properties:
+        users: { type: integer }
+        sql: { type: string }
+        lineage: { type: array, items: { type: string } }
+        cost: { type: object }
+        warnings: { type: array, items: { type: string } }
+    UsersListRequest:
+      allOf:
+        - $ref: '#/components/schemas/UsersQuery'
+        - type: object
+          properties:
+            columns: { type: array, items: { type: string }, description: 要顯示的用戶屬性（寬表 L0–L2；hide 的欄位略過並回 warning） }
+            sort: { type: object, properties: { field: { type: string }, dir: { type: string, enum: [asc, desc] } } }
+            page_size: { type: integer, default: 50, maximum: 500 }
+            cursor: { type: string, description: 上一頁回的 next_cursor；最多瀏覽 100,000 筆 }
+    UsersListResult:
+      type: object
+      properties:
+        rows: { type: array, items: { type: object, description: one_id（遮罩）+ columns } }
+        columns: { type: array, items: { type: string } }
+        masked: { type: object, additionalProperties: { type: string } }
+        next_cursor: { type: string, nullable: true }
+        total: { type: integer, description: 同條件的 Bitmap 基數（第一頁計算、游標帶著走） }
+        sql: { type: string }
+        lineage: { type: array, items: { type: string } }
+        cost: { type: object }
+        warnings: { type: array, items: { type: string } }
+    Profile:
+      type: object
+      properties:
+        one_id: { type: string, description: 依角色遮罩 }
+        props: { type: object, description: 寬表用戶屬性（依角色遮罩；hide 略過） }
+        masked: { type: object, additionalProperties: { type: string } }
+        segments: { type: array, items: { type: string } }
+        summary: { type: object, properties: { days: { type: integer }, events: { type: array, items: { type: object, properties: { event: { type: string }, cn: { type: string }, n: { type: integer }, first: { type: string }, last: { type: string } } } }, total: { type: integer } } }
+        warnings: { type: array, items: { type: string } }
+    TimelineResult:
+      type: object
+      properties:
+        rows: { type: array, items: { type: object, properties: { time: { type: string, description: UTC }, event: { type: string }, cn: { type: string }, platform: { type: string }, channel: { type: string }, symbol: { type: string }, side: { type: string }, amount: { nullable: true, description: 依角色遮罩（區間字串或數字） }, entity_type: { type: string }, entity_id: { type: string }, session_id: { type: string }, event_id: { type: string }, props: { type: object } } } }
+        next_cursor: { type: string, nullable: true }
+        masked: { type: object, additionalProperties: { type: string } }
+        sql: { type: string }
+        cost: { type: object }
+    IdentityGraph:
+      type: object
+      properties:
+        nodes: { type: array, items: { type: object, properties: { id: { type: string, description: 'type:遮罩值' }, type: { type: string }, value: { type: string, description: 依角色遮罩 } } } }
+        edges: { type: array, items: { type: object, properties: { a: { type: string }, b: { type: string }, source: { type: string }, evidence_event_id: { type: string }, first_seen: { type: string }, last_seen: { type: string }, seen_count: { type: integer }, confidence: { type: number }, status: { type: string } } } }
+        masked: { type: object, additionalProperties: { type: string } }
     FunnelResult:
       type: object
       properties:

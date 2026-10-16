@@ -10,6 +10,7 @@ fields:
   - { name: fee,               level: L2, plain_roles: [data_analyst, digital_ops], others: "round(1000)", export: bucket }
   - { name: fee90,             level: L2, plain_roles: [data_analyst, digital_ops], others: bucket, export: bucket }
   - { name: churn_score,       level: L2, plain_roles: [data_analyst, digital_ops], others: "bucket([0,40,70,100])" }
+  - { name: aum,               level: L2, plain_roles: [data_analyst, digital_ops], others: "bucket([0,1e6,5e6])", export: bucket }   # 用戶列表／畫像顯示；user_properties.yaml：只給區間化與排序，匯出走 aum_bucket
   - { name: age_band,          level: L1, plain_roles: ["*"] }
   - { name: platform,          level: L1, plain_roles: ["*"] }
   - { name: page_url,          level: L1, plain_roles: ["*"], transform: strip_query_string }
