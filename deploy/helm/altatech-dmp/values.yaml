@@ -7,7 +7,7 @@ global:
   storageClass: fast-nvme
 kafka: { operator: { enabled: true }, replicas: 3, storageGi: 2000, partitions: { events: 48 } }
 flink: { operator: { enabled: true }, taskmanagers: 6, slotsPerTm: 4, memoryGi: 64, checkpointDir: s3://dmp-checkpoints }
-clickhouse: { operator: { enabled: true }, shards: 2, replicas: 2, cpu: 32, memoryGi: 256, storageTi: 8, keeper: 3, coldStorage: { type: s3, bucket: dmp-cold } }
+clickhouse: { operator: { enabled: true }, shards: 2, replicas: 2, cpu: 32, memoryGi: 256, storageTi: 8, keeper: { replicas: 3 }, coldStorage: { type: s3, bucket: dmp-cold } }
 postgres: { inCluster: true, instances: 2, storageGi: 500, extensions: [pgvector] }
 valkey: { inCluster: true, replicas: 3 }
 objectStorage: { type: seaweedfs, endpoint: http://seaweedfs-s3:8333 }   # 機房：SeaweedFS（Apache-2.0）；GCP 覆寫為 GCS
