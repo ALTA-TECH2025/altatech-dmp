@@ -92,19 +92,23 @@ paths:
   /v1/oneid/erase:
     post: { tags: [OneID], summary: 'DSAR 刪除', responses: { '202': { description: accepted } } }
   /v1/segments:
-    get: { tags: [Segments], summary: '列出分群', responses: { '200': { description: ok } } }
-    post: { tags: [Segments], summary: '建立分群（agent 提議者為 pending_approval）', responses: { '201': { description: created } } }
+    get: { tags: [Segments], summary: '列出分群（q 搜尋、status、kind；回收站用 status=recycled）', parameters: [{ name: q, in: query, schema: { type: string } }, { name: status, in: query, schema: { type: string } }, { name: kind, in: query, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Segment' } } } } } } }
+    post: { tags: [Segments], summary: '建立分群（規則 = UsersQuery；行銷與 agent 提議者為 pending_approval，數據分析／數位經營／admin 直接 active；每專案 ≤ 500）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SegmentCreate' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Segment' } } } }, '400': { description: 規則不合法 }, '409': { description: 名稱重複或超過上限 } } }
   /v1/segments/{id}/preview:
-    post: { tags: [Segments], summary: '預估人數與畫像', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    post: { tags: [Segments], summary: '預估人數（Bitmap 基數，精確）與畫像（生命週期／價值分級／資產區間／分公司分布）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SegmentPreview' } } } } } }
   /v1/segments/{id}:
-    get: { tags: [Segments], summary: '分群詳情（基礎資訊、規則、最新版本、更新方式、存儲設定）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
-    put: { tags: [Segments], summary: '編輯分群（結果保存分群不可改規則；手動分群不可改更新方式；例行分群可改時間範圍與最早計算時間，不可改頻率）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Segments], summary: '分群詳情（基礎資訊、規則、最新版本、更新方式、存儲設定）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Segment' } } } } } }
+    put: { tags: [Segments], summary: '編輯分群（結果保存分群不可改規則；手動分群不可改更新方式；例行分群可改時間範圍與最早計算時間，不可改頻率；改規則後需重新計算）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SegmentCreate' } } } }, responses: { '200': { description: ok }, '409': { description: 不可變更的欄位 } } }
+  /v1/segments/{id}/approve:
+    post: { tags: [Segments], summary: '審批（數位經營／admin；approve=false 退回 draft 並附 note）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { approve: { type: boolean, default: true }, note: { type: string } } } } } }, responses: { '200': { description: ok }, '409': { description: 不在待審批狀態 } } }
   /v1/segments/{id}/versions:
-    get: { tags: [Segments], summary: '歷史版本（basetime、人數、計算狀態；可下鑽用戶、另存新分群、下載）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Segments], summary: '歷史版本（basetime、人數、計算狀態；可下鑽用戶、另存新分群、下載）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/SegmentVersion' } } } } } } }
   /v1/segments/{id}/versions/{basetime}/members:
-    get: { tags: [Segments], summary: '某版本的用戶列表（下載需審批與浮水印）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: basetime, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [Segments], summary: '某版本的用戶列表（與 /v1/users/list 同形：columns／sort／page_size／cursor；欄位依角色遮罩；下載需審批與浮水印）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: basetime, in: path, required: true, schema: { type: string, description: 'YYYY-MM-DD 或 latest' } }, { name: page_size, in: query, schema: { type: integer } }, { name: cursor, in: query, schema: { type: string } }, { name: columns, in: query, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/UsersListResult' } } } } } }
   /v1/segments/{id}/compute:
-    post: { tags: [Segments], summary: '手動更新（以今日 00:00 為基準時間，覆蓋原版本）或例行分群回溯', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: queued } } }
+    post: { tags: [Segments], summary: '手動更新（basetime = 今日 00:00；手動分群只留 1 版，例行分群留 keep 版）；最小版同步計算並回版本紀錄，正式環境排進 Airflow', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { basetime: { type: string, description: '例行分群回溯用 YYYY-MM-DD' } } } } } }, responses: { '202': { description: queued, content: { application/json: { schema: { $ref: '#/components/schemas/SegmentVersion' } } } }, '409': { description: 未生效（待審批／回收站） } } }
+  /v1/segments/tick:
+    post: { tags: [Segments], summary: '例行分群排程（排程器每分鐘呼叫；admin）：到期且當日未算的 active 例行分群依序計算，回執行清單', responses: { '200': { description: ok } } }
   /v1/segments/{id}/pause:
     post: { tags: [Segments], summary: '暫停／啟動例行分群', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/segments/{id}/copy:
@@ -593,6 +597,49 @@ components:
         nodes: { type: array, items: { type: object, properties: { id: { type: string, description: 'type:遮罩值' }, type: { type: string }, value: { type: string, description: 依角色遮罩 } } } }
         edges: { type: array, items: { type: object, properties: { a: { type: string }, b: { type: string }, source: { type: string }, evidence_event_id: { type: string }, first_seen: { type: string }, last_seen: { type: string }, seen_count: { type: integer }, confidence: { type: number }, status: { type: string } } } }
         masked: { type: object, additionalProperties: { type: string } }
+    SegmentCreate:
+      type: object
+      required: [name, rule]
+      properties:
+        name: { type: string, maxLength: 60 }
+        description: { type: string }
+        kind: { type: string, enum: [rule, result], default: rule, description: result = 從分析結果點保存（rule.source 必填，規則不可再改） }
+        rule: { $ref: '#/components/schemas/UsersQuery' }
+        update: { type: object, properties: { mode: { type: string, enum: [manual, routine], default: manual }, freq: { type: string, enum: [daily, weekly, monthly], default: daily }, earliest: { type: string, default: '06:00', description: 'HH:MM，最早計算時間' }, keep: { type: integer, minimum: 1, maximum: 100, default: 7, description: 例行版本保留數；手動固定 1 } } }
+        tz: { type: string, default: Asia/Taipei }
+    Segment:
+      allOf:
+        - $ref: '#/components/schemas/SegmentCreate'
+        - type: object
+          properties:
+            id: { type: string }
+            project: { type: string }
+            status: { type: string, enum: [draft, pending_approval, active, paused, recycled] }
+            owner: { type: string }
+            created_at: { type: string }
+            updated_at: { type: string }
+            approval: { type: object, properties: { status: { type: string, enum: [none, pending, approved, rejected] }, by: { type: string }, at: { type: string }, note: { type: string } } }
+            latest: { $ref: '#/components/schemas/SegmentVersion' }
+            lineage: { type: object, properties: { up: { type: array, items: { type: string }, description: 'event:*／dmp.users_dict／segment:*…' }, down: { type: array, items: { type: string }, description: 引用本分群的分群（之後：推送單、觸發規則、分析） } } }
+            recycled_at: { type: string, nullable: true }
+    SegmentVersion:
+      type: object
+      properties:
+        version: { type: integer }
+        basetime: { type: string, description: YYYY-MM-DD }
+        users: { type: integer, nullable: true }
+        status: { type: string, enum: [running, success, failed, cancelled] }
+        computed_at: { type: string }
+        ms: { type: integer }
+        trigger: { type: string, enum: [manual, routine, backfill] }
+        error: { type: string, nullable: true }
+    SegmentPreview:
+      type: object
+      properties:
+        users: { type: integer }
+        profile: { type: object, additionalProperties: { type: array, items: { type: object, properties: { value: { type: string }, users: { type: integer } } } }, description: 'lifecycle／tier／aum_bucket／branch_id 各取前 10 值' }
+        sql: { type: string }
+        warnings: { type: array, items: { type: string } }
     FunnelResult:
       type: object
       properties:
