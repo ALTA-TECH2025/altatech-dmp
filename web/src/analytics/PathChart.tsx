@@ -1,34 +1,42 @@
-// 自繪 SVG 桑基圖：層 = 步、節點高度 ∝ 人數、連線寬 ∝ 人數；固定類別色（跟節點名，離開／其他灰）；滑過節點高亮相鄰連線並顯示提示；點節點 → 設為新起點／看用戶。
+// 路徑桑基圖（ECharts sankey）：層 = 步、節點高度 ∝ 人數、連線寬 ∝ 人數；顏色跟節點名（固定順序類別色，離開／其他灰）；滑過高亮相鄰連線；點節點 → 設為新起點／看用戶。
 import { useMemo, useState } from 'react';
+import { Badge, Button, Group, Text } from '@mantine/core';
+import { Chart, resolveColor, type ChartEvent, type ChartOption } from '@/ds/Chart';
 import { fmtNum } from './series';
-import { layout, type SkLink, type SkNode } from './sankey';
+import { GRAY_NODES, nodeColors, type SkLink, type SkNode } from './sankey';
+
+const key = (level: number, node: string) => `${level}|${node}`;
 
 export function PathChart({ nodes, links, labelOf, onNode }: { nodes: SkNode[]; links: SkLink[]; labelOf: (n: string) => string; onNode?: (n: SkNode, action: 'anchor' | 'users') => void }) {
-  const W = 960, H = 440, NW = 14;
-  const l = useMemo(() => layout(nodes, links, W, H, NW, 8), [nodes, links]);
-  const [hover, setHover] = useState<string | null>(null);
   const [menu, setMenu] = useState<SkNode | null>(null);
-  if (!l.nodes.length) return <p className="note">沒有路徑（起點在期間內沒有出現，或都被抑制）</p>;
-  const key = (n: { level: number; node: string }) => `${n.level}|${n.node}`;
-  const touches = (k: { level: number; from: string; to: string }) => hover !== null && (key({ level: k.level, node: k.from }) === hover || key({ level: k.level + 1, node: k.to }) === hover);
-  const hn = l.nodes.find((n) => key(n) === hover);
+  const levels = nodes.length ? Math.max(...nodes.map((n) => n.level)) + 1 : 0;
+  const option = useMemo<ChartOption>(() => {
+    const colors = nodeColors(nodes);
+    const byKey = new Map(nodes.map((n) => [key(n.level, n.node), n]));
+    return {
+      tooltip: { trigger: 'item', formatter: (p) => {
+        const q = p as { dataType?: string; data: { name?: string; source?: string; target?: string; value?: number } };
+        if (q.dataType === 'edge') { const [, f] = (q.data.source ?? '').split('|'); const [, t] = (q.data.target ?? '').split('|'); return `${labelOf(f)} → ${labelOf(t)}：${fmtNum(q.data.value)} 人`; }
+        const n = byKey.get(q.data.name ?? ''); if (!n) return '';
+        const out = links.filter((k) => k.level === n.level && k.from === n.node).sort((a, b) => b.users - a.users).slice(0, 6).map((k) => `→ ${labelOf(k.to)}：${fmtNum(k.users)}（${Math.round((k.users / n.users) * 100)}%）`).join('<br/>');
+        return `<b>第 ${n.level} 步 · ${labelOf(n.node)}</b><br/>${fmtNum(n.users)} 人${out ? `<br/>${out}` : ''}`;
+      } },
+      series: [{ type: 'sankey', left: 8, right: 120, top: 8, bottom: 8, nodeWidth: 14, nodeGap: 8, nodeAlign: 'left', layoutIterations: 0, draggable: false,
+        data: nodes.map((n) => ({ name: key(n.level, n.node), depth: n.level, value: n.users, itemStyle: { color: resolveColor(colors[n.node] ?? (GRAY_NODES.has(n.node) ? 'var(--faint)' : 'var(--s8)')), borderColor: resolveColor('var(--panel)') } })),
+        links: links.map((k) => ({ source: key(k.level, k.from), target: key(k.level + 1, k.to), value: k.users })),
+        lineStyle: { color: 'source', opacity: 0.3, curveness: 0.5 }, emphasis: { focus: 'adjacency', lineStyle: { opacity: 0.6 } },
+        label: { fontSize: 11.5, color: resolveColor('var(--body)'), formatter: (p) => { const [, node] = String((p as { name: string }).name).split('|'); return `${labelOf(node)} ${fmtNum((p as { value?: number }).value)}`; } } }],
+    };
+  }, [nodes, links, labelOf]);
+  if (!nodes.length) return <Text size="sm" c="dimmed">沒有路徑（起點在期間內沒有出現，或都被抑制）</Text>;
+  const onClick = (e: ChartEvent) => { if (!onNode || e.dataType !== 'node') return; const [lv, node] = String(e.name).split('|'); const n = nodes.find((x) => x.level === Number(lv) && x.node === node); if (n) setMenu(n); };
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <svg viewBox={`0 0 ${W} ${H + 28}`} width="100%" role="img" aria-label="路徑桑基圖" style={{ display: 'block', minWidth: 640 }}>
-        {Array.from({ length: l.levels }, (_, lv) => <text key={lv} x={(l.nodes.find((n) => n.level === lv)?.x ?? 0) + (lv === l.levels - 1 ? NW : 0)} y={H + 22} fontSize="11" fill="var(--muted)" textAnchor={lv === l.levels - 1 ? 'end' : 'start'}>第 {lv} 步</text>)}
-        {l.links.map((k, i) => <path key={i} d={k.d} fill="none" stroke={k.color} strokeWidth={k.w} opacity={hover === null ? 0.35 : touches(k) ? 0.7 : 0.08} />)}
-        {l.nodes.map((n) => (
-          <g key={key(n)} onMouseEnter={() => setHover(key(n))} onMouseLeave={() => setHover(null)} onClick={() => onNode && setMenu(n)} style={{ cursor: onNode ? 'pointer' : 'default' }}>
-            <rect x={n.x} y={n.y} width={NW} height={n.h} rx={3} fill={n.color} stroke="var(--panel)" strokeWidth={1} opacity={hover === null || hover === key(n) ? 1 : 0.6} />
-            {n.h >= 12 && <text x={n.level === l.levels - 1 ? n.x - 6 : n.x + NW + 6} y={n.y + Math.min(n.h / 2 + 4, n.h - 2)} fontSize="11.5" fill="var(--body)" textAnchor={n.level === l.levels - 1 ? 'end' : 'start'} paintOrder="stroke" stroke="var(--panel)" strokeWidth={3} strokeLinejoin="round">{labelOf(n.node)} <tspan fill="var(--muted)">{fmtNum(n.users)}</tspan></text>}
-          </g>
-        ))}
-      </svg>
-      {hn && <div className="tooltip"><b>第 {hn.level} 步 · {labelOf(hn.node)}</b><div>{fmtNum(hn.users)} 人</div>
-        {l.links.filter((k) => k.level === hn.level && k.from === hn.node).slice(0, 6).map((k) => <div key={k.to}><i style={{ background: k.color }} />→ {labelOf(k.to)}：{fmtNum(k.users)}（{Math.round((k.users / hn.users) * 100)}%）</div>)}</div>}
-      {menu && onNode && <div className="row" style={{ marginTop: 8 }}><span className="pill blue">第 {menu.level} 步 · {labelOf(menu.node)}</span>
-        {menu.node !== '離開' && menu.node !== '其他' && <button className="btn-ghost sm" onClick={() => { onNode(menu, 'anchor'); setMenu(null); }}>設為新起點</button>}
-        <button className="btn-ghost sm" onClick={() => { onNode(menu, 'users'); setMenu(null); }}>用戶列表</button><button className="btn-ghost sm" onClick={() => setMenu(null)}>關閉</button></div>}
+    <div>
+      <Chart option={option} height={440} minWidth={640} label="路徑桑基圖" onClick={onClick} />
+      <Group justify="space-between" px="xs"><Text size="xs" c="dimmed">第 0 步</Text>{levels > 1 && <Text size="xs" c="dimmed">第 {levels - 1} 步</Text>}</Group>
+      {menu && onNode && <Group gap="xs" mt="xs"><Badge color="brand">第 {menu.level} 步 · {labelOf(menu.node)}</Badge>
+        {!GRAY_NODES.has(menu.node) && <Button size="compact-sm" variant="subtle" onClick={() => { onNode(menu, 'anchor'); setMenu(null); }}>設為新起點</Button>}
+        <Button size="compact-sm" variant="subtle" onClick={() => { onNode(menu, 'users'); setMenu(null); }}>用戶列表</Button><Button size="compact-sm" variant="subtle" onClick={() => setMenu(null)}>關閉</Button></Group>}
     </div>
   );
 }

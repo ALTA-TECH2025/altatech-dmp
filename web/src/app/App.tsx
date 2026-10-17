@@ -1,5 +1,7 @@
 // 路由：/login、/no-access 公開；其餘在 RequireAuth + AppShell 內，每頁再用 RequireGrant 綁模組與動作。
 import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
+import { Anchor, Badge, Paper, Text } from '@mantine/core';
+import { PageHeader } from '@/ds';
 import { AuthProvider } from '@/auth/AuthContext';
 import { LoginPage, NoAccessPage } from '@/auth/LoginPage';
 import { RequireAuth, RequireGrant } from '@/auth/RequireGrant';
@@ -34,8 +36,9 @@ import type { Module } from '@/api/types';
 function Placeholder({ title, module, stage, note, instead }: { title: string; module: Module; stage: 'phase2' | 'todo'; note: string; instead?: { to: string; cn: string } }) {
   return (
     <RequireGrant module={module}>
-      <div className="page"><div className="page-h"><div><h1>{title} <span className={`pill ${stage === 'phase2' ? 'gray' : 'amber'}`}>{stage === 'phase2' ? '第二階段' : '待開發'}</span></h1><p>{note}</p></div></div>
-        <div className="card"><p className="note">{stage === 'phase2' ? '這個模組在第一階段只做契約與原型，正式實作排在第二階段；外框、權限與登入已就緒。' : '這個模組在本階段範圍內，後端契約已定，前端尚未接上。'}{instead && <> 目前可先用 <Link to={instead.to}>{instead.cn}</Link>。</>}</p></div>
+      <div className="page">
+        <PageHeader title={<>{title} <Badge color={stage === 'phase2' ? 'gray' : 'orange'} ml="xs">{stage === 'phase2' ? '第二階段' : '待開發'}</Badge></>} lead={note} />
+        <Paper maw={760}><Text size="sm" c="dimmed">{stage === 'phase2' ? '這個模組在第一階段只做契約與原型，正式實作排在第二階段；外框、權限與登入已就緒。' : '這個模組在本階段範圍內，後端契約已定，前端尚未接上。'}{instead && <> 目前可先用 <Anchor component={Link} to={instead.to}>{instead.cn}</Anchor>。</>}</Text></Paper>
       </div>
     </RequireGrant>
   );

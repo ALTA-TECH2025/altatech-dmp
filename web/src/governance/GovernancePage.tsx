@@ -1,14 +1,19 @@
 // 元事件管理：事件字典（搜尋、狀態、登記／編輯抽屜、上線檢查、狀態轉移）、屬性字典（登記）、虛擬事件（建立）、隔離區、變更單（審批）。
-// 權限：governance.view 看；governance.use 登記／修改；governance.admin 審批變更單。語意層 yaml 來的項目標示「語意層」，執行期登記的標示「待發版」。
+// 權限：governance.view 看；governance.use 登記／修改；governance.admin 審批變更單。語意層 yaml 來的項目標示「語意層」，執行期登記的標示「待發版」。設計系統元件組合。
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Alert, Badge, Button, Checkbox, Drawer, Group, List, NativeSelect, Paper, SegmentedControl, SimpleGrid, Stack, Table, Text, TextInput, Title } from '@mantine/core';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
+import { Mono, PageHeader, SectionTitle, StatusBadge } from '@/ds';
 import { checkEvent, dailyText, ENTITY_CN, KIND_CN, SENS_CN, SENS_PILL, STATUS_CN } from './governance';
 import type { ChangeRequest, EventList, EventProp, EventStatus, Level, MetaEvent, MetaEventDetail, MetaProperty, PropertyList, Quarantine, VirtualEvent } from './types';
 
 type Tab = 'dictionary' | 'props' | 'virtual' | 'quarantine' | 'changes';
 const SOURCES = ['GA360（App／Web 埋點）', 'App 後台', '開戶系統', '數據中台（批次導入）', '交易 CDC', '帳務 CDC', '基金平台', 'MA 系統事件', 'CRM', '業務系統'];
+const opt = (value: string, label: string) => ({ value, label });
+const WARN_BG = 'var(--mantine-color-orange-light)';   // 需要注意的列（隔離、待審）底色，跟著深淺色走
+const PROP_TYPES = ['string', 'number', 'bool', 'datetime', 'list'];
 
 export function GovernancePage() {
   return <RequireGrant module="governance"><GovernanceInner /></RequireGrant>;
@@ -35,36 +40,43 @@ function GovernanceInner() {
   const pending = crs.filter((c) => c.status === 'pending').length; const quarantined = ev?.counts.quarantine ?? 0;
   return (
     <div className="page">
-      <div className="page-h"><div><h1>元事件管理</h1><p>事件字典是語意層的根：事件、屬性字典、虛擬事件、隔離區與變更單。未登記事件進隔離區；上線事件改定義走變更單審批；L4 個資屬性拒絕入倉。語意層（events.yaml）為契約來源，這裡登記的項目在發版後進查詢目錄。</p></div>
-        <div className="row" style={{ marginTop: 0 }}>{canUse ? <button className="btn-primary" onClick={() => setDrawer({ event: null })}>＋ 登記事件</button> : <span className="pill gray">唯讀</span>}</div></div>
-      {err && <div className="alert">{err}</div>}
-      <div className="seg">{([['dictionary', `事件字典 ${ev?.total ?? ''}`], ['props', `屬性字典 ${props?.items.length ?? ''}`], ['virtual', `虛擬事件 ${virt.length}`], ['quarantine', `隔離區${quarantined ? ` ${quarantined}` : ''}`], ['changes', `變更單${pending ? ` ${pending}` : ''}`]] as [Tab, string][]).map(([k, cn]) => <a key={k} href="#" className={tab === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setTab(k); }}>{cn}</a>)}</div>
+      <PageHeader title="元事件管理" lead="事件字典是語意層的根：事件、屬性字典、虛擬事件、隔離區與變更單。未登記事件進隔離區；上線事件改定義走變更單審批；L4 個資屬性拒絕入倉。語意層（events.yaml）為契約來源，這裡登記的項目在發版後進查詢目錄。"
+        actions={canUse ? <Button variant="filled" onClick={() => setDrawer({ event: null })}>＋ 登記事件</Button> : <StatusBadge tone="gray">唯讀</StatusBadge>} />
+      {err && <Alert color="red" variant="light" mb="md">{err}</Alert>}
+      <SegmentedControl mb="md" value={tab} onChange={(v) => setTab(v as Tab)} data={[opt('dictionary', `事件字典 ${ev?.total ?? ''}`), opt('props', `屬性字典 ${props?.items.length ?? ''}`), opt('virtual', `虛擬事件 ${virt.length}`), opt('quarantine', `隔離區${quarantined ? ` ${quarantined}` : ''}`), opt('changes', `變更單${pending ? ` ${pending}` : ''}`)]} />
       {tab === 'dictionary' && ev && (
-        <>
-          <div className="row" style={{ marginTop: 0, marginBottom: 12 }}>
-            <input placeholder="搜尋事件名稱／顯示名／業務線（例：開戶、sip_、$Plan）" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: '1 1 320px' }} />
-            <span className="seg" style={{ margin: 0 }}>{([['all', `全部 ${ev.total}`], ['live', `上線 ${ev.counts.live ?? 0}`], ['draft', `草稿 ${ev.counts.draft ?? 0}`], ['quarantine', `隔離 ${ev.counts.quarantine ?? 0}`], ['deprecated', `停用 ${ev.counts.deprecated ?? 0}`]] as [EventStatus | 'all', string][]).map(([k, cn]) => <a key={k} href="#" className={status === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setStatus(k); }}>{cn}</a>)}</span>
-            <span className="note" style={{ marginTop: 0 }}>{ev.stats_source ? '日均量 = 近 7 天 ClickHouse 實際' : '日均量：未連接 ClickHouse'}</span>
-          </div>
-          <div className="card flush"><div className="tbl-wrap"><table className="tbl">
-            <thead><tr><th>事件</th><th>業務線</th><th>平台</th><th>類別</th><th>來源</th><th>屬性</th><th className="num">日均量</th><th>負責人</th><th>狀態</th><th></th></tr></thead>
-            <tbody>{list.map((e) => (
-              <tr key={e.name} className={e.status === 'quarantine' ? 'warnrow' : ''}>
-                <td><b className="mono">{e.name}</b><span className="sub">{e.cn}{e.aliases.length > 0 && ` · 舊名 ${e.aliases.join('、')}`}{e.note && ` · ${e.note}`}</span></td>
-                <td>{e.group}</td><td className="mono" style={{ fontSize: 10.5, color: 'var(--muted)' }}>{e.platforms.replace(/JavaScript/g, 'JS').replace(/服務端/g, 'Server')}</td>
-                <td><span className="pill">{KIND_CN[e.kind]}</span></td><td style={{ fontSize: 12 }}>{e.source}</td>
-                <td className="mono" style={{ fontSize: 11 }}>{e.properties.slice(0, 4).map((p) => p.key).join(', ')}{e.properties.length > 4 && ` +${e.properties.length - 4}`}</td>
-                <td className="num mono">{dailyText(e.daily)}</td><td>{e.owner || '—'}</td>
-                <td><span className={`pill ${STATUS_CN[e.status].pill}`}>{STATUS_CN[e.status].cn}</span>{!e.catalog_synced && <span className="pill amber" title="已登記，發版（契約 PR）後進查詢目錄">待發版</span>}{e.pending_change && <span className="pill amber">變更單</span>}</td>
-                <td className="num"><button className="btn-ghost sm" onClick={() => setDrawer({ event: e })}>{canUse ? (e.status === 'quarantine' ? '登記' : '編輯') : '查看'}</button></td>
-              </tr>))}</tbody>
-          </table></div></div>
-          <div className="grid c3" style={{ marginTop: 16 }}>
-            <div className="card"><div className="card-h"><h3>事件生命週期</h3></div><p className="note">草稿 → 上線（檢查：命名、負責人、屬性型別／敏感等級、無 L4）→ 變更需審批 → 停用（保留歷史）。未登記事件由 Collector 攔進隔離區，日批統計後通知負責人登記；30 天未登記自動丟棄。</p></div>
-            <div className="card"><div className="card-h"><h3>與語意層的關係</h3></div><p className="note">事件字典是 semantic/events.yaml 的來源：上線事件出現在事件分析／漏斗的事件選單與 agent 的工具目錄；ga4_mapping 依「來源=GA360」的事件自動產生映射。這裡登記的事件在發版（契約 PR）後同步進語意層。</p></div>
-            <div className="card"><div className="card-h"><h3>變更與審計</h3></div><p className="note">上線事件的屬性型別、敏感等級、主體、類別變更建立變更單，需資料治理管理員審批且不可自審；所有登記、狀態轉移、審批都寫審計（meta.*）。</p></div>
-          </div>
-        </>
+        <Stack gap="md">
+          <Group gap="xs" wrap="wrap">
+            <TextInput aria-label="搜尋事件" placeholder="搜尋事件名稱／顯示名／業務線（例：開戶、sip_、$Plan）" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: '1 1 320px' }} />
+            <SegmentedControl size="xs" value={status} onChange={(v) => setStatus(v as EventStatus | 'all')} data={[opt('all', `全部 ${ev.total}`), opt('live', `上線 ${ev.counts.live ?? 0}`), opt('draft', `草稿 ${ev.counts.draft ?? 0}`), opt('quarantine', `隔離 ${ev.counts.quarantine ?? 0}`), opt('deprecated', `停用 ${ev.counts.deprecated ?? 0}`)]} />
+            <Text size="sm" c="dimmed">{ev.stats_source ? '日均量 = 近 7 天 ClickHouse 實際' : '日均量：未連接 ClickHouse'}</Text>
+          </Group>
+          <Paper p={0} style={{ overflow: 'hidden' }}>
+            <Table.ScrollContainer minWidth={1040}>
+              <Table>
+                <Table.Thead><Table.Tr><Table.Th>事件</Table.Th><Table.Th>業務線</Table.Th><Table.Th>平台</Table.Th><Table.Th>類別</Table.Th><Table.Th>來源</Table.Th><Table.Th>屬性</Table.Th><Table.Th ta="right">日均量</Table.Th><Table.Th>負責人</Table.Th><Table.Th>狀態</Table.Th><Table.Th /></Table.Tr></Table.Thead>
+                <Table.Tbody>{list.map((e) => (
+                  <Table.Tr key={e.name} bg={e.status === 'quarantine' ? WARN_BG : undefined}>
+                    <Table.Td><Text fw={600} size="sm" ff="monospace">{e.name}</Text><Text size="xs" c="dimmed">{e.cn}{e.aliases.length > 0 && ` · 舊名 ${e.aliases.join('、')}`}{e.note && ` · ${e.note}`}</Text></Table.Td>
+                    <Table.Td>{e.group}</Table.Td>
+                    <Table.Td><Text size="xs" c="dimmed" ff="monospace">{e.platforms.replace(/JavaScript/g, 'JS').replace(/服務端/g, 'Server')}</Text></Table.Td>
+                    <Table.Td><Badge color="gray">{KIND_CN[e.kind]}</Badge></Table.Td>
+                    <Table.Td><Text size="xs">{e.source}</Text></Table.Td>
+                    <Table.Td><Text size="xs" ff="monospace">{e.properties.slice(0, 4).map((p) => p.key).join(', ')}{e.properties.length > 4 && ` +${e.properties.length - 4}`}</Text></Table.Td>
+                    <Table.Td ta="right"><Mono>{dailyText(e.daily)}</Mono></Table.Td>
+                    <Table.Td>{e.owner || '—'}</Table.Td>
+                    <Table.Td><Group gap={4}><StatusBadge tone={STATUS_CN[e.status].pill}>{STATUS_CN[e.status].cn}</StatusBadge>{!e.catalog_synced && <Badge color="orange" title="已登記，發版（契約 PR）後進查詢目錄">待發版</Badge>}{e.pending_change && <StatusBadge tone="amber">變更單</StatusBadge>}</Group></Table.Td>
+                    <Table.Td ta="right"><Button size="compact-sm" variant="subtle" onClick={() => setDrawer({ event: e })}>{canUse ? (e.status === 'quarantine' ? '登記' : '編輯') : '查看'}</Button></Table.Td>
+                  </Table.Tr>))}</Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          </Paper>
+          <SimpleGrid cols={{ base: 1, md: 3 }}>
+            <Paper><SectionTitle title="事件生命週期" /><Text size="sm" c="dimmed">草稿 → 上線（檢查：命名、負責人、屬性型別／敏感等級、無 L4）→ 變更需審批 → 停用（保留歷史）。未登記事件由 Collector 攔進隔離區，日批統計後通知負責人登記；30 天未登記自動丟棄。</Text></Paper>
+            <Paper><SectionTitle title="與語意層的關係" /><Text size="sm" c="dimmed">事件字典是 semantic/events.yaml 的來源：上線事件出現在事件分析／漏斗的事件選單與 agent 的工具目錄；ga4_mapping 依「來源=GA360」的事件自動產生映射。這裡登記的事件在發版（契約 PR）後同步進語意層。</Text></Paper>
+            <Paper><SectionTitle title="變更與審計" /><Text size="sm" c="dimmed">上線事件的屬性型別、敏感等級、主體、類別變更建立變更單，需資料治理管理員審批且不可自審；所有登記、狀態轉移、審批都寫審計（meta.*）。</Text></Paper>
+          </SimpleGrid>
+        </Stack>
       )}
       {tab === 'props' && props && <PropsTab props={props} canUse={canUse} onChange={reload} />}
       {tab === 'virtual' && <VirtualTab items={virt} events={ev?.items ?? []} canUse={canUse} onChange={reload} />}
@@ -99,42 +111,56 @@ function EventDrawer({ event, all, props, forbidden, canUse, onClose, onSaved }:
   };
   const deprecate = async () => { if (!event || !confirm(`停用 ${event.name}？不再接收但保留歷史。`)) return; setBusy(true); try { await api.post(`/v1/meta/events/${encodeURIComponent(event.name)}/status`, { to: 'deprecated', reason }); await onSaved(); } catch (e) { setErr(e instanceof ApiError ? e.message : '失敗'); } finally { setBusy(false); } };
   return (
-    <div className="drawer-bk" onClick={onClose}><div className="drawer" onClick={(e) => e.stopPropagation()}>
-      <div className="card-h"><h3>{isNew ? (event ? `登記隔離區事件：${event.name}` : '登記新事件') : `編輯事件：${event.name}`}</h3>{event && <span className={`pill ${STATUS_CN[event.status].pill}`}>{STATUS_CN[event.status].cn}</span>}<button className="btn-ghost sm right" onClick={onClose}>關閉</button></div>
-      {err && <div className="alert">{err}</div>}
-      <div className="grid c2">
-        <label>事件名稱<input className="mono" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} disabled={!isNew || !!event} placeholder="例：fund_redeem（上線後不可改名，只能停用）" /></label>
-        <label>顯示名稱<input value={f.cn} onChange={(e) => setF({ ...f, cn: e.target.value })} disabled={!canUse} /></label>
-        <label>主體<select value={f.entity} onChange={(e) => setF({ ...f, entity: e.target.value as MetaEvent['entity'] })} disabled={!canUse}>{(Object.keys(ENTITY_CN) as MetaEvent['entity'][]).map((k) => <option key={k} value={k}>{ENTITY_CN[k]}</option>)}</select></label>
-        <label>類別<select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as MetaEvent['kind'] })} disabled={!canUse}>{(Object.keys(KIND_CN) as MetaEvent['kind'][]).map((k) => <option key={k} value={k}>{KIND_CN[k]}</option>)}</select></label>
-        <label>來源<select value={SOURCES.includes(f.source) ? f.source : '__other'} onChange={(e) => setF({ ...f, source: e.target.value === '__other' ? f.source : e.target.value })} disabled={!canUse}>{SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}<option value="__other">{SOURCES.includes(f.source) ? '其他…' : f.source}</option></select></label>
-        <label>業務線<input value={f.group} onChange={(e) => setF({ ...f, group: e.target.value })} disabled={!canUse} /></label>
-        <label>負責人<input value={f.owner} onChange={(e) => setF({ ...f, owner: e.target.value })} placeholder="團隊或人" disabled={!canUse} /></label>
-        <label>路徑節點規則<select value={f.path_node_rule ?? ''} onChange={(e) => setF({ ...f, path_node_rule: e.target.value })} disabled={!canUse}><option value="">事件本身為節點</option>{f.properties.map((p) => <option key={p.key} value={p.key}>按 {p.key} 拆分</option>)}</select></label>
-      </div>
-      <label>說明<input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} disabled={!canUse} /></label>
-      <div className="card-h" style={{ marginTop: 14 }}><h3>事件屬性</h3><span className="sub">屬性須先存在於屬性字典；新屬性在此登記會同步進字典；型別與敏感等級一經上線不可降級</span></div>
-      <div className="tbl-wrap"><table className="tbl"><thead><tr><th>屬性</th><th>型別</th><th>敏感等級</th><th>必填</th><th></th></tr></thead><tbody>
-        {f.properties.map((p, i) => <tr key={p.key}><td className="mono">{p.key}{!props.some((x) => x.key === p.key) && <span className="pill amber">新</span>}</td>
-          <td><select value={p.type} onChange={(e) => setProp(i, { type: e.target.value })} disabled={!canUse}>{['string', 'number', 'bool', 'datetime', 'list'].map((t) => <option key={t}>{t}</option>)}</select></td>
-          <td><select value={p.sensitivity} onChange={(e) => setProp(i, { sensitivity: e.target.value as Level })} disabled={!canUse}>{(['L0', 'L1', 'L2', 'L3', 'L4'] as Level[]).map((s) => <option key={s} value={s}>{s} {SENS_CN[s]}</option>)}</select></td>
-          <td><input type="checkbox" checked={p.required ?? true} onChange={(e) => setProp(i, { required: e.target.checked })} disabled={!canUse} /></td>
-          <td className="num">{canUse && <button className="btn-ghost sm danger" onClick={() => setF({ ...f, properties: f.properties.filter((_, j) => j !== i) })}>✕</button>}</td></tr>)}
-      </tbody></table></div>
-      {canUse && <div className="row"><select value="" onChange={(e) => { const p = props.find((x) => x.key === e.target.value); if (p) setF({ ...f, properties: [...f.properties, { key: p.key, type: p.type, sensitivity: p.sensitivity, required: true }] }); }}><option value="">＋ 從屬性字典加入</option>{props.filter((x) => !f.properties.some((p) => p.key === x.key)).map((x) => <option key={x.key} value={x.key}>{x.cn}（{x.key}）</option>)}</select>
-        <input placeholder="或輸入新屬性名稱後按 Enter" value={newProp} onChange={(e) => setNewProp(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && newProp.trim()) { e.preventDefault(); setF({ ...f, properties: [...f.properties, { key: newProp.trim(), type: 'string', sensitivity: 'L1', required: true }] }); setNewProp(''); } }} /></div>}
-      <div className="card-h" style={{ marginTop: 14 }}><h3>上線檢查</h3></div>
-      {errs.length ? <ul className="priv" style={{ color: 'var(--red)' }}>{errs.map((e) => <li key={e}>{e}</li>)}</ul> : <span className="pill blue">可上線：命名、負責人、屬性型別與敏感等級皆完整</span>}
-      {live && <label style={{ marginTop: 10 }}>變更理由（改屬性／主體／類別會建立變更單，需治理管理員審批）<input value={reason} onChange={(e) => setReason(e.target.value)} /></label>}
-      {detail && detail.history.length > 0 && <><div className="card-h" style={{ marginTop: 14 }}><h3>歷程</h3><span className="sub">{detail.used_by.join('、')}</span></div><ul className="priv">{detail.history.slice(-6).map((h, i) => <li key={i}><span className="mono">{h.at.slice(0, 16).replace('T', ' ')}</span> {h.action} · {h.by}</li>)}</ul></>}
-      {canUse && <div className="row" style={{ marginTop: 16 }}>
-        {live && <button className="btn-ghost danger" disabled={busy} onClick={() => void deprecate()}>停用</button>}
-        <div className="right row" style={{ marginTop: 0 }}>
-          {!live && <button className="btn-ghost" disabled={busy} onClick={() => void submit('draft')}>存為草稿</button>}
-          <button className="btn-primary" disabled={busy || (!live && errs.length > 0)} onClick={() => void submit('live')}>{live ? '送出變更' : '登記並上線'}</button>
-        </div></div>}
-      <p className="note">上線後：事件進語意層（agent 可查）、Collector 放行、Flink 事件化套用；改屬性型別或敏感等級需走審批；停用 = 不再接收但保留歷史。</p>
-    </div></div>
+    <Drawer opened onClose={onClose} position="right" size={720} withCloseButton={false} padding="md">
+      <Stack gap="md">
+        <SectionTitle title={isNew ? (event ? `登記隔離區事件：${event.name}` : '登記新事件') : `編輯事件：${event.name}`} right={<Button size="compact-sm" variant="subtle" onClick={onClose}>關閉</Button>}>{event && <StatusBadge tone={STATUS_CN[event.status].pill}>{STATUS_CN[event.status].cn}</StatusBadge>}</SectionTitle>
+        {err && <Alert color="red" variant="light">{err}</Alert>}
+        <SimpleGrid cols={{ base: 1, sm: 2 }}>
+          <TextInput label="事件名稱" ff="monospace" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} disabled={!isNew || !!event} placeholder="例：fund_redeem（上線後不可改名，只能停用）" />
+          <TextInput label="顯示名稱" value={f.cn} onChange={(e) => setF({ ...f, cn: e.target.value })} disabled={!canUse} />
+          <NativeSelect label="主體" value={f.entity} onChange={(e) => setF({ ...f, entity: e.target.value as MetaEvent['entity'] })} disabled={!canUse} data={(Object.keys(ENTITY_CN) as MetaEvent['entity'][]).map((k) => opt(k, ENTITY_CN[k]))} />
+          <NativeSelect label="類別" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as MetaEvent['kind'] })} disabled={!canUse} data={(Object.keys(KIND_CN) as MetaEvent['kind'][]).map((k) => opt(k, KIND_CN[k]))} />
+          <NativeSelect label="來源" value={SOURCES.includes(f.source) ? f.source : '__other'} onChange={(e) => setF({ ...f, source: e.target.value === '__other' ? f.source : e.target.value })} disabled={!canUse} data={[...SOURCES.map((s) => opt(s, s)), opt('__other', SOURCES.includes(f.source) ? '其他…' : f.source)]} />
+          <TextInput label="業務線" value={f.group} onChange={(e) => setF({ ...f, group: e.target.value })} disabled={!canUse} />
+          <TextInput label="負責人" value={f.owner} onChange={(e) => setF({ ...f, owner: e.target.value })} placeholder="團隊或人" disabled={!canUse} />
+          <NativeSelect label="路徑節點規則" value={f.path_node_rule ?? ''} onChange={(e) => setF({ ...f, path_node_rule: e.target.value })} disabled={!canUse} data={[opt('', '事件本身為節點'), ...f.properties.map((p) => opt(p.key, `按 ${p.key} 拆分`))]} />
+        </SimpleGrid>
+        <TextInput label="說明" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} disabled={!canUse} />
+        <div>
+          <SectionTitle title="事件屬性"><Text size="xs" c="dimmed">屬性須先存在於屬性字典；新屬性在此登記會同步進字典；型別與敏感等級一經上線不可降級</Text></SectionTitle>
+          <Table.ScrollContainer minWidth={520}>
+            <Table>
+              <Table.Thead><Table.Tr><Table.Th>屬性</Table.Th><Table.Th>型別</Table.Th><Table.Th>敏感等級</Table.Th><Table.Th>必填</Table.Th><Table.Th /></Table.Tr></Table.Thead>
+              <Table.Tbody>{f.properties.map((p, i) => <Table.Tr key={p.key}>
+                <Table.Td><Group gap={4}><Mono>{p.key}</Mono>{!props.some((x) => x.key === p.key) && <StatusBadge tone="amber">新</StatusBadge>}</Group></Table.Td>
+                <Table.Td><NativeSelect aria-label={`${p.key} 型別`} value={p.type} onChange={(e) => setProp(i, { type: e.target.value })} disabled={!canUse} data={PROP_TYPES.map((t) => opt(t, t))} /></Table.Td>
+                <Table.Td><NativeSelect aria-label={`${p.key} 敏感等級`} value={p.sensitivity} onChange={(e) => setProp(i, { sensitivity: e.target.value as Level })} disabled={!canUse} data={(['L0', 'L1', 'L2', 'L3', 'L4'] as Level[]).map((s) => opt(s, `${s} ${SENS_CN[s]}`))} /></Table.Td>
+                <Table.Td><Checkbox aria-label={`${p.key} 必填`} checked={p.required ?? true} onChange={(e) => setProp(i, { required: e.currentTarget.checked })} disabled={!canUse} /></Table.Td>
+                <Table.Td ta="right">{canUse && <Button size="compact-sm" variant="subtle" color="red" onClick={() => setF({ ...f, properties: f.properties.filter((_, j) => j !== i) })}>✕</Button>}</Table.Td>
+              </Table.Tr>)}</Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+          {canUse && <Group gap="xs" wrap="wrap" mt="xs">
+            <NativeSelect aria-label="從屬性字典加入" value="" onChange={(e) => { const p = props.find((x) => x.key === e.target.value); if (p) setF({ ...f, properties: [...f.properties, { key: p.key, type: p.type, sensitivity: p.sensitivity, required: true }] }); }} data={[opt('', '＋ 從屬性字典加入'), ...props.filter((x) => !f.properties.some((p) => p.key === x.key)).map((x) => opt(x.key, `${x.cn}（${x.key}）`))]} />
+            <TextInput aria-label="新屬性名稱" placeholder="或輸入新屬性名稱後按 Enter" value={newProp} onChange={(e) => setNewProp(e.target.value)} style={{ flex: '1 1 240px' }} onKeyDown={(e) => { if (e.key === 'Enter' && newProp.trim()) { e.preventDefault(); setF({ ...f, properties: [...f.properties, { key: newProp.trim(), type: 'string', sensitivity: 'L1', required: true }] }); setNewProp(''); } }} />
+          </Group>}
+        </div>
+        <div>
+          <SectionTitle title="上線檢查" />
+          {errs.length ? <List size="sm" c="red">{errs.map((e) => <List.Item key={e}>{e}</List.Item>)}</List> : <StatusBadge tone="blue">可上線：命名、負責人、屬性型別與敏感等級皆完整</StatusBadge>}
+        </div>
+        {live && <TextInput label="變更理由（改屬性／主體／類別會建立變更單，需治理管理員審批）" value={reason} onChange={(e) => setReason(e.target.value)} />}
+        {detail && detail.history.length > 0 && <div><SectionTitle title="歷程"><Text size="xs" c="dimmed">{detail.used_by.join('、')}</Text></SectionTitle><List size="sm">{detail.history.slice(-6).map((h, i) => <List.Item key={i}><Mono>{h.at.slice(0, 16).replace('T', ' ')}</Mono> {h.action} · {h.by}</List.Item>)}</List></div>}
+        {canUse && <Group gap="xs" justify="space-between" wrap="wrap">
+          <div>{live && <Button color="red" disabled={busy} onClick={() => void deprecate()}>停用</Button>}</div>
+          <Group gap="xs">
+            {!live && <Button disabled={busy} onClick={() => void submit('draft')}>存為草稿</Button>}
+            <Button variant="filled" disabled={busy || (!live && errs.length > 0)} onClick={() => void submit('live')}>{live ? '送出變更' : '登記並上線'}</Button>
+          </Group>
+        </Group>}
+        <Text size="sm" c="dimmed">上線後：事件進語意層（agent 可查）、Collector 放行、Flink 事件化套用；改屬性型別或敏感等級需走審批；停用 = 不再接收但保留歷史。</Text>
+      </Stack>
+    </Drawer>
   );
 }
 
@@ -144,20 +170,45 @@ function PropsTab({ props, canUse, onChange }: { props: PropertyList; canUse: bo
   const list = props.items.filter((p) => !q || p.key.includes(q) || p.cn.includes(q) || p.sa.includes(q));
   const submit = async (e: FormEvent) => { e.preventDefault(); setErr(null); try { await api.post('/v1/meta/properties', { ...f, enum: f.enum ? f.enum.split(/[,，\s]+/).filter(Boolean) : [] }); setOpen(false); setF({ ...f, key: '', cn: '', enum: '' }); await onChange(); } catch (ex) { setErr(ex instanceof ApiError ? ex.message : '失敗'); } };
   return (
-    <>
-      <div className="row" style={{ marginTop: 0, marginBottom: 12 }}><input placeholder="搜尋屬性／神策舊名" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: '1 1 280px' }} /><span className="note" style={{ marginTop: 0 }}>L4 屬性一律拒絕入倉（{props.forbidden_l4.length} 個已列黑名單）；L3 以 HMAC／FPE 代碼化；L2 匯出區間化</span>{canUse && <button className="btn-ghost right" onClick={() => setOpen((v) => !v)}>＋ 登記屬性</button>}</div>
-      {open && <form className="card stack" style={{ marginBottom: 12 }} onSubmit={submit}>{err && <div className="alert">{err}</div>}<div className="grid c3">
-        <label>屬性名<input className="mono" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })} required /></label><label>顯示名<input value={f.cn} onChange={(e) => setF({ ...f, cn: e.target.value })} /></label>
-        <label>型別<select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}>{['string', 'number', 'bool', 'datetime', 'list', 'enum'].map((t) => <option key={t}>{t}</option>)}</select></label>
-        <label>範圍<select value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })}><option value="event">事件</option><option value="user">用戶</option><option value="item">Item</option></select></label>
-        <label>敏感等級<select value={f.sensitivity} onChange={(e) => setF({ ...f, sensitivity: e.target.value as Level })}>{(['L0', 'L1', 'L2', 'L3'] as Level[]).map((s) => <option key={s} value={s}>{s} {SENS_CN[s]}</option>)}</select></label>
-        <label>來源<input value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })} /></label><label>枚舉（逗號分隔）<input value={f.enum} onChange={(e) => setF({ ...f, enum: e.target.value })} /></label><label>單位<input value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} /></label></div>
-        <div className="row" style={{ marginTop: 0 }}><button className="btn-primary">登記</button><span className="note" style={{ marginTop: 0 }}>既有屬性：型別只能放寬、敏感等級只能升</span></div></form>}
-      <div className="card flush"><div className="tbl-wrap"><table className="tbl">
-        <thead><tr><th>屬性</th><th>神策舊名</th><th>型別</th><th>敏感等級</th><th>來源</th><th>枚舉／單位</th><th>維度表／字典</th><th className="num">使用事件數</th><th>狀態</th></tr></thead>
-        <tbody>{list.map((p) => <tr key={p.key}><td><b className="mono">{p.key}</b><span className="sub">{p.cn}{p.caveats.length > 0 && ` · ${p.caveats[0]}`}</span></td><td className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{p.sa || '—'}</td><td className="mono">{p.type}</td><td><span className={`pill ${SENS_PILL[p.sensitivity]}`}>{p.sensitivity}</span>{p.row_level && <span className="pill">行級鍵</span>}</td><td style={{ fontSize: 12 }}>{p.source}</td><td className="mono" style={{ fontSize: 11 }}>{p.enum.length ? p.enum.join(' | ') : p.unit || '—'}</td><td>{p.dimension_table && <span className="pill blue">{p.dimension_table}</span>}{p.dictionary && <span className="pill">字典</span>}</td><td className="num mono">{p.used_by}</td><td>{p.in_catalog ? <span className="pill gray">語意層</span> : <span className="pill amber">待發版</span>}</td></tr>)}</tbody>
-      </table></div></div>
-    </>
+    <Stack gap="md">
+      <Group gap="xs" wrap="wrap">
+        <TextInput aria-label="搜尋屬性" placeholder="搜尋屬性／神策舊名" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: '1 1 280px' }} />
+        <Text size="sm" c="dimmed">L4 屬性一律拒絕入倉（{props.forbidden_l4.length} 個已列黑名單）；L3 以 HMAC／FPE 代碼化；L2 匯出區間化</Text>
+        {canUse && <Button ml="auto" onClick={() => setOpen((v) => !v)}>＋ 登記屬性</Button>}
+      </Group>
+      {open && <Paper component="form" onSubmit={submit}><Stack gap="md">
+        {err && <Alert color="red" variant="light">{err}</Alert>}
+        <SimpleGrid cols={{ base: 1, sm: 3 }}>
+          <TextInput label="屬性名" ff="monospace" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })} required />
+          <TextInput label="顯示名" value={f.cn} onChange={(e) => setF({ ...f, cn: e.target.value })} />
+          <NativeSelect label="型別" value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })} data={['string', 'number', 'bool', 'datetime', 'list', 'enum'].map((t) => opt(t, t))} />
+          <NativeSelect label="範圍" value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })} data={[opt('event', '事件'), opt('user', '用戶'), opt('item', 'Item')]} />
+          <NativeSelect label="敏感等級" value={f.sensitivity} onChange={(e) => setF({ ...f, sensitivity: e.target.value as Level })} data={(['L0', 'L1', 'L2', 'L3'] as Level[]).map((s) => opt(s, `${s} ${SENS_CN[s]}`))} />
+          <TextInput label="來源" value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })} />
+          <TextInput label="枚舉（逗號分隔）" value={f.enum} onChange={(e) => setF({ ...f, enum: e.target.value })} />
+          <TextInput label="單位" value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} />
+        </SimpleGrid>
+        <Group gap="xs"><Button type="submit" variant="filled">登記</Button><Text size="sm" c="dimmed">既有屬性：型別只能放寬、敏感等級只能升</Text></Group>
+      </Stack></Paper>}
+      <Paper p={0} style={{ overflow: 'hidden' }}>
+        <Table.ScrollContainer minWidth={960}>
+          <Table>
+            <Table.Thead><Table.Tr><Table.Th>屬性</Table.Th><Table.Th>神策舊名</Table.Th><Table.Th>型別</Table.Th><Table.Th>敏感等級</Table.Th><Table.Th>來源</Table.Th><Table.Th>枚舉／單位</Table.Th><Table.Th>維度表／字典</Table.Th><Table.Th ta="right">使用事件數</Table.Th><Table.Th>狀態</Table.Th></Table.Tr></Table.Thead>
+            <Table.Tbody>{list.map((p) => <Table.Tr key={p.key}>
+              <Table.Td><Text fw={600} size="sm" ff="monospace">{p.key}</Text><Text size="xs" c="dimmed">{p.cn}{p.caveats.length > 0 && ` · ${p.caveats[0]}`}</Text></Table.Td>
+              <Table.Td><Text size="xs" c="dimmed" ff="monospace">{p.sa || '—'}</Text></Table.Td>
+              <Table.Td><Mono>{p.type}</Mono></Table.Td>
+              <Table.Td><Group gap={4}><StatusBadge tone={SENS_PILL[p.sensitivity]}>{p.sensitivity}</StatusBadge>{p.row_level && <Badge color="gray">行級鍵</Badge>}</Group></Table.Td>
+              <Table.Td><Text size="xs">{p.source}</Text></Table.Td>
+              <Table.Td><Text size="xs" ff="monospace">{p.enum.length ? p.enum.join(' | ') : p.unit || '—'}</Text></Table.Td>
+              <Table.Td><Group gap={4}>{p.dimension_table && <StatusBadge tone="blue">{p.dimension_table}</StatusBadge>}{p.dictionary && <Badge color="gray">字典</Badge>}</Group></Table.Td>
+              <Table.Td ta="right"><Mono>{p.used_by}</Mono></Table.Td>
+              <Table.Td>{p.in_catalog ? <StatusBadge tone="gray">語意層</StatusBadge> : <StatusBadge tone="amber">待發版</StatusBadge>}</Table.Td>
+            </Table.Tr>)}</Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
+      </Paper>
+    </Stack>
   );
 }
 
@@ -172,29 +223,74 @@ function VirtualTab({ items, events, canUse, onChange }: { items: VirtualEvent[]
     } catch (ex) { setErr(ex instanceof ApiError ? ex.message : '失敗'); }
   };
   return (
-    <>
-      {canUse && <div className="row" style={{ marginTop: 0, marginBottom: 12 }}><button className="btn-ghost" onClick={() => setOpen((v) => !v)}>＋ 建立虛擬事件</button></div>}
-      {open && <form className="card stack" style={{ marginBottom: 12 }} onSubmit={submit}>{err && <div className="alert">{err}</div>}
-        <div className="grid c3"><label>名稱（v. 開頭）<input className="mono" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></label><label>顯示名<input value={f.cn} onChange={(e) => setF({ ...f, cn: e.target.value })} /></label><label>負責人<input value={f.owner} onChange={(e) => setF({ ...f, owner: e.target.value })} /></label></div>
-        {f.members.map((m, i) => <div className="row" key={i} style={{ marginTop: 0 }}><span className="pill blue">{i ? 'OR' : '事件'}</span><select className="grow" value={m.event} onChange={(e) => setF({ ...f, members: f.members.map((x, j) => (j === i ? { ...x, event: e.target.value } : x)) })}><option value="">選事件…</option>{events.filter((e) => e.status === 'live').map((e) => <option key={e.name} value={e.name}>{e.cn}（{e.name}）</option>)}</select><input placeholder="屬性條件（選填）例：platform in ios,android 或 page_group = account_open" value={m.filters} onChange={(e) => setF({ ...f, members: f.members.map((x, j) => (j === i ? { ...x, filters: e.target.value } : x)) })} style={{ flex: '1 1 300px' }} />{f.members.length > 1 && <button type="button" className="btn-ghost sm danger" onClick={() => setF({ ...f, members: f.members.filter((_, j) => j !== i) })}>✕</button>}</div>)}
-        <div className="row" style={{ marginTop: 0 }}><button type="button" className="btn-ghost sm" onClick={() => setF({ ...f, members: [...f.members, { event: '', filters: '' }] })}>＋ OR 事件</button><button className="btn-primary">建立</button></div></form>}
-      <div className="card flush"><div className="tbl-wrap"><table className="tbl"><thead><tr><th>虛擬事件</th><th>定義</th><th>負責人</th><th>說明</th><th>來源</th><th></th></tr></thead>
-        <tbody>{items.map((v) => <tr key={v.name}><td><b className="mono">{v.name}</b><span className="sub">{v.cn}</span></td><td className="mono" style={{ fontSize: 11.5 }}>{v.definition}</td><td>{v.owner}</td><td style={{ fontSize: 12 }}>{v.note}</td><td>{v.origin === 'catalog' ? <span className="pill gray">語意層</span> : <span className="pill amber">待發版</span>}</td><td className="num">{canUse && v.origin === 'registered' && <button className="btn-ghost sm danger" onClick={() => { if (confirm(`刪除 ${v.name}？`)) api.del(`/v1/meta/virtual-events/${encodeURIComponent(v.name)}`).then(onChange).catch(() => undefined); }}>刪除</button>}</td></tr>)}</tbody></table></div></div>
-      <p className="note">虛擬事件 = 多個真實事件（可帶屬性條件）的 OR 組合，在語意層展開，不另存資料；可用於事件分析、漏斗、留存與標籤定義。</p>
-    </>
+    <Stack gap="md">
+      {canUse && <Group gap="xs"><Button onClick={() => setOpen((v) => !v)}>＋ 建立虛擬事件</Button></Group>}
+      {open && <Paper component="form" onSubmit={submit}><Stack gap="md">
+        {err && <Alert color="red" variant="light">{err}</Alert>}
+        <SimpleGrid cols={{ base: 1, sm: 3 }}>
+          <TextInput label="名稱（v. 開頭）" ff="monospace" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required />
+          <TextInput label="顯示名" value={f.cn} onChange={(e) => setF({ ...f, cn: e.target.value })} />
+          <TextInput label="負責人" value={f.owner} onChange={(e) => setF({ ...f, owner: e.target.value })} />
+        </SimpleGrid>
+        {f.members.map((m, i) => <Group gap="xs" key={i} wrap="wrap">
+          <StatusBadge tone="blue">{i ? 'OR' : '事件'}</StatusBadge>
+          <NativeSelect aria-label={`成員事件 ${i + 1}`} value={m.event} onChange={(e) => setF({ ...f, members: f.members.map((x, j) => (j === i ? { ...x, event: e.target.value } : x)) })} data={[opt('', '選事件…'), ...events.filter((e) => e.status === 'live').map((e) => opt(e.name, `${e.cn}（${e.name}）`))]} style={{ flex: '1 1 180px' }} />
+          <TextInput aria-label={`成員事件 ${i + 1} 屬性條件`} placeholder="屬性條件（選填）例：platform in ios,android 或 page_group = account_open" value={m.filters} onChange={(e) => setF({ ...f, members: f.members.map((x, j) => (j === i ? { ...x, filters: e.target.value } : x)) })} style={{ flex: '1 1 300px' }} />
+          {f.members.length > 1 && <Button type="button" size="compact-sm" variant="subtle" color="red" onClick={() => setF({ ...f, members: f.members.filter((_, j) => j !== i) })}>✕</Button>}
+        </Group>)}
+        <Group gap="xs"><Button type="button" size="compact-sm" variant="subtle" onClick={() => setF({ ...f, members: [...f.members, { event: '', filters: '' }] })}>＋ OR 事件</Button><Button type="submit" variant="filled">建立</Button></Group>
+      </Stack></Paper>}
+      <Paper p={0} style={{ overflow: 'hidden' }}>
+        <Table.ScrollContainer minWidth={760}>
+          <Table>
+            <Table.Thead><Table.Tr><Table.Th>虛擬事件</Table.Th><Table.Th>定義</Table.Th><Table.Th>負責人</Table.Th><Table.Th>說明</Table.Th><Table.Th>來源</Table.Th><Table.Th /></Table.Tr></Table.Thead>
+            <Table.Tbody>{items.map((v) => <Table.Tr key={v.name}>
+              <Table.Td><Text fw={600} size="sm" ff="monospace">{v.name}</Text><Text size="xs" c="dimmed">{v.cn}</Text></Table.Td>
+              <Table.Td><Text size="xs" ff="monospace">{v.definition}</Text></Table.Td>
+              <Table.Td>{v.owner}</Table.Td>
+              <Table.Td><Text size="xs">{v.note}</Text></Table.Td>
+              <Table.Td>{v.origin === 'catalog' ? <StatusBadge tone="gray">語意層</StatusBadge> : <StatusBadge tone="amber">待發版</StatusBadge>}</Table.Td>
+              <Table.Td ta="right">{canUse && v.origin === 'registered' && <Button size="compact-sm" variant="subtle" color="red" onClick={() => { if (confirm(`刪除 ${v.name}？`)) api.del(`/v1/meta/virtual-events/${encodeURIComponent(v.name)}`).then(onChange).catch(() => undefined); }}>刪除</Button>}</Table.Td>
+            </Table.Tr>)}</Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
+      </Paper>
+      <Text size="sm" c="dimmed">虛擬事件 = 多個真實事件（可帶屬性條件）的 OR 組合，在語意層展開，不另存資料；可用於事件分析、漏斗、留存與標籤定義。</Text>
+    </Stack>
   );
 }
 
 function QuarantineTab({ qz, canUse, onRegister }: { qz: Quarantine; canUse: boolean; onRegister: (name: string) => void }) {
   return (
-    <>
-      <div className="card flush"><div className="card-h" style={{ padding: '12px 12px 0' }}><h3>未登記事件</h3><span className="sub">{qz.stats_source ? '近 30 天 ClickHouse 實際' : '未連接 ClickHouse：只列語意層標示為隔離的事件'}</span></div><div className="tbl-wrap"><table className="tbl">
-        <thead><tr><th>事件</th><th className="num">筆數</th><th className="num">用戶</th><th>首見</th><th>最近</th><th>狀態</th><th></th></tr></thead>
-        <tbody>{qz.unregistered_events.length === 0 ? <tr><td colSpan={7} className="note">沒有未登記事件。</td></tr> : qz.unregistered_events.map((e) => <tr key={e.event} className="warnrow"><td><b className="mono">{e.event}</b>{e.note && <span className="sub">{e.note}</span>}</td><td className="num mono">{e.n ?? '—'}</td><td className="num mono">{e.users ?? '—'}</td><td className="mono">{e.first_seen?.slice(0, 16) ?? '—'}</td><td className="mono">{e.last_seen?.slice(0, 16) ?? '—'}</td><td><span className="pill red">隔離 · {e.retention_days} 天後丟棄</span></td><td className="num">{canUse && <button className="btn-ghost sm" onClick={() => onRegister(e.event)}>登記放行</button>}</td></tr>)}</tbody></table></div></div>
-      <div className="card flush" style={{ marginTop: 16 }}><div className="card-h" style={{ padding: '12px 12px 0' }}><h3>同步任務隔離列（近 30 天）</h3></div><div className="tbl-wrap"><table className="tbl"><thead><tr><th>任務</th><th>原因</th><th className="num">筆數</th><th>最近</th></tr></thead>
-        <tbody>{qz.rows.length === 0 ? <tr><td colSpan={4} className="note">沒有隔離列。</td></tr> : qz.rows.map((r, i) => <tr key={i}><td className="mono">{r.task_id}</td><td>{r.reason}</td><td className="num mono">{r.n}</td><td className="mono">{String(r.last_at).slice(0, 16)}</td></tr>)}</tbody></table></div></div>
-      <p className="note">{qz.policy.note}</p>
-    </>
+    <Stack gap="md">
+      <Paper p={0} style={{ overflow: 'hidden' }}>
+        <Group p="sm" pb={0} gap="xs" wrap="wrap"><Title order={3}>未登記事件</Title><Text size="xs" c="dimmed">{qz.stats_source ? '近 30 天 ClickHouse 實際' : '未連接 ClickHouse：只列語意層標示為隔離的事件'}</Text></Group>
+        <Table.ScrollContainer minWidth={760}>
+          <Table>
+            <Table.Thead><Table.Tr><Table.Th>事件</Table.Th><Table.Th ta="right">筆數</Table.Th><Table.Th ta="right">用戶</Table.Th><Table.Th>首見</Table.Th><Table.Th>最近</Table.Th><Table.Th>狀態</Table.Th><Table.Th /></Table.Tr></Table.Thead>
+            <Table.Tbody>{qz.unregistered_events.length === 0 ? <Table.Tr><Table.Td colSpan={7}><Text size="sm" c="dimmed">沒有未登記事件。</Text></Table.Td></Table.Tr> : qz.unregistered_events.map((e) => <Table.Tr key={e.event} bg={WARN_BG}>
+              <Table.Td><Text fw={600} size="sm" ff="monospace">{e.event}</Text>{e.note && <Text size="xs" c="dimmed">{e.note}</Text>}</Table.Td>
+              <Table.Td ta="right"><Mono>{e.n ?? '—'}</Mono></Table.Td>
+              <Table.Td ta="right"><Mono>{e.users ?? '—'}</Mono></Table.Td>
+              <Table.Td><Mono>{e.first_seen?.slice(0, 16) ?? '—'}</Mono></Table.Td>
+              <Table.Td><Mono>{e.last_seen?.slice(0, 16) ?? '—'}</Mono></Table.Td>
+              <Table.Td><StatusBadge tone="red">隔離 · {e.retention_days} 天後丟棄</StatusBadge></Table.Td>
+              <Table.Td ta="right">{canUse && <Button size="compact-sm" variant="subtle" onClick={() => onRegister(e.event)}>登記放行</Button>}</Table.Td>
+            </Table.Tr>)}</Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
+      </Paper>
+      <Paper p={0} style={{ overflow: 'hidden' }}>
+        <Group p="sm" pb={0}><Title order={3}>同步任務隔離列（近 30 天）</Title></Group>
+        <Table.ScrollContainer minWidth={520}>
+          <Table>
+            <Table.Thead><Table.Tr><Table.Th>任務</Table.Th><Table.Th>原因</Table.Th><Table.Th ta="right">筆數</Table.Th><Table.Th>最近</Table.Th></Table.Tr></Table.Thead>
+            <Table.Tbody>{qz.rows.length === 0 ? <Table.Tr><Table.Td colSpan={4}><Text size="sm" c="dimmed">沒有隔離列。</Text></Table.Td></Table.Tr> : qz.rows.map((r, i) => <Table.Tr key={i}><Table.Td><Mono>{r.task_id}</Mono></Table.Td><Table.Td>{r.reason}</Table.Td><Table.Td ta="right"><Mono>{r.n}</Mono></Table.Td><Table.Td><Mono>{String(r.last_at).slice(0, 16)}</Mono></Table.Td></Table.Tr>)}</Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
+      </Paper>
+      <Text size="sm" c="dimmed">{qz.policy.note}</Text>
+    </Stack>
   );
 }
 
@@ -202,12 +298,24 @@ function ChangesTab({ items, canAdmin, onChange }: { items: ChangeRequest[]; can
   const [err, setErr] = useState<string | null>(null);
   const decide = async (id: string, approve: boolean) => { const note = approve ? '' : prompt('駁回理由') ?? ''; try { await api.post(`/v1/meta/change-requests/${id}/decide`, { approve, note }); await onChange(); } catch (e) { setErr(e instanceof ApiError ? e.message : '失敗'); } };
   return (
-    <>
-      {err && <div className="alert">{err}</div>}
-      <div className="card flush"><div className="tbl-wrap"><table className="tbl"><thead><tr><th>變更單</th><th>事件</th><th>變更</th><th>提出</th><th>狀態</th><th></th></tr></thead>
-        <tbody>{items.length === 0 ? <tr><td colSpan={6} className="note">沒有變更單。上線事件的屬性、主體、類別變更會在這裡等待審批。</td></tr> : items.map((c) => <tr key={c.id} className={c.status === 'pending' ? 'warnrow' : ''}><td className="mono">{c.id}</td><td className="mono">{c.event}</td><td className="mono" style={{ fontSize: 11 }}>{Object.keys(c.changes).join('、')}{c.note && <span className="sub">{c.note}</span>}</td><td>{c.requested_by}<span className="sub mono">{c.at.slice(0, 16).replace('T', ' ')}</span></td><td><span className={`pill ${c.status === 'pending' ? 'amber' : c.status === 'approved' ? 'blue' : 'gray'}`}>{c.status === 'pending' ? '待審' : c.status === 'approved' ? '已核准' : '已駁回'}</span>{c.decided_by && <span className="sub">{c.decided_by}</span>}</td>
-          <td className="num">{canAdmin && c.status === 'pending' && <><button className="btn-ghost sm" onClick={() => void decide(c.id, true)}>核准</button> <button className="btn-ghost sm danger" onClick={() => void decide(c.id, false)}>駁回</button></>}</td></tr>)}</tbody></table></div></div>
-      <p className="note">審批需 governance.admin（資訊管理／系統管理員），不可核准自己提出的變更單；核准後定義升版，審計 meta.change_request.decided。</p>
-    </>
+    <Stack gap="md">
+      {err && <Alert color="red" variant="light">{err}</Alert>}
+      <Paper p={0} style={{ overflow: 'hidden' }}>
+        <Table.ScrollContainer minWidth={760}>
+          <Table>
+            <Table.Thead><Table.Tr><Table.Th>變更單</Table.Th><Table.Th>事件</Table.Th><Table.Th>變更</Table.Th><Table.Th>提出</Table.Th><Table.Th>狀態</Table.Th><Table.Th /></Table.Tr></Table.Thead>
+            <Table.Tbody>{items.length === 0 ? <Table.Tr><Table.Td colSpan={6}><Text size="sm" c="dimmed">沒有變更單。上線事件的屬性、主體、類別變更會在這裡等待審批。</Text></Table.Td></Table.Tr> : items.map((c) => <Table.Tr key={c.id} bg={c.status === 'pending' ? WARN_BG : undefined}>
+              <Table.Td><Mono>{c.id}</Mono></Table.Td>
+              <Table.Td><Mono>{c.event}</Mono></Table.Td>
+              <Table.Td><Text size="xs" ff="monospace">{Object.keys(c.changes).join('、')}</Text>{c.note && <Text size="xs" c="dimmed">{c.note}</Text>}</Table.Td>
+              <Table.Td>{c.requested_by}<Text size="xs" c="dimmed" ff="monospace">{c.at.slice(0, 16).replace('T', ' ')}</Text></Table.Td>
+              <Table.Td><StatusBadge tone={c.status === 'pending' ? 'amber' : c.status === 'approved' ? 'blue' : 'gray'}>{c.status === 'pending' ? '待審' : c.status === 'approved' ? '已核准' : '已駁回'}</StatusBadge>{c.decided_by && <Text size="xs" c="dimmed">{c.decided_by}</Text>}</Table.Td>
+              <Table.Td ta="right">{canAdmin && c.status === 'pending' && <Group gap={4} justify="flex-end" wrap="nowrap"><Button size="compact-sm" variant="subtle" onClick={() => void decide(c.id, true)}>核准</Button><Button size="compact-sm" variant="subtle" color="red" onClick={() => void decide(c.id, false)}>駁回</Button></Group>}</Table.Td>
+            </Table.Tr>)}</Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
+      </Paper>
+      <Text size="sm" c="dimmed">審批需 governance.admin（資訊管理／系統管理員），不可核准自己提出的變更單；核准後定義升版，審計 meta.change_request.decided。</Text>
+    </Stack>
   );
 }

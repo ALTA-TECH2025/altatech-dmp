@@ -1,5 +1,6 @@
-// 一張卡片：POST /v1/dashboards/{id}/cards/{card}/data（以檢視者身分重算）→ 依 kind／chart 畫圖；錯誤與抑制照分析頁規則。
+// 一張卡片：POST /v1/dashboards/{id}/cards/{card}/data（以檢視者身分重算）→ 依 kind／chart 畫圖；錯誤與抑制照分析頁規則。設計系統元件組合。
 import { useEffect, useState, type HTMLAttributes } from 'react';
+import { Alert, Box, Button, Code, Group, Paper, SimpleGrid, Table, Text } from '@mantine/core';
 import { api, ApiError } from '@/api/client';
 import { shareSeries } from '@/analytics/AttributionPage';
 import { FunnelChart } from '@/analytics/FunnelChart';
@@ -8,6 +9,7 @@ import { PathChart } from '@/analytics/PathChart';
 import { RetentionMatrix } from '@/analytics/RetentionPage';
 import { fmtNum, groupLabel, toSeries } from '@/analytics/series';
 import type { AttributionResult, EventsResult, FunnelRow, RetentionRow } from '@/analytics/types';
+import { Mono, SectionTitle, StatTile, StatusBadge } from '@/ds';
 import { firstGroup, metricLabels, tableColumns, timeText } from './dashboards';
 import type { CardData, Dashboard, DashboardCard } from './types';
 
@@ -15,6 +17,11 @@ import type { CardData, Dashboard, DashboardCard } from './types';
 function fmtStat(v: unknown): string {
   if (typeof v === 'number') return fmtNum(v);
   return String(v ?? '—').replace(/\d{5,}/g, (m) => Number(m).toLocaleString());
+}
+
+/** 看板數字卡：外層保留 .tile 供端到端測試定位，框線與底色交給 StatTile。 */
+function Tile({ label, value }: { label: string; value: string }) {
+  return <Box className="tile" style={{ padding: 0, border: 0, background: 'transparent', display: 'block' }}><StatTile label={label} value={value} /></Box>;
 }
 
 export function CardView({ dash, card, k, labelOf, reloadKey, onRemove, onRename, onWidth, rootProps }: { dash: Dashboard; card: DashboardCard; k: number; labelOf: (n: string) => string; reloadKey: number; onRemove?: () => void; onRename?: () => void; onWidth?: () => void; rootProps?: HTMLAttributes<HTMLDivElement> }) {
@@ -27,24 +34,25 @@ export function CardView({ dash, card, k, labelOf, reloadKey, onRemove, onRename
     api.post<CardData>(`/v1/dashboards/${dash.id}/cards/${card.id}/data`).then((d) => { if (alive) setData(d); }).catch((e: Error) => { if (alive) setErr(e instanceof ApiError ? e.message : '查詢失敗'); }).finally(() => { if (alive) setBusy(false); });
     return () => { alive = false; };
   }, [dash.id, card.id, dash.time.preset, reloadKey]);
+  const warnings = data ? data.warnings.filter((w) => !w.startsWith('plan ')) : [];
   return (
-    <div className={`card dash-card w${card.width}`} {...rootProps}>
-      <div className="card-h">
-        <h3>{card.title}{card.bookmark && <span className={`pill ${card.bookmark_deleted ? 'gray' : 'custom'}`} style={{ marginLeft: 6 }} title={card.bookmark_deleted ? '書籤已刪除，顯示刪除前的查詢' : `書籤 ${card.bookmark}`}>{card.bookmark_deleted ? '書籤已刪除' : '書籤'}</span>}</h3>
-        <span className="sub">{data ? `${timeText(data.time, dash.time.preset)} · ${data.cost.ms} ms` : busy ? '載入中…' : ''}</span>
-        <div className="right row" style={{ marginTop: 0, gap: 4 }}>
-          {data && <button className="btn-ghost sm" onClick={() => setShowSql((v) => !v)} title="SQL 與血緣">SQL</button>}
-          {onRename && <button className="btn-ghost sm" onClick={onRename}>改名</button>}
-          {onWidth && <button className="btn-ghost sm w-toggle" onClick={onWidth} title="切換寬度">{card.width === 2 ? '½ 寬' : '全寬'}</button>}
-          {onRemove && <button className="btn-ghost sm danger" onClick={onRemove}>移除</button>}
-        </div>
-      </div>
-      {err && <div className="alert">{err}</div>}
-      {data && data.warnings.filter((w) => !w.startsWith('plan ')).length > 0 && <div className="note">{data.warnings.filter((w) => !w.startsWith('plan ')).join('；')}</div>}
+    <Paper className={`dash-card w${card.width}`} {...rootProps}>
+      <SectionTitle title={card.title} right={
+        <Group gap={4}>
+          {data && <Button size="compact-sm" variant="subtle" onClick={() => setShowSql((v) => !v)} title="SQL 與血緣">SQL</Button>}
+          {onRename && <Button size="compact-sm" variant="subtle" onClick={onRename}>改名</Button>}
+          {onWidth && <Button size="compact-sm" variant="subtle" className="w-toggle" onClick={onWidth} title="切換寬度">{card.width === 2 ? '½ 寬' : '全寬'}</Button>}
+          {onRemove && <Button size="compact-sm" variant="subtle" color="red" onClick={onRemove}>移除</Button>}
+        </Group>}>
+        {card.bookmark && <StatusBadge tone={card.bookmark_deleted ? 'gray' : 'custom'}><span title={card.bookmark_deleted ? '書籤已刪除，顯示刪除前的查詢' : `書籤 ${card.bookmark}`}>{card.bookmark_deleted ? '書籤已刪除' : '書籤'}</span></StatusBadge>}
+        <Text size="xs" c="dimmed">{data ? `${timeText(data.time, dash.time.preset)} · ${data.cost.ms} ms` : busy ? '載入中…' : ''}</Text>
+      </SectionTitle>
+      {err && <Alert color="red" variant="light" mb="sm">{err}</Alert>}
+      {warnings.length > 0 && <Text size="sm" c="dimmed" mb="sm">{warnings.join('；')}</Text>}
       {data && <CardBody card={card} data={data} k={k} labelOf={labelOf} />}
-      {card.note && <p className="note">{card.note}</p>}
-      {showSql && data && <pre className="code" style={{ marginTop: 10 }}>{data.lineage.join(' · ')}{'\n'}{data.sql}</pre>}
-    </div>
+      {card.note && <Text size="sm" c="dimmed" mt="sm">{card.note}</Text>}
+      {showSql && data && <Code block mt="sm">{data.lineage.join(' · ')}{'\n'}{data.sql}</Code>}
+    </Paper>
   );
 }
 
@@ -58,7 +66,7 @@ function CardBody({ card, data, k, labelOf }: { card: DashboardCard; data: CardD
     if (chart === 'table') return <DataTable data={data} labels={labels} />;
     if (chart === 'stat') {
       const r = data.rows[0] as Record<string, unknown> | undefined;
-      return <div className="tiles">{aliases.map((a) => <div className="tile" key={a}><span className="sub">{labels[a]}</span><b>{r?.suppressed ? `< ${k}` : fmtStat(r?.[a])}</b></div>)}</div>;
+      return <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="sm">{aliases.map((a) => <Tile key={a} label={labels[a]} value={r?.suppressed ? `< ${k}` : fmtStat(r?.[a])} />)}</SimpleGrid>;
     }
     return <LineChart series={toSeries(res, aliases, labels)} kind={chart === 'bar' || spec === 'bar' ? 'bar' : 'line'} height={220} />;
   }
@@ -72,7 +80,7 @@ function CardBody({ card, data, k, labelOf }: { card: DashboardCard; data: CardD
   }
   if (card.kind === 'funnel') {
     const g = firstGroup(data.rows as unknown as FunnelRow[]);
-    return <>{g.groups > 1 && <p className="note">共 {g.groups} 組，只顯示 {g.key}；完整請到漏斗分析。</p>}<FunnelChart rows={g.rows} k={k} /></>;
+    return <>{g.groups > 1 && <Text size="sm" c="dimmed" mb="xs">共 {g.groups} 組，只顯示 {g.key}；完整請到漏斗分析。</Text>}<FunnelChart rows={g.rows} k={k} /></>;
   }
   if (card.kind === 'retention') {
     const rows = data.rows as unknown as RetentionRow[];
@@ -81,17 +89,17 @@ function CardBody({ card, data, k, labelOf }: { card: DashboardCard; data: CardD
   }
   if (card.kind === 'path') {
     return <>
-      <span className="sub">起點用戶 {fmtNum(data.anchor_users ?? 0)}{data.sampled ? `（抽樣 ${data.sampled}）` : ''}</span>
+      <Text size="xs" c="dimmed">起點用戶 {fmtNum(data.anchor_users ?? 0)}{data.sampled ? `（抽樣 ${data.sampled}）` : ''}</Text>
       <PathChart nodes={data.nodes ?? []} links={data.links ?? []} labelOf={labelOf} />
     </>;
   }
   const res = data as unknown as AttributionResult;
   return <>
-    {data.summary && <div className="tiles" style={{ marginBottom: 10 }}>
-      <div className="tile"><span className="sub">轉化次數</span><b>{fmtNum(data.summary.conversions)}</b></div>
-      <div className="tile"><span className="sub">有觸點的轉化</span><b>{fmtNum(data.summary.touched)}</b></div>
-      <div className="tile"><span className="sub">轉化價值</span><b>{fmtNum(data.summary.value)}</b></div>
-    </div>}
+    {data.summary && <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="sm" mb="sm">
+      <Tile label="轉化次數" value={fmtNum(data.summary.conversions)} />
+      <Tile label="有觸點的轉化" value={fmtNum(data.summary.touched)} />
+      <Tile label="轉化價值" value={fmtNum(data.summary.value)} />
+    </SimpleGrid>}
     <LineChart series={shareSeries(res)} kind="bar" height={220} />
   </>;
 }
@@ -99,9 +107,11 @@ function CardBody({ card, data, k, labelOf }: { card: DashboardCard; data: CardD
 function DataTable({ data, labels }: { data: CardData; labels: Record<string, string> }) {
   const cols = tableColumns(data.columns, data.rows);
   return (
-    <div className="tbl-wrap"><table className="tbl">
-      <thead><tr>{cols.map((c) => <th key={c}>{c === 'bucket' ? '時間' : labels[c] ?? c}</th>)}</tr></thead>
-      <tbody>{data.rows.slice(0, 50).map((r, i) => <tr key={i} className={r.suppressed ? 'warnrow' : ''}>{cols.map((c) => <td key={c} className={typeof r[c] === 'number' ? 'num mono' : 'mono'}>{c.startsWith('g') && c.length === 2 ? groupLabel({ [c]: r[c] as string }) : typeof r[c] === 'number' ? fmtNum(r[c] as number) : String(r[c] ?? '—')}</td>)}</tr>)}</tbody>
-    </table></div>
+    <Table.ScrollContainer minWidth={320}>
+      <Table>
+        <Table.Thead><Table.Tr>{cols.map((c) => <Table.Th key={c} ta={data.rows.some((r) => typeof r[c] === 'number') ? 'right' : undefined}>{c === 'bucket' ? '時間' : labels[c] ?? c}</Table.Th>)}</Table.Tr></Table.Thead>
+        <Table.Tbody>{data.rows.slice(0, 50).map((r, i) => <Table.Tr key={i} bg={r.suppressed ? 'var(--mantine-color-orange-light)' : undefined}>{cols.map((c) => <Table.Td key={c} ta={typeof r[c] === 'number' ? 'right' : undefined}><Mono>{c.startsWith('g') && c.length === 2 ? groupLabel({ [c]: r[c] as string }) : typeof r[c] === 'number' ? fmtNum(r[c] as number) : String(r[c] ?? '—')}</Mono></Table.Td>)}</Table.Tr>)}</Table.Tbody>
+      </Table>
+    </Table.ScrollContainer>
   );
 }

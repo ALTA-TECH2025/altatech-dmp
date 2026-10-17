@@ -2,6 +2,7 @@
 // 第二列子導覽 = 目前群組的項目（未實作標二期／待開發）+ 數據範圍；手機版收進抽屜。群組與項目依 /v1/iam/me 的 grants 過濾（後端另有 authorize）。
 import { useState, type FormEvent } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Badge, Button, Group, NativeSelect, Text, TextInput } from '@mantine/core';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { NAV, type NavItem } from './nav';
@@ -29,18 +30,18 @@ export function AppShell() {
             {groups.map((g) => <button key={g.id} className={g.id === active?.id ? 'on' : ''} onClick={() => nav(g.items[0].path)}>{g.cn}{g.id === 'ai' && <span className="badge">二期</span>}</button>)}
           </nav>
           <div className="tn-right">
-            {isDemo && <span className="row" style={{ marginTop: 0, gap: 6 }}><span className="pill amber" title="固定資料來自單機後端 + 合成黃金資料集；寫入動作只模擬成功">示範模式 · 固定資料</span><select aria-label="示範角色" value={demoRole()} onChange={(e) => { setDemoRole(e.target.value); location.reload(); }}>{DEMO_ROLES.map(([k, cn]) => <option key={k} value={k}>{cn}</option>)}</select></span>}
+            {isDemo && <Group gap={6} wrap="nowrap"><Badge color="orange" title="固定資料來自單機後端 + 合成黃金資料集；寫入動作只模擬成功">示範模式 · 固定資料</Badge><NativeSelect size="xs" aria-label="示範角色" value={demoRole()} data={DEMO_ROLES.map(([k, cn]) => ({ value: k, label: cn }))} onChange={(e) => { setDemoRole(e.target.value); location.reload(); }} /></Group>}
             {me.session.step_up_needed && (me.user.provider === 'local' ? <StepUp /> : <a className="pill amber" href={`/auth/login?provider=${me.session.idp_mode === 'broker' ? 'keycloak' : 'entra'}&return_to=${encodeURIComponent(location.pathname)}`}>管理動作需重新驗證</a>)}
             <span className="org-pick" title="專案 / 環境">證券示範專案<span className="sep">/</span>{isDemo ? 'demo' : 'prod'}</span>
             <div className="me" title={me.user.id}><span className="av">{initial}</span><span><span className="nm">{me.user.name || me.user.username}</span><span className="rl">{me.roles.map((r) => r.cn + (r.active ? '' : '（待驗證）')).join('、') || '無角色'}</span></span></div>
-            <button className="btn-ghost sm" onClick={() => void logout()}>登出</button>
+            <Button size="compact-sm" onClick={() => void logout()}>登出</Button>
           </div>
         </div>
       </header>
       {active && (
         <div className="subnav"><div className="tn-in">
           {active.items.map((it) => <NavLink key={it.path} to={it.path} className={`sn-item${isActive(it) ? ' on' : ''}`} title={it.stage === 'phase2' ? '第二階段' : it.stage === 'todo' ? '待開發' : undefined}>{it.cn}{stageTag(it)}</NavLink>)}
-          <div className="right"><span className={`pill ${me.scope.kind === 'global' ? 'blue' : 'amber'}`}>{scopeCn}{me.scope.lookback_days ? ` · 回溯 ${me.scope.lookback_days} 天` : ''}</span></div>
+          <div className="right"><Badge color={me.scope.kind === 'global' ? 'brand' : 'orange'}>{scopeCn}{me.scope.lookback_days ? ` · 回溯 ${me.scope.lookback_days} 天` : ''}</Badge></div>
         </div></div>
       )}
       {open && (
@@ -65,11 +66,11 @@ function StepUp() {
     catch (ex) { setErr(ex instanceof ApiError ? ex.message : '驗證失敗'); setCode(''); }
   };
   return (
-    <form onSubmit={submit} className="row" style={{ marginTop: 0, gap: 6 }} aria-label="管理動作重新驗證">
-      <span className="pill amber">管理動作需再驗證</span>
-      <input style={{ width: 90 }} inputMode="numeric" pattern="\d{6}" placeholder="驗證碼" value={code} onChange={(e) => setCode(e.target.value)} required />
-      <button className="btn-ghost sm">驗證</button>
-      {err && <span className="sub" style={{ color: 'var(--red)' }}>{err}</span>}
-    </form>
+    <Group component="form" gap={6} wrap="nowrap" onSubmit={submit} aria-label="管理動作重新驗證">
+      <Badge color="orange">管理動作需再驗證</Badge>
+      <TextInput w={96} size="xs" inputMode="numeric" pattern="\d{6}" placeholder="驗證碼" value={code} onChange={(e) => setCode(e.target.value)} required />
+      <Button size="compact-xs" type="submit">驗證</Button>
+      {err && <Text size="xs" c="red">{err}</Text>}
+    </Group>
   );
 }

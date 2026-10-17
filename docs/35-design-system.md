@@ -19,13 +19,15 @@
 - 圖表走 `Chart` 元件與 `chartBase()`，不直接 `echarts.init`；新圖型要先在 `Chart.tsx` 註冊。
 - 新套件：LICENSES.md 加列、`npm audit` 結果寫進 PR。
 
-## 3. 已換頁面與下一步
+## 3. 已換頁面
 
-| 頁面 | 狀態 |
+全站頁面都已換成設計系統元件（2026-10-18）：分析（事件、漏斗、留存、路徑、歸因、自定義 SQL）、用戶列表與細查、分群、標籤、名單推送、審批、總覽看板與書籤、元事件／用戶表／維度表、整合、遷移、權限中心、日誌統計、資料流與效能、系統監控、設定、登入、無權限頁與占位頁。
+
+| 項目 | 做法 |
 |---|---|
-| 營運 › 分群（列表、新建／編輯、詳情含畫像圖） | 已換 |
-| 營運 › 標籤（目錄、新建五種方式、詳情含值分布圖） | 已換 |
-| 規則建構器（用戶列表、分群、標籤共用） | 已換 |
-| 推送、用戶列表、總覽看板、事件分析等 | 待換；分析頁的自繪 SVG 圖表評估改用 ECharts（折線、漏斗、留存矩陣） |
+| 圖表 | 折線／長條（`analytics/LineChart.tsx`）、漏斗（`FunnelChart.tsx`）、路徑桑基圖（`PathChart.tsx`）、值分布與畫像（`hbar`）都走 ECharts；抑制列用斜線紋理，不只靠顏色 |
+| 仍保留的 class | 外框（`.app`、`.topnav`、`.subnav`、`.wrap`）、登入版面（`.gate*`）、看板網格與拖曳（`.dash-grid`、`.dash-card.w2`、`.dragging`、`.dropzone`）、頁面根節點 `.page`；其餘元件 class 不再新增 |
+| 測試選擇器 | 端到端測試用結構與標籤（`table tbody tr`、`getByLabel`、`getByText`），不依賴 `.tbl`、`.pill` |
+| 打包 | Mantine 與 ECharts 拆成獨立 chunk（`vite.config.ts` 的 manualChunks）：主程式 645 KB、ECharts 579 KB、Mantine 270 KB（未壓縮） |
 
-成本：主程式包從 0.8 MB 增至 1.35 MB（gzip 420 KB）；換完全站後把 ECharts 與 Mantine 拆成獨立 chunk。
+下一步：app.css 裡不再使用的元件 class 清掉；圖表加門檻線（MarkLine）給系統監控頁。

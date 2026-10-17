@@ -1,7 +1,9 @@
 // 登入頁：GET /auth/providers 決定顯示哪些入口。
 //   broker 模式：一顆「公司帳號登入」→ 整頁跳 /auth/login?provider=keycloak（Keycloak 再分流到 Entra ID 或 AD）
 //   direct 模式：「Microsoft Entra ID」按鈕（OIDC 跳轉）＋「網域帳號」表單（POST /auth/ldap，第二步 TOTP）
+//   置中版面沿用 .gate／.gate-card；表單與按鈕用設計系統元件。
 import { useEffect, useState, type FormEvent } from 'react';
+import { Alert, Box, Button, Divider, NativeSelect, Paper, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core';
 import { api, ApiError } from '@/api/client';
 import type { ProvidersResponse } from '@/api/types';
 import { DEMO_ROLES, isDemo, setDemoRole } from '@/demo/mode';
@@ -39,26 +41,28 @@ export function LoginPage() {
   return (
     <div className="gate">
       <div className="gate-brand"><img className="logo" src="/favicon.svg" alt="" /><b>AltaTech DMP</b></div>
-      <div className="card gate-card">
-        <h1>登入</h1>
-        {err && <div className="alert">{err}</div>}
-        {isDemo && <div className="stack"><p className="note">示範模式：固定資料（合成黃金資料集，無真實客戶），選一個角色直接進入；寫入動作只模擬成功。正式環境走 SSO／本機帳號 + TOTP。</p>{DEMO_ROLES.map(([k, cn]) => <button key={k} className="btn-primary wide" onClick={() => { setDemoRole(k); location.assign(returnTo); }}>以「{cn}」進入</button>)}</div>}
+      <Paper className="gate-card">
+        <Title order={1}>登入</Title>
+        {err && <Alert color="red" variant="light">{err}</Alert>}
+        {isDemo && <Stack gap="sm"><Text size="sm" c="dimmed">示範模式：固定資料（合成黃金資料集，無真實客戶），選一個角色直接進入；寫入動作只模擬成功。正式環境走 SSO／本機帳號 + TOTP。</Text>{DEMO_ROLES.map(([k, cn]) => <Button key={k} variant="filled" fullWidth onClick={() => { setDemoRole(k); location.assign(returnTo); }}>以「{cn}」進入</Button>)}</Stack>}
         {!isDemo && oidc.map((p) => (
-          <button key={p.key} className="btn-primary wide" onClick={() => sso(p.key)} disabled={busy}>{p.cn}登入</button>
+          <Button key={p.key} variant="filled" fullWidth onClick={() => sso(p.key)} disabled={busy}>{p.cn}登入</Button>
         ))}
         {!isDemo && hasLdap && (
-          <form onSubmit={ldap} className="stack" aria-label="帳密登入">
-            <div className="divider"><span>{oidc.length ? '或' : ''}使用{pwdCn}</span></div>
-            {pwd.length > 1 && <label>登入方式<select value={pwdKey} onChange={(e) => setPwdKey(e.target.value)} disabled={needTotp}>{pwd.map((p) => <option key={p.key} value={p.key}>{p.cn}</option>)}</select></label>}
-            <label>帳號<input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required pattern="[A-Za-z0-9._\-]{2,64}" disabled={needTotp} /></label>
-            <label>密碼<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required disabled={needTotp} /></label>
-            {needTotp && <label>驗證器 6 位數<input inputMode="numeric" pattern="\d{6}" value={totp} onChange={(e) => setTotp(e.target.value)} autoComplete="one-time-code" autoFocus required /></label>}
-            <button className="btn-ghost wide" type="submit" disabled={busy}>{needTotp ? '驗證並登入' : '登入'}</button>
-          </form>
+          <Box component="form" onSubmit={ldap} aria-label="帳密登入">
+            <Stack gap="sm">
+              <Divider label={`${oidc.length ? '或' : ''}使用${pwdCn}`} labelPosition="center" />
+              {pwd.length > 1 && <NativeSelect label="登入方式" value={pwdKey} data={pwd.map((p) => ({ value: p.key, label: p.cn }))} onChange={(e) => setPwdKey(e.target.value)} disabled={needTotp} />}
+              <TextInput label="帳號" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required pattern="[A-Za-z0-9._\-]{2,64}" disabled={needTotp} />
+              <PasswordInput label="密碼" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required disabled={needTotp} />
+              {needTotp && <TextInput label="驗證器 6 位數" inputMode="numeric" pattern="\d{6}" value={totp} onChange={(e) => setTotp(e.target.value)} autoComplete="one-time-code" autoFocus required />}
+              <Button type="submit" fullWidth disabled={busy}>{needTotp ? '驗證並登入' : '登入'}</Button>
+            </Stack>
+          </Box>
         )}
-        {!isDemo && prov && prov.providers.length === 0 && <p className="note">此環境尚未設定身分提供者（backend/auth/idp.yaml）。</p>}
-        <p className="note">登入即表示同意存取受到審計；所有查詢與匯出都會記錄到日誌統計。</p>
-      </div>
+        {!isDemo && prov && prov.providers.length === 0 && <Text size="sm" c="dimmed">此環境尚未設定身分提供者（backend/auth/idp.yaml）。</Text>}
+        <Text size="sm" c="dimmed">登入即表示同意存取受到審計；所有查詢與匯出都會記錄到日誌統計。</Text>
+      </Paper>
     </div>
   );
 }
@@ -71,11 +75,11 @@ export function safeReturnTo(v: string | null): string {
 export function NoAccessPage() {
   return (
     <div className="gate">
-      <div className="card gate-card">
-        <h1>尚未授權</h1>
-        <p>你已成功登入，但帳號不屬於任何 DMP 群組（DMP-Admins／DMP-Marketing／DMP-Analysts／DMP-DigitalOps／DMP-IT）。請向系統管理員申請加入群組；申請後需重新登入。</p>
-        <a className="btn-ghost wide" href="/login">回登入頁</a>
-      </div>
+      <Paper className="gate-card">
+        <Title order={1}>尚未授權</Title>
+        <Text size="sm">你已成功登入，但帳號不屬於任何 DMP 群組（DMP-Admins／DMP-Marketing／DMP-Analysts／DMP-DigitalOps／DMP-IT）。請向系統管理員申請加入群組；申請後需重新登入。</Text>
+        <Button component="a" href="/login" fullWidth>回登入頁</Button>
+      </Paper>
     </div>
   );
 }

@@ -47,7 +47,7 @@ test.describe('主線', () => {
     await page.goto('/events');
     await page.selectOption('select[aria-label="指標 1 事件"]', 'bond_deal');
     await page.getByRole('button', { name: '查詢', exact: true }).click();
-    await expect(page.locator('svg[role="img"], table.tbl').first()).toBeVisible();
+    await expect(page.locator('[role="img"], table').first()).toBeVisible();
     await expect(page.getByRole('button', { name: '存為書籤' })).toBeVisible();
 
     // 2. 存為書籤，順手建一個新看板
@@ -55,9 +55,9 @@ test.describe('主線', () => {
     const bmName = `E2E 成交筆數 ${stamp}`; const dashName = `E2E 看板 ${stamp}`;
     await page.getByRole('button', { name: '存為書籤' }).click();
     const form = page.locator('form[aria-label="存為書籤"]');
-    await form.locator('label:has-text("書籤名稱") input').fill(bmName);
-    await form.locator('label:has-text("加入看板") select').selectOption('__new');
-    await form.locator('label:has-text("新看板名稱") input').fill(dashName);
+    await form.getByLabel('書籤名稱').fill(bmName);
+    await form.getByLabel('加入看板').selectOption('__new');
+    await form.getByLabel('新看板名稱').fill(dashName);
     await form.getByRole('button', { name: '儲存書籤' }).click();
     const done = page.locator('.note', { hasText: '已存書籤' });
     await expect(done).toBeVisible();
@@ -65,12 +65,12 @@ test.describe('主線', () => {
 
     // 3. 書籤頁看得到；看板上有這張卡
     await page.goto('/bookmarks');
-    await expect(page.locator('table.tbl tbody tr', { hasText: bmName }).first()).toBeVisible();
+    await expect(page.locator('table tbody tr', { hasText: bmName }).first()).toBeVisible();
     await page.goto('/overview');
     await page.getByRole('link', { name: dashName }).first().click();
     await expect(page).toHaveURL(/\/overview\//);
     await expect(page.locator('h3', { hasText: bmName }).first()).toBeVisible();
-    await expect(page.locator('svg[role="img"], table.tbl, .tile').first()).toBeVisible();     // 卡片以檢視者權限重算後有內容
+    await expect(page.locator('[role="img"], table, .tile').first()).toBeVisible();     // 卡片以檢視者權限重算後有內容
 
     // 4. 推送單：既有分群 × CRM 目的地（已有首推紀錄 → 不需審批）→ 執行 → 交付成功
     await page.goto('/activation');
@@ -82,15 +82,15 @@ test.describe('主線', () => {
     await page.locator('input[aria-label="目的地 CRM 客戶系統"]').check();
     await page.selectOption('select[aria-label="推送排程"]', 'now');
     await page.getByRole('button', { name: '建立', exact: true }).click();
-    const row = page.locator('table.tbl tbody tr', { hasText: '高價值活躍交易客' }).filter({ hasText: 'CRM 客戶系統' }).first();
+    const row = page.locator('table tbody tr', { hasText: '高價值活躍交易客' }).filter({ hasText: 'CRM 客戶系統' }).first();
     await expect(row).toBeVisible();
-    await expect(row.locator('.pill', { hasText: '生效中' })).toBeVisible();
+    await expect(row.getByText('生效中', { exact: true })).toBeVisible();
     await expect(row).toContainText('全部成功');                                             // 排程「立即」：建立即執行；這張推送單自己的最近結果，不是別張
     await expect(row).toContainText(/\+\d+/);
     await page.goto('/activation?tab=deliveries');
-    const newest = page.locator('table.tbl tbody tr').first();
+    const newest = page.locator('table tbody tr').first();
     await expect(newest).toContainText('CRM 客戶系統');
-    await expect(newest.locator('.pill', { hasText: '成功' })).toBeVisible();
+    await expect(newest.getByText('成功', { exact: true })).toBeVisible();
 
     expect(errors, '瀏覽器 console 不該有未捕捉例外').toEqual([]);
   });
