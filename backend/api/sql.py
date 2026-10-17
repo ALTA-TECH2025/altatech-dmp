@@ -204,7 +204,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
         name = raw if raw.startswith("mid_") else f"mid_{raw}"
         if any(m["name"] == name for m in store.items("mid_table")):
             raise HTTPException(409, f"中間表 {name} 已存在")
-        m = {"id": name, "name": name, "sql": str(body.get("sql") or "").strip(), "note": str(body.get("note") or "")[:200], "owner": subject.user_id, "created_at": time.time(), "rows": None, "columns": [], "refreshed_at": None}
+        m = {"id": name, "name": name, "sql": str(body.get("sql") or "").strip(), "note": str(body.get("note") or "")[:200], "params_default": dict(body.get("params_default") or {}), "owner": subject.user_id, "created_at": time.time(), "rows": None, "columns": [], "refreshed_at": None}
         try:
             build_mid(m, subject, d)
         except RuntimeError as e:

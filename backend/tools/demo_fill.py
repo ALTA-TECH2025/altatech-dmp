@@ -156,6 +156,16 @@ def main() -> None:
     seed = next((d for d in adm.call("GET", "/v1/dashboards") if d.get("seed")), None)
     if seed and not adm.call("GET", f"/v1/dashboards/{seed['id']}/schedules"):
         adm.call("POST", f"/v1/dashboards/{seed['id']}/schedules", {"weekday": 0, "hour": 8, "audience": {"roles": ["digital_ops", "marketing"]}, "expires_days": 14})
+    # 8. 自定義 SQL：分析師跑範例、存兩個查詢（分享給數位經營）；資訊管理建一張中間表
+    if not ana.call("GET", "/v1/sql/saved"):
+        cat = ana.call("GET", "/v1/sql/tables")
+        for e in cat["examples"]:
+            with contextlib.suppress(RuntimeError):
+                ana.call("POST", "/v1/sql/query", {"sql": e["sql"]})
+        ana.call("POST", "/v1/sql/saved", {"name": "每日成交筆數（近 14 天）", "group": "交易", "description": "口徑同神策『成交』事件", "sql": cat["examples"][0]["sql"], "shared": {"roles": ["digital_ops"]}})
+        ana.call("POST", "/v1/sql/saved", {"name": "各平台成交金額（參數：天數）", "group": "交易", "sql": "SELECT platform, count() AS deals, sum(amount) AS amount\nFROM dmp.events\nWHERE event = 'bond_deal' AND event_date >= today() - {{days}}\nGROUP BY platform ORDER BY amount DESC", "params_default": {"days": 7}, "shared": {"roles": ["digital_ops"]}})
+    if not it.call("GET", "/v1/sql/mid-tables"):
+        it.call("POST", "/v1/sql/mid-tables", {"name": "mid_deals_daily", "note": "每日成交彙總，供看板與 SQL 直接查", "sql": "SELECT event_date, platform, count() AS deals, uniq(one_id_uint) AS users\nFROM dmp.events WHERE event = 'bond_deal' GROUP BY event_date, platform"})
     print("demo fill ok")
 
 

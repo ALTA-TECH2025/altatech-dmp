@@ -30,7 +30,7 @@ SETTINGS = {"readonly": 1, "max_execution_time": 60, "max_result_rows": MAX_LIMI
 FUNCTION_HINTS = ["count()", "uniq(one_id_uint)", "sum(amount)", "avg(x)", "quantile(0.9)(x)", "toDate(time, 'Asia/Taipei')", "toStartOfWeek(d)", "dictGet('dmp_dict.dim_instrument', 'industry', symbol)", "windowFunnel(86400)(time, event='a', event='b')", "arrayJoin(arr)", "multiIf(c1, v1, c2, v2, v)"]
 EXAMPLES = [
     {"cn": "每日成交筆數與用戶（近 14 天）", "sql": "SELECT event_date, count() AS deals, uniq(one_id_uint) AS users\nFROM dmp.events\nWHERE event = 'bond_deal' AND event_date >= today() - 14\nGROUP BY event_date ORDER BY event_date"},
-    {"cn": "各平台看盤 → 成交 轉換（7 天漏斗）", "sql": "SELECT platform, countIf(lvl >= 1) AS viewed, countIf(lvl >= 2) AS dealt\nFROM (\n  SELECT one_id_uint, any(platform) AS platform, windowFunnel(604800)(time, event = 'hq_stockdetail_view', event = 'bond_deal') AS lvl\n  FROM dmp.events WHERE event_date >= today() - 30 GROUP BY one_id_uint\n)\nGROUP BY platform ORDER BY viewed DESC"},
+    {"cn": "各平台看盤 → 成交 轉換（7 天漏斗）", "sql": "SELECT platform, countIf(lvl >= 1) AS viewed, countIf(lvl >= 2) AS dealt\nFROM (\n  SELECT one_id_uint, any(platform) AS platform, windowFunnel(604800)(toDateTime(time), event = 'hq_stockdetail_view', event = 'bond_deal') AS lvl\n  FROM dmp.events WHERE event_date >= today() - 30 GROUP BY one_id_uint\n)\nGROUP BY platform ORDER BY viewed DESC"},
     {"cn": "價值分級 × 生命週期 人數", "sql": "SELECT tier, lifecycle, count() AS users\nFROM dmp.users FINAL\nGROUP BY tier, lifecycle ORDER BY users DESC"},
 ]
 
@@ -98,9 +98,11 @@ def substitute_params(sql: str, params: dict[str, Any] | None) -> str:
             raise SandboxError(f"參數 {k} 只能是字串、數字或日期")
         if isinstance(v, int | float):
             return str(v)
-        s = str(v)
+        s = str(v).strip()
         if len(s) > 200 or ";" in s:
             raise SandboxError(f"參數 {k} 不合法")
+        if re.fullmatch(r"-?\d+(\.\d+)?", s):                      # 表單送來的數字是字串：綁成數字字面值（today() - {{days}} 才合法）
+            return s
         return sql_quote(s)
     return re.sub(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}", rep, sql)
 
@@ -181,6 +183,8 @@ def selftest() -> None:
     assert "amount" not in blocked_columns(["data_analyst"], cat) and "amount" in blocked_columns(["marketing"], cat) and "one_id" in blocked_columns(["data_analyst"], cat) and "one_id" not in blocked_columns(["admin"], cat)
     c3 = compile_sql("SELECT count() FROM dmp.events WHERE platform = {{p}} AND event_date >= {{d}}", {"p": "iOS", "d": "2026-10-01"}, ana, cat, ["data_analyst"])
     assert "'iOS'" in c3.sql and "'2026-10-01'" in c3.sql
+    c3b = compile_sql("SELECT count() FROM dmp.events WHERE event_date >= today() - {{days}} AND symbol = {{sym}}", {"days": "14", "sym": "TXF"}, ana, cat, ["data_analyst"])
+    assert "today() - 14" in c3b.sql and "'TXF'" in c3b.sql, c3b.sql
     try:
         compile_sql("SELECT count() FROM dmp.events WHERE platform = {{p}}", {}, ana, cat, ["data_analyst"]); raise AssertionError
     except SandboxError as e:
