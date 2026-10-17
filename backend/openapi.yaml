@@ -110,6 +110,28 @@ paths:
   /v1/reveals:
     get: { tags: [Approvals], summary: '揭露申請（我的；admin／數位經營全看）；active = 核可且未到期', responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Reveal' } } } } } } }
     post: { tags: [Approvals], summary: '申請揭露遮罩欄位（masking.yaml 的欄位；L3 由 admin 審批、L2 由數位經營；理由必填；時效預設 24 小時）；核可後該欄位在時效內對申請者明文，每次查看寫審計 mask.revealed', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/RevealRequest' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Reveal' } } } }, '400': { description: 欄位不在遮罩表或本來就明文 } } }
+  /v1/bookmarks:
+    get:
+      tags: [Dashboards]
+      summary: 書籤清單（神策「書籤」對應）：分析頁查詢存成可重用的書籤；我建立的 + 分享給我的角色或我的（admin 全看）；可依 kind 篩選；附被幾個看板引用
+      parameters: [{ name: kind, in: query, schema: { type: string, enum: [events, funnel, retention, path, attribution] } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Bookmark' } } } } } }
+    post:
+      tags: [Dashboards]
+      summary: 存為書籤（需該分析模組 use；以建立者身分先編譯一次）；可同時 add_to 一或多個看板（擁有者或 admin 的看板）；審計 bookmark.created
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/BookmarkCreate' } } } }
+      responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Bookmark' } } } } }
+  /v1/bookmarks/{id}:
+    get: { tags: [Dashboards], summary: 書籤詳情（查詢本體；分析頁「開啟書籤」用）, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    put: { tags: [Dashboards], summary: 更新名稱、說明、分享、圖型；query 可更新（以更新者身分重新編譯）→ 引用它的看板卡片同步更新；擁有者或 admin；審計 bookmark.updated, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    delete: { tags: [Dashboards], summary: 刪除書籤；引用它的看板卡片保留當時的查詢快照（卡片標示「書籤已刪除」）；審計 bookmark.deleted, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
+  /v1/bookmarks/{id}/data:
+    post:
+      tags: [Dashboards]
+      summary: 以檢視者身分執行書籤查詢（可帶 time 覆寫）；審計 query.executed（module=bookmark）
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: false, content: { application/json: { schema: { type: object, properties: { time: { type: object } } } } } }
+      responses: { '200': { description: 該分析類型的結果物件 } }
   /v1/dashboards:
     get:
       tags: [Dashboards]
@@ -897,8 +919,9 @@ components:
         note: { type: string }
     DashboardCardCreate:
       type: object
-      required: [title, kind, query]
+      description: 二選一：bookmark（引用書籤，卡片跟著書籤更新）或 kind + query（直接存查詢）
       properties:
+        bookmark: { type: string, description: 書籤 id；給了就以書籤的 kind／query 建卡，標題預設書籤名 }
         title: { type: string, minLength: 1, maxLength: 80 }
         kind: { type: string, enum: [events, funnel, retention, path, attribution] }
         query: { type: object, additionalProperties: true, description: '對應 /v1/analytics/{kind} 的請求本體（EventsQuery／FunnelQuery／RetentionQuery／PathQuery／AttributionQuery）' }
@@ -981,6 +1004,30 @@ components:
         lineage: { type: array, items: { type: string } }
         cost: { type: object, properties: { scan_bytes: { type: number }, ms: { type: number } } }
         warnings: { type: array, items: { type: string } }
+    BookmarkCreate:
+      type: object
+      required: [name, kind, query]
+      properties:
+        name: { type: string, maxLength: 80 }
+        description: { type: string, maxLength: 400 }
+        kind: { type: string, enum: [events, funnel, retention, path, attribution] }
+        query: { type: object, additionalProperties: true }
+        chart: { type: string, enum: [auto, line, bar, stat, table], default: auto }
+        shared: { type: object, properties: { roles: { type: array, items: { type: string } }, users: { type: array, items: { type: string } } } }
+        add_to: { type: array, items: { type: string }, description: 同時加進這些看板（id）；或用 new_dashboard 新建 }
+        new_dashboard: { type: string, description: 新建看板名稱並加入 }
+    Bookmark:
+      allOf:
+        - $ref: '#/components/schemas/BookmarkCreate'
+        - type: object
+          properties:
+            id: { type: string }
+            owner: { type: string }
+            created_at: { type: string }
+            updated_at: { type: string }
+            mine: { type: boolean }
+            editable: { type: boolean }
+            used_in: { type: array, items: { type: object, properties: { dashboard: { type: string }, name: { type: string } } } }
     DashboardExplain:
       type: object
       properties:

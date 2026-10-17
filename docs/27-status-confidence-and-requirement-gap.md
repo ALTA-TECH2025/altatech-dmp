@@ -22,7 +22,7 @@
 | 控制面儲存（PostgreSQL：角色、指派、分群、審批、審計） | 後端完成 | `api/store_pg.py` | — | CI 用 postgres:16 自測 |
 | 間隔／分佈／Session／LTV 分析 | 契約 | — | 原型 | — |
 | 標籤（七種）、自定義 SQL、名單推送（Webhook 有骨架）、即時觸發 | 契約／原型 | `activation/webhook.py` 骨架 | 原型；正式前端為占位頁 | — |
-| 總覽／儀表板 | 可演示 | `/v1/dashboards*`：卡片存查詢、以檢視者身分重算、分享角色／使用者；解讀、HTML 看板產物與分享連結、定時寄送（`dashboard_share.py`、`render/svg.py`） | 列表、卡片網格（五種分析）、存為看板卡片、分享、拖曳排版與寬度、看板解讀、產生 HTML 看板（分享連結）、定時寄送（審批） | API 自測（含解讀／渲染／token／到期／排程）；單機環境真 ClickHouse 產出 HTML 看板 |
+| 總覽／儀表板 | 可演示 | `/v1/bookmarks*`（書籤：分析查詢存成可重用、可分享的物件，可放進多個看板，改書籤看板同步）、`/v1/dashboards*`：卡片存查詢或引用書籤、以檢視者身分重算、分享角色／使用者；解讀、HTML 看板產物與分享連結、定時寄送（`dashboard_share.py`、`render/svg.py`） | 列表、卡片網格（五種分析）、存為看板卡片、分享、拖曳排版與寬度、看板解讀、產生 HTML 看板（分享連結）、定時寄送（審批） | API 自測（含解讀／渲染／token／到期／排程）；單機環境真 ClickHouse 產出 HTML 看板 |
 | 日誌統計 | 可演示 | `/v1/audit`、`/v1/audit/stats`、`/v1/audit/export`、`security/audit_alerts.yaml` | docs/10 §8 看板：指標卡、每日趨勢、模組／角色、敏感存取 Top、審批、告警規則評估、agent 活動（二期）、審計報表匯出；明細列表（效能／query_log 彙總第二階段） | API 自測（含規則評估） |
 | 平台設定 | 可演示（唯讀） | `/v1/settings` | 身分與登入、權限、隱碼與揭露、Agent 預算、審計告警五區塊；密鑰只顯示 secret_ref；線上修改（雙人複核）標第二階段 | API 自測 |
 | 神策式逐事件／逐屬性可見白名單、專案註冊表 | 第二階段 | — | 目前以等級制隱碼 + 行級範圍 + 自訂角色 `scope.projects` 取代 | — |
