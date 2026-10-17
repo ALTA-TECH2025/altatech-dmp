@@ -75,6 +75,7 @@ function DashboardDetail({ id }: { id: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [share, setShare] = useState(false);
+  const [adv, setAdv] = useState(false);
   const [roles, setRoles] = useState<string[]>([]); const [users, setUsers] = useState('');
   useEffect(() => { api.get<Dashboard>(`/v1/dashboards/${id}`).then((x) => { setD(x); setRoles(x.shared.roles); setUsers(x.shared.users.join(', ')); }).catch((e: Error) => setErr(e.message)); }, [id]);
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch(() => setCat(null)); }, []);
@@ -95,10 +96,22 @@ function DashboardDetail({ id }: { id: string }) {
             <button className="btn-ghost" onClick={() => setShare((v) => !v)}>分享</button>
             <button className="btn-ghost danger" onClick={() => { if (confirm(`刪除「${d.name}」？卡片會一起刪除。`)) api.del(`/v1/dashboards/${id}`).then(() => nav('/overview')).catch((e: Error) => setErr(e.message)); }}>刪除</button>
           </>}
+          <button className="btn-ghost" onClick={() => setAdv((v) => !v)} title="第二階段">AI 生成 / HTML 看板 <span className="pill gray">第二階段</span></button>
           <Link className="btn-ghost" to="/overview">所有儀表板</Link>
         </div>
       </div>
       {err && <div className="alert">{err}</div>}
+      {adv && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-h"><h3>儀表板進階選項</h3><span className="pill gray">第二階段 · docs/30</span><button className="btn-ghost sm right" onClick={() => setAdv(false)}>關閉</button></div>
+          <div className="grid c3">
+            <div><b>問數建卡片</b><p className="note">一句話（「上週各平台成交金額、看盤到成交漏斗」）→ MCP dashboard.compose 在既有分析模型與語意層上做選擇，產出卡片草稿供確認後加入；不生成任意 SQL，卡片仍以檢視者身分重算。</p></div>
+            <div><b>看板解讀</b><p className="note">dashboard.explain：對每張卡做趨勢、異常、上期對比摘要，產出洞察草稿；只讀。</p></div>
+            <div><b>HTML 看板與定時寄送</b><p className="note">伺服器以產生者身分重算並渲染單檔 HTML（inline SVG、無明細、套遮罩與 K 匿名、浮水印與到期），寄給主管或貼 Teams；排程寄送走審批。</p></div>
+          </div>
+          <div className="row"><button className="btn-primary" disabled title="第二階段啟用 AI 閘道後開放">AI 生成卡片</button><button className="btn-ghost" disabled title="第二階段">產生 HTML 看板</button><span className="note" style={{ marginTop: 0 }}>目前可用：各分析頁「存為看板卡片」、分享給角色／使用者、區間切換。</span></div>
+        </div>
+      )}
       {share && d.editable && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-h"><h3>分享</h3><span className="sub">被分享者只能檢視；卡片資料以他們自己的權限重算</span></div>
