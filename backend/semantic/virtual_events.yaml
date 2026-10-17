@@ -1,0 +1,7 @@
+# 虛擬事件（語意層）：多個真實事件（可帶屬性條件）的 OR 組合，查詢時展開，不另存資料；可用於事件分析、漏斗、留存與標籤定義。
+# 名稱固定 v. 前綴，不可與真實事件重名；members 的 event 必須是 events.yaml 裡的事件；filters 語法同查詢 filters。
+version: 1
+virtual_events:
+  - { name: v.any_trade, cn: 任一交易行為, owner: 數據分析, members: [{ event: bond_order }, { event: bond_deal }, { event: sip_purchase }], note: 留存分析與標籤 trade_style 用 }
+  - { name: v.app_active, cn: App 活躍, owner: App 產品, members: [{ event: $AppViewScreen }, { event: hq_stockdetail_view }, { event: app_login_success, filters: [{ field: platform, op: in, value: [ios, android] }] }], note: 事件分析 DAU、留存分析 }
+  - { name: v.open_funnel_entry, cn: 進入開戶流程, owner: 數位開戶, members: [{ event: $pageview, filters: [{ field: page_group, op: eq, value: account_open }] }, { event: kh_entry_khpg_pv }], note: 漏斗：開戶 }

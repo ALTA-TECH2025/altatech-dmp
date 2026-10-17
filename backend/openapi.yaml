@@ -362,6 +362,8 @@ paths:
     post: { tags: [Ops], summary: '重跑作業（需 governance.d；審計 batch.rerun）', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
   /v1/migration/inventory:
     get: { tags: [Migration], summary: '神策歷史資料盤點（資料集、來源表、日期範圍、筆數、導出方式、目標表、狀態；docs/22 §3）', responses: { '200': { description: ok } } }
+  /v1/migration/inventory/refresh:
+    post: { tags: [Migration], summary: '以神策查詢 API 重新盤點（每事件每日筆數、用戶數；需 SA_BASE_URL／SA_PROJECT／SA_API_SECRET 於執行節點）；需 governance.use；審計 migration.inventory.refreshed', requestBody: { content: { application/json: { schema: { type: object, properties: { date_from: { type: string, format: date }, date_to: { type: string, format: date } } } } } }, responses: { '200': { description: ok }, '503': { description: 未設定神策連線 } } }
   /v1/migration/bridge:
     get: { tags: [Migration], summary: '神策 → GA4 埋點銜接表（由 events.yaml 產生：sensors_event、ga4_event、kind、參數、未解議題；可下載 CSV 給 360 導入商）', responses: { '200': { description: ok } } }
   /v1/migration/exports:
@@ -370,7 +372,7 @@ paths:
   /v1/migration/exports/{id}/rerun:
     post: { tags: [Migration], summary: '重跑指定日期分片（差異 > 0.1% 時）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
   /v1/migration/reconcile:
-    get: { tags: [Migration], summary: '新舊對帳（每事件每日：神策筆數 vs 載入筆數；並行期：神策 vs GA360 筆數與差異；用戶銜接率）', responses: { '200': { description: ok } } }
+    get: { tags: [Migration], summary: '新舊對帳（T2 每事件每日：神策筆數 vs 載入筆數；T5 並行期：神策 vs GA360 每日量與差異；T6 登入用戶銜接率；由 ClickHouse ingest_recon 與 events.source 計算）', parameters: [{ name: days, in: query, schema: { type: integer, default: 28 } }, { name: project, in: query, schema: { type: string } }], responses: { '200': { description: ok }, '503': { description: 未連接 ClickHouse } } }
   /v1/integration/tables:
     get: { tags: [Integration], summary: '數據表管理：已登記的外部表（數據源、表、主鍵、增量欄位、欄位數、Schema 版本、變更、使用它的任務）', responses: { '200': { description: ok } } }
     post: { tags: [Integration], summary: '從數據源探索並登記表（讀 schema 與樣本；個資欄位標 L4 不可選；設主鍵與增量欄位）', responses: { '201': { description: created } } }
