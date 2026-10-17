@@ -11,12 +11,14 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, JSONResponse
 
+from ..activation.service import httpx_transport as _httpx_transport
 from ..approvals import ApprovalService, ExportService, RevealService
 from ..auth.api import AuthService, subject_from_request
 from ..auth.api import build_router as auth_router
 from ..integration.runner import LocalRunner
 from ..integration.scheduler import Scheduler
 from ..ops import metrics as _metrics
+from ..ops.notify import Notifier
 from ..ops.service import OpsService
 from ..security.policy import Subject
 from ..segments import SegmentService
@@ -81,8 +83,9 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     app.include_router(integration.build_router(store, get_subject, sched, secret_writer))
     app.state.scheduler = sched
     ops_svc = OpsService(store, ch, sched, grafana_url=grafana_url)            # 資料流與效能：排程器＋審計＋程序內指標＋ClickHouse 系統表
-    app.include_router(ops.build_router(store, get_subject, ops_svc, metrics_token))
-    app.state.ops = ops_svc
+    notifier = Notifier(store, secret_of=secret_of, mailer=mailer, transport=transport or _httpx_transport, recipients=share.recipients, base_url=base_url)   # 告警通知：Email／LINE，與看板寄送共用 mailer 與成員目錄
+    app.include_router(ops.build_router(store, get_subject, ops_svc, metrics_token, notifier))
+    app.state.ops = ops_svc; app.state.notifier = notifier
 
     @app.exception_handler(HTTPException)
     async def _http(request: Request, e: HTTPException) -> Any:

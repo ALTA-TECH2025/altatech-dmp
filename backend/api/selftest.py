@@ -678,13 +678,28 @@ def main(store: Any | None = None) -> None:
     app.state.ops.snapshot(); app.state.ops.snapshot(time.time() + 60)
     se = c.get("/v1/ops/series?hours=6").json(); assert len(se["panels"]) == 17 and se["points"] == 2 and se["grafana"]["url"] is None and all(p["expr"] for p in se["panels"]) and se["panels"][0]["series"][0]["name"] == "all", (se["points"], se["panels"][0])
     assert c.get("/v1/ops/series?hours=2").status_code == 422
+    # 告警通知：設定（密鑰只收 secret_ref）、測試送 LINE（假 transport）、紀錄、Alertmanager webhook（Bearer）
+    nc = c.get("/v1/ops/notify").json(); assert nc["email"]["to_roles"] == ["it_admin", "admin"] and nc["policy"]["min_severity"] == "medium" and nc["available"]["email"] is False and nc["available"]["line"] is False, nc
+    assert c.put("/v1/ops/notify", json={"line": {"enabled": True, "channel_access_token_ref": "this-is-a-plain-token", "to": ["U" + "1" * 32]}}).status_code == 400
+    secrets["kv/data/dmp/prod/line#channel_access_token"] = "LINE-T0KEN"
+    nc = c.put("/v1/ops/notify", json={"line": {"enabled": True, "channel_access_token_ref": "kv/data/dmp/prod/line#channel_access_token", "to": ["C" + "2" * 32]}, "policy": {"cooldown_min": 15}}).json()
+    assert nc["line"]["enabled"] and nc["available"]["line"] and nc["updated_by"] == "entra:it" and "LINE-T0KEN" not in json.dumps(nc) and nc["policy"]["cooldown_min"] == 15, nc
+    tr = c.post("/v1/ops/notify/test", json={"channel": "line"}); assert tr.status_code == 200 and tr.json()["status"] == "ok" and tr.json()["recipients"] == 1 and hooks[-1]["url"].endswith("/v2/bot/message/push") and hooks[-1]["headers"]["Authorization"] == "Bearer LINE-T0KEN", tr.text
+    assert c.post("/v1/ops/notify/test", json={"channel": "email"}).status_code == 409                    # 沒有 SMTP
+    hist = c.get("/v1/ops/notify/history?limit=5").json(); assert hist and hist[0]["kind"] == "test" and hist[0]["channel"] == "line"
+    sent = app.state.notifier.dispatch(c.get("/v1/ops/alerts").json()["firing"]); assert sent and sent[0]["channel"] == "line" and sent[0]["kind"] == "alert" and sent[0]["status"] == "ok", sent
+    am = {"version": "4", "alerts": [{"status": "firing", "labels": {"alertname": "DmpEventsStale", "severity": "critical", "key": "events_stale"}, "annotations": {"summary": "行為事件停滯"}}]}
+    assert c.post("/v1/ops/notify/alertmanager", json=am).status_code == 401
+    c3 = TestClient(create_app(AuthService(cfg, {}, sm, None), store, ch, metrics_token="tok-123", secret_of=lambda r: secrets[r], transport=fake_transport))
+    amr = c3.post("/v1/ops/notify/alertmanager", json=am, headers={"Authorization": "Bearer tok-123"}); assert amr.status_code == 200 and amr.json()["notifications"][0]["kind"] == "alert", amr.text
+    assert store.audit_tail(50)[-1]["event"] == "ops.notify.sent"
     login(c, sm, ["marketing"], "mkt"); assert c.get("/v1/ops/pipeline").status_code == 403 and c.get("/metrics").status_code == 403 and c.post("/v1/ops/batch-jobs/x/rerun").status_code == 403 and c.get("/v1/ops/series").status_code == 403
     login(c, sm, ["data_analyst"], "ana"); assert c.get("/v1/ops/alerts").status_code == 200 and c.post("/v1/ops/batch-jobs/x/rerun").status_code == 403 and c.get("/v1/ops/series").status_code == 403        # 分析師 governance.view 可看、不可重跑、看不到系統監控
     c2 = TestClient(create_app(AuthService(cfg, {}, sm, None), store, ch, metrics_token="tok-123")); assert c2.get("/metrics").status_code == 401 and c2.get("/metrics", headers={"Authorization": "Bearer nope"}).status_code == 401 and c2.get("/metrics", headers={"Authorization": "Bearer tok-123"}).status_code == 200
     login(c, sm, ["admin"], "adm")
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+bookmarks+sql sandbox+tags+activation(push/deliveries)+ops(pipeline/query-perf/batch-jobs/alerts/metrics)+ask(rules)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+bookmarks+sql sandbox+tags+activation(push/deliveries)+ops(pipeline/query-perf/batch-jobs/alerts/metrics/series/notify email+line+alertmanager)+ask(rules)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":

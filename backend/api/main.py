@@ -162,6 +162,9 @@ def start_ticker(app: Any, store: Any, ch: Any) -> None:
             if ops is not None:
                 try:
                     ops.snapshot()                                           # 系統監控頁的每分鐘快照（獨立於上面的例行，失敗不影響）
+                    nf = getattr(app.state, "notifier", None)
+                    if nf is not None:
+                        nf.dispatch(ops.alerts()["firing"])                  # 告警通知：Email／LINE（冷卻、最低嚴重度、恢復）
                 except Exception as e:
                     store.audit("ops.snapshot.failed", {"error": str(e)[:300]})
     threading.Thread(target=loop, name="dmp-tick", daemon=True).start()
