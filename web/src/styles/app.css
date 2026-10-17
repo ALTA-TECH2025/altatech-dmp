@@ -149,3 +149,5 @@ label.chk input { width: auto; }
 .dash-card.w2 { grid-column: span 2; }
 .dash-card .card-h { flex-wrap: wrap; }
 @media (max-width: 900px) { .dash-grid { grid-template-columns: minmax(0, 1fr); } .dash-card.w2 { grid-column: auto; } }
+/* 側欄：尚未實作的項目加小標 */
+.nav-stage { margin-left: 6px; font-size: 10px; padding: 1px 5px; border-radius: 999px; background: rgba(255,255,255,.12); color: rgba(255,255,255,.75); vertical-align: 1px; }

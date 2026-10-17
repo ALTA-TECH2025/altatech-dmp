@@ -23,7 +23,7 @@ function UsersInner() {
   const { can } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
-  const incoming = (loc.state as { source?: UsersSource; rule?: UsersQuery } | null) ?? null;
+  const incoming = (loc.state as { source?: UsersSource; rule?: UsersQuery; openProfile?: { oneId: string; reason: string } } | null) ?? null;
   const [cat, setCat] = useState<Catalog | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [q, setQ] = useState<UsersQuery>(() => incoming?.rule ?? { ...emptyRule(), source: incoming?.source });
@@ -35,7 +35,7 @@ function UsersInner() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showSql, setShowSql] = useState(false);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(incoming?.openProfile?.oneId ?? null);   // 「用戶細查 / OneID」入口頁可直接帶客戶代碼開抽屜
   const [saving, setSaving] = useState<{ name: string; mode: 'manual' | 'routine' } | null>(null);
   const [exporting, setExporting] = useState(false);
   const body = (cursor?: string): UsersListRequest => ({ ...q, filters: q.filters?.length ? q.filters : undefined, behaviors: q.behaviors?.length ? q.behaviors : undefined, columns: cols, sort: sort ?? undefined, page_size: 50, cursor });

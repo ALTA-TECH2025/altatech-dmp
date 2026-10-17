@@ -19,7 +19,7 @@ export function AppShell() {
           <div className="nav-group" key={g.id}>
             <div className="nav-h">{g.cn}</div>
             {g.items.map((it) => (
-              <NavLink key={it.path} to={it.path} className={({ isActive }) => `nav-item${isActive ? ' on' : ''}`} onClick={() => setOpen(false)}>{it.cn}</NavLink>
+              <NavLink key={it.path} to={it.path} className={({ isActive }) => `nav-item${isActive ? ' on' : ''}`} onClick={() => setOpen(false)} title={it.stage === 'phase2' ? '第二階段' : it.stage === 'todo' ? '待開發' : undefined}>{it.cn}{it.stage && <small className="nav-stage">{it.stage === 'phase2' ? '二期' : '待開發'}</small>}</NavLink>
             ))}
           </div>
         ))}

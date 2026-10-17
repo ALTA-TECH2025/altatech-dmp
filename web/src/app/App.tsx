@@ -20,6 +20,7 @@ import { UserSchemaPage } from '@/governance/UserSchemaPage';
 import { ItemsPage } from '@/governance/ItemsPage';
 import { MigrationPage } from '@/migration/MigrationPage';
 import { AuditPage } from '@/audit/AuditPage';
+import { ProfileEntryPage } from '@/users/ProfileEntryPage';
 import type { Module } from '@/api/types';
 
 /** 尚未實作的頁面：標示「第二階段」（規劃內、排在後續里程碑）或「待開發」（本階段範圍、尚未接上），說明目前狀態與可替代入口。 */
@@ -56,6 +57,11 @@ export function App() {
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/triggers" element={<Placeholder title="即時觸發" module="triggers" stage="phase2" note="Flink 規則引擎 + MA Webhook：事件到達即觸發推送；第一階段以分群推送（審批後）替代。" instead={{ to: '/segments', cn: '分群與標籤' }} />} />
             <Route path="/integration" element={<IntegrationPage />} />
+            <Route path="/profile" element={<ProfileEntryPage />} />
+            <Route path="/ai/insights" element={<Placeholder title="洞察串流" module="ai_ask" stage="phase2" note="Agent（異常偵測、漏斗診斷、流失雷達）產出的洞察物件：證據、信心度、建議動作、訂閱與回饋；第一階段 AI 閘道關閉（docs/03、22 §1）。" instead={{ to: '/overview', cn: '總覽／儀表板' }} />} />
+            <Route path="/ai/ask" element={<Placeholder title="問答" module="ai_ask" stage="phase2" note="選擇題式問數：自然語言 → 在既有分析模型與語意層指標上做選擇（不生成任意 SQL）→ 執行與解釋；高敏查詢需理由並審計。儀表板的「AI 生成卡片」同屬此階段（docs/30）。" instead={{ to: '/events', cn: '事件分析' }} />} />
+            <Route path="/ai/agents" element={<Placeholder title="Agents" module="ai_admin" stage="phase2" note="Agent 定義（agents.yaml）、排程、執行紀錄與預算（掃描量、LLM token）；提議（分群、觸發）一律走審批。" />} />
+            <Route path="/ai/tools" element={<Placeholder title="工具目錄" module="ai_admin" stage="phase2" note="MCP 工具閘道目錄（backend/mcp/tools.yaml）：每個工具的權限、預算、脫敏與審計；第一階段只有契約。" />} />
             <Route path="/governance" element={<GovernancePage />} />
             <Route path="/governance/users" element={<UserSchemaPage />} />
             <Route path="/governance/items" element={<ItemsPage />} />
