@@ -14,7 +14,7 @@ export function AppShell() {
   const loc = useLocation(); const nav = useNavigate();
   const [open, setOpen] = useState(false);
   if (!me) return null;
-  const groups = NAV.map((g) => ({ ...g, items: g.items.filter((it) => can(it.module, 'view')) })).filter((g) => g.items.length);
+  const groups = NAV.map((g) => ({ ...g, items: g.items.filter((it) => can(it.module, it.action ?? 'view')) })).filter((g) => g.items.length);
   const isActive = (it: NavItem) => (it.path === '/governance' ? loc.pathname === '/governance' : loc.pathname === it.path || loc.pathname.startsWith(it.path + '/'));
   const active = groups.find((g) => g.items.some(isActive)) ?? groups[0];
   const initial = (me.user.name || me.user.username || '?').slice(0, 1);

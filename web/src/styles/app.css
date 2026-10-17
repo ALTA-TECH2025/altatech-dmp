@@ -201,6 +201,13 @@ label.chk input { width: auto; }
 .st-dot.ok { background: var(--st-good); } .st-dot.warn { background: var(--st-warn); } .st-dot.error { background: var(--st-serious); }
 .ok-note { background: #E8F6EF; border: 1px solid #BDE3CF; color: #1A6B44; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
 
+.mon-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.mon-card.stat { min-height: 120px; }
+.mon-expr { margin-top: 8px; font-size: 11.5px; color: var(--muted); }
+.mon-expr summary { cursor: pointer; }
+.mon-expr code { display: block; margin-top: 4px; padding: 6px 8px; background: var(--soft); border-radius: 6px; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tile.st-warn { border-color: #F0D3A8; background: #FDF6EA; } .tile.st-error { border-color: #F0C0C0; background: #FBE9E9; }
+
 @media (max-width: 600px) {
   .pipe-wrap { flex-basis: 100%; } .pipe-arrow { display: none; } .pipe-stage { margin-bottom: 8px; }
   .card-h { flex-wrap: wrap; row-gap: 6px; }

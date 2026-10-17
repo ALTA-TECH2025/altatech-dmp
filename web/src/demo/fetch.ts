@@ -82,6 +82,7 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
   const who = me(fx);
   if (seg[0] !== 'v1') return null;
   if (seg[1] === 'ops' && seg[2] === 'batch-jobs' && seg[4] === 'rerun' && method === 'POST') return { body: { job: seg[3], status: 'success', demo: true }, status: 202 };   // 示範：重跑同步任務
+  if (seg[1] === 'ops' && seg[2] === 'series' && method === 'GET') { const h = Number(new URLSearchParams(curQs).get('hours') || 6); const base = fx.routes[`GET /v1/ops/series?hours=${h}`] ?? fx.routes['GET /v1/ops/series?hours=6']; if (base) return { body: synthSeries(base as Obj, h) }; }
   if (seg[1] === 'analytics' && seg[2] === 'ask') {
     if (seg[3] === 'status') return { body: { allowed: true, parsers: ['rules'], default: 'rules', model: null, examples: ['上週各平台成交金額、看盤到委託到成交的漏斗、登入後 4 週留存', '近 7 天各渠道開戶申請人數', '成交之前做什麼', '推播點擊對成交的貢獻'], note: '示範模式：瀏覽器內規則解析（與後端 rules 解析器同構）；正式環境設定 LLM 金鑰後改用模型解析，草稿會再乾跑編譯。' } };
     return askOverlay(String(b.question ?? ''), null, fx);
@@ -254,6 +255,20 @@ function listOf(fx: Fixtures, key: string, m: Map<string, Obj>, idKey = 'id'): O
 }
 function findIn(fx: Fixtures, key: string, m: Map<string, Obj>, id: string, idKey = 'id'): Obj | undefined {
   return m.get(id) ?? ((fx.routes[key] as Obj[] | undefined) ?? []).find((x) => x[idKey] === id);
+}
+/** 示範：快照只有擷取當下的幾筆，依每條序列的最後值合成整個視窗的走勢（確定性正弦＋抖動；stat 類保持常數）。 */
+function synthSeries(base: Obj, hours: number): Obj {
+  const n = Math.min(hours * 60, 288); const step = (hours * 3600) / n; const end = Date.now();
+  let seed = 11; const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  const panels = ((base.panels as Obj[]) ?? []).map((p) => {
+    const kind = p.kind as string; const series = ((p.series as Obj[]) ?? []).map((s, si) => {
+      const pts = (s.points as Obj[]) ?? []; const last = [...pts].reverse().find((q) => q.v != null)?.v as number | undefined; const v0 = last ?? 0;
+      const points = Array.from({ length: n }, (_, i) => { const t = new Date(end - (n - 1 - i) * step * 1000).toISOString().slice(0, 19) + 'Z'; if (kind === 'stat' || v0 === 0) return { t, v: v0 }; const w = 1 + 0.25 * Math.sin(i / 9 + si) + (rnd() - 0.5) * 0.12; return { t, v: Math.round(v0 * w * 1e4) / 1e4 }; });
+      return { ...s, points };
+    });
+    return { ...p, series };
+  });
+  return { ...base, hours, points: n, from: new Date(end - hours * 3600 * 1000).toISOString().slice(0, 19) + 'Z', to: new Date(end).toISOString().slice(0, 19) + 'Z', panels, demo: true };
 }
 function synthDist(values: Obj[]): Obj[] { let seed = 3; const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }; return values.map((v) => ({ value: v.value, users: 40 + Math.round(rnd() * 160) })); }
 function actOverlay(method: string, seg: string[], b: Obj, fx: Fixtures, who: string): { body: unknown; status?: number } | null {

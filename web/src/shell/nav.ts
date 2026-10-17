@@ -1,8 +1,8 @@
 // 側欄：與原型（prototype/js/app.js NAV）同構 — 首頁／分析／營運／資料／AI 洞察／數據治理／系統管理；名稱依實際功能微調，原型沒有的頁放到對應群組。
 // 每項綁一個模組，用 /v1/iam/me 的 grants 過濾（看不到 ≠ 不能呼叫 API，後端另有 authorize）。
-import type { Module } from '@/api/types';
+import type { Action, Module } from '@/api/types';
 
-export interface NavItem { path: string; cn: string; module: Module; stage?: 'phase2' | 'todo' }
+export interface NavItem { path: string; cn: string; module: Module; action?: Action; stage?: 'phase2' | 'todo' }   // action：需要的權限動作（預設 view）
 export interface NavGroup { id: string; cn: string; items: NavItem[] }
 
 export const NAV: NavGroup[] = [
@@ -44,5 +44,6 @@ export const NAV: NavGroup[] = [
     { path: '/iam', cn: '權限中心', module: 'iam' },
     { path: '/audit', cn: '日誌統計', module: 'audit' },
     { path: '/settings', cn: '平台設定', module: 'iam' },
+    { path: '/system/monitor', cn: '系統監控', module: 'governance', action: 'admin' },
   ] },
 ];

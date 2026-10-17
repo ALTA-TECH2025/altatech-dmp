@@ -27,6 +27,7 @@ import { SqlPage } from '@/sql/SqlPage';
 import { SettingsPage } from '@/settings/SettingsPage';
 import { ProfileEntryPage } from '@/users/ProfileEntryPage';
 import { OpsPage } from '@/ops/OpsPage';
+import { MonitorPage } from '@/ops/MonitorPage';
 import type { Module } from '@/api/types';
 
 /** 尚未實作的頁面：標示「第二階段」（規劃內、排在後續里程碑）或「待開發」（本階段範圍、尚未接上），說明目前狀態與可替代入口。 */
@@ -79,6 +80,7 @@ export function App() {
             <Route path="/migration" element={<MigrationPage />} />
             <Route path="/audit" element={<AuditPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/system/monitor" element={<MonitorPage />} />
             <Route path="/iam/*" element={<RequireGrant module="iam"><IamPage /></RequireGrant>} />
             <Route path="*" element={<div className="page"><div className="card"><h1>找不到頁面</h1></div></div>} />
           </Route>
