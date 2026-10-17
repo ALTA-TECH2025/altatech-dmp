@@ -62,7 +62,12 @@ def build() -> Any:
         tokens = ApiTokens(cfg["session"]["api_token"], Path(os.environ["DMP_API_KEY_PEM"]).read_text(), Path(os.environ["DMP_API_PUB_PEM"]).read_text())
     ch = ClickHouseHTTP(os.environ["CLICKHOUSE_URL"], user=os.environ.get("CLICKHOUSE_USER", "default"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), timeout=120) if os.environ.get("CLICKHOUSE_URL") else None
     auth = AuthService(cfg, providers, sessions, tokens, store.assignments)
-    return create_app(auth, store, ch, export_dir=os.environ.get("DMP_EXPORT_DIR"))
+    sched = None
+    if os.environ.get("DMP_SCHED_DB"):                      # 排程狀態（SQLite）；執行器直接寫 ClickHouse
+        from ..integration.runner import LocalRunner
+        from ..integration.scheduler import Scheduler
+        sched = Scheduler(os.environ["DMP_SCHED_DB"], LocalRunner(ch))
+    return create_app(auth, store, ch, export_dir=os.environ.get("DMP_EXPORT_DIR"), scheduler=sched)
 
 
 app = build() if os.environ.get("DMP_BUILD_APP", "1") == "1" and __name__ != "__main__" else None

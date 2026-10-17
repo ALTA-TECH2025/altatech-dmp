@@ -20,6 +20,7 @@ docs/23 §4.4：router 只做「驗證 → Policy → 呼叫服務 → 審計」
 | `/v1/segments*` | 分群引擎最小版（`backend/segments/`）：建立／審批／估數與畫像／計算（版本保留）／例行 tick／成員列表／複製／暫停／血緣／回收站／徹底刪除 | segments.view／use／approve／admin |
 | `/v1/approvals*`、`/v1/exports*`、`/v1/reveals` | 審批單（類型決定審批角色、hook 回寫受控物件、逾期）、匯出申請（用途、估列數、核可後產檔：遮罩嚴一級 + 浮水印、下載）與欄位揭露申請（L2／L3、限單一用戶、時效、每次查看審計）；`backend/approvals/` | users.export／類型審批角色 |
 | `GET /v1/audit` | 審計尾端（行銷／分析只看自己） | audit.view |
+| `integration.py` | `/v1/integration/connectors`、`/connections`（建立／詳情／PATCH／停用／test／rotate／privileges）、`/tables`（登記／rescan）、`/sync-tasks`（建立／run／runs／preview） | integration.view／use／admin | 連線只存 secret_ref（明文 422）、回應遮罩；測試 = dns／tcp 探測（auth 以後由執行節點注入 probes）；任務 = 模型 yaml + 來源 + 排程交 Scheduler（SQLite）；run 同步執行（無 ClickHouse 時乾跑）；preview 以樣本跑映射與清洗 |
 
 ```bash
 python3 -m backend.api                      # 自測：假 ClickHouse、假 session；角色 CRUD、指派、模擬、編譯、執行、審計、CSRF

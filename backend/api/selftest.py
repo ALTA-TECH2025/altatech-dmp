@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 
@@ -63,7 +64,11 @@ def login(c: TestClient, sm: SessionManager, roles: list[str], user: str) -> Non
 def main(store: Any | None = None) -> None:
     cfg = load_cfg(); store = store or MemoryStore(); ch = FakeClickHouse()
     sm = SessionManager(cfg["session"], SessionMemory(), lambda e, d: store.audit(e, d), admin_requires=cfg["role_mapping"]["admin_requires"])
-    app = create_app(AuthService(cfg, {}, sm, None), store, ch)
+    import tempfile as _tf
+
+    from ..integration.runner import LocalRunner as _LR
+    from ..integration.scheduler import Scheduler as _Sched
+    app = create_app(AuthService(cfg, {}, sm, None), store, ch, scheduler=_Sched(_tf.mktemp(prefix="dmp-sched-", suffix=".db"), _LR(None)))   # 乾跑排程器，每次自測全新狀態
     c = TestClient(app, base_url="https://dmp.internal")
     assert c.get("/healthz").json()["clickhouse"] is True
     assert c.get("/v1/iam/roles").status_code == 401
@@ -194,12 +199,58 @@ def main(store: Any | None = None) -> None:
     login(c, sm, ["digital_ops"], "ops"); assert c.post(f"/v1/approvals/{rv2['approval_id']}/decide", json={}).json()["status"] == "approved"
     login(c, sm, ["marketing"], "mkt")
     lst2 = c.post("/v1/users/list", json={**uq, "columns": ["aum", "churn_score"]}).json(); assert "aum" not in lst2["masked"] and lst2["masked"]["churn_score"], lst2["masked"]
+    # 5b. 數據整合：連線（secret_ref 才收）→ 測試 → 輪替 → 數據表探索（L4 標記）→ 同步任務（模型驗證、排程）→ 預覽 → 立即執行（乾跑）→ 執行紀錄；權限：資訊管理可建、行銷不可
+    import tempfile
+    from pathlib import Path as _P
+
+    from ..integration import modeling as _m
+    from ..integration.e2e_clickhouse import synth as _synth
+    _m.set_key("k_idm", b"test-key-idm"); _m.set_key("k_acct", b"test-key-acct")
+    work = _P(tempfile.mkdtemp(prefix="dmp-integ-")); files = _synth(work, 300, 11)
+    login(c, sm, ["marketing"], "mkt"); assert c.get("/v1/integration/connections").status_code == 403
+    login(c, sm, ["it_admin"], "it")
+    cons = c.get("/v1/integration/connectors").json(); assert {x["type"] for x in cons} >= {"mssql", "bigquery", "dwh"} and "kerberos" in cons[[x["type"] for x in cons].index("mssql")]["auth_methods"]
+    bad = c.post("/v1/integration/connections", json={"id": "dwh_trade", "type": "mssql", "auth_method": "password", "fields": {"host": "sql.internal", "port": 1433, "database": "TRADE", "username": "dmp_ro", "password": "P@ssw0rd-plain"}})
+    assert bad.status_code == 422 and "明文" in bad.json()["detail"], bad.json()
+    once = c.post("/v1/integration/connections", json={"id": "dwh_trade", "type": "mssql", "auth_method": "password", "fields": {"host": "sql.internal", "port": 1433, "database": "TRADE", "username": "dmp_ro"}, "secrets_once": {"password": "x"}})
+    assert once.status_code == 422 and "密鑰庫" in once.json()["detail"]
+    conn = c.post("/v1/integration/connections", json={"id": "dwh_trade", "type": "mssql", "auth_method": "password", "fields": {"host": "sql.internal", "port": 1433, "database": "TRADE", "username": "dmp_ro"}, "secret_refs": {"password": "kv/data/dmp/prod/dwh_trade#password"}, "owner": "dba"}).json()
+    assert conn["secrets"]["password"]["value"] == "••••••••" and conn["rotation"]["kind"] == "rotating" and conn["rotation"]["state"] == "ok", conn
+    assert "kv/data" in conn["secrets"]["password"]["ref"] and "password" not in str(conn["fields"])
+    t = c.post("/v1/integration/connections/dwh_trade/test").json(); assert t["ok"] is False and t["steps"][0]["step"] == "dns" and t["steps"][0]["fix"], t
+    assert c.get("/v1/integration/connections/dwh_trade").json()["last_test"]["failed_step"] == "dns"
+    assert c.get("/v1/integration/connections/dwh_trade/privileges").json()["items"] and c.get("/v1/integration/connections/dwh_trade/privileges").json()["verified_at"] is None
+    assert c.post("/v1/integration/connections/dwh_trade/rotate", json={"secret_ref": "plain"}).status_code == 422
+    rot = c.post("/v1/integration/connections/dwh_trade/rotate", json={"secret_ref": "kv/data/dmp/prod/dwh_trade_v2#password"}).json(); assert rot["ok"] and rot["overlap_until"]
+    bq = c.post("/v1/integration/connections", json={"id": "ga_bq", "type": "bigquery", "auth_method": "workload_identity", "fields": {"project_id": "ga-export", "dataset": "analytics_1", "location": "asia-east1"}}).json()
+    assert bq["rotation"]["kind"] == "short_lived" and c.post("/v1/integration/connections/ga_bq/test").json()["ok"] is True   # 無 host：dns／tcp 不適用
+    assert c.post("/v1/integration/connections/ga_bq/rotate", json={"secret_ref": "kv/data/dmp/prod/x#k"}).status_code == 409
+    login(c, sm, ["data_analyst"], "ana"); assert c.post("/v1/integration/connections", json=conn).status_code == 403 and len(c.get("/v1/integration/connections").json()) == 2
+    login(c, sm, ["it_admin"], "it")
+    tb = c.post("/v1/integration/tables", json={"connection": "dwh_trade", "table": "dbo.fact_order_hist", "pk": ["ORD_NO", "STATUS"], "incremental_field": "UPDATED_AT", "source": {"kind": "csv", "path": str(files["orders"])}}).json()
+    assert tb["id"] == "dwh_trade.dbo.fact_order_hist" and {f["name"] for f in tb["fields"] if f["sensitivity"] == "L4"} == {"CUST_NAME", "ID_NO", "PHONE"} and all(f["sample"] == "" for f in tb["fields"] if f["sensitivity"] == "L4"), tb["fields"]
+    assert c.post("/v1/integration/tables", json={"table": "x", "pk": ["nope"], "fields": [{"name": "a"}]}).status_code == 400
+    assert c.post("/v1/integration/tables/dwh_trade.dbo.fact_order_hist/rescan").json()["changes"] == []
+    assert c.post("/v1/integration/sync-tasks", json={"id": "sync_orders", "model_path": "backend/integration/models.example.yaml", "mode": "stream"}).status_code == 400
+    task = c.post("/v1/integration/sync-tasks", json={"id": "sync_orders", "cn": "委託事實表 → 委託／成交事件", "model_path": "backend/integration/models.example.yaml", "source": {"table_id": "dwh_trade.dbo.fact_order_hist"}, "schedule": {"interval_min": 15}, "mode": "incremental", "schema_change": "pause_and_notify"}).json()
+    assert task["target"]["type"] == "events" and task["schedule"] == "every 15m" and task["status"] == "active" and "bond_order" in task["events"] and task["source"]["incremental_field"] == "UPDATED_AT", task
+    assert c.post("/v1/integration/sync-tasks", json={"id": "sync_orders", "model_path": "backend/integration/models.example.yaml"}).status_code == 409
+    assert c.delete("/v1/integration/connections/dwh_trade").status_code == 409                 # 有任務使用
+    pv = c.post("/v1/integration/sync-tasks/sync_orders/preview", json={"limit": 200}).json(); assert pv["summary"]["in"] == 200 and pv["summary"]["ok"] > 150 and pv["pii_hits"] == 0 and pv["events"], pv["summary"]
+    assert all("王小明" not in json.dumps(x, ensure_ascii=False) for x in pv["sample_ok"])      # 個資欄位 drop_fields 不進輸出
+    run = c.post("/v1/integration/sync-tasks/sync_orders/run").json(); assert run["status"] == "success" and run["rows_in"] == 300 and run["rows_loaded"] == run["rows_ok"] > 0, run
+    runs = c.get("/v1/integration/sync-tasks/sync_orders/runs").json(); assert runs[0]["trigger"] == "manual" and runs[0]["status"] == "success" and isinstance(runs[0]["log"], list)
+    lst = c.get("/v1/integration/sync-tasks").json(); assert lst[0]["last"]["status"] == "success" and lst[0]["watermark"], lst[0]
+    assert c.get("/v1/integration/tables").json()[0]["used_by"] == ["sync_orders"]
+    login(c, sm, ["marketing"], "mkt"); assert c.post("/v1/integration/sync-tasks/sync_orders/run").status_code == 403
+    assert {x["event"] for x in store.audit_tail(60)} >= {"integration.connection.created", "integration.connection.tested", "integration.connection.rotated", "integration.table.registered", "integration.task.created", "task.rerun"}
+    login(c, sm, ["marketing"], "mkt")
     # 6. 審計：行銷只看自己；admin 全看
     mine = c.get("/v1/audit").json(); assert mine and all(x.get("user") == "entra:mkt" for x in mine)
     login(c, sm, ["admin"], "adm"); allrows = c.get("/v1/audit").json(); assert len(allrows) > len(mine)
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":
