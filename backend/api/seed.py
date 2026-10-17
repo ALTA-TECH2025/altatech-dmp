@@ -101,17 +101,60 @@ def seed_accounts(la: LocalAccounts, password: str, users: list[str]) -> list[tu
     return out
 
 
-def seed_dashboard(store: MemoryStore, owner: str) -> str:
+# 情境示範看板（對齊客戶需求表 docs/27 §A–E 的情境；黃金資料集可直接算出）：開戶轉換、推播／活動追到交易、客戶活躍與流失、交易與搜尋體驗
+TQ = {**T, **PIN}
+SCENARIO_DASHBOARDS: list[dict[str, Any]] = [
+    {"id": "d_seed_onboard", "name": "數位開戶轉換（情境 A5／C2／C5）", "description": "需求表 A5 渠道與 UTM、C2 漏斗、C5 路徑：開戶首頁 → 完成申請 → 首次登入 → 首次委託；申請來源與平台拆分；開戶首頁後的行為路徑。", "cards": [
+        {"title": "本期開戶首頁瀏覽人數／申請件數／申請人數", "kind": "events", "chart": "stat", "query": {"project": PROJECT, "metrics": [{"event": "kh_entry_khpg_pv", "agg": "users", "alias": "entry_users"}, {"event": "kh_apply", "agg": "total", "alias": "applies"}, {"event": "kh_apply", "agg": "users", "alias": "apply_users"}], "time": {**TQ, "grain": "total"}}},
+        {"title": "開戶首頁 → 完成申請 → 首次登入 → 首次委託（7 天窗）", "kind": "funnel", "query": {"project": PROJECT, "steps": [{"event": "kh_entry_khpg_pv", "alias": "開戶首頁"}, {"event": "kh_apply", "alias": "完成申請"}, {"event": "app_login_success", "alias": "登入"}, {"event": "bond_order", "alias": "委託"}], "window": {"value": 7, "unit": "day"}, "time": TQ}},
+        {"title": "開戶首頁瀏覽 × 來源（UTM，日）", "kind": "events", "chart": "line", "width": 2, "query": {"project": PROJECT, "metrics": [{"event": "kh_entry_khpg_pv", "agg": "users", "alias": "entry_users"}], "group_by": ["utm_source"], "time": TQ}},
+        {"title": "開戶申請 × 來源／平台（本期）", "kind": "events", "chart": "bar", "query": {"project": PROJECT, "metrics": [{"event": "kh_apply", "agg": "total", "alias": "applies"}], "group_by": ["utm_source", "platform"], "time": {**TQ, "grain": "total"}}},
+        {"title": "開戶首頁瀏覽 vs 完成申請（人，日）", "kind": "events", "chart": "line", "query": {"project": PROJECT, "metrics": [{"event": "kh_entry_khpg_pv", "agg": "users", "alias": "entry_users"}, {"event": "kh_apply", "agg": "users", "alias": "apply_users"}], "time": TQ}},
+        {"title": "開戶首頁之後 3 步路徑", "kind": "path", "width": 2, "query": {"project": PROJECT, "anchor": {"event": "kh_entry_khpg_pv"}, "steps": 3, "sample": None, "time": TQ}},
+    ]},
+    {"id": "d_seed_campaign", "name": "推播與活動成效追到交易（情境 A4／D4／E3）", "description": "需求表 A4 推播追蹤、D4 行銷成效追到交易、E3 發送成效回收：推播點擊 → 委託 → 成交漏斗；推播點擊 × 發送計畫；活動點擊 × 渠道；成交歸因（首次／末次／線性）；點擊後 7 天成交。", "cards": [
+        {"title": "本期推播點擊人數／活動點擊人數／成交金額", "kind": "events", "chart": "stat", "query": {"project": PROJECT, "metrics": [{"event": "push_click", "agg": "users", "alias": "push_users"}, {"event": "act_click", "agg": "users", "alias": "act_users"}, {"event": "bond_deal", "agg": "sum", "field": "amount", "alias": "deal_amount"}], "time": {**TQ, "grain": "total"}}},
+        {"title": "推播點擊 → 委託送出 → 成交（7 天窗）", "kind": "funnel", "query": {"project": PROJECT, "steps": [{"event": "push_click", "alias": "推播點擊"}, {"event": "stock_order_submit", "alias": "委託送出"}, {"event": "bond_deal", "alias": "成交"}], "window": {"value": 7, "unit": "day"}, "time": TQ}},
+        {"title": "推播點擊 × 發送計畫（utm_campaign，日）", "kind": "events", "chart": "line", "width": 2, "query": {"project": PROJECT, "metrics": [{"event": "push_click", "agg": "total", "alias": "clicks"}], "group_by": ["utm_campaign"], "top_n": 6, "time": TQ}},
+        {"title": "成交歸因：推播／活動／網頁（首次、末次、線性）", "kind": "attribution", "width": 2, "query": {"project": PROJECT, "target": {"event": "bond_deal", "value_field": "amount"}, "touches": [{"event": "push_click", "alias": "推播點擊"}, {"event": "act_click", "alias": "活動點擊"}, {"event": "$pageview", "alias": "網頁瀏覽"}], "models": ["first", "last", "linear"], "window_days": 7, "time": TQ}},
+        {"title": "活動點擊 × 渠道（日）", "kind": "events", "chart": "line", "query": {"project": PROJECT, "metrics": [{"event": "act_click", "agg": "total", "alias": "act_clicks"}], "group_by": ["channel"], "time": TQ}},
+        {"title": "推播點擊後 7 天內成交（日留存）", "kind": "retention", "query": {"project": PROJECT, "initial": {"event": "push_click"}, "return": {"event": "bond_deal"}, "model": "interval", "unit": "day", "periods": 7, "time": TQ}},
+    ]},
+    {"id": "d_seed_retention", "name": "客戶活躍與流失預警（情境 C3／C8）", "description": "需求表 C3 留存、C8 分群：登入週留存；登入人數依生命週期／價值分級拆分；看盤與登入人數；委託失敗與刪單；登入後路徑。搭配「沉睡客喚醒」分群推送。", "cards": [
+        {"title": "登入後 4 週留存", "kind": "retention", "query": {"project": PROJECT, "initial": {"event": "app_login_success"}, "return": {"event": "app_login_success"}, "model": "interval", "unit": "week", "periods": 3, "time": {**T_ALL, **PIN}}},
+        {"title": "登入人數 × 生命週期（日）", "kind": "events", "chart": "line", "width": 2, "query": {"project": PROJECT, "metrics": [{"event": "app_login_success", "agg": "users", "alias": "login_users"}], "group_by": ["user.lifecycle"], "time": TQ}},
+        {"title": "登入人數 × 價值分級（本期）", "kind": "events", "chart": "bar", "query": {"project": PROJECT, "metrics": [{"event": "app_login_success", "agg": "users", "alias": "login_users"}], "group_by": ["user.tier"], "time": {**TQ, "grain": "total"}}},
+        {"title": "看盤人數 vs 登入人數（日）", "kind": "events", "chart": "line", "query": {"project": PROJECT, "metrics": [{"event": "app_login_success", "agg": "users", "alias": "login_users"}, {"event": "hq_stockdetail_view", "agg": "users", "alias": "quote_users"}], "time": TQ}},
+        {"title": "委託失敗／刪單次數（日）", "kind": "events", "chart": "line", "query": {"project": PROJECT, "metrics": [{"event": "order_rejected", "agg": "total", "alias": "rejected"}, {"event": "order_cancelled", "agg": "total", "alias": "cancelled"}], "time": TQ}},
+        {"title": "登入後 3 步路徑", "kind": "path", "width": 2, "query": {"project": PROJECT, "anchor": {"event": "app_login_success"}, "steps": 3, "sample": None, "time": TQ}},
+    ]},
+    {"id": "d_seed_trading", "name": "交易與搜尋體驗（情境 C1／C4）", "description": "需求表 C1 事件分析、C4 歸因：搜尋 → 看盤 → 委託 → 成交漏斗；成交金額依買賣別與平台；熱門標的 Top 8；定期定額申購趨勢；成交歸因（看盤／搜尋／登入）。", "cards": [
+        {"title": "搜尋 → 看盤 → 委託送出 → 成交（7 天窗）", "kind": "funnel", "width": 2, "query": {"project": PROJECT, "steps": [{"event": "search_submit", "alias": "搜尋"}, {"event": "hq_stockdetail_view", "alias": "看盤"}, {"event": "stock_order_submit", "alias": "委託送出"}, {"event": "bond_deal", "alias": "成交"}], "window": {"value": 7, "unit": "day"}, "time": TQ}},
+        {"title": "成交金額 × 買賣別（本期）", "kind": "events", "chart": "bar", "query": {"project": PROJECT, "metrics": [{"event": "bond_deal", "agg": "sum", "field": "amount", "alias": "deal_amount"}], "group_by": ["side"], "time": {**TQ, "grain": "total"}}},
+        {"title": "成交筆數 × 平台（本期）", "kind": "events", "chart": "bar", "query": {"project": PROJECT, "metrics": [{"event": "bond_deal", "agg": "total", "alias": "deals"}], "group_by": ["platform"], "time": {**TQ, "grain": "total"}}},
+        {"title": "熱門成交標的 Top 8（本期）", "kind": "events", "chart": "bar", "query": {"project": PROJECT, "metrics": [{"event": "bond_deal", "agg": "total", "alias": "deals"}], "group_by": ["symbol"], "top_n": 8, "time": {**TQ, "grain": "total"}}},
+        {"title": "定期定額申購 vs 搜尋送出（日）", "kind": "events", "chart": "line", "query": {"project": PROJECT, "metrics": [{"event": "sip_purchase", "agg": "total", "alias": "sip"}, {"event": "search_submit", "agg": "total", "alias": "searches"}], "time": TQ}},
+        {"title": "成交歸因：看盤／搜尋／登入（首次、線性、位置）", "kind": "attribution", "width": 2, "query": {"project": PROJECT, "target": {"event": "bond_deal", "value_field": "amount"}, "touches": [{"event": "hq_stockdetail_view", "alias": "看盤"}, {"event": "search_submit", "alias": "搜尋"}, {"event": "app_login_success", "alias": "登入"}], "models": ["first", "linear", "position"], "window_days": 7, "time": TQ}},
+    ]},
+]
+
+
+def _put_dashboard(store: MemoryStore, owner: str, id_: str, name: str, description: str, cards_spec: list[dict[str, Any]]) -> str:
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    existing = next((d for d in store.items("dashboard") if d.get("seed")), None)
-    if existing:
-        return existing["id"]
-    cards = [{"id": f"c_seed{i:02d}", "title": c["title"], "kind": c["kind"], "query": c["query"], "chart": c.get("chart", "auto"), "width": c.get("width", 1), "note": "", "created_by": owner, "created_at": now} for i, c in enumerate(SAMPLE_CARDS)]
-    d = {"id": "d_seed_bond", "name": "債券業務日報（範例）", "description": "黃金資料集（合成）：成交、漏斗、留存、路徑、歸因各一張；區間釘在 2026-10-01 … 10-16。", "owner": owner, "seed": True,
+    cards = [{"id": f"c_{id_[7:]}{i:02d}", "title": c["title"], "kind": c["kind"], "query": c["query"], "chart": c.get("chart", "auto"), "width": c.get("width", 1), "note": "", "created_by": owner, "created_at": now} for i, c in enumerate(cards_spec)]
+    d = {"id": id_, "name": name, "description": description, "owner": owner, "seed": True,
          "shared": {"roles": ["admin", "marketing", "data_analyst", "digital_ops", "it_admin"], "users": []}, "time": {"preset": "30d"}, "cards": cards, "created_at": now, "updated_at": now}
     store.put_item("dashboard", d)
     store.audit("dashboard.created", {"user": owner, "dashboard": d["id"], "name": d["name"], "cards": len(cards), "seed": True})
     return d["id"]
+
+
+def seed_dashboard(store: MemoryStore, owner: str) -> str:
+    """範例看板：債券業務日報 + 四個情境看板。重跑 seed 會以程式裡的規格重建卡片（範例看板不保留使用者改動；自建看板不受影響）。回傳第一個 id。"""
+    specs = [("d_seed_bond", "債券業務日報（範例）", "黃金資料集（合成）：成交、漏斗、留存、路徑、歸因各一張；區間釘在 2026-10-01 … 10-16。", SAMPLE_CARDS)] + [(sd["id"], sd["name"], sd["description"], sd["cards"]) for sd in SCENARIO_DASHBOARDS]
+    for id_, name, desc, cards in specs:
+        _put_dashboard(store, owner, id_, name, desc, cards)
+    return "d_seed_bond"
 
 
 def main(argv: list[str] | None = None) -> None:

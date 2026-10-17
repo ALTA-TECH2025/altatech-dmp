@@ -26,7 +26,7 @@
 | 名單推送（目的地 secret_ref／測試事件／輪替／停用；推送單＝分群 × 目的地 × 模式 × 排程；增量差集、附帶標籤；Webhook HMAC 簽章、分批、重試→DLQ、連續失敗自動停用、重放；全量與目的地首次推送審批；例行 tick） | 可演示（Webhook；Kafka／GCS 第二階段） | `activation/service.py`、`activation/webhook.py`、`api/activation.py` | 營運 › 名單推送（推送單／目的地／交付紀錄） | API 自測（activation 段：假傳輸驗簽章、重試、自動停用、重放）、本機簽章接收端端到端、Playwright |
 | 即時觸發（Flink 規則引擎 + MA Webhook） | 契約／原型 | — | 占位頁（第一階段以分群名單推送替代） | — |
 | 問數建卡片（AI 生成卡片） | 可演示（規則解析）；模型解析需 LLM 金鑰 | `/v1/analytics/ask*`、`/v1/dashboards/{id}/ask`、`insight_agent/configure.py`（rules／llm 兩個解析器、乾跑驗證、golden 20 題） | 儀表板「AI 生成卡片」：問題 → 卡片草稿（信心度、說明、查詢／SQL）→ 勾選加入看板或存成書籤；看板解讀「敘述版」 | configure 自測（model 20/20、params 20/20）、API 自測 |
-| 總覽／儀表板 | 可演示 | `/v1/bookmarks*`（書籤：分析查詢存成可重用、可分享的物件，可放進多個看板，改書籤看板同步）、`/v1/dashboards*`：卡片存查詢或引用書籤、以檢視者身分重算、分享角色／使用者；解讀、HTML 看板產物與分享連結、定時寄送（`dashboard_share.py`、`render/svg.py`） | 列表、卡片網格（五種分析）、存為看板卡片、分享、拖曳排版與寬度、看板解讀、產生 HTML 看板（分享連結）、定時寄送（審批） | API 自測（含解讀／渲染／token／到期／排程）；單機環境真 ClickHouse 產出 HTML 看板 |
+| 總覽／儀表板（含四個對齊需求表情境的範例看板：數位開戶轉換 A5／C2／C5、推播與活動成效追到交易 A4／D4／E3、客戶活躍與流失預警 C3／C8、交易與搜尋體驗 C1／C4；手機版依容器寬度重排圖表） | 可演示 | `/v1/bookmarks*`（書籤：分析查詢存成可重用、可分享的物件，可放進多個看板，改書籤看板同步）、`/v1/dashboards*`：卡片存查詢或引用書籤、以檢視者身分重算、分享角色／使用者；解讀、HTML 看板產物與分享連結、定時寄送（`dashboard_share.py`、`render/svg.py`） | 列表、卡片網格（五種分析）、存為看板卡片、分享、拖曳排版與寬度、看板解讀、產生 HTML 看板（分享連結）、定時寄送（審批） | API 自測（含解讀／渲染／token／到期／排程）；單機環境真 ClickHouse 產出 HTML 看板 |
 | 日誌統計 | 可演示 | `/v1/audit`、`/v1/audit/stats`、`/v1/audit/export`、`security/audit_alerts.yaml` | docs/10 §8 看板：指標卡、每日趨勢、模組／角色、敏感存取 Top、審批、告警規則評估、agent 活動（二期）、審計報表匯出；明細列表（效能／query_log 彙總第二階段） | API 自測（含規則評估） |
 | 平台設定 | 可演示（唯讀） | `/v1/settings` | 身分與登入、權限、隱碼與揭露、Agent 預算、審計告警五區塊；密鑰只顯示 secret_ref；線上修改（雙人複核）標第二階段 | API 自測 |
 | 神策式逐事件／逐屬性可見白名單、專案註冊表 | 第二階段 | — | 目前以等級制隱碼 + 行級範圍 + 自訂角色 `scope.projects` 取代 | — |

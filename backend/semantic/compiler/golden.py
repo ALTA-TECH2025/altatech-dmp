@@ -86,10 +86,66 @@ def build(n_users: int = 400, n_events: int = 24_000, seed: int = SEED) -> Datas
             props["order_no"] = f"O{rng.randrange(1, 1500)}"              # 業務 ID：委託與成交共用同一池，讓關聯屬性能串起流程
         events.append({
             "project": PROJECT, "one_id": oid, "event": ev, "time": t, "event_date": d, "platform": plat, "channel": rng.choice(["app", "web", "agent"]),
-            "utm_source": rng.choices(["google", "facebook", "line", ""], [3, 2, 1, 4])[0], "symbol": rng.choice(["2330", "2317", "0050", "2454", "00878", ""]),
+            "utm_source": rng.choices(["google", "facebook", "line", ""], [3, 2, 1, 4])[0], "utm_campaign": "", "symbol": rng.choice(["2330", "2317", "0050", "2454", "00878", ""]),
             "amount": amount, "props": props, "event_id": hashlib.sha256(f"golden|{i}".encode()).hexdigest()[:32],
         })
+    events += scenario_events(rng, ids)
     return Dataset(users, events, segments, edges)
+
+
+def scenario_events(rng: random.Random, ids: list[str]) -> list[dict[str, Any]]:
+    """情境示範看板用的事件（docs/27 需求表 A4／A5／C2／C5／D4／E3）：開戶流程、推播／活動點擊追到交易、搜尋→看盤→委託、定期定額。
+    只落在 2026-10-01 … 10-16、每種事件每天人數 ≥ K（20），日線圖才不會整張被 K 匿名抑制；oracle 與 SQL 一樣從這份資料算，黃金查詢不受影響。"""
+    out: list[dict[str, Any]] = []
+    n = [0]
+    def put(oid: str, ev: str, t: datetime, plat: str, *, channel: str = "app", utm_source: str = "", utm_campaign: str = "", symbol: str = "", amount: float | None = None, props: dict[str, Any] | None = None) -> None:
+        n[0] += 1
+        out.append({"project": PROJECT, "one_id": oid, "event": ev, "time": t, "event_date": t.date(), "platform": plat, "channel": channel, "utm_source": utm_source, "utm_campaign": utm_campaign,
+                    "symbol": symbol, "amount": amount, "props": props or {}, "event_id": hashlib.sha256(f"golden-scenario|{n[0]}".encode()).hexdigest()[:32]})
+    def day_time(day: int) -> datetime:
+        d = date(2026, 10, 1) + timedelta(days=day)
+        return datetime(d.year, d.month, d.day, rng.choices(range(24), HOUR_W)[0], rng.randrange(0, 60), rng.randrange(0, 60), rng.randrange(0, 1000) * 1000)
+    plat_of = lambda: rng.choices(["iOS", "Android", "Web"], [45, 35, 20])[0]
+    # A5／C2／C5 開戶：每天 90 人進開戶首頁（三個來源各約 30，日線分組後仍 ≥ K）→ 55% 當天完成申請 → 70% 隔天登入 → 50% 兩天後委託
+    for day in range(16):
+        for oid in rng.sample(ids, 90):
+            plat = plat_of(); src = rng.choice(["google", "facebook", "line"])
+            t = day_time(day); put(oid, "kh_entry_khpg_pv", t, plat, utm_source=src, channel="web" if plat == "Web" else "app")
+            if rng.random() < 0.55:
+                put(oid, "kh_apply", t + timedelta(minutes=rng.randrange(8, 50)), plat, utm_source=src, channel="web" if plat == "Web" else "app")
+                if rng.random() < 0.7:
+                    put(oid, "app_login_success", t + timedelta(days=1, minutes=rng.randrange(0, 600)), plat)
+                    if rng.random() < 0.5:
+                        put(oid, "bond_order", t + timedelta(days=2, minutes=rng.randrange(0, 600)), plat, symbol=rng.choice(["2330", "0050", "2454"]), amount=float(rng.randrange(1, 20_001) * 100), props={"order_no": f"S{n[0]}"})
+    # A4／D4／E3 推播：三個發送計畫，每天 90 人點擊（每計畫 ≥ K）→ 45% 兩天內委託送出 → 60% 成交（帶金額）
+    camps = ["Q4_bond_promo", "sip_launch", "reactivation_oct"]
+    for day in range(16):
+        for oid in rng.sample(ids, 90):
+            plat = rng.choice(["iOS", "Android"]); camp = rng.choices(camps, [4, 3, 3])[0]
+            t = day_time(day); put(oid, "push_click", t, plat, channel="push", utm_source="push", utm_campaign=camp)
+            if rng.random() < 0.45:
+                t2 = t + timedelta(minutes=rng.randrange(5, 2 * 24 * 60)); sym = rng.choice(["2330", "2317", "0050", "2454", "00878"])
+                put(oid, "stock_order_submit", t2, plat, symbol=sym, utm_campaign=camp, props={"order_no": f"P{n[0]}"})
+                if rng.random() < 0.6:
+                    put(oid, "bond_deal", t2 + timedelta(minutes=rng.randrange(1, 240)), plat, symbol=sym, amount=float(rng.randrange(1, 30_001) * 100), utm_campaign=camp, props={"order_no": f"P{n[0] - 1}"})
+    # 活動：每天 90 人點活動頁（渠道 app／web／line 各 ≥ K）
+    for day in range(16):
+        for oid in rng.sample(ids, 90):
+            plat = plat_of(); put(oid, "act_click", day_time(day), plat, channel=rng.choices(["app", "web", "line"], [4, 3, 3])[0], utm_source=rng.choice(["line", "facebook", ""]))
+    # C1／C4 搜尋 → 看盤 → 委託送出：每天 ~40 人搜尋 → 65% 一小時內看盤 → 35% 委託送出 → 50% 成交；定期定額每天 ~24 筆申購
+    for day in range(16):
+        for oid in rng.sample(ids, 40):
+            plat = plat_of(); t = day_time(day); sym = rng.choice(["2330", "2317", "0050", "2454", "00878", "2603"])
+            put(oid, "search_submit", t, plat, symbol=sym, props={"keyword": sym})
+            if rng.random() < 0.65:
+                put(oid, "hq_stockdetail_view", t + timedelta(minutes=rng.randrange(1, 60)), plat, symbol=sym)
+                if rng.random() < 0.35:
+                    t3 = t + timedelta(minutes=rng.randrange(61, 600)); put(oid, "stock_order_submit", t3, plat, symbol=sym, props={"order_no": f"Q{n[0]}"})
+                    if rng.random() < 0.5:
+                        put(oid, "bond_deal", t3 + timedelta(minutes=rng.randrange(1, 120)), plat, symbol=sym, amount=float(rng.randrange(1, 30_001) * 100), props={"order_no": f"Q{n[0] - 1}"})
+        for oid in rng.sample(ids, 24):
+            put(oid, "sip_purchase", day_time(day), plat_of(), symbol=rng.choice(["0050", "00878", "006208"]), amount=float(rng.choice([3000, 5000, 10000, 20000])))
+    return out
 
 
 def ch_rows(ds: Dataset) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -100,7 +156,7 @@ def ch_rows(ds: Dataset) -> tuple[list[dict[str, Any]], list[dict[str, Any]], li
         tu = r["time"] - TPE
         ev.append({"project": PROJECT, "time": tu.strftime("%Y-%m-%d %H:%M:%S.") + f"{tu.microsecond // 1000:03d}", "event": r["event"], "source": "golden",
                    "one_id": r["one_id"], "distinct_id": r["one_id"], "event_id": r["event_id"], "platform": r["platform"], "channel": r["channel"],
-                   "utm_source": r["utm_source"], "symbol": r["symbol"], "amount": r["amount"], "props": r["props"], "ingest_time": ing, "schema_version": 1, "batch_id": "golden"})
+                   "utm_source": r["utm_source"], "utm_campaign": r.get("utm_campaign", ""), "symbol": r["symbol"], "amount": r["amount"], "props": r["props"], "ingest_time": ing, "schema_version": 1, "batch_id": "golden"})
     us = []
     for u in ds.users.values():
         row = dict(u); row["signup_date"] = u["signup_date"].isoformat(); row["last_active_at"] = "2026-10-15 12:00:00.000"
