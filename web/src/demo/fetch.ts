@@ -91,7 +91,9 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
     }
     if (seg.length === 3 && method === 'DELETE') { mem.dashboards.delete(id); return { body: { ok: true } }; }
     if (seg[3] === 'cards' && seg.length === 4 && method === 'POST') {
-      const bm = b.bookmark ? mem.bookmarks.get(String(b.bookmark)) : undefined;
+      const fixedBm = ((fx.routes['GET /v1/bookmarks'] as Obj[] | undefined) ?? []).find((x) => x.id === b.bookmark);
+      const bm = b.bookmark ? (mem.bookmarks.get(String(b.bookmark)) ?? fixedBm) : undefined;
+      if (b.bookmark && !bm) return { body: { detail: '書籤不存在' }, status: 404 };
       const c = bm ? cardOf(bm, who, Number(b.width) === 2 ? 2 : 1) : { id: nid('c'), title: b.title ?? '未命名卡片', kind: b.kind, query: b.query, chart: b.chart ?? 'auto', width: Number(b.width) === 2 ? 2 : 1, note: '', created_by: who, created_at: now() };
       (d.cards as Obj[]).push(c); d.updated_at = now(); return { body: c, status: 201 };
     }
