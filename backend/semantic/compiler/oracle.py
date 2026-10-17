@@ -435,7 +435,7 @@ class Oracle:
             for b in uq.behaviors:
                 counts: dict[str, int] = defaultdict(int)
                 for r in self.events:
-                    if r["project"] == uq.project and b.time.start <= r["event_date"] <= b.time.end and r["event"] == b.event and self.group(b.filters, r, now) and self._row_filters_ok(decision, r, now):
+                    if r["project"] == uq.project and b.time.start <= r["event_date"] <= b.time.end and r["event"] == b.event and self.group(b.filters, r, now) and self._row_filters_ok(decision, r, b.time.now or now):   # 回溯窗口以行為自己的 now 為準（與 SQL 的 now_sql 一致）
                         counts[r["one_id"]] += 1
                 if not b.done:
                     sets.append((set(counts), False)); continue
