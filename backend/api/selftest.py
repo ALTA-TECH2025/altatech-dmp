@@ -302,7 +302,9 @@ def main(store: Any | None = None) -> None:
     assert c.delete(f"/v1/bookmarks/{bmj['id']}").status_code == 204
     cd3 = c.post(f"/v1/dashboards/{did}/cards/{bc['id']}/data").json(); assert any("書籤已刪除" in w for w in cd3["warnings"]) and cd3["rows"]
     assert next(x for x in c.get(f"/v1/dashboards/{did}").json()["cards"] if x["id"] == bc["id"])["bookmark_deleted"] is True
-    assert c.delete(f"/v1/dashboards/{did}/cards/{bc['id']}").json()["ok"] and c.delete(f"/v1/dashboards/{wid}").json()["ok"]
+    for x in [x for x in c.get(f"/v1/dashboards/{did}").json()["cards"] if x.get("bookmark") == bmj["id"]]:          # 清掉引用卡（含 add_to 加的那張），後面 5d 以原 5 張計
+        assert c.delete(f"/v1/dashboards/{did}/cards/{x['id']}").json()["ok"]
+    assert c.delete(f"/v1/dashboards/{wid}").json()["ok"]
     assert {x["event"] for x in store.audit_tail(60)} >= {"bookmark.created", "bookmark.updated", "bookmark.deleted"}
     # 5d. 看板進階（docs/30）：規則式解讀 → HTML 看板（inline SVG、無 script／外部資源、抑制列 <K、浮水印）→ 登入下載與簽章分享連結 → 到期 410 → 定時寄送（審批 → 核可 → 立即執行；無 SMTP 只產檔）
     ex = c.post(f"/v1/dashboards/{did}/explain").json()
