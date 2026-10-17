@@ -140,8 +140,8 @@ def main() -> None:
     assert se["points"] == 3 and se["interval_s"] == 60 and se["grafana"] == {"url": "https://grafana.internal", "dashboard_uid": "dmp-overview"} and len(se["panels"]) == 17 and [s["key"] for s in se["sections"]] == ["platform", "pipeline", "query", "activation"]
     pk = {p["key"]: p for p in se["panels"]}
     assert pk["http_rate"]["expr"].startswith("sum(rate(dmp_http_requests_total") and [s["name"] for s in pk["http_rate"]["series"]] == ["all", "5xx"] and [pt["v"] for pt in pk["http_rate"]["series"][0]["points"]] == [None, 2.1, 0.0], pk["http_rate"]
-    assert [s["name"] for s in pk["source_lag"]["series"]] == ["sync_orders"] and pk["query_p95"]["thresholds"] == [3, 10] and pk["uptime"]["kind"] == "stat"
-    assert [s["name"] for s in pk["query_rate"]["series"]] == ["events", "funnel", "sql"] or True
+    assert [s["name"] for s in pk["source_lag"]["series"]] == ["sync_orders", "sync_instrument"] and pk["query_p95"]["thresholds"] == [3, 10] and pk["uptime"]["kind"] == "stat"
+    assert [s["name"] for s in pk["query_rate"]["series"]] == ["events", "funnel"], pk["query_rate"]["series"]
     clock[0] = now + 2 * 3600; assert svc_s.series(1)["points"] == 0 and svc_s.series(6)["points"] == 3
     svc2 = OpsService(store, None, None, now=lambda: now, reg=M.Registry())                  # 沒有 ClickHouse／排程器：頁面仍可用
     p2 = svc2.pipeline(); assert p2["stages"][0]["summary"].startswith("沒有同步任務") and p2["stages"][1]["status"] == "unknown" and svc2.query_perf()["clickhouse"] is None
