@@ -10,6 +10,7 @@ tags:
   - { name: Ingest }
   - { name: Semantic }
   - { name: Analytics }
+  - { name: Dashboards }
   - { name: Profile }
   - { name: OneID }
   - { name: Segments }
@@ -109,6 +110,60 @@ paths:
   /v1/reveals:
     get: { tags: [Approvals], summary: '揭露申請（我的；admin／數位經營全看）；active = 核可且未到期', responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Reveal' } } } } } } }
     post: { tags: [Approvals], summary: '申請揭露遮罩欄位（masking.yaml 的欄位；L3 由 admin 審批、L2 由數位經營；理由必填；時效預設 24 小時）；核可後該欄位在時效內對申請者明文，每次查看寫審計 mask.revealed', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/RevealRequest' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Reveal' } } } }, '400': { description: 欄位不在遮罩表或本來就明文 } } }
+  /v1/dashboards:
+    get:
+      tags: [Dashboards]
+      summary: 看板清單：我建立的 + 分享給我的角色或我的（admin 全看）；卡片數、擁有者、更新時間
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Dashboard' } } } } }
+    post:
+      tags: [Dashboards]
+      summary: 建立看板（需 overview.use）；擁有者 = 建立者；可同時帶卡片
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/DashboardCreate' } } } }
+      responses:
+        '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Dashboard' } } } }
+  /v1/dashboards/{id}:
+    get:
+      tags: [Dashboards]
+      summary: 看板詳情（含卡片定義，不含資料）；非擁有者且未分享 → 404
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Dashboard' } } } }
+    put:
+      tags: [Dashboards]
+      summary: 更新名稱、描述、分享對象、卡片順序與寬度（擁有者或 admin）；審計 dashboard.updated
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/DashboardCreate' } } } }
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Dashboard' } } } }
+    delete:
+      tags: [Dashboards]
+      summary: 刪除看板（擁有者或 admin）
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { '204': { description: deleted } }
+  /v1/dashboards/{id}/cards:
+    post:
+      tags: [Dashboards]
+      summary: 加一張卡片（從事件／漏斗／留存／路徑／歸因分析頁「存為看板卡片」）：存查詢本身，不存結果；擁有者或 admin
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/DashboardCardCreate' } } } }
+      responses:
+        '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Dashboard' } } } }
+  /v1/dashboards/{id}/cards/{card_id}:
+    delete:
+      tags: [Dashboards]
+      summary: 移除卡片（擁有者或 admin）
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: card_id, in: path, required: true, schema: { type: string } }]
+      responses: { '204': { description: deleted } }
+  /v1/dashboards/{id}/cards/{card_id}/data:
+    post:
+      tags: [Dashboards]
+      summary: 執行卡片查詢：以「查看者」身分套策略（行級、遮罩、K 匿名、預算）後回該分析類型的結果；可帶 time 覆寫看板期間；審計 query.executed（module=dashboard）
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: card_id, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: false, content: { application/json: { schema: { type: object, properties: { time: { type: object, description: '覆寫卡片查詢的 time（from／to）' } } } } } }
+      responses:
+        '200': { description: 'events／funnel／retention／path／attribution 的結果物件（與 /v1/analytics/* 相同）', content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '403': { description: 查看者沒有該分析模組的 use 權限 }
   /v1/segments:
     get: { tags: [Segments], summary: '列出分群（q 搜尋、status、kind；回收站用 status=recycled）', parameters: [{ name: q, in: query, schema: { type: string } }, { name: status, in: query, schema: { type: string } }, { name: kind, in: query, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Segment' } } } } } } }
     post: { tags: [Segments], summary: '建立分群（規則 = UsersQuery；行銷與 agent 提議者為 pending_approval，數據分析／數位經營／admin 直接 active；每專案 ≤ 500）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SegmentCreate' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Segment' } } } }, '400': { description: 規則不合法 }, '409': { description: 名稱重複或超過上限 } } }
@@ -214,7 +269,7 @@ paths:
   /auth/callback:
     get: { tags: [Auth], summary: 'IdP 回呼：換 token、驗 ID token（JWKS／iss／aud／nonce／amr／tid）、群組對應角色、建立 session（Set-Cookie dmp_sid HttpOnly + dmp_csrf）；無角色轉 /no-access；審計 auth.login.*', parameters: [{ name: code, in: query, schema: { type: string } }, { name: state, in: query, schema: { type: string } }], responses: { '302': { description: 轉向 return_to }, '401': { description: 驗證失敗 } } }
   /auth/ldap:
-    post: { tags: [Auth], summary: '網域帳號登入（direct 模式）：LDAPS bind；第一步回 next=totp，第二步帶 totp；速率限制；審計', requestBody: { content: { application/json: { schema: { type: object, required: [username, password], properties: { username: { type: string }, password: { type: string }, totp: { type: string } } } } } }, responses: { '200': { description: ok 或 next=totp }, '401': { description: 帳號或密碼錯誤 } } }
+    post: { tags: [Auth], summary: '帳密登入（direct 模式）：provider=ad 走 LDAPS bind、provider=local 走本機帳號（scrypt 密碼 + TOTP；外包／單機環境用）；第一步回 next=totp，第二步帶 totp 驗證；速率限制與鎖定；審計', requestBody: { content: { application/json: { schema: { type: object, required: [username, password], properties: { provider: { type: string, enum: [ad, local], default: ad }, username: { type: string }, password: { type: string }, totp: { type: string } } } } } }, responses: { '200': { description: ok 或 next=totp }, '401': { description: 帳號或密碼錯誤 } } }
   /auth/logout:
     post: { tags: [Auth], summary: '登出：刪 session、清 cookie；回 IdP end_session 網址供前端跳轉（RP-initiated logout）；需 X-CSRF-Token', responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean }, idp_logout: { type: string, nullable: true } } } } } } } }
   /auth/token:
@@ -762,6 +817,45 @@ components:
         generated_at: { type: string, nullable: true }
         downloaded_at: { type: string, nullable: true }
         note: { type: string }
+    DashboardCardCreate:
+      type: object
+      required: [title, kind, query]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 80 }
+        kind: { type: string, enum: [events, funnel, retention, path, attribution] }
+        query: { type: object, additionalProperties: true, description: '對應 /v1/analytics/{kind} 的請求本體（EventsQuery／FunnelQuery／RetentionQuery／PathQuery／AttributionQuery）' }
+        chart: { type: string, enum: [auto, line, bar, stat, table], default: auto }
+        width: { type: integer, enum: [1, 2], default: 1, description: '1 = 半寬、2 = 全寬' }
+        note: { type: string, maxLength: 200 }
+    DashboardCard:
+      allOf:
+        - $ref: '#/components/schemas/DashboardCardCreate'
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string }
+            created_by: { type: string }
+            created_at: { type: string, format: date-time }
+    DashboardCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: string, maxLength: 300 }
+        shared: { type: object, properties: { roles: { type: array, items: { type: string }, description: 'rbac 角色 key；看得到看板，但每張卡片仍以查看者自己的權限執行' }, users: { type: array, items: { type: string } } } }
+        cards: { type: array, items: { $ref: '#/components/schemas/DashboardCard' }, description: '更新時整組取代（順序與寬度）；新增卡片用 /cards' }
+        time: { type: object, properties: { preset: { type: string, enum: [7d, 14d, 30d, 90d], default: 30d } }, description: '看板共用期間；卡片查詢的 time 以此覆寫' }
+    Dashboard:
+      allOf:
+        - $ref: '#/components/schemas/DashboardCreate'
+        - type: object
+          required: [id, owner, cards, created_at, updated_at]
+          properties:
+            id: { type: string }
+            owner: { type: string }
+            mine: { type: boolean, description: '查看者是否為擁有者（可編輯）' }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
     RevealRequest:
       type: object
       required: [field, reason]
