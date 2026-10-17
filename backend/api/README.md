@@ -44,6 +44,15 @@ CLICKHOUSE_URL=http://127.0.0.1:8123 DMP_SECRETS_JSON=secrets.json uvicorn backe
 - 端到端：`backend/integration/e2e_clickhouse.py` 最後跑 `api/e2e_stage.py`，以 admin 與行銷兩種身分打 `/v1/analytics/events`／funnel／retention／`/v1/users/list`，結果需與直接執行編譯器 SQL 相同；數據分析身分打細查三端點。
 - 之後：路徑／歸因端點（等編譯器樣板）、export 審批流程、schemathesis 契約測試、五角色 × 端點權限矩陣自動展開。
 
+## 資料流與效能（/v1/ops/*、/metrics；docs/17 §5.16）
+
+- `backend/ops/metrics.py`：程序內 Prometheus 指標庫（不引第三方套件）。HTTP 請求數與耗時（路由樣板當標籤，不放實際 id）、分析查詢耗時／結果／列數（依模組，`analytics.execute_kind` 與 SQL 沙盒都會記）、背景例行耗時與成敗（`main.start_ticker` 每段包 `routine()`）、抓取時才算的 collector（來源延遲、交付狀態、ClickHouse 表用量）。
+- `backend/ops/service.py`：四個視圖——`pipeline`（來源同步 → ClickHouse 進倉 → API 與查詢 → 推送交付，加資料品質）、`query_perf`（審計 `query.executed`／`query.failed`／`query.sql` 依模組算 P50/P95/P99 與 SLA；ClickHouse 可用時加 `system.query_log`）、`batch_jobs`（同步任務＋例行＋儲存用量）、`alerts`（`ops/alerts.yaml` 規則 × 當前指標）。門檻在 `ops/sla.yaml`。系統表查詢快取 30 秒，失敗回 `null` 不讓頁面 500。
+- `/metrics`：Bearer `DMP_METRICS_TOKEN`（或 `DMP_METRICS_TOKEN_REF` 指向密鑰庫）給叢集內 ServiceMonitor；沒帶 token 時退回 session（governance.view）。
+- 權限：檢視 governance.view（it_admin、admin、data_analyst／digital_ops 唯讀）；重跑同步任務 governance.admin，審計 `batch.rerun`。
+- 自測：`python3 -m backend.ops`（指標庫＋假排程器／store／ClickHouse 跑四視圖與全部規則）；`python3 -m backend.api` 的 6b 段走 HTTP。
+- Helm：`deploy/helm/altatech-dmp/templates/monitoring.yaml`（ServiceMonitor、PrometheusRule 同一組規則、Grafana 看板 ConfigMap），`observability.prometheus: true` 時渲染。
+
 ## 單機啟動（main.py 的環境變數）
 
-`DMP_WEB_DIST`（API 同源提供前端 SPA）、`DMP_LOCAL_ACCOUNTS`／`DMP_LOCAL_ALLOWED_ROLES`（本機帳號）、`DMP_TICK=1`（背景執行同步任務排程與分群例行）、`DMP_COOKIE_SECURE=0`（無 TLS 測試）、`DMP_K_IDM`／`DMP_K_ACCT`（代碼化金鑰）；`python3 -m backend.api.seed` 載合成資料、建五種角色帳號、建範例儀表板。一鍵流程見 `deploy/quickstart/README.md`。
+`DMP_WEB_DIST`（API 同源提供前端 SPA）、`DMP_LOCAL_ACCOUNTS`／`DMP_LOCAL_ALLOWED_ROLES`（本機帳號）、`DMP_TICK=1`（背景執行同步任務排程與分群例行）、`DMP_METRICS_TOKEN`／`DMP_METRICS_TOKEN_REF`（/metrics 抓取 token）、`DMP_COOKIE_SECURE=0`（無 TLS 測試）、`DMP_K_IDM`／`DMP_K_ACCT`（代碼化金鑰）；`python3 -m backend.api.seed` 載合成資料、建五種角色帳號、建範例儀表板。一鍵流程見 `deploy/quickstart/README.md`。

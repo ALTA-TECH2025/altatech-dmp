@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
+from ..ops.metrics import observe_query
 from ..security.policy import RBAC, Subject, authorize, has_grant
 from ..semantic.compiler import Catalog
 from ..sql import sandbox
@@ -90,14 +91,14 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
             try:
                 rows = run_rows(ch, c)
             except RuntimeError as e:
-                run.update({"status": "error", "error": str(e)[:300], "ms": round((time.perf_counter() - t0) * 1000)}); remember(run)
+                run.update({"status": "error", "error": str(e)[:300], "ms": round((time.perf_counter() - t0) * 1000)}); remember(run); observe_query("sql", run["ms"], ok=False)
                 store.audit("query.sql", {"user": subject.user_id, "module": "sql", "run_id": run["id"], "sql_hash": run["sql_hash"], "status": "error", "error": str(e)[:200]})
                 raise HTTPException(502, f"查詢失敗：{str(e)[:300]}") from None
         finally:
             with lock:
                 running[subject.user_id] -= 1
         ms = round((time.perf_counter() - t0) * 1000); cols = list(rows[0].keys()) if rows else []
-        run.update({"rows": len(rows), "ms": ms, "columns": cols}); remember(run)
+        run.update({"rows": len(rows), "ms": ms, "columns": cols}); remember(run); observe_query("sql", ms, ok=True, rows=len(rows))
         results[run["id"]] = {"rows": rows, "columns": cols, "user": subject.user_id}
         while len(results) > 50: results.popitem(last=False)
         store.audit("query.sql", {"user": subject.user_id, "module": "sql", "run_id": run["id"], "sql_hash": run["sql_hash"], "rows": len(rows), "ms": ms, "lineage": c.lineage, "scan_rows_estimate": est})

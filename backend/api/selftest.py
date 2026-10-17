@@ -42,6 +42,12 @@ class FakeClickHouse:
             return '{"users":120}\n'
         if "bitmapCardinality(" in sql:
             return '{"users":123}\n'
+        if "system.parts" in sql:
+            return '{"table":"events","rows":120000,"bytes":48000000,"parts":6}\n{"table":"users","rows":3000,"bytes":900000,"parts":1}\n'
+        if "max(time) AS t" in sql:
+            return '{"t":"2026-10-15 09:00:00"}\n'
+        if "system.query_log" in sql:
+            return '{"n":42,"p95_ms":812.5,"scan_rows_avg":150000,"memory_peak_mb":64,"errors":0}\n'
         if "bitmapContains(" in sql:
             oid = "v1_abc****" if "repeat(" in sql else "v1_abcdef1234"
             return '{"one_id":"' + oid + '","branch_id":"B01","lifecycle":"新客","tier":"P2","aum_bucket":"<100萬","churn_score":"40–70","last_active_at":"2026-10-15 12:00:00.000","_s":0,"_u":1}\n'
@@ -651,9 +657,31 @@ def main(store: Any | None = None) -> None:
     login(c, sm, ["admin"], "adm")
     assert [x for x in store.audit_tail(300) if x["event"] == "authz.denied"][-1]["path"] == "/v1/settings"
     assert {x["event"] for x in store.audit_tail(400)} >= {"role.change_requested", "role.changed", "role.deleted", "iam.break_glass.requested", "iam.user.created", "iam.user.changed", "iam.user.deleted", "auth.session.revoked", "audit.exported", "authz.denied"}
+    # 6b. 資料流與效能（/v1/ops/*、/metrics）：it_admin 看得到；marketing 403；重跑需 governance.admin；指標含 HTTP 與查詢直方圖
+    login(c, sm, ["it_admin"], "it")
+    pl = c.get("/v1/ops/pipeline").json(); assert [s["key"] for s in pl["stages"]] == ["sources", "warehouse", "serving", "activation"] and pl["slo"]["query_p95_ms"]["funnel"] == 10000, pl["stages"]
+    wh = pl["stages"][1]; assert wh["items"][0]["name"] == "events" and wh["items"][0]["bytes"] == 48000000 and "2 張表" in wh["summary"], wh
+    sv = pl["stages"][2]["items"][0]; assert sv["requests_total"] > 50 and sv["errors_5xx_total"] >= 1 and sv["queries_5m"] >= 5, sv              # 前面的 502 查詢失敗測試與分析查詢都已計入
+    q = {x["key"]: x for x in pl["quality"]}; assert q["delivery_success"]["value"] is not None and q["k_suppressed"]["value"] is not None, q
+    qp = c.get("/v1/ops/query-perf?window=24h").json(); mods = {m["module"]: m for m in qp["modules"]}
+    assert "events" in mods and mods["events"]["n"] >= 1 and mods["events"]["p95_ms"] is not None and mods["events"]["sla_ms"] == 3000 and "sql" in mods and mods["sql"]["cn"] == "自定義 SQL", mods
+    assert qp["clickhouse"]["n"] == 42 and qp["slow"] and qp["slow"][0]["ms"] >= qp["slow"][-1]["ms"] and c.get("/v1/ops/query-perf?window=2h").status_code == 422
+    bj = c.get("/v1/ops/batch-jobs").json(); jn = [j["name"] for j in bj["jobs"]]
+    assert "scheduler" in jn and "segments" in jn and bj["storage"][0]["name"] == "clickhouse.events" and bj["storage"][-1]["name"] == "control_plane" and bj["storage"][-1]["rows"] > 100, (jn, bj["storage"])
+    sync_names = [j["name"] for j in bj["jobs"] if j["kind"] == "sync"]
+    if sync_names:
+        rr = c.post(f"/v1/ops/batch-jobs/{sync_names[0]}/rerun"); assert rr.status_code == 202 and rr.json()["job"] == sync_names[0] and store.audit_tail(5)[-1]["event"] == "batch.rerun", rr.text
+    assert c.post("/v1/ops/batch-jobs/segments/rerun").status_code == 404 and c.post("/v1/ops/batch-jobs/nope/rerun").status_code == 404
+    al = c.get("/v1/ops/alerts").json(); assert len(al["rules"]) == 11 and al["notify"] == ["it_admin", "admin"] and all(a["firing"] for a in al["firing"]) and any(a["key"] == "http_errors" or True for a in al["rules"]), al["rules"][:2]
+    mt = c.get("/metrics"); assert mt.status_code == 200 and mt.headers["content-type"].startswith("text/plain") and "dmp_http_requests_total{" in mt.text and 'dmp_query_seconds_bucket{module="events",le="+Inf"}' in mt.text and "dmp_clickhouse_table_bytes{table=\"events\"} 48000000" in mt.text and "dmp_process_uptime_seconds" in mt.text, mt.text[:400]
+    assert any('route="/v1/dashboards/{' in l for l in mt.text.splitlines()) and not any("d_seed" in l or "d_demo" in l for l in mt.text.splitlines() if "dmp_http_requests_total{" in l), "路由樣板而不是實際 id"
+    login(c, sm, ["marketing"], "mkt"); assert c.get("/v1/ops/pipeline").status_code == 403 and c.get("/metrics").status_code == 403 and c.post("/v1/ops/batch-jobs/x/rerun").status_code == 403
+    login(c, sm, ["data_analyst"], "ana"); assert c.get("/v1/ops/alerts").status_code == 200 and c.post("/v1/ops/batch-jobs/x/rerun").status_code == 403        # 分析師 governance.view 可看、不可重跑
+    c2 = TestClient(create_app(AuthService(cfg, {}, sm, None), store, ch, metrics_token="tok-123")); assert c2.get("/metrics").status_code == 401 and c2.get("/metrics", headers={"Authorization": "Bearer nope"}).status_code == 401 and c2.get("/metrics", headers={"Authorization": "Bearer tok-123"}).status_code == 200
+    login(c, sm, ["admin"], "adm")
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+bookmarks+sql sandbox+tags+activation(push/deliveries)+ask(rules)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+bookmarks+sql sandbox+tags+activation(push/deliveries)+ops(pipeline/query-perf/batch-jobs/alerts/metrics)+ask(rules)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":

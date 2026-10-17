@@ -9,6 +9,7 @@ from typing import Any, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from ..ops.metrics import observe_query
 from ..security.policy import RBAC, Subject, authorize
 from ..semantic.compiler import Catalog, Compiled, compile_query
 from ..semantic.compiler.attribution import compile_attribution, parse_attribution, shape
@@ -157,8 +158,10 @@ def execute_kind(kind: str, store: Store, ch: Executor | None, cat: Catalog, sub
         rows = run_rows(ch, c)
     except RuntimeError as e:
         store.audit("query.failed", {"user": subject.user_id, "module": mod, "sql_hash": sql_hash, "error": str(e)[:200], **(extra or {})})
+        observe_query(mod, (time.perf_counter() - t0) * 1000, ok=False)
         raise HTTPException(502, f"查詢失敗：{str(e)[:300]}") from None
     ms = round((time.perf_counter() - t0) * 1000)
+    observe_query(mod, ms, ok=True, rows=len(rows))
     audit = {"user": subject.user_id, "module": mod, "sql_hash": sql_hash, "rows": len(rows), "ms": ms, "row_policy": c.row_filters, "lineage": c.lineage, **run.extra_audit(q), **(extra or {})}
     if kind == "events":
         audit.update({"layer": c.layer, "masked": list(c.masked)})

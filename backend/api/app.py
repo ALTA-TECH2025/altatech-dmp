@@ -16,16 +16,18 @@ from ..auth.api import AuthService, subject_from_request
 from ..auth.api import build_router as auth_router
 from ..integration.runner import LocalRunner
 from ..integration.scheduler import Scheduler
+from ..ops import metrics as _metrics
+from ..ops.service import OpsService
 from ..security.policy import Subject
 from ..segments import SegmentService
 from ..semantic.compiler import Catalog
-from . import activation, analytics, ask, bookmarks, dashboards, exports, iam, integration, meta, migration, segments, sql, sysadmin, tags, users
+from . import activation, analytics, ask, bookmarks, dashboards, exports, iam, integration, meta, migration, ops, segments, sql, sysadmin, tags, users
 from .store import Store
 
 
 def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_service: SegmentService | None = None, export_dir: Any | None = None, approval_service: ApprovalService | None = None,
                scheduler: Scheduler | None = None, secret_writer: Any | None = None, migration_runner: Any | None = None, mailer: Any | None = None, mail_domains: list[str] | None = None,
-               render_key: str | None = None, base_url: str = "", llm: Any | None = None, secret_of: Any | None = None, transport: Any | None = None) -> FastAPI:
+               render_key: str | None = None, base_url: str = "", llm: Any | None = None, secret_of: Any | None = None, transport: Any | None = None, metrics_token: str | None = None) -> FastAPI:
     app = FastAPI(title="AltaTech DMP API", version="0.1.0", docs_url="/v1/docs", openapi_url="/v1/openapi.json")
 
     approvals = approval_service or ApprovalService(store)
@@ -78,6 +80,9 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     sched = scheduler or Scheduler(Path(tempfile.gettempdir()) / "dmp-sched.db", LocalRunner(ch if hasattr(ch, "insert_json") and not ch.__class__.__name__.startswith("Fake") else None))
     app.include_router(integration.build_router(store, get_subject, sched, secret_writer))
     app.state.scheduler = sched
+    ops_svc = OpsService(store, ch, sched)                                     # 資料流與效能：排程器＋審計＋程序內指標＋ClickHouse 系統表
+    app.include_router(ops.build_router(store, get_subject, ops_svc, metrics_token))
+    app.state.ops = ops_svc
 
     @app.exception_handler(HTTPException)
     async def _http(request: Request, e: HTTPException) -> Any:
@@ -95,7 +100,17 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next: Any) -> Any:
-        resp = await call_next(request)
+        import time as _time
+        t0 = _time.perf_counter()
+        try:
+            resp = await call_next(request)
+        except Exception:
+            route = getattr(request.scope.get("route"), "path", None) or _metrics.route_template(request.url.path)
+            _metrics.HTTP_REQUESTS.inc({"method": request.method, "route": route, "status": "500"}); raise
+        if request.url.path != "/metrics":                                         # Prometheus 自己的抓取不計入
+            route = getattr(request.scope.get("route"), "path", None) or _metrics.route_template(request.url.path)
+            _metrics.HTTP_REQUESTS.inc({"method": request.method, "route": route, "status": str(resp.status_code)})
+            _metrics.HTTP_SECONDS.observe(_time.perf_counter() - t0, {"method": request.method, "route": route})
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("Referrer-Policy", "same-origin")
         resp.headers.setdefault("Cache-Control", "no-store")
