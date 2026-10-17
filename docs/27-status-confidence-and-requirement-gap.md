@@ -22,7 +22,9 @@
 | 控制面儲存（PostgreSQL：角色、指派、分群、審批、審計） | 後端完成 | `api/store_pg.py` | — | CI 用 postgres:16 自測 |
 | 間隔／分佈／Session／LTV 分析 | 契約 | — | 原型 | — |
 | 自定義 SQL（唯讀沙盒：解析規則、權限表目錄、脫敏欄位預校驗、動態參數、1,000 列預覽、下載審批、已存查詢、查詢記錄、中間表；可存書籤／進看板） | 可演示 | `sql/sandbox.py`、`api/sql.py` | 分析 › 自定義 SQL（數據表／已存／記錄／中間表側欄、執行／解析估算、表格／折線／長條、複製 CSV／下載、儲存查詢、存為書籤／加入看板、存為中間表） | 沙盒自測、API 自測（sql sandbox 段）、Playwright（本機與示範站） |
-| 標籤（七種）、名單推送（Webhook 有骨架）、即時觸發 | 契約／原型 | `activation/webhook.py` 骨架 | 原型；正式前端為占位頁 | — |
+| 標籤最小版（自定義標籤值：每值一條用戶規則；SQL 標籤；審批；計算 → `dmp.user_tags` Bitmap 版本與分布；暫停／回收／血緣；例行計算） | 可演示（兩種建立方式；其餘八種第二階段） | `tags/service.py`、`api/tags.py` | 營運 › 標籤（目錄、詳情：分布長條／版本／血緣、新建：值 × 規則或 SQL、自定義欄位） | API 自測（tags 段）、Playwright（本機與示範站） |
+| 名單推送（目的地 secret_ref／測試事件／輪替／停用；推送單＝分群 × 目的地 × 模式 × 排程；增量差集、附帶標籤；Webhook HMAC 簽章、分批、重試→DLQ、連續失敗自動停用、重放；全量與目的地首次推送審批；例行 tick） | 可演示（Webhook；Kafka／GCS 第二階段） | `activation/service.py`、`activation/webhook.py`、`api/activation.py` | 營運 › 名單推送（推送單／目的地／交付紀錄） | API 自測（activation 段：假傳輸驗簽章、重試、自動停用、重放）、本機簽章接收端端到端、Playwright |
+| 即時觸發（Flink 規則引擎 + MA Webhook） | 契約／原型 | — | 占位頁（第一階段以分群名單推送替代） | — |
 | 問數建卡片（AI 生成卡片） | 可演示（規則解析）；模型解析需 LLM 金鑰 | `/v1/analytics/ask*`、`/v1/dashboards/{id}/ask`、`insight_agent/configure.py`（rules／llm 兩個解析器、乾跑驗證、golden 20 題） | 儀表板「AI 生成卡片」：問題 → 卡片草稿（信心度、說明、查詢／SQL）→ 勾選加入看板或存成書籤；看板解讀「敘述版」 | configure 自測（model 20/20、params 20/20）、API 自測 |
 | 總覽／儀表板 | 可演示 | `/v1/bookmarks*`（書籤：分析查詢存成可重用、可分享的物件，可放進多個看板，改書籤看板同步）、`/v1/dashboards*`：卡片存查詢或引用書籤、以檢視者身分重算、分享角色／使用者；解讀、HTML 看板產物與分享連結、定時寄送（`dashboard_share.py`、`render/svg.py`） | 列表、卡片網格（五種分析）、存為看板卡片、分享、拖曳排版與寬度、看板解讀、產生 HTML 看板（分享連結）、定時寄送（審批） | API 自測（含解讀／渲染／token／到期／排程）；單機環境真 ClickHouse 產出 HTML 看板 |
 | 日誌統計 | 可演示 | `/v1/audit`、`/v1/audit/stats`、`/v1/audit/export`、`security/audit_alerts.yaml` | docs/10 §8 看板：指標卡、每日趨勢、模組／角色、敏感存取 Top、審批、告警規則評估、agent 活動（二期）、審計報表匯出；明細列表（效能／query_log 彙總第二階段） | API 自測（含規則評估） |
@@ -133,6 +135,6 @@
 
 1. 與 Merkle 定稿 D1 資料流圖與 BigQuery 區域／匯出方式，作為 C1 I 欄的答案。
 2. 向客戶取得神策專案層 API Secret 或 Impala 存取，跑一次真歷史資料的導出與對帳。
-3. 排 M4：間隔／分佈／Session、標籤與推送前端。
+3. 排 M4：間隔／分佈／Session、標籤其餘建立方式、Kafka／GCS 目的地與即時推送。
 4. 借一台正式規格測試機跑 10 億級基準，把 A7／H3 的數字做實。
 5. 補監控告警（G2）與瀏覽器端到端測試。

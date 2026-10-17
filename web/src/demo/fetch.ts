@@ -45,7 +45,7 @@ export const demoFetch: typeof fetch = async (input, init) => {
 
 // ---- 記憶體覆蓋層：示範站建立的看板／書籤 ----
 type Obj = Record<string, unknown>;
-const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj>(), sqlSaved: new Map<string, Obj>(), sqlRuns: [] as Obj[], mids: new Map<string, Obj>(), midGone: new Set<string>() };
+const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj>(), sqlSaved: new Map<string, Obj>(), sqlRuns: [] as Obj[], mids: new Map<string, Obj>(), midGone: new Set<string>(), tags: new Map<string, Obj>(), dests: new Map<string, Obj>(), pushes: new Map<string, Obj>(), dl: [] as Obj[] };
 const now = () => new Date().toISOString().slice(0, 19) + 'Z';
 const me = (fx: Fixtures): string => String(((fx.roles[demoRole()] ?? fx.roles.admin) as { user: { id: string } }).user.id);
 const nid = (p: string) => `${p}_demo${Math.random().toString(36).slice(2, 7)}`;
@@ -85,6 +85,7 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
   }
   if (seg[1] === 'dashboards' && seg[3] === 'ask' && method === 'POST') return askOverlay(String(b.question ?? ''), seg[2], fx);
   if (seg[1] === 'sql') return sqlOverlay(method, seg, b, fx, who);
+  if (seg[1] === 'tags' || seg[1] === 'destinations' || seg[1] === 'pushes' || seg[1] === 'audiences' || seg[1] === 'deliveries' || seg[1] === 'activation') return actOverlay(method, seg, b, fx, who);
   if (seg[1] === 'bookmarks') {
     const id = seg[2]; const bm = id ? mem.bookmarks.get(id) : undefined;
     const usedIn = (bid: string) => [...mem.dashboards.values()].filter((d) => (d.cards as Obj[]).some((c) => c.bookmark === bid)).map((d) => ({ dashboard: d.id, name: d.name }));
@@ -241,4 +242,126 @@ function sqlOverlay(method: string, seg: string[], b: Obj, fx: Fixtures, who: st
     return { body: cur };
   }
   return null;
+}
+
+// ---- 標籤／推送：固定資料 + 記憶體覆蓋（建立標籤／計算、目的地／測試、推送單／執行、交付／重放都在瀏覽器內模擬） ----
+function listOf(fx: Fixtures, key: string, m: Map<string, Obj>, idKey = 'id'): Obj[] {
+  const fixed = ((fx.routes[key] as Obj[] | undefined) ?? []).filter((x) => !m.has(String(x[idKey])));
+  return [...[...m.values()].filter((x) => !x._gone), ...fixed];
+}
+function findIn(fx: Fixtures, key: string, m: Map<string, Obj>, id: string, idKey = 'id'): Obj | undefined {
+  return m.get(id) ?? ((fx.routes[key] as Obj[] | undefined) ?? []).find((x) => x[idKey] === id);
+}
+function synthDist(values: Obj[]): Obj[] { let seed = 3; const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }; return values.map((v) => ({ value: v.value, users: 40 + Math.round(rnd() * 160) })); }
+function actOverlay(method: string, seg: string[], b: Obj, fx: Fixtures, who: string): { body: unknown; status?: number } | null {
+  const kind = seg[1]; const id = seg[2]; const sub = seg[3];
+  const role = demoRole(); const approver = role === 'admin' || role === 'ops';
+  if (kind === 'tags') {
+    if (id === 'custom-fields' || id === 'tick') return null;
+    if (method === 'GET' && !id) return { body: listOf(fx, 'GET /v1/tags', mem.tags).filter((t) => t.status !== 'recycled') };
+    if (method === 'POST' && !id) {
+      const key = String(b.key || `tag_${Math.random().toString(36).slice(2, 7)}`);
+      if (findIn(fx, 'GET /v1/tags', mem.tags, key)) return { body: { detail: `標籤 ${key} 已存在` }, status: 409 };
+      const pending = role === 'marketing';
+      const t: Obj = { id: key, key, name: b.name, directory: b.directory ?? '其他', description: b.description ?? '', dtype: b.dtype ?? 'string', kind: b.kind ?? 'values', values: b.values ?? [], sql: b.sql ?? '', update: { mode: 'manual', freq: 'daily', earliest: '06:00', keep: 7, ...((b.update as Obj) ?? {}) }, fields: b.fields ?? {},
+        status: pending ? 'pending_approval' : 'active', owner: who, created_at: now(), updated_at: now(), approval: { status: pending ? 'pending' : 'none', by: null, at: null, note: '' }, latest: null, versions: [], lineage: { up: ['dmp.users'], down: [] }, recycled_at: null };
+      mem.tags.set(key, t); return { body: t, status: 201 };
+    }
+    const t = id ? findIn(fx, 'GET /v1/tags', mem.tags, id) : undefined;
+    if (!t) return null;
+    const put = (x: Obj) => { mem.tags.set(String(x.id), x); return { body: x }; };
+    if (method === 'GET' && !sub) return { body: t };
+    if (method === 'GET' && sub === 'versions') return { body: t.versions ?? [] };
+    if (method === 'GET' && sub === 'distribution') { const l = t.latest as Obj | null; return l ? { body: { tag: id, version: l.version, basetime: l.basetime, users: l.users, distribution: l.distribution } } : { body: { detail: '尚無計算結果' }, status: 404 }; }
+    if (method === 'PUT') return put({ ...t, ...b, updated_at: now() });
+    if (sub === 'compute' && method === 'POST') {
+      if (t.status !== 'active') return { body: { detail: `標籤未生效（${t.status}），不能計算` }, status: 409 };
+      const dist = t.kind === 'values' ? synthDist(t.values as Obj[]) : synthDist([{ value: '1' }, { value: '2' }, { value: '3' }, { value: '5' }, { value: '8' }]);
+      const v: Obj = { version: (((t.latest as Obj | null)?.version as number) ?? 0) + 1, basetime: now().slice(0, 10), users: dist.reduce((s, d) => s + (d.users as number), 0), status: 'success', computed_at: now(), ms: 37, trigger: 'manual', error: null, distribution: dist };
+      put({ ...t, latest: v, versions: [...((t.versions as Obj[]) ?? []), v].slice(-Number((t.update as Obj).keep ?? 7)), updated_at: now() }); return { body: v, status: 202 };
+    }
+    if (sub === 'approve' && method === 'POST') { if (!approver) return { body: { detail: '需審批權限' }, status: 403 }; const ok = b.approve !== false; return put({ ...t, status: ok ? 'active' : 'draft', approval: { status: ok ? 'approved' : 'rejected', by: who, at: now(), note: b.note ?? '' }, updated_at: now() }); }
+    if (sub === 'submit' && method === 'POST') return put({ ...t, status: 'pending_approval', approval: { status: 'pending', by: null, at: null, note: '' } });
+    if (sub === 'pause' && method === 'POST') { const down = (t.lineage as Obj).down as string[]; return { body: { ...put({ ...t, status: t.status === 'active' ? 'paused' : 'active' }).body as Obj, warnings: down?.length && t.status === 'active' ? [`有 ${down.length} 個下游（推送單／目的地）引用此標籤`] : [] } }; }
+    if (sub === 'recycle' && method === 'POST') { if (((t.lineage as Obj).down as string[])?.length) return { body: { detail: '有下游引用，先解除再移入回收站' }, status: 409 }; return put({ ...t, status: 'recycled', recycled_at: now() }); }
+    if (sub === 'restore' && method === 'POST') return put({ ...t, status: 'active', recycled_at: null });
+    return null;
+  }
+  if (kind === 'destinations') {
+    if (method === 'GET' && !id) return { body: listOf(fx, 'GET /v1/destinations', mem.dests) };
+    if (method === 'POST' && !id) {
+      if (!approver && role !== 'it') return { body: { detail: '目的地需數位經營（segments.approve）或資訊管理（integration.admin）' }, status: 403 };
+      if (b.secret || b.token || b.password) return { body: { detail: '欄位 secret 疑似明文密鑰，請改用 secret_ref' }, status: 400 };
+      if (!/^kv\/data\/dmp\/[a-z]+\/[a-z0-9_]+#[a-z_]+$/.test(String(b.secret_ref ?? ''))) return { body: { detail: 'secret_ref 格式不合法（只接受密鑰庫參照，不接受明文）' }, status: 400 };
+      if (!/^https:\/\//.test(String(b.url ?? ''))) return { body: { detail: 'url 須為 https://' }, status: 400 };
+      const d: Obj = { id: nid('dst'), name: b.name, type: 'webhook', url: b.url, secret_ref: b.secret_ref, secret: '••••••••', identifier: b.identifier ?? 'customer_code', allowed_tags: b.allowed_tags ?? [], masking_level: 'L2', ip_allowlist: [], mtls: false, note: b.note ?? '', status: 'active', owner: who, created_at: now(), updated_at: now(), first_push_at: null, consecutive_failures: 0, rotated_at: null, stats: { ok_7d: null, deliveries_7d: 0, p95_ms: null, last_delivery_at: null } };
+      mem.dests.set(String(d.id), d); return { body: d, status: 201 };
+    }
+    const d = id ? findIn(fx, 'GET /v1/destinations', mem.dests, id) : undefined;
+    if (!d) return null;
+    const put = (x: Obj) => { mem.dests.set(String(x.id), x); return { body: x }; };
+    if (method === 'GET') return { body: d };
+    if (method === 'PUT') return put({ ...d, ...b, updated_at: now() });
+    if (sub === 'pause') return put({ ...d, status: d.status === 'active' ? 'paused' : 'active', consecutive_failures: 0 });
+    if (sub === 'rotate-secret') return put({ ...d, secret_ref: b.secret_ref, rotated_at: now() });
+    if (sub === 'test') { const ok = !String(d.url).includes('ma.internal'); const dlv: Obj = { id: nid('dlv'), push_id: null, segment_id: 'audience_test', destination_id: d.id, version: 0, mode: 'test', event: 'audience.test', batch: { index: 1, total: 1, size: 3 }, members: 3, status: ok ? 'ok' : 'retrying', attempts: 1, next_retry_at: null, response: ok ? { status: 200, ms: 180, body: '{"ok":true}' } : { status: null, ms: 10004, body: 'ConnectTimeout: ma.internal' }, created_at: now(), updated_at: now(), replay_of: null }; mem.dl.unshift(dlv); return { body: { delivery: dlv.id, status: dlv.status, response: dlv.response } }; }
+    return null;
+  }
+  if (kind === 'audiences' && sub === 'push' && method === 'POST') {
+    const segs = (fx.routes['GET /v1/segments'] as Obj[] | undefined) ?? []; const sg = segs.find((s) => s.id === id);
+    if (!sg) return { body: { detail: `找不到：分群 ${id}` }, status: 404 };
+    const ids = (b.destination_ids as string[] | undefined) ?? []; const dests = ids.map((x) => findIn(fx, 'GET /v1/destinations', mem.dests, x)).filter(Boolean) as Obj[];
+    if (!dests.length) return { body: { detail: 'destination_ids 至少一個' }, status: 400 };
+    if (b.mode === 'realtime') return { body: { detail: '即時推送（Flink 規則／即時標籤）排第二階段；請先用增量 + 日批後排程' }, status: 400 };
+    const tags = (b.include_tags as string[] | undefined) ?? [];
+    for (const d of dests) { const bad = tags.filter((t) => !(d.allowed_tags as string[]).includes(t)); if (bad.length) return { body: { detail: `目的地 ${d.name} 不允許附帶標籤：${bad.join('、')}` }, status: 400 }; }
+    const first = dests.filter((d) => !d.first_push_at);
+    const needs = b.mode === 'full' || (first.length > 0 && !approver);
+    const p: Obj = { id: nid('push'), segment_id: id, segment_name: sg.name, destination_ids: ids, mode: b.mode ?? 'delta', schedule: b.schedule ?? 'after_batch', cron: b.cron ?? '', include_tags: tags, status: needs ? 'pending_approval' : 'active', approval_id: needs ? nid('ap') : null, owner: who, created_at: now(), updated_at: now(), last_delivered_version: null, last_run_at: null, last_result: null, runs: 0 };
+    mem.pushes.set(String(p.id), p);
+    if (p.status === 'active' && p.schedule === 'now') runPush(p, fx);
+    return { body: p, status: 202 };
+  }
+  if (kind === 'pushes') {
+    if (method === 'GET' && !id) return { body: listOf(fx, 'GET /v1/pushes', mem.pushes).filter((p) => p.status !== 'deleted') };
+    const p = id ? findIn(fx, 'GET /v1/pushes', mem.pushes, id) : undefined;
+    if (!p) return null;
+    if (method === 'GET') { const fixed = fx.routes[`GET /v1/pushes/${id}`] as Obj | undefined; return { body: { ...(fixed ?? {}), ...p, deliveries: [...mem.dl.filter((d) => d.push_id === id), ...(((fixed?.deliveries as Obj[]) ?? []))] } }; }
+    if (sub === 'run' && method === 'POST') { if (p.status !== 'active') return { body: { detail: `推送單未生效（${p.status}）` }, status: 409 }; return { body: runPush(p, fx), status: 202 }; }
+    if (sub === 'pause' && method === 'POST') { const x = { ...p, status: p.status === 'active' ? 'paused' : 'active', updated_at: now() }; mem.pushes.set(id, x); return { body: x }; }
+    if (method === 'DELETE') { mem.pushes.set(id, { ...p, status: 'deleted', _gone: true }); return { body: null, status: 204 }; }
+    return null;
+  }
+  if (kind === 'deliveries') {
+    if (method === 'GET' && !id) { const fixed = (fx.routes['GET /v1/deliveries'] as Obj[] | undefined) ?? []; const ids = new Set(mem.dl.map((d) => d.id)); return { body: [...mem.dl, ...fixed.filter((d) => !ids.has(d.id))] }; }
+    if (sub === 'replay' && method === 'POST') {
+      const cur = mem.dl.find((d) => d.id === id) ?? ((fx.routes['GET /v1/deliveries'] as Obj[] | undefined) ?? []).find((d) => d.id === id);
+      if (!cur) return null;
+      if (cur.status === 'ok') return { body: { detail: '交付已成功，不需重放' }, status: 409 };
+      const x = { ...cur, status: 'ok', attempts: Number(cur.attempts) + 1, next_retry_at: null, response: { status: 200, ms: 210, body: '{"ok":true}' }, replay_of: cur.replay_of ?? id, updated_at: now() };
+      const i = mem.dl.findIndex((d) => d.id === id); if (i >= 0) mem.dl[i] = x; else mem.dl.unshift(x);
+      return { body: x, status: 202 };
+    }
+    return null;
+  }
+  if (kind === 'activation' && id === 'tick') return { body: { retried: [], ran: [] } };
+  return null;
+}
+/** 示範模式執行推送單：分群人數當作名單，產生一批（或全量 + complete）交付；MA 目的地固定失敗以示範重試。 */
+function runPush(p: Obj, fx: Fixtures): Obj {
+  const segs = (fx.routes['GET /v1/segments'] as Obj[] | undefined) ?? []; const sg = segs.find((s) => s.id === p.segment_id);
+  const users = Number(((sg?.latest as Obj | undefined)?.users as number) ?? 120); const ver = Number(((sg?.latest as Obj | undefined)?.version as number) ?? 1);
+  const first = p.last_delivered_version == null; const delta = p.mode === 'delta' && !first;
+  const added = delta ? Math.max(1, Math.round(users * 0.04)) : users; const removed = delta ? Math.max(0, Math.round(users * 0.02)) : 0;
+  const result: Obj = { version: ver, added, removed, batches: 0, ok: 0, failed: 0, destinations: {} as Obj };
+  for (const did of p.destination_ids as string[]) {
+    const d = findIn(fx, 'GET /v1/destinations', mem.dests, did); if (!d) continue;
+    const fail = String(d.url).includes('ma.internal'); const n = Math.max(1, Math.ceil((added + removed) / 5000)); const events = [...Array(n).keys()].map((i) => ({ ev: delta ? 'audience.delta' : 'audience.full', i: i + 1, t: n + (delta ? 0 : 1), size: Math.min(5000, added + removed - i * 5000) }));
+    if (!delta) events.push({ ev: 'audience.complete', i: n + 1, t: n + 1, size: 0 });
+    for (const e of events) { mem.dl.unshift({ id: nid('dlv'), push_id: p.id, segment_id: p.segment_id, destination_id: did, version: ver, mode: delta ? 'delta' : 'full', event: e.ev, batch: { index: e.i, total: e.t, size: e.size }, members: e.size, status: fail ? 'retrying' : 'ok', attempts: 1, next_retry_at: fail ? new Date(Date.now() + 60000).toISOString().slice(0, 19) : null, response: fail ? { status: 503, ms: 12, body: 'upstream busy' } : { status: 200, ms: 180 + e.i * 7, body: '{"ok":true}' }, created_at: now(), updated_at: now(), replay_of: null }); (result.batches as number)++; if (fail) (result.failed as number)++; else (result.ok as number)++; }
+    (result.destinations as Obj)[did] = fail ? 'partial' : 'ok';
+    mem.dests.set(did, { ...d, first_push_at: d.first_push_at ?? now(), consecutive_failures: fail ? Number(d.consecutive_failures ?? 0) + events.length : 0 });
+  }
+  mem.pushes.set(String(p.id), { ...p, last_delivered_version: ver, last_run_at: now(), last_result: result, runs: Number(p.runs ?? 0) + 1, updated_at: now() });
+  return result;
 }

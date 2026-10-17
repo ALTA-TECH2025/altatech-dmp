@@ -1,7 +1,7 @@
 // 審批單與匯出狀態的顯示文字（純常數／函式，有單元測試）
 import type { Approval, ApprovalStatus, Export, ExportStatus } from '@/users/types';
 
-export const APPROVAL_TYPE_CN: Record<Approval['type'], string> = { export: '匯出', segment: '分群生效', push: '推送', reveal_l2: '欄位揭露（L2）', reveal_l3: '欄位揭露（L3）', agent_proposal: 'agent 提議', role_change: '角色變更（雙人複核）', break_glass: '臨時提權（雙人複核）' };
+export const APPROVAL_TYPE_CN: Record<Approval['type'], string> = { export: '匯出', segment: '分群生效', push: '名單推送', tag: '標籤生效', reveal_l2: '欄位揭露（L2）', reveal_l3: '欄位揭露（L3）', agent_proposal: 'agent 提議', role_change: '角色變更（雙人複核）', break_glass: '臨時提權（雙人複核）' };
 export const APPROVAL_STATUS_CN: Record<ApprovalStatus, string> = { pending: '待審批', approved: '已核可', rejected: '已退回', expired: '已逾期' };
 export const APPROVAL_PILL: Record<ApprovalStatus, string> = { pending: 'amber', approved: 'blue', rejected: 'red', expired: 'gray' };
 export const EXPORT_STATUS_CN: Record<ExportStatus, string> = { pending_approval: '待審批', approved: '已核可，可產檔', rejected: '已退回', generated: '已產檔，可下載', downloaded: '已下載', expired: '已過期' };

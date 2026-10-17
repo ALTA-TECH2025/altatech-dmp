@@ -17,7 +17,9 @@ export const NAV: NavGroup[] = [
     { path: '/sql', cn: '自定義 SQL', module: 'events' },
   ] },
   { id: 'ops', cn: '營運', items: [
-    { path: '/segments', cn: '分群與標籤', module: 'segments' },
+    { path: '/segments', cn: '分群', module: 'segments' },
+    { path: '/tags', cn: '標籤', module: 'segments' },
+    { path: '/activation', cn: '名單推送', module: 'segments' },
     { path: '/approvals', cn: '審批與匯出', module: 'users' },
     { path: '/triggers', cn: '即時觸發', module: 'triggers', stage: 'phase2' },
   ] },
