@@ -17,12 +17,12 @@ from ..integration.runner import LocalRunner
 from ..integration.scheduler import Scheduler
 from ..security.policy import Subject
 from ..segments import SegmentService
-from . import analytics, dashboards, exports, iam, integration, segments, users
+from . import analytics, dashboards, exports, iam, integration, meta, migration, segments, users
 from .store import Store
 
 
 def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_service: SegmentService | None = None, export_dir: Any | None = None, approval_service: ApprovalService | None = None,
-               scheduler: Scheduler | None = None, secret_writer: Any | None = None) -> FastAPI:
+               scheduler: Scheduler | None = None, secret_writer: Any | None = None, migration_runner: Any | None = None) -> FastAPI:
     app = FastAPI(title="AltaTech DMP API", version="0.1.0", docs_url="/v1/docs", openapi_url="/v1/openapi.json")
 
     approvals = approval_service or ApprovalService(store)
@@ -42,6 +42,8 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     app.include_router(iam.build_router(store, get_subject))
     app.include_router(analytics.build_router(store, get_subject, ch))
     app.include_router(dashboards.build_router(store, get_subject, ch))
+    app.include_router(meta.build_router(store, get_subject, ch))
+    app.include_router(migration.build_router(store, get_subject, ch, migration_runner))
     app.include_router(users.build_router(store, get_subject, ch))
     seg_svc = segment_service or SegmentService(store, ch)
     seg_svc.approvals = approvals

@@ -4,13 +4,15 @@
 環境變數同 backend.api.main：CLICKHOUSE_URL／CLICKHOUSE_PASSWORD、DMP_STORE_PATH、DMP_LOCAL_ACCOUNTS、DMP_LOCAL_ALLOWED_ROLES。
   DMP_SEED_PASSWORD   五個帳號共用的初始密碼（≥14 字；之後用 python3 -m backend.auth.local reset-password 改）
   DMP_SEED_USERS      要建立的帳號（預設 admin,marketing,analyst,ops,it）；已存在的略過
-選項：--no-data 不載資料、--no-accounts 不建帳號、--no-dashboard 不建儀表板
+選項：--no-data 不載資料、--no-accounts 不建帳號、--no-dashboard 不建儀表板、--no-migration 不建遷移並行期樣本（project=migration_demo，不影響分析資料）
 """
 from __future__ import annotations
 
 import os
+import random
 import sys
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +51,41 @@ def seed_data(ch: ClickHouseHTTP) -> dict[str, int]:
     return {"events": len(ev), "users": len(us), "segment_members": len(seg), "id_edges": len(edges)}
 
 
+PARALLEL = [("$pageview", 620, 0.96), ("$AppViewScreen", 910, 0.99), ("app_login_success", 266, 0.996), ("hq_stockdetail_view", 441, 0.98), ("stock_order_submit", 278, 0.995),
+            ("kh_entry_khpg_pv", 41, 0.94), ("kh_apply", 10, 0.998), ("search_submit", 81, 0.92), ("sip_purchase", 6, 0.997), ("act_click", 128, 0.984), ("$WebClick", 311, 0.79), ("push_click", 92, 0.98)]
+
+
+def seed_migration(ch: ClickHouseHTTP, days: int = 14, seed: int = 7) -> dict[str, int]:
+    """並行期樣本（docs/22 T5／T6 對帳頁用）：同一事件每日 神策 vs GA360 兩個來源、登入用戶 95% 兩邊同代碼；另寫 ingest_recon 當 T2 筆數對帳。
+    放在 project=migration_demo，分析查詢預設 project 不會看到。"""
+    rng = random.Random(seed)
+    end = datetime(2026, 10, 16, tzinfo=UTC)
+    users = [f"v1_{rng.getrandbits(80):020x}" for _ in range(600)]
+    both = users[:570]; only_sa = users[570:]                       # 30 人只在神策（切換後未再出現）
+    ing = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.000")
+    ev: list[dict[str, Any]] = []; recon: list[dict[str, Any]] = []
+    ch.query("ALTER TABLE dmp.events DELETE WHERE project = 'migration_demo'", settings={"mutations_sync": 2})
+    for d in range(days):
+        day = end - timedelta(days=days - 1 - d)
+        wk = 0.55 if day.weekday() >= 5 else 1.0
+        for name, base, ratio in PARALLEL:
+            n_sa = int(base * wk * (0.9 + rng.random() * 0.2) / 3) + 1
+            n_ga = int(n_sa * ratio * (0.98 + rng.random() * 0.04))
+            for src, n in (("sensors", n_sa), ("ga360", n_ga)):
+                pool = both + only_sa if src == "sensors" else both
+                for i in range(n):
+                    t = day + timedelta(seconds=rng.randrange(0, 86400))
+                    ev.append({"project": "migration_demo", "time": t.strftime("%Y-%m-%d %H:%M:%S.000"), "event": name, "source": src, "one_id": rng.choice(pool), "distinct_id": "", "event_id": f"{src[:2]}_{d}_{name}_{i}",
+                               "platform": rng.choice(["iOS", "Android", "Web"]), "channel": "app", "utm_source": "", "symbol": "", "amount": 0, "props": {}, "ingest_time": ing, "schema_version": 1, "batch_id": f"mig_{src}_{day.strftime('%Y%m%d')}"})
+            if d < days - 2:                                              # T2：神策 → 載入筆數（兩天還沒載）
+                recon.append({"task_id": "mig_exp_events", "batch_id": f"mig_sensors_{day.strftime('%Y%m%d')}", "at": (day + timedelta(hours=18)).strftime("%Y-%m-%d %H:%M:%S.000"), "rows_in": n_sa, "rows_ok": n_sa, "rows_quarantined": 0, "rows_rejected": 0, "rows_loaded": n_sa - (1 if rng.random() < 0.15 else 0)})
+    for i in range(0, len(ev), 20_000):
+        ch.insert_json("dmp.events", ev[i:i + 20_000])
+    ch.query("ALTER TABLE dmp.ingest_recon DELETE WHERE task_id = 'mig_exp_events'", settings={"mutations_sync": 2})
+    ch.insert_json("dmp.ingest_recon", recon)
+    return {"events": len(ev), "recon_rows": len(recon), "users": len(users)}
+
+
 def seed_accounts(la: LocalAccounts, password: str, users: list[str]) -> list[tuple[str, str | None]]:
     out: list[tuple[str, str | None]] = []
     for u in users:
@@ -85,6 +122,8 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit("需要 CLICKHOUSE_URL（或加 --no-data）")
         ch = ClickHouseHTTP(os.environ["CLICKHOUSE_URL"], user=os.environ.get("CLICKHOUSE_USER", "default"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), timeout=600)
         print(">> 黃金資料集 →", seed_data(ch))
+        if "--no-migration" not in args:
+            print(">> 遷移並行期樣本（project=migration_demo）→", seed_migration(ch))
     owner = "local:admin"
     if "--no-accounts" not in args:
         if not os.environ.get("DMP_LOCAL_ACCOUNTS"):

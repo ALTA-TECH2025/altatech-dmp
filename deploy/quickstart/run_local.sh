@@ -28,7 +28,8 @@ dmp_env() {
   export CLICKHOUSE_URL=http://127.0.0.1:8123 CLICKHOUSE_PASSWORD="${CH_PASSWORD:-dmp-local}" \
     DMP_SECRETS_JSON="$WORK/secrets.json" DMP_STORE_PATH="$WORK/store.json" DMP_EXPORT_DIR="$WORK/exports" DMP_SCHED_DB="$WORK/sched.db" \
     DMP_IDP_MODE=direct DMP_LOCAL_ACCOUNTS="$WORK/accounts.json" DMP_LOCAL_ALLOWED_ROLES='*' DMP_COOKIE_SECURE="${DMP_COOKIE_SECURE:-0}" \
-    DMP_WEB_DIST="$ROOT/web/dist" DMP_TICK=1 DMP_K_IDM="${DMP_K_IDM:-local-test-key}" DMP_K_ACCT="${DMP_K_ACCT:-local-test-key-acct}"
+    DMP_WEB_DIST="$ROOT/web/dist" DMP_TICK=1 DMP_K_IDM="${DMP_K_IDM:-local-test-key}" DMP_K_ACCT="${DMP_K_ACCT:-local-test-key-acct}" \
+    DMP_CH_USER_FILES="$WORK/ch/user_files" DMP_MIGRATION_WORK="$WORK/migration"
   [ -f "$WORK/secrets.json" ] || echo '{}' > "$WORK/secrets.json"
 }
 

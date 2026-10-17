@@ -270,13 +270,108 @@ def main(store: Any | None = None) -> None:
     assert [x for x in store.audit_tail(10) if x["event"] == "query.executed"][-1]["module"] == "dashboard"
     login(c, sm, ["admin"], "adm"); assert c.get(f"/v1/dashboards/{did}").json()["editable"] and c.delete(f"/v1/dashboards/{did}/cards/{cards[1]['id']}").json()["ok"]
     assert c.delete(f"/v1/dashboards/{did}").json()["ok"] and c.get("/v1/dashboards").json() == []
+    # 5d. 資料治理：事件字典（yaml 合併覆蓋）→ 登記（L4 拒絕、草稿／上線）→ 隔離區事件登記放行 → 上線事件改屬性變成變更單 → admin 審批（不可自審）→ 停用；
+    #     屬性字典（降級拒絕）、虛擬事件、用戶屬性、OneID 規則（login_id 不可動）、維度表（關聯屬性檢查、敏感只升）、字典上傳（append／overwrite）、虛擬屬性
+    login(c, sm, ["marketing"], "mkt"); assert c.get("/v1/meta/events").status_code == 403
+    login(c, sm, ["data_analyst"], "ana")
+    ev = c.get("/v1/meta/events").json(); assert ev["total"] >= 117 and ev["counts"].get("live", 0) > 100 and any(e["name"] == "bond_order" and e["aliases"] == ["order_submit"] and e["catalog_synced"] for e in ev["items"]), ev["counts"]
+    assert c.get("/v1/meta/events", params={"q": "成交"}).json()["items"] and c.get("/v1/meta/events/bond_order").json()["properties"][0]["key"] == "order_no"
+    assert c.post("/v1/meta/events", json={"name": "x", "cn": "x", "entity": "user", "source": "GA360", "kind": "behavior", "owner": "a"}).status_code == 403   # 分析師只能看
+    login(c, sm, ["it_admin"], "it")
+    bad = c.post("/v1/meta/events", json={"name": "fund_redeem", "cn": "基金贖回", "entity": "user", "source": "基金平台", "kind": "business", "owner": "財富", "status": "live", "properties": [{"key": "mobile", "type": "string", "sensitivity": "L4"}]})
+    assert bad.status_code == 422 and any("L4" in x for x in bad.json()["detail"]["errors"]), bad.json()
+    dr = c.post("/v1/meta/events", json={"name": "fund_redeem", "cn": "基金贖回", "entity": "user", "source": "基金平台", "kind": "business", "owner": "", "status": "draft", "properties": [{"key": "fund_code", "type": "string", "sensitivity": "L1"}]}).json()
+    assert dr["status"] == "draft" and dr["errors"] and not dr["catalog_synced"]
+    assert c.post("/v1/meta/events/fund_redeem/status", json={"to": "live"}).status_code == 422                       # 缺負責人
+    assert c.patch("/v1/meta/events/fund_redeem", json={"owner": "財富管理"}).json()["owner"] == "財富管理"
+    assert c.post("/v1/meta/events/fund_redeem/status", json={"to": "live"}).json()["status"] == "live"
+    assert c.post("/v1/meta/events", json={"name": "fund_redeem", "cn": "x", "entity": "user", "source": "s", "kind": "business", "owner": "a", "status": "live"}).status_code == 422   # 已存在
+    assert c.get("/v1/meta/properties").json()["items"] and any(p["key"] == "fund_code" and p["used_by"] >= 1 for p in c.get("/v1/meta/properties").json()["items"])
+    cr = c.patch("/v1/meta/events/fund_redeem", json={"properties": [{"key": "fund_code", "type": "string", "sensitivity": "L2"}, {"key": "amount", "type": "number", "sensitivity": "L2"}], "reason": "加金額"})
+    assert cr.status_code == 202 and cr.json()["change_request"]["status"] == "pending", cr.text
+    crid = cr.json()["change_request"]["id"]
+    assert c.post(f"/v1/meta/change-requests/{crid}/decide", json={"approve": True}).status_code == 409                  # 不可核准自己提的變更單
+    login(c, sm, ["data_analyst"], "ana"); assert c.post(f"/v1/meta/change-requests/{crid}/decide", json={"approve": True}).status_code == 403
+    login(c, sm, ["admin"], "adm"); assert c.post(f"/v1/meta/change-requests/{crid}/decide", json={"approve": True}).json()["status"] == "approved"
+    assert len(c.get("/v1/meta/events/fund_redeem").json()["properties"]) == 2 and c.get("/v1/meta/events/fund_redeem").json()["pending_change"] is None
+    assert c.post("/v1/meta/events/fund_redeem/status", json={"to": "deprecated", "reason": "下架"}).json()["status"] == "deprecated"
+    assert c.post("/v1/meta/events/fund_redeem/status", json={"to": "live"}).status_code == 400
+    qz = c.get("/v1/meta/quarantine").json(); assert "policy" in qz and isinstance(qz["unregistered_events"], list)
+    login(c, sm, ["it_admin"], "it")
+    assert c.post("/v1/meta/properties", json={"key": "memo", "cn": "備註", "type": "string", "scope": "event", "sensitivity": "L4"}).status_code == 422
+    assert c.post("/v1/meta/properties", json={"key": "amount", "cn": "金額", "type": "number", "scope": "event", "sensitivity": "L1"}).status_code == 422           # 降級
+    assert c.post("/v1/meta/properties", json={"key": "plan_type", "cn": "方案類型", "type": "string", "scope": "event", "sensitivity": "L1", "enum": ["monthly", "weekly"]}).status_code == 201
+    ve = c.get("/v1/meta/virtual-events").json(); assert any(v["name"] == "v.any_trade" and "bond_order OR" in v["definition"] for v in ve)
+    assert c.post("/v1/meta/virtual-events", json={"name": "v.x", "members": [{"event": "nope"}]}).status_code == 400
+    assert c.post("/v1/meta/virtual-events", json={"name": "v.fund_any", "cn": "任一基金行為", "members": [{"event": "sip_purchase"}, {"event": "bond_deal", "filters": [{"field": "market", "op": "eq", "value": "FUND"}]}]}).status_code == 201
+    assert c.delete("/v1/meta/virtual-events/v.any_trade").status_code == 404 and c.delete("/v1/meta/virtual-events/v.fund_any").json()["ok"]
+    up = c.get("/v1/meta/user-properties").json(); assert any(p["key"] == "tier" and p["groupable"] and p["stored"] for p in up["items"]) and up["forbidden_l4_count"] >= 60
+    assert c.post("/v1/meta/user-properties", json={"key": "cus_mtel", "cn": "手機", "type": "string", "sensitivity": "L4"}).status_code == 422
+    assert c.post("/v1/meta/user-properties", json={"key": "tier", "cn": "x", "type": "enum"}).status_code == 409
+    assert c.post("/v1/meta/user-properties", json={"key": "risk_level", "cn": "風險屬性", "type": "enum", "values": ["C1", "C2", "C3", "C4"], "source": "crm.cdc", "sensitivity": "L2"}).json()["status"] == "pending_contract"
+    oi = c.get("/v1/meta/oneid/rules").json(); assert oi["ids"][0]["key"] == "$identity_login_id" and oi["strong_ids"] and oi["override"] is None
+    ids = [{"key": i["key"], "priority": i["priority"], "max_count": i.get("max_count"), "over_limit": i.get("over_limit"), "status": i.get("status", "enabled")} for i in oi["ids"]]
+    login(c, sm, ["digital_ops"], "ops"); assert c.put("/v1/meta/oneid/rules", json={"ids": ids}).status_code == 403     # 數位經營只能看
+    login(c, sm, ["admin"], "adm")
+    assert c.put("/v1/meta/oneid/rules", json={"ids": [{**i, "priority": 3} if i["key"] == "$identity_login_id" else i for i in ids]}).status_code == 422
+    swapped = [{**i, "priority": {2: 3, 3: 2}.get(i["priority"], i["priority"])} for i in ids]
+    assert c.put("/v1/meta/oneid/rules", json={"ids": swapped, "reason": "email 優先於手機"}).json()["override"]["status"] == "pending_review"
+    assert c.get("/v1/meta/oneid/rules").json()["ids"][1]["key"] == "$identity_email_hash"
+    login(c, sm, ["it_admin"], "it")
+    dt = c.get("/v1/meta/dimension-tables").json(); assert len(dt["items"]) >= 5 and dt["rules"]["join_key_must_be_unique"] and any(t["id"] == "dim_instrument" and "industry" in t["exposed"] for t in dt["items"])
+    assert c.post("/v1/meta/dimension-tables", json={"id": "dim_fund", "cn": "基金主檔", "primary_key": "fund_code", "join": [{"table": "events", "column": "nope_col"}]}).status_code == 422
+    assert c.post("/v1/meta/dimension-tables", json={"id": "dim_fund", "cn": "基金主檔", "primary_key": "fund_code", "join": [{"table": "events", "column": "fund_code"}], "columns": [{"key": "name", "cn": "名稱", "type": "string", "sensitivity": "L0"}, {"key": "category", "cn": "類型", "type": "enum", "sensitivity": "L0"}]}).status_code == 201
+    assert c.patch("/v1/meta/dimension-tables/dim_fund", json={"columns": [{"key": "name", "sensitivity": "L4"}]}).status_code == 422
+    assert c.patch("/v1/meta/dimension-tables/dim_branch", json={"columns": [{"key": "manager_id", "sensitivity": "L1"}]}).status_code == 422          # 不可降級
+    assert c.patch("/v1/meta/dimension-tables/dim_fund", json={"cn": "基金主檔（晨星）"}).json()["cn"] == "基金主檔（晨星）"
+    assert c.get("/v1/meta/dimension-tables/dim_instrument").json()["used_by"] and c.post("/v1/meta/dimension-tables/dim_fund/sync").json()["accepted"] is False
+    assert c.post("/v1/meta/dimension-tables/dim_instrument/sync").json()["accepted"] is False                                      # 自測環境沒有 sync_instrument 任務
+    dc = c.get("/v1/meta/dictionaries").json(); assert any(d["property"] == "reason_code" and d["count"] >= 5 and "entries" not in d for d in dc)
+    assert c.put("/v1/meta/dictionaries/reason_code", json={"csv": "E099,系統維護\nSYS04,委託閘道逾時"}).json()["count"] >= 7
+    assert c.put("/v1/meta/dictionaries/reason_code", json={"entries": {"E001": "餘額不足"}}, params={"mode": "overwrite"}).json()["count"] == 1
+    assert c.put("/v1/meta/dictionaries/amount", json={"entries": {"1": "x"}}).status_code == 200 and c.put("/v1/meta/dictionaries/nope_prop", json={"entries": {"1": "x"}}).status_code == 422
+    vp = c.get("/v1/meta/virtual-properties").json(); assert any(v["name"] == "v.symbol_industry" and v["uses"] == ["dim_instrument"] for v in vp)
+    assert c.post("/v1/meta/virtual-properties", json={"name": "v.amount", "expr": "amount * 2"}).status_code == 409
+    assert c.post("/v1/meta/virtual-properties", json={"name": "v.bad", "expr": "dictGet('dim_nope', 'x', symbol)"}).status_code == 422
+    assert c.post("/v1/meta/virtual-properties", json={"name": "v.fund_cat", "cn": "基金類型", "expr": "dictGet('dim_fund', 'category', fund_code)"}).json()["uses"] == ["dim_fund"]
+    assert {x["event"] for x in store.audit_tail(300)} >= {"meta.event.drafted", "meta.event.published", "meta.event.change_requested", "meta.change_request.decided", "meta.event.deprecated", "meta.property.registered", "meta.virtual_event.created", "meta.oneid.rules_changed", "meta.dimension_table.created", "dictionary.uploaded", "meta.virtual_property.created"}
+    # 5e. 神策遷移：盤點（計畫 + 假神策 API 盤點結果）→ 橋接表（events.yaml 產生）→ 導出任務（假神策 API：分片導出；無 ClickHouse 載入 → exported）→ 重跑門檻 → 對帳（假 CH 回空 → 結構正確）
+    login(c, sm, ["marketing"], "mkt"); assert c.get("/v1/migration/inventory").status_code == 403
+    login(c, sm, ["it_admin"], "it")
+    inv = c.get("/v1/migration/inventory").json(); assert len(inv["items"]) == 7 and inv["items"][0]["id"] == "metadata" and inv["items"][0]["status"] == "done" and inv["timeline"][-1]["id"] == "END"
+    assert c.post("/v1/migration/inventory/refresh", json={}).status_code == 503                                      # 自測 app 沒接神策
+    br = c.get("/v1/migration/bridge").json(); assert br["total"] >= 117 and br["via_ga"] > 50 and any(x["sensors_event"] == "$pageview" and x["ga4_event"] == "page_view" and x["kind"] == "auto" for x in br["items"])
+    assert c.get("/v1/migration/bridge", params={"kind": "history_only"}).json()["items"] and any(x["sensors_event"] == "bond_order" and x["aliases"] == "order_submit" for x in c.get("/v1/migration/bridge", params={"q": "bond_order"}).json()["items"])
+    ex = c.post("/v1/migration/exports", json={"dataset": "events", "date_from": "2026-10-01", "date_to": "2026-10-03", "method": "api"}).json()
+    assert ex["status"] == "blocked" and ex["blocked_reason"] and ex["slices"] == 3, ex                                 # 沒有 SA_* → blocked，不假裝成功
+    assert c.post("/v1/migration/exports", json={"dataset": "nope", "date_from": "2026-10-01", "date_to": "2026-10-01"}).status_code == 400
+    assert c.get("/v1/migration/exports").json()["items"][0]["id"] == ex["id"] and c.get(f"/v1/migration/exports/{ex['id']}").json()["slices"][0]["status"] == "blocked"
+    assert c.get("/v1/migration/reconcile").json()["t6"]["rate"] is None and c.get("/v1/migration/reconcile", params={"days": 7}).json()["t5"]["items"] == []
+    # 注入假神策 API 的執行器：導出成功、未載入（假 ClickHouse 沒有 insert_json）
+    import tempfile as _tf
+    from pathlib import Path as _P2
+
+    from ..integration.sensors_api import FakeSensors, SensorsQueryAPI
+    from .migration import ExportRunner
+    from .migration import build_router as _mig_router
+    app2 = create_app(AuthService(cfg, {}, sm, None), store, ch, migration_runner=ExportRunner(SensorsQueryAPI("https://sa.test", "taipei_uat", "good", http=FakeSensors()), ch, _P2(_tf.mkdtemp(prefix="dmp-mig-")), None))
+    c2 = TestClient(app2, base_url="https://dmp.internal"); c2.cookies.set("dmp_sid", c.cookies["dmp_sid"]); c2.cookies.set("dmp_csrf", c.cookies["dmp_csrf"]); c2.headers["X-CSRF-Token"] = c.cookies["dmp_csrf"]
+    rf = c2.post("/v1/migration/inventory/refresh", json={"date_from": "2026-10-01", "date_to": "2026-10-01"}).json(); assert rf["users"] == 7 and rf["datasets"]["events"]["rows"] == 53 and rf["by_event"][0]["rows"] == 18, rf
+    assert c2.get("/v1/migration/inventory").json()["items"][3]["rows_sensors"] == 53 and c2.get("/v1/migration/inventory").json()["sensors_configured"]
+    ex2 = c2.post("/v1/migration/exports", json={"dataset": "events", "date_from": "2026-10-01", "date_to": "2026-10-02"}).json()
+    assert ex2["status"] == "ok" and ex2["done"] == 2 and ex2["rows_exported"] == 106 and ex2["rows_loaded"] == 0, ex2       # 假 CH 無法載入：只導出
+    assert c2.get(f"/v1/migration/exports/{ex2['id']}").json()["slices"][0]["note"]
+    assert c2.post(f"/v1/migration/exports/{ex2['id']}/rerun", json={"days": ["2026-10-01"]}).json()["rerun_days"] == ["2026-10-01"]
+    assert c2.post("/v1/migration/exports", json={"dataset": "events", "date_from": "2026-10-05", "date_to": "2026-10-01"}).status_code == 400
+    _ = _mig_router
+    assert {x["event"] for x in store.audit_tail(300)} >= {"migration.export.created", "migration.inventory.refreshed", "migration.export.rerun"}
     login(c, sm, ["marketing"], "mkt")
     # 6. 審計：行銷只看自己；admin 全看
     mine = c.get("/v1/audit").json(); assert mine and all(x.get("user") == "entra:mkt" for x in mine)
     login(c, sm, ["admin"], "adm"); allrows = c.get("/v1/audit").json(); assert len(allrows) > len(mine)
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":
