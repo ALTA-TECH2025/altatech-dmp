@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
+import { SaveCardButton } from '@/dashboards/SaveCardButton';
 import { dedupe } from './FunnelPage';
 import { LineChart } from './LineChart';
 import { fmtNum, type Series } from './series';
@@ -31,12 +32,13 @@ function AttributionInner() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showSql, setShowSql] = useState(false);
+  const [sent, setSent] = useState<Record<string, unknown> | null>(null);
   const [metric, setMetric] = useState<'conversions' | 'value'>('conversions');
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
   const setTouch = (i: number, t: Partial<AttributionTouch>) => setQ({ ...q, touches: q.touches.map((x, j) => (j === i ? { ...x, ...t } : x)) });
   const run = async () => {
     setBusy(true); setErr(null);
-    try { setRes(await api.post<AttributionResult>('/v1/analytics/attribution', { ...q, filters: q.filters?.length ? q.filters : undefined, split: q.split || undefined, touches: q.touches.map((t) => ({ ...t, alias: t.alias || undefined })) })); }
+    try { const body = { ...q, filters: q.filters?.length ? q.filters : undefined, split: q.split || undefined, touches: q.touches.map((t) => ({ ...t, alias: t.alias || undefined })) }; setRes(await api.post<AttributionResult>('/v1/analytics/attribution', body)); setSent(body); }
     catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); } finally { setBusy(false); }
   };
   const k = me?.scope.k_anonymity ?? 20;
@@ -77,7 +79,7 @@ function AttributionInner() {
             <label>轉化開始<input type="date" value={q.time.from} onChange={(e) => setQ({ ...q, time: { ...q.time, from: e.target.value } })} /></label>
             <label>轉化結束<input type="date" value={q.time.to} onChange={(e) => setQ({ ...q, time: { ...q.time, to: e.target.value } })} /></label>
           </div>
-          <div className="row"><button className="btn-primary" disabled={!ready || busy} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</button>{res && <button className="btn-ghost" onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</button>}{err && <span className="alert">{err}</span>}</div>
+          <div className="row"><button className="btn-primary" disabled={!ready || busy} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</button>{res && <button className="btn-ghost" onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</button>}{res && <SaveCardButton kind="attribution" query={sent} />}{err && <span className="alert">{err}</span>}</div>
         </div>
         <div className="card"><div className="card-h"><h3>說明</h3></div><ul className="priv">
           <li>每次轉化往前看窗口內的觸點：首次給第一個、末次給最後一個、線性平分、位置首末各占設定比例、時間衰減依半衰期、自訂依觸點權重正規化。</li>

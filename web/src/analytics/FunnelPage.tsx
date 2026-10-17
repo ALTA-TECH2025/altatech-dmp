@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
+import { SaveCardButton } from '@/dashboards/SaveCardButton';
 import { FunnelChart } from './FunnelChart';
 import type { Catalog, FunnelQuery, FunnelResult, FunnelStep } from './types';
 
@@ -25,12 +26,13 @@ function FunnelInner() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showSql, setShowSql] = useState(false);
+  const [sent, setSent] = useState<FunnelQuery | null>(null);
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
 
   const setStep = (i: number, s: Partial<FunnelStep>) => setQ({ ...q, steps: q.steps.map((x, j) => (j === i ? { ...x, ...s } : x)) });
   const run = async () => {
     setBusy(true); setErr(null);
-    try { setRes(await api.post<FunnelResult>('/v1/analytics/funnel', q)); }
+    try { setRes(await api.post<FunnelResult>('/v1/analytics/funnel', q)); setSent(q); }
     catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); }
     finally { setBusy(false); }
   };
@@ -76,7 +78,7 @@ function FunnelInner() {
             <label>結束<input type="date" value={q.time.to} onChange={(e) => setQ({ ...q, time: { ...q.time, to: e.target.value } })} /></label>
             <label>分群<input placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} /></label>
           </div>
-          <div className="row"><button className="btn-primary" disabled={!ready || busy} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</button>{res && <button className="btn-ghost" onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</button>}{err && <span className="alert">{err}</span>}</div>
+          <div className="row"><button className="btn-primary" disabled={!ready || busy} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</button>{res && <button className="btn-ghost" onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</button>}{res && <SaveCardButton kind="funnel" query={sent as Record<string, unknown> | null} />}{err && <span className="alert">{err}</span>}</div>
         </div>
         <div className="card"><div className="card-h"><h3>說明</h3></div><ul className="priv">
           <li>每步人數 = 在窗口內依序完成到該步的用戶數（ClickHouse windowFunnel）；分組值取自該用戶第一步事件。</li>

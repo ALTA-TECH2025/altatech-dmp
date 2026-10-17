@@ -19,7 +19,8 @@ export function toSeries(res: EventsResult, metricAliases: string[], labels: Rec
       const key = `${m}|${g}`;
       if (!out.has(key)) out.set(key, { key, label: [labels[m] ?? m, g].filter(Boolean).join(' · '), metric: m, group: g, points: [] });
       const v = r[m];
-      out.get(key)!.points.push({ x: hasBucket ? String(r.bucket) : g || '合計', y: typeof v === 'number' ? v : v === null ? null : Number(v), suppressed: Boolean(r.suppressed) });
+      const n = typeof v === 'number' ? v : v === null || v === undefined ? null : Number(v);
+      out.get(key)!.points.push({ x: hasBucket ? String(r.bucket) : g || '合計', y: n === null || Number.isFinite(n) ? n : null, suppressed: Boolean(r.suppressed) });   // 遮罩後的分桶字串（≥5000000）畫不出數值 → 空點，請看表格
     }
   }
   for (const s of out.values()) s.points.sort((a, b) => (a.x < b.x ? -1 : a.x > b.x ? 1 : 0));
@@ -31,8 +32,9 @@ export function seriesColor(i: number): string {
   return `var(--s${Math.min(i + 1, 8)})`;
 }
 
-export function fmtNum(v: number | null | undefined, digits = 0): string {
+export function fmtNum(v: number | string | null | undefined, digits = 0): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '—';
+  if (typeof v !== 'number') return String(v);                 // 遮罩分桶字串（≥5000000）原樣顯示
   const abs = Math.abs(v);
   if (abs >= 1e8) return `${(v / 1e8).toFixed(2)} 億`;
   if (abs >= 1e4) return `${(v / 1e4).toFixed(abs >= 1e6 ? 0 : 1)} 萬`;

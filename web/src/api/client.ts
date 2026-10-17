@@ -25,7 +25,8 @@ export function createClient(opts: ClientOptions = {}) {
   const fetchImpl = opts.fetchImpl ?? ((input, init) => fetch(input, init));
   const readCookie = opts.readCookie ?? ((n: string) => (typeof document === 'undefined' ? null : cookieValue(document.cookie, n)));
   const currentPath = opts.currentPath ?? (() => (typeof location === 'undefined' ? '/' : location.pathname + location.search));
-  const onUnauthorized = opts.onUnauthorized ?? ((rt: string) => { if (typeof location !== 'undefined') location.assign('/login?return_to=' + encodeURIComponent(rt)); });
+  // 已在登入頁／未授權頁時不要再導向（啟動時 /v1/iam/me 401 是正常狀態），否則 return_to 會無限套疊
+  const onUnauthorized = opts.onUnauthorized ?? ((rt: string) => { if (typeof location === 'undefined' || location.pathname === '/login' || location.pathname === '/no-access') return; location.assign('/login?return_to=' + encodeURIComponent(rt)); });
 
   async function request<T>(method: string, url: string, body?: unknown, init: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers as Record<string, string> | undefined) };

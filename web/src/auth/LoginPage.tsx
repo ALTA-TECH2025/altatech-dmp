@@ -13,17 +13,18 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [totp, setTotp] = useState('');
   const [needTotp, setNeedTotp] = useState(false);
+  const [pwdKey, setPwdKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(params.get('error'));
 
-  useEffect(() => { api.get<ProvidersResponse>('/auth/providers').then(setProv).catch((e: Error) => setErr(e.message)); }, []);
+  useEffect(() => { api.get<ProvidersResponse>('/auth/providers').then((p) => { setProv(p); setPwdKey(p.providers.find((x) => x.kind === 'ldap')?.key ?? ''); }).catch((e: Error) => setErr(e.message)); }, []);
 
   const sso = (key: string) => { location.assign(`/auth/login?provider=${encodeURIComponent(key)}&return_to=${encodeURIComponent(returnTo)}`); };
 
   const ldap = async (e: FormEvent) => {
     e.preventDefault(); setBusy(true); setErr(null);
     try {
-      const r = await api.post<{ ok?: boolean; next?: 'totp'; message?: string; return_to?: string }>('/auth/ldap', { username, password, totp: totp || undefined });
+      const r = await api.post<{ ok?: boolean; next?: 'totp'; message?: string; return_to?: string }>('/auth/ldap', { provider: pwdKey || undefined, username, password, totp: totp || undefined });
       if (r.next === 'totp') { setNeedTotp(true); setErr(r.message ?? null); return; }
       location.assign(r.return_to && r.return_to !== '/' ? r.return_to : returnTo);
     } catch (ex) { setErr(ex instanceof ApiError ? ex.message : '登入失敗'); setPassword(''); setTotp(''); }
@@ -31,7 +32,9 @@ export function LoginPage() {
   };
 
   const oidc = prov?.providers.filter((p) => p.kind === 'oidc') ?? [];
-  const hasLdap = prov?.providers.some((p) => p.kind === 'ldap') ?? false;
+  const pwd = prov?.providers.filter((p) => p.kind === 'ldap') ?? [];
+  const hasLdap = pwd.length > 0;
+  const pwdCn = pwd.find((p) => p.key === pwdKey)?.cn ?? pwd[0]?.cn ?? '帳密';
   return (
     <div className="gate">
       <div className="gate-brand"><img className="logo" src="/favicon.svg" alt="" /><b>AltaTech DMP</b></div>
@@ -42,9 +45,10 @@ export function LoginPage() {
           <button key={p.key} className="btn-primary wide" onClick={() => sso(p.key)} disabled={busy}>{p.cn}登入</button>
         ))}
         {hasLdap && (
-          <form onSubmit={ldap} className="stack" aria-label="網域帳號登入">
-            <div className="divider"><span>或使用網域帳號（AD）</span></div>
-            <label>帳號<input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required pattern="[A-Za-z0-9._-]{2,64}" disabled={needTotp} /></label>
+          <form onSubmit={ldap} className="stack" aria-label="帳密登入">
+            <div className="divider"><span>{oidc.length ? '或' : ''}使用{pwdCn}</span></div>
+            {pwd.length > 1 && <label>登入方式<select value={pwdKey} onChange={(e) => setPwdKey(e.target.value)} disabled={needTotp}>{pwd.map((p) => <option key={p.key} value={p.key}>{p.cn}</option>)}</select></label>}
+            <label>帳號<input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required pattern="[A-Za-z0-9._\-]{2,64}" disabled={needTotp} /></label>
             <label>密碼<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required disabled={needTotp} /></label>
             {needTotp && <label>驗證器 6 位數<input inputMode="numeric" pattern="\d{6}" value={totp} onChange={(e) => setTotp(e.target.value)} autoComplete="one-time-code" autoFocus required /></label>}
             <button className="btn-ghost wide" type="submit" disabled={busy}>{needTotp ? '驗證並登入' : '登入'}</button>

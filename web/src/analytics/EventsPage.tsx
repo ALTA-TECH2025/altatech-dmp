@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
+import { SaveCardButton } from '@/dashboards/SaveCardButton';
 import { dedupe } from './FunnelPage';
 import { LineChart } from './LineChart';
 import { fmtNum, groupLabel, toSeries } from './series';
@@ -29,6 +30,7 @@ function EventsInner() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showSql, setShowSql] = useState(false);
+  const [sent, setSent] = useState<EventsQuery | null>(null);
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
 
   const setMetric = (i: number, m: Partial<EventsMetric>) => setQ({ ...q, metrics: q.metrics.map((x, j) => (j === i ? { ...x, ...m } : x)) });
@@ -36,7 +38,7 @@ function EventsInner() {
     setBusy(true); setErr(null);
     try {
       const body: EventsQuery = { ...q, metrics: q.metrics.map((m) => ({ ...m, event: m.event || null, field: NUM_AGGS.has(m.agg) || m.agg === 'uniq' ? m.field : undefined })), filters: q.filters?.length ? q.filters : undefined, group_by: q.group_by?.length ? q.group_by : undefined };
-      setRes(await api.post<EventsResult>('/v1/analytics/events', body));
+      setRes(await api.post<EventsResult>('/v1/analytics/events', body)); setSent(body);
     } catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); }
     finally { setBusy(false); }
   };
@@ -89,7 +91,7 @@ function EventsInner() {
           <label>抽樣<select value={q.sample ?? ''} onChange={(e) => setQ({ ...q, sample: e.target.value ? Number(e.target.value) : undefined })}><option value="">不抽樣（精確）</option><option value="0.5">1/2</option><option value="0.1">1/10</option><option value="0.01">1/100</option></select></label>
           <label>分群<input placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} /></label>
         </div>
-        <div className="row"><button className="btn-primary" disabled={busy || !q.metrics.every((m) => (!NUM_AGGS.has(m.agg) && m.agg !== 'uniq') || m.field)} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</button>{res && <button className="btn-ghost" onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</button>}{err && <span className="alert">{err}</span>}</div>
+        <div className="row"><button className="btn-primary" disabled={busy || !q.metrics.every((m) => (!NUM_AGGS.has(m.agg) && m.agg !== 'uniq') || m.field)} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</button>{res && <button className="btn-ghost" onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</button>}{res && <SaveCardButton kind="events" query={sent as Record<string, unknown> | null} />}{err && <span className="alert">{err}</span>}</div>
       </div>
       {res && (
         <>

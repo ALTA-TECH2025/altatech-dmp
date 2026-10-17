@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
+import { SaveCardButton } from '@/dashboards/SaveCardButton';
 import { dedupe } from './FunnelPage';
 import { PathChart } from './PathChart';
 import { fmtMs } from './sankey';
@@ -27,11 +28,12 @@ function PathInner() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showSql, setShowSql] = useState(false);
+  const [sent, setSent] = useState<Record<string, unknown> | null>(null);
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
   const run = async (over?: Partial<PathQuery>) => {
     const body = { ...q, ...over }; setQ(body);
     setBusy(true); setErr(null);
-    try { setRes(await api.post<PathResult>('/v1/analytics/path', { ...body, filters: body.filters?.length ? body.filters : undefined, nodes: { ...body.nodes, events: body.nodes?.events?.length ? body.nodes.events : undefined, split: body.nodes?.split?.length ? body.nodes.split : undefined } })); }
+    try { const sendBody = { ...body, filters: body.filters?.length ? body.filters : undefined, nodes: { ...body.nodes, events: body.nodes?.events?.length ? body.nodes.events : undefined, split: body.nodes?.split?.length ? body.nodes.split : undefined } }; setRes(await api.post<PathResult>('/v1/analytics/path', sendBody)); setSent(sendBody); }
     catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); } finally { setBusy(false); }
   };
   const k = me?.scope.k_anonymity ?? 20;
@@ -78,7 +80,7 @@ function PathInner() {
               {!['set', 'nset', 'true', 'false'].includes(f.op) && <input style={{ width: 160 }} aria-label="值" value={String(f.value ?? '')} onChange={(e) => set({ value: cur?.type === 'number' && !['in', 'nin', 'between'].includes(f.op) ? Number(e.target.value) : ['in', 'nin', 'between'].includes(f.op) ? e.target.value.split(',').map((s) => (cur?.type === 'number' ? Number(s) : s.trim())) : e.target.value })} />}
               <button className="btn-ghost sm danger" onClick={() => setQ({ ...q, filters: (q.filters ?? []).filter((_, j) => j !== i) })}>✕</button></div>;
           })}</div>
-          <div className="row"><button className="btn-primary" disabled={!ready || busy} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</button>{res && <button className="btn-ghost" onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</button>}{err && <span className="alert">{err}</span>}</div>
+          <div className="row"><button className="btn-primary" disabled={!ready || busy} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</button>{res && <button className="btn-ghost" onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</button>}{res && <SaveCardButton kind="path" query={sent} />}{err && <span className="alert">{err}</span>}</div>
         </div>
         <div className="card"><div className="card-h"><h3>說明</h3></div><ul className="priv">
           <li>每次出現起點就切一條「起點 + N 步」路徑；同一用戶同會話多次出現各算一條，人數去重。</li>

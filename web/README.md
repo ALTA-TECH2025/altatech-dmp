@@ -28,6 +28,7 @@ npm run build          # dist/（由 apps.web 映像的 nginx 提供，與 API �
 | `src/segments/SegmentsPage.tsx`、`segments.ts` | 分群頁：列表（全部／待審批／回收站、搜尋）、新建與編輯（同一套 RuleBuilder、更新方式／頻率／最早時間／保留版本）、詳情（狀態與審批列、立即計算、預覽畫像長條、成員列表、歷史版本、血緣、暫停／複製／回收站／恢復／徹底刪除）；`actionsFor` 依 grants 決定可做的動作，有單元測試 |
 | `src/approvals/ApprovalsPage.tsx`、`approvals.ts`、`src/users/ExportDialog.tsx` | 審批與匯出頁（待我審批：核可／退回附意見；我的申請；匯出申請：核可後產檔 → 下載 CSV；揭露申請：狀態、到期、查看次數）；細查抽屜可對遮罩欄位申請限單一用戶的揭露；用戶列表與分群詳情的「匯出（審批）」小表單（用途、保存天數） |
 | `src/integration/IntegrationPage.tsx`、`integration.ts`、`types.ts` | 數據整合頁（數據源：連線清單、新增連線表單只收 secret_ref 並擋疑似明文、逐步診斷測試、最小權限自檢、輪替、停用；數據表：登記並探索欄位與敏感等級、重新探索 Schema 變更；同步任務：預覽驗證、立即執行、執行紀錄；建立任務四步精靈：數據表 → 模型 → 排程與策略 → 建立並預覽） |
+| `src/dashboards/DashboardsPage.tsx`、`CardView.tsx`、`SaveCardButton.tsx`、`dashboards.ts`、`types.ts` | 總覽／儀表板（`/overview`、`/overview/:id`）：列表（我的、分享給我的）與新增；卡片網格（半寬／全寬，每張 POST `/cards/{id}/data` 以檢視者身分重算，事件／漏斗／留存／路徑／歸因各自沿用分析頁圖表元件，遮罩分桶自動改表格）；區間切換、改名、分享（角色／使用者）、移除卡片、刪除；五個分析頁的「存為看板卡片」選既有或新建儀表板 |
 | 漏斗／留存／事件分析頁 | 落點下鑽：漏斗每步「到達／流失」、留存格子（點：留存；Shift+點：未留存）、事件分析表格列 → `navigate('/users', { state: { source } })` |
 | `src/analytics/PathPage.tsx`、`PathChart.tsx`、`sankey.ts` | 行為路徑頁（起點／終點、步數、節點只留／折疊／拆分／合併／離開、會話切割、抽樣）與自繪 SVG 桑基圖（節點高度與連線寬度 ∝ 人數、固定類別色、滑過高亮與提示、點節點設為新起點或下鑽用戶列表）；`sankey.ts` 版面純函式有單元測試 |
 | `src/analytics/AttributionPage.tsx` | 歸因分析頁（轉化目標與價值欄位、觸點別名／條件／自訂權重、六種模型勾選、位置權重、半衰期、回溯窗口、拆分）：數字卡、各模型占比長條（同一張圖一個模型一條序列）、模型對比表（轉化數／價值切換）、觸點 → 轉化者用戶列表；`shareSeries` 有單元測試 |

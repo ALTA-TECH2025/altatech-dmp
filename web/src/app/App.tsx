@@ -14,6 +14,7 @@ import { UsersPage } from '@/users/UsersPage';
 import { SegmentsPage } from '@/segments/SegmentsPage';
 import { ApprovalsPage } from '@/approvals/ApprovalsPage';
 import { IntegrationPage } from '@/integration/IntegrationPage';
+import { DashboardsPage } from '@/dashboards/DashboardsPage';
 import type { Module } from '@/api/types';
 
 function Placeholder({ title, module }: { title: string; module: Module }) {
@@ -33,7 +34,8 @@ export function App() {
           <Route path="/no-access" element={<NoAccessPage />} />
           <Route element={<RequireAuth><AppShell /></RequireAuth>}>
             <Route index element={<Navigate to="/overview" replace />} />
-            <Route path="/overview" element={<Placeholder title="總覽" module="overview" />} />
+            <Route path="/overview" element={<DashboardsPage />} />
+            <Route path="/overview/:id" element={<DashboardsPage />} />
             <Route path="/events" element={<EventsPage />} />
             <Route path="/funnel" element={<FunnelPage />} />
             <Route path="/retention" element={<RetentionPage />} />

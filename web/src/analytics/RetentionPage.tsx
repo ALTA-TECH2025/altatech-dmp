@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
+import { SaveCardButton } from '@/dashboards/SaveCardButton';
 import { dedupe } from './FunnelPage';
 import type { Catalog, RetentionQuery, RetentionResult, RetentionRow } from './types';
 
@@ -25,11 +26,12 @@ function RetentionInner() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showSql, setShowSql] = useState(false);
+  const [sent, setSent] = useState<Record<string, unknown> | null>(null);
   const [display, setDisplay] = useState<'rate' | 'users'>('rate');
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
   const run = async () => {
     setBusy(true); setErr(null);
-    try { setRes(await api.post<RetentionResult>('/v1/analytics/retention', { ...q, return: q.return?.event ? q.return : undefined })); }
+    try { const body = { ...q, return: q.return?.event ? q.return : undefined }; setRes(await api.post<RetentionResult>('/v1/analytics/retention', body)); setSent(body); }
     catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); }
     finally { setBusy(false); }
   };
@@ -60,7 +62,7 @@ function RetentionInner() {
             <label>分群<input placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} /></label>
           </div>
           <div className="row"><button className="btn-primary" disabled={!q.initial.event || busy} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</button>
-            {res && <><span className="seg" style={{ margin: 0 }}><a className={display === 'rate' ? 'on' : ''} onClick={() => setDisplay('rate')}>比例</a><a className={display === 'users' ? 'on' : ''} onClick={() => setDisplay('users')}>人數</a></span><button className="btn-ghost" onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</button></>}
+            {res && <><span className="seg" style={{ margin: 0 }}><a className={display === 'rate' ? 'on' : ''} onClick={() => setDisplay('rate')}>比例</a><a className={display === 'users' ? 'on' : ''} onClick={() => setDisplay('users')}>人數</a></span><button className="btn-ghost" onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</button><SaveCardButton kind="retention" query={sent} /></>}
             {err && <span className="alert">{err}</span>}</div>
         </div>
         <div className="card"><div className="card-h"><h3>模型說明</h3></div><ul className="priv">{MODELS.map(([v, cn, d]) => <li key={v}><b>{cn}</b>：{d}</li>)}<li>同一用戶在每個做過初始行為的{unitCn}都算一次同期群；回訪可選「任一事件」。</li><li>尚未過完的期數顯示「—」；結果附 SQL 與血緣，查詢寫審計。</li></ul></div>
