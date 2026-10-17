@@ -18,7 +18,7 @@ export interface CardData {
 
 // ---- 進階（docs/30）：解讀、HTML 看板產物、定時寄送 ----
 export interface ExplainCard { card: string; title: string; kind: CardKind; line: string; signal: 'up' | 'down' | 'flat' | 'none'; warnings: string[] }
-export interface Explain { method: 'rules'; summary: string[]; cards: ExplainCard[]; generated_at: string; period: string }
+export interface Explain { method: 'rules' | 'llm'; summary: string[]; cards: ExplainCard[]; generated_at: string; period: string; narrative?: string | null; note?: string }
 export interface RenderArtifact {
   artifact_id: string; dashboard: string; name: string; url: string; share_url: string; audience: string; created_by: string; created_at: string; expires_at: string; bytes: number;
   cards_included: number; cards_skipped: { card: string; title: string; why: string }[]; downloads: number; expired: boolean;
@@ -34,3 +34,8 @@ export interface Bookmark {
   id: string; name: string; description: string; kind: CardKind; query: Record<string, unknown>; chart: CardChart; shared: { roles: string[]; users: string[] };
   owner: string; created_at: string; updated_at: string; mine: boolean; editable: boolean; used_in: { dashboard: string; name: string }[]; added_to?: { dashboard: string; name: string }[];
 }
+
+// ---- 問數建卡片 ----
+export interface AskCard { title: string; kind: CardKind; query: Record<string, unknown>; chart: string; confidence: number; explanation: string; sql_preview: string | null; warnings: string[]; selected: boolean }
+export interface AskResult { run_id: string; parser: 'rules' | 'llm'; cards: AskCard[]; rejected: { title: string; kind: string; reason: string }[]; candidates: { events: { name: string; cn: string }[]; dimensions: string[] }; unmatched: string[]; dashboard: string | null; refused?: boolean }
+export interface AskStatus { allowed: boolean; parsers: ('rules' | 'llm')[]; default: 'rules' | 'llm'; model: string | null; examples: string[]; note: string }

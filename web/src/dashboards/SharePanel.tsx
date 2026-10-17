@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { isDemo } from '@/demo/mode';
-import type { Dashboard, Explain, RenderArtifact, Schedule } from './types';
+import { KIND_CN } from './dashboards';
+import type { AskCard, AskResult, AskStatus, Dashboard, Explain, RenderArtifact, Schedule } from './types';
 
 const ROLES: [string, string][] = [['admin', '系統管理員'], ['marketing', '行銷'], ['data_analyst', '數據分析'], ['digital_ops', '數位經營'], ['it_admin', '資訊管理']];
 const WD = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
@@ -11,30 +12,34 @@ const ST: Record<Schedule['status'], [string, string]> = { pending_approval: ['�
 const RUN: Record<string, string> = { sent: '已寄出', rendered_no_transport: '已產檔（此環境未設 SMTP，未寄信）', failed: '失敗' };
 const fmt = (s: string) => s.slice(0, 16).replace('T', ' ');
 
-export function SharePanel({ d, onClose }: { d: Dashboard; onClose: () => void }) {
+export function SharePanel({ d, onClose, onChanged }: { d: Dashboard; onClose: () => void; onChanged?: () => void }) {
   const { can } = useAuth();
-  const [tab, setTab] = useState<'explain' | 'html' | 'schedule'>('explain');
+  const [tab, setTab] = useState<'ask' | 'explain' | 'html' | 'schedule'>('ask');
+  const [ask, setAsk] = useState<AskStatus | null>(null);
+  useEffect(() => { api.get<AskStatus>('/v1/analytics/ask/status').then(setAsk).catch(() => setAsk(null)); }, []);
   return (
     <div className="card" style={{ marginBottom: 16 }}>
       <div className="card-h"><h3>看板進階</h3>
-        <div className="seg">{([['explain', '看板解讀'], ['html', 'HTML 看板'], ['schedule', '定時寄送']] as const).map(([k, cn]) => <a key={k} href="#" className={tab === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setTab(k); }}>{cn}</a>)}</div>
-        <span className="pill gray" title="AI 閘道啟用後開放：一句話 → 在既有分析模型上做選擇 → 卡片草稿">AI 生成卡片 · 第二階段</span>
+        <div className="seg">{([['ask', 'AI 生成卡片'], ['explain', '看板解讀'], ['html', 'HTML 看板'], ['schedule', '定時寄送']] as const).map(([k, cn]) => <a key={k} href="#" className={tab === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setTab(k); }}>{cn}</a>)}</div>
+        {ask && <span className={`pill ${ask.default === 'llm' ? 'custom' : 'gray'}`} title={ask.note}>{ask.default === 'llm' ? `模型解析 · ${ask.model}` : '規則解析（未設 LLM 金鑰）'}</span>}
         <button className="btn-ghost sm right" onClick={onClose}>關閉</button></div>
-      {tab === 'explain' && <ExplainTab d={d} />}
+      {tab === 'ask' && <AskTab d={d} status={ask} onAdded={onChanged} />}
+      {tab === 'explain' && <ExplainTab d={d} llm={ask?.default === 'llm'} />}
       {tab === 'html' && <HtmlTab d={d} canUse={can('overview', 'use')} />}
       {tab === 'schedule' && <ScheduleTab d={d} canUse={can('overview', 'use')} />}
     </div>
   );
 }
 
-function ExplainTab({ d }: { d: Dashboard }) {
+function ExplainTab({ d, llm }: { d: Dashboard; llm: boolean }) {
   const [ex, setEx] = useState<Explain | null>(null); const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
-  const run = async () => { setBusy(true); setErr(null); try { setEx(await api.post<Explain>(`/v1/dashboards/${d.id}/explain`)); } catch (e) { setErr(e instanceof ApiError ? e.message : '解讀失敗'); } finally { setBusy(false); } };
+  const run = async (mode: 'rules' | 'llm' = 'rules') => { setBusy(true); setErr(null); try { setEx(await api.post<Explain>(`/v1/dashboards/${d.id}/explain`, { mode })); } catch (e) { setErr(e instanceof ApiError ? e.message : '解讀失敗'); } finally { setBusy(false); } };
   return (
     <>
       <p className="note" style={{ marginTop: 0 }}>以你的權限重算每張卡片，用規則產生：期間前後對比、漏斗流失最多的步驟、最新同期群留存、最常見路徑、貢獻最高觸點。只讀，不改卡片。AI 閘道啟用後改由 agent 產生自然語言版並可存成洞察。</p>
-      <div className="row"><button className="btn-primary" disabled={busy} onClick={() => void run()}>{busy ? '計算中…' : ex ? '重新解讀' : '解讀這個看板'}</button>{ex && <span className="sub">{ex.period} · {fmt(ex.generated_at)} · 規則式</span>}</div>
+      <div className="row"><button className="btn-primary" disabled={busy} onClick={() => void run('rules')}>{busy ? '計算中…' : ex ? '重新解讀' : '解讀這個看板'}</button>{llm && <button className="btn-ghost" disabled={busy} onClick={() => void run('llm')}>敘述版（模型）</button>}{ex && <span className="sub">{ex.period} · {fmt(ex.generated_at)} · {ex.method === 'llm' ? '模型敘述 + 規則事實' : '規則式'}{ex.note ? ` · ${ex.note}` : ''}</span>}</div>
       {err && <div className="alert">{err}</div>}
+      {ex?.narrative && <div className="card" style={{ marginTop: 12, borderLeft: '4px solid var(--purple)' }}>{ex.narrative.split(/\n+/).map((p, i) => <p key={i} style={{ margin: '4px 0', fontSize: 13 }}>{p}</p>)}</div>}
       {ex && <div className="grid c21" style={{ marginTop: 12 }}>
         <div><b style={{ fontSize: 13 }}>本期重點</b><ul className="priv">{ex.summary.map((s, i) => <li key={i}>{s}</li>)}</ul></div>
         <div><b style={{ fontSize: 13 }}>每張卡片</b><ul className="priv">{ex.cards.map((c) => <li key={c.card}><span className={`signal ${c.signal}`} />{c.title}：{c.line}{c.warnings.length > 0 && <span className="sub">{c.warnings.join('；')}</span>}</li>)}</ul></div>
@@ -101,6 +106,62 @@ function ScheduleTab({ d, canUse }: { d: Dashboard; canUse: boolean }) {
           <td className="sub">{s.last_run ? `${fmt(s.last_run.at)} · ${RUN[s.last_run.status] ?? s.last_run.status}${s.last_run.error ? ` · ${s.last_run.error}` : ''}` : '—'}</td>
           <td className="num">{d.editable && <>{s.status === 'active' && <button className="btn-ghost sm" onClick={() => void run(s)}>立即執行</button>} <button className="btn-ghost sm danger" onClick={() => void del(s)}>刪除</button></>}</td></tr>)}</tbody></table></div>}
       {list && list.length === 0 && <p className="note">還沒有定時寄送。</p>}
+    </>
+  );
+}
+
+function AskTab({ d, status, onAdded }: { d: Dashboard; status: AskStatus | null; onAdded?: () => void }) {
+  const { can } = useAuth();
+  const [q, setQ] = useState('');
+  const [res, setRes] = useState<AskResult | null>(null); const [cards, setCards] = useState<AskCard[]>([]);
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null); const [msg, setMsg] = useState<string | null>(null);
+  const [open, setOpen] = useState<number | null>(null);
+  const run = async (question = q) => {
+    if (!question.trim()) return; setBusy(true); setErr(null); setMsg(null); setRes(null);
+    try { const r = await api.post<AskResult>(`/v1/dashboards/${d.id}/ask`, { question }); setRes(r); setCards(r.cards); }
+    catch (e) { setErr(e instanceof ApiError ? (typeof e.body === 'object' && e.body && 'detail' in e.body && typeof (e.body as { detail: unknown }).detail === 'object' ? '問題對不上任何分析模型或語意層事件；試試提到事件名（成交、委託、登入、看盤、開戶…）' : e.message) : '解析失敗'); }
+    finally { setBusy(false); }
+  };
+  const chosen = cards.filter((c) => c.selected);
+  const add = async (asBookmark: boolean) => {
+    setBusy(true); setErr(null);
+    try {
+      for (const c of chosen) {
+        if (asBookmark) await api.post('/v1/bookmarks', { name: c.title, description: c.explanation, kind: c.kind, query: c.query, chart: c.chart, add_to: [d.id] });
+        else await api.post(`/v1/dashboards/${d.id}/cards`, { title: c.title, kind: c.kind, query: c.query, chart: c.chart });
+      }
+      setMsg(`已加入 ${chosen.length} 張卡片${asBookmark ? '（同時存成書籤）' : ''}`); setCards([]); setRes(null); onAdded?.();
+    } catch (e) { setErr(e instanceof ApiError ? e.message : '加入失敗'); } finally { setBusy(false); }
+  };
+  const setCard = (i: number, patch: Partial<AskCard>) => setCards((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  return (
+    <>
+      <p className="note" style={{ marginTop: 0 }}>用一句話（可多句，用「、」或「，」分開）問數：只在事件／漏斗／留存／路徑／歸因五種分析與語意層目錄上做選擇，不生成任意 SQL；每張草稿先以你的權限乾跑編譯，確認後才加入看板（卡片仍以檢視者身分重算）。{status?.note}</p>
+      <div className="row">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="例：上週各平台成交金額、看盤到委託到成交的漏斗" style={{ flex: '1 1 420px' }} onKeyDown={(e) => { if (e.key === 'Enter') void run(); }} />
+        <button className="btn-primary" disabled={busy || !q.trim() || !can('ai_ask', 'use')} onClick={() => void run()}>{busy ? '解析中…' : '產生卡片草稿'}</button>
+      </div>
+      <div className="row" style={{ marginTop: 6 }}><span className="sub">試試：</span>{(status?.examples ?? []).map((ex) => <button key={ex} className="btn-ghost sm" onClick={() => { setQ(ex); void run(ex); }}>{ex}</button>)}</div>
+      {err && <div className="alert">{err}</div>}{msg && <div className="note">{msg}</div>}
+      {res && cards.length > 0 && (
+        <div className="card flush" style={{ marginTop: 12 }}><div className="tbl-wrap"><table className="tbl">
+          <thead><tr><th /><th>卡片標題</th><th>分析</th><th>信心度</th><th>配置說明</th><th /></tr></thead>
+          <tbody>{cards.map((c, i) => (
+            <><tr key={i} className={c.selected ? '' : 'warnrow'}>
+              <td><input type="checkbox" checked={c.selected} onChange={(e) => setCard(i, { selected: e.target.checked })} aria-label="選取" /></td>
+              <td><input value={c.title} onChange={(e) => setCard(i, { title: e.target.value })} style={{ width: '100%' }} /></td>
+              <td><span className="pill blue">{KIND_CN[c.kind]}</span></td>
+              <td><span className={`pill ${c.confidence >= 0.8 ? 'blue' : c.confidence >= 0.6 ? 'amber' : 'gray'}`}>{Math.round(c.confidence * 100)}%</span></td>
+              <td className="sub">{c.explanation}{c.warnings.length > 0 && <span className="sub">{c.warnings.join('；')}</span>}</td>
+              <td className="num"><button className="btn-ghost sm" onClick={() => setOpen(open === i ? null : i)}>{open === i ? '收合' : '查詢／SQL'}</button></td>
+            </tr>{open === i && <tr key={`${i}-sql`}><td colSpan={6}><pre className="code">{JSON.stringify(c.query, null, 1)}{c.sql_preview ? `\n\n${c.sql_preview}` : ''}</pre></td></tr>}</>
+          ))}</tbody></table></div>
+          <div className="row" style={{ padding: 12 }}>
+            <button className="btn-primary" disabled={busy || !chosen.length || !d.editable} onClick={() => void add(false)}>加入看板（{chosen.length}）</button>
+            <button className="btn-ghost" disabled={busy || !chosen.length || !d.editable} onClick={() => void add(true)}>存成書籤並加入</button>
+            <span className="sub">{res.parser === 'llm' ? '模型解析' : '規則解析'} · {res.rejected.length > 0 && `${res.rejected.length} 張因權限或格式不給：${res.rejected.map((r) => `${r.title}（${r.reason}）`).join('；')}`}{res.unmatched.length > 0 && ` · 對不上：${res.unmatched.join('／')}`}{!d.editable && ' · 你不是這個看板的擁有者，無法加入'}</span>
+          </div>
+        </div>)}
     </>
   );
 }

@@ -1,6 +1,7 @@
 // 示範模式的 fetch：以「單機後端 + 合成黃金資料集」擷取的固定回應（fixtures.json，backend/tools/demo_capture.py）回答前端的請求。
 // 規則：GET／已擷取的 POST → 固定資料（依路徑與查詢字串，動態 id 以 * 代）；未擷取的寫入 → 回合成成功（不保存）；/v1/iam/me 依選擇的角色。
 // 例外：看板與書籤在瀏覽器記憶體裡真的建得出來（建看板 → 存書籤 → 加入看板 → 看板顯示卡片），重新整理即消失；卡片資料借用同類型範例卡的固定資料。
+import { askRules } from './ask';
 import { demoRole, setDemoRole } from './mode';
 
 interface Fixtures { captured_at: string; roles: Record<string, unknown>; routes: Record<string, unknown> }
@@ -77,6 +78,11 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
   const seg = path.split('/').filter(Boolean);            // ['v1','dashboards',id,...]
   const who = me(fx);
   if (seg[0] !== 'v1') return null;
+  if (seg[1] === 'analytics' && seg[2] === 'ask') {
+    if (seg[3] === 'status') return { body: { allowed: true, parsers: ['rules'], default: 'rules', model: null, examples: ['上週各平台成交金額、看盤到委託到成交的漏斗、登入後 4 週留存', '近 7 天各渠道開戶申請人數', '成交之前做什麼', '推播點擊對成交的貢獻'], note: '示範模式：瀏覽器內規則解析（與後端 rules 解析器同構）；正式環境設定 LLM 金鑰後改用模型解析，草稿會再乾跑編譯。' } };
+    return askOverlay(String(b.question ?? ''), null, fx);
+  }
+  if (seg[1] === 'dashboards' && seg[3] === 'ask' && method === 'POST') return askOverlay(String(b.question ?? ''), seg[2], fx);
   if (seg[1] === 'bookmarks') {
     const id = seg[2]; const bm = id ? mem.bookmarks.get(id) : undefined;
     const usedIn = (bid: string) => [...mem.dashboards.values()].filter((d) => (d.cards as Obj[]).some((c) => c.bookmark === bid)).map((d) => ({ dashboard: d.id, name: d.name }));
@@ -133,4 +139,12 @@ function seedCopy(fx: Fixtures, id: string): Obj | null {
 }
 function cardOf(bm: Obj, who: string, width: 1 | 2): Obj {
   return { id: nid('c'), bookmark: bm.id, title: bm.name, kind: bm.kind, query: bm.query, chart: bm.chart ?? 'auto', width, note: '', created_by: who, created_at: now() };
+}
+
+function askOverlay(question: string, dashboard: string | null, fx: Fixtures): { body: unknown; status?: number } {
+  const cat = (fx.routes['GET /v1/semantic/catalog'] ?? { events: [], dimensions: [] }) as { events: { name: string; cn: string; status?: string }[]; dimensions: { name: string; cn: string }[] };
+  if (!question.trim()) return { body: { detail: 'question 必填' }, status: 400 };
+  const r = askRules(question, cat, { defaultTime: { from: '2026-09-17', to: '2026-10-16', grain: 'day' }, project: 'golden', dashboard });
+  if (!r.cards.length) return { body: { detail: { message: '問題對不上任何分析模型或語意層事件', unmatched: r.unmatched } }, status: 422 };
+  return { body: r };
 }

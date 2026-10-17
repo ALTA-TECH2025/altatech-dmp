@@ -110,7 +110,7 @@ function DashboardDetail({ id }: { id: string }) {
       {bms && d.editable && (
         <div className="card" style={{ marginBottom: 16 }}><div className="card-h"><h3>加入書籤</h3><span className="sub">書籤 = 分析頁存下的查詢；卡片會跟著書籤更新</span><button className="btn-ghost sm right" onClick={() => setBms(null)}>關閉</button></div>
           <div className="row"><select value={bmPick} onChange={(e) => setBmPick(e.target.value)} className="grow">{bms.map((b) => <option key={b.id} value={b.id}>{b.name}（{KIND_CN[b.kind]}）</option>)}</select><button className="btn-primary" disabled={!bmPick} onClick={() => void addBm()}>加入</button>{bms.length === 0 && <span className="sub">還沒有書籤：到分析頁查詢後按「存為書籤」。</span>}<Link className="btn-ghost" to="/bookmarks">管理書籤</Link></div></div>)}
-      {adv && <SharePanel d={d} onClose={() => setAdv(false)} />}
+      {adv && <SharePanel d={d} onClose={() => setAdv(false)} onChanged={() => void api.get<Dashboard>(`/v1/dashboards/${id}`).then(setD)} />}
       {share && d.editable && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-h"><h3>分享</h3><span className="sub">被分享者只能檢視；卡片資料以他們自己的權限重算</span></div>
