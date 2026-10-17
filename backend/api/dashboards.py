@@ -219,7 +219,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
     @r.post("/v1/dashboards/{id_}/explain")
     def explain(id_: str, body: dict[str, Any] | None = None, subject: Subject = Depends(get_subject)) -> dict[str, Any]:
         need(subject, "view")
-        return svc().explain(load(id_, subject), subject, (body or {}).get("time"), apply_time)
+        return svc().explain(load(id_, subject), subject, (body or {}).get("time"), apply_time, str((body or {}).get("mode") or "rules"))
 
     @r.post("/v1/dashboards/{id_}/render", status_code=201)
     def render(id_: str, body: dict[str, Any] | None = None, subject: Subject = Depends(get_subject)) -> dict[str, Any]:

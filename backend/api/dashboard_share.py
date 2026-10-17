@@ -177,8 +177,8 @@ def explain_summary(period: str, cards: list[dict[str, Any]]) -> list[str]:
 
 class DashboardShare:
     def __init__(self, store: Store, ch: Executor | None, cat: Catalog, render_dir: Path, approvals: Any | None = None, mailer: Callable[[list[str], str, str], None] | None = None,
-                 recipients: Callable[[list[str]], list[str]] | None = None, mail_domains: list[str] | None = None, render_key: str | None = None, base_url: str = ""):
-        self.store, self.ch, self.cat, self.approvals, self.mailer, self.recipients = store, ch, cat, approvals, mailer, recipients or (lambda roles: [])
+                 recipients: Callable[[list[str]], list[str]] | None = None, mail_domains: list[str] | None = None, render_key: str | None = None, base_url: str = "", llm: Any | None = None):
+        self.store, self.ch, self.cat, self.approvals, self.mailer, self.recipients, self.llm = store, ch, cat, approvals, mailer, recipients or (lambda roles: []), llm
         self.dir = Path(render_dir) / "dashboards"; self.dir.mkdir(parents=True, exist_ok=True)
         self.mail_domains = [d.lower().lstrip("@") for d in (mail_domains or []) if d]
         self.base_url = base_url.rstrip("/")
@@ -209,13 +209,21 @@ class DashboardShare:
                 out.append((c, None, str(e.detail)))
         return out
 
-    def explain(self, d: dict[str, Any], subject: Subject, override: dict[str, Any] | None, apply_time: Callable[..., dict[str, Any]]) -> dict[str, Any]:
+    def explain(self, d: dict[str, Any], subject: Subject, override: dict[str, Any] | None, apply_time: Callable[..., dict[str, Any]], mode: str = "rules") -> dict[str, Any]:
         cards = []
         for c, data, err in self.run_cards(d, subject, override, apply_time, "dashboard"):
             cards.append(explain_card(c, data) if data else {"card": c["id"], "title": c["title"], "kind": c["kind"], "line": f"無法計算：{err}", "signal": "none", "warnings": []})
         period = self._period_text(d, override)
-        res = {"method": "rules", "summary": explain_summary(period, cards), "cards": cards, "generated_at": _now_iso(), "period": period}
-        self.store.audit("dashboard.explained", {"user": subject.user_id, "dashboard": d["id"], "cards": len(cards), "method": "rules"})
+        res: dict[str, Any] = {"method": "rules", "summary": explain_summary(period, cards), "cards": cards, "generated_at": _now_iso(), "period": period, "narrative": None}
+        if mode == "llm":
+            if self.llm is None:
+                res["note"] = "此環境未設定 LLM 金鑰，回規則式解讀"
+            else:
+                try:
+                    res["narrative"] = self.llm.narrate(d["name"], period, {"summary": res["summary"], "cards": [{k: v for k, v in c.items() if k != "card"} for c in cards]}); res["method"] = "llm"
+                except Exception as e:
+                    res["note"] = f"模型解讀失敗，回規則式：{str(e)[:120]}"
+        self.store.audit("dashboard.explained", {"user": subject.user_id, "dashboard": d["id"], "cards": len(cards), "method": res["method"]})
         return res
 
     @staticmethod

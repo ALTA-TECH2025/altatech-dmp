@@ -11,6 +11,7 @@
 | Apache Spark / Iceberg / Trino | 3.5 / 1.6 / 460 | Apache-2.0 | 批次／湖／Ad-hoc | — | ASF／ASF／Trino SF（美） |
 | Apache Airflow | 2.10 | Apache-2.0 | 排程 | — | ASF（美） |
 | dlt | 1.x | Apache-2.0 | 批次整合 | 取代 Airbyte（ELv2）；SeaTunnel（大陸起源）已移除，見 docs/25 | dltHub（德） |
+| anthropic（Python SDK） | 1.x | MIT | 問數建卡片與看板解讀敘述版的模型呼叫（可指向企業 LLM Gateway） | 可選依賴：未設金鑰不載入；只送語意層目錄與規則算出的彙總事實，不送明細列 | Anthropic（美） |
 | Great Expectations / Soda Core | 1.x | Apache-2.0 | 資料品質 | — | GX Labs（美）／Soda（比） |
 | OpenMetadata / OpenLineage | 1.5 / 1.x | Apache-2.0 | 中繼資料／血緣 | — | Collate（美）／LF AI & Data |
 | PostgreSQL / pgvector / CloudNativePG | 16 / 0.7 / 1.24 | PostgreSQL / PostgreSQL / Apache-2.0 | 控制面 | — | PGDG／個人（美）／EDB（義） |

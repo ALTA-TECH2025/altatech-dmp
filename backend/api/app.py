@@ -19,13 +19,13 @@ from ..integration.scheduler import Scheduler
 from ..security.policy import Subject
 from ..segments import SegmentService
 from ..semantic.compiler import Catalog
-from . import analytics, bookmarks, dashboards, exports, iam, integration, meta, migration, segments, sysadmin, users
+from . import analytics, ask, bookmarks, dashboards, exports, iam, integration, meta, migration, segments, sysadmin, users
 from .store import Store
 
 
 def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_service: SegmentService | None = None, export_dir: Any | None = None, approval_service: ApprovalService | None = None,
                scheduler: Scheduler | None = None, secret_writer: Any | None = None, migration_runner: Any | None = None, mailer: Any | None = None, mail_domains: list[str] | None = None,
-               render_key: str | None = None, base_url: str = "") -> FastAPI:
+               render_key: str | None = None, base_url: str = "", llm: Any | None = None) -> FastAPI:
     app = FastAPI(title="AltaTech DMP API", version="0.1.0", docs_url="/v1/docs", openapi_url="/v1/openapi.json")
 
     approvals = approval_service or ApprovalService(store)
@@ -54,8 +54,9 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     from .sysadmin import member_directory
     share = DashboardShare(store, ch, Catalog(), Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports", approvals, mailer,
                            recipients=lambda roles: [m["email"] for m in member_directory(store, accounts, auth.sessions.store) if m.get("email") and set(m.get("roles") or []) & set(roles)],
-                           mail_domains=mail_domains, render_key=render_key, base_url=base_url)
+                           mail_domains=mail_domains, render_key=render_key, base_url=base_url, llm=llm)
     app.state.dashboard_share = share
+    app.include_router(ask.build_router(store, get_subject, share.cat, llm))
     app.include_router(dashboards.build_router(store, get_subject, ch, share=share))
     app.include_router(bookmarks.build_router(store, get_subject, ch))
     app.include_router(meta.build_router(store, get_subject, ch))

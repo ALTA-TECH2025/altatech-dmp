@@ -1,0 +1,23 @@
+# 問數建卡片 golden（docs/30 §1.3）：question → 期望的分析模型與關鍵參數。今天 = 2026-10-17（六）；看板預設期間 2026-09-17～2026-10-16。
+# 通過標準：model 正確 ≥ 95%、關鍵參數 ≥ 85%。python3 -m backend.insight_agent.configure
+cases:
+  - { id: a01, question: 上週各平台成交金額, expect: { kind: events, events: [bond_deal], agg: sum, group_by: [platform], time: { from: "2026-10-05", to: "2026-10-11" } } }
+  - { id: a02, question: 近 7 天登入人數, expect: { kind: events, events: [app_login_success], agg: users, time: { from: "2026-10-11", to: "2026-10-17" } } }
+  - { id: a03, question: 看盤到委託到成交的漏斗, expect: { kind: funnel, events: [hq_stockdetail_view, bond_order, bond_deal] } }
+  - { id: a04, question: 登入後 4 週留存, expect: { kind: retention, events: [app_login_success, app_login_success], unit: week } }
+  - { id: a05, question: 登入之後 3 步的路徑, expect: { kind: path, events: [app_login_success], direction: after } }
+  - { id: a06, question: 成交的歸因, expect: { kind: attribution, events: [bond_deal] } }
+  - { id: a07, question: 本月委託筆數, expect: { kind: events, events: [bond_order], agg: total, time: { from: "2026-10-01", to: "2026-10-17" } } }
+  - { id: a08, question: 各渠道的開戶申請人數, expect: { kind: events, events: [kh_apply], agg: users, group_by: [channel] } }
+  - { id: a09, question: 上週各平台成交金額、看盤到成交漏斗、登入後 4 週留存, expect: { kind: events, cards: 3 } }
+  - { id: a10, question: 9 月成交筆數, expect: { kind: events, events: [bond_deal], agg: total, time: { from: "2026-09-01", to: "2026-09-30" } } }
+  - { id: a11, question: 定期定額申購的人數, expect: { kind: events, events: [sip_purchase], agg: users } }
+  - { id: a12, question: 搜尋之後接著做什麼, expect: { kind: path, events: [search_submit], direction: after } }
+  - { id: a13, question: 成交之前做什麼, expect: { kind: path, events: [bond_deal], direction: before } }
+  - { id: a14, question: 開戶到成交的轉換率, expect: { kind: funnel, events: [kh_apply, bond_deal] } }
+  - { id: a15, question: 推播點擊對成交的貢獻, expect: { kind: attribution, events: [bond_deal] } }
+  - { id: a16, question: 昨天登入次數, expect: { kind: events, events: [app_login_success], agg: total, time: { from: "2026-10-16", to: "2026-10-16" } } }
+  - { id: a17, question: 最近 30 天每個市場的成交量, expect: { kind: events, events: [bond_deal], group_by: [market] } }
+  - { id: a18, question: 個股明細瀏覽後 7 天留存, expect: { kind: retention, events: [hq_stockdetail_view, hq_stockdetail_view], unit: day } }
+  - { id: a19, question: 幫我看一下天氣, expect: { no_cards: true } }
+  - { id: a20, question: 研究報告瀏覽人均次數, expect: { kind: events, events: [info_report_view], agg: avg_per_user } }

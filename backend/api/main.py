@@ -19,6 +19,7 @@
   DMP_MAIL_DOMAINS      定時寄送可直接填的信箱白名單網域（逗號分隔）；沒設就只能用角色當收件人
   DMP_RENDER_KEY        HTML 看板分享連結的簽章金鑰（沒設就存在控制面；多實例請設同一把）
   DMP_BASE_URL          對外網址（分享連結前綴，例：https://dmp.internal）
+  DMP_LLM_API_KEY_REF / DMP_LLM_BASE_URL / DMP_LLM_MODEL   問數與看板解讀敘述版的模型（anthropic SDK；BASE_URL 指向企業 LLM Gateway；預設 claude-opus-5-5）；沒設金鑰就只用規則解析
 """
 from __future__ import annotations
 
@@ -99,7 +100,15 @@ def build() -> Any:
     if os.environ.get("DMP_SMTP_URL"):
         from .dashboard_share import smtp_mailer
         mailer = smtp_mailer(os.environ["DMP_SMTP_URL"], resolver(os.environ["DMP_SMTP_PASSWORD_REF"]) if os.environ.get("DMP_SMTP_PASSWORD_REF") else None, os.environ.get("DMP_MAIL_FROM", "dmp@localhost"))
-    app = create_app(auth, store, ch, export_dir=os.environ.get("DMP_EXPORT_DIR"), scheduler=sched, mailer=mailer, mail_domains=[x.strip() for x in os.environ.get("DMP_MAIL_DOMAINS", "").split(",") if x.strip()],
+    llm = None
+    if os.environ.get("DMP_LLM_API_KEY_REF"):
+        try:
+            from ..insight_agent.configure import LLMParser
+            from ..semantic.compiler import Catalog as _Cat
+            llm = LLMParser(_Cat(), resolver(os.environ["DMP_LLM_API_KEY_REF"]), os.environ.get("DMP_LLM_MODEL", "claude-opus-5-5"), os.environ.get("DMP_LLM_BASE_URL") or None)
+        except (KeyError, ImportError) as e:
+            print(f"[llm] 未啟用：{type(e).__name__} {e}（需要 anthropic 套件與密鑰）")
+    app = create_app(auth, store, ch, export_dir=os.environ.get("DMP_EXPORT_DIR"), scheduler=sched, mailer=mailer, llm=llm, mail_domains=[x.strip() for x in os.environ.get("DMP_MAIL_DOMAINS", "").split(",") if x.strip()],
                      render_key=os.environ.get("DMP_RENDER_KEY"), base_url=os.environ.get("DMP_BASE_URL", ""))
     if os.environ.get("DMP_WEB_DIST"):
         from .app import mount_web

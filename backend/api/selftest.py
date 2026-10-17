@@ -306,6 +306,21 @@ def main(store: Any | None = None) -> None:
         assert c.delete(f"/v1/dashboards/{did}/cards/{x['id']}").json()["ok"]
     assert c.delete(f"/v1/dashboards/{wid}").json()["ok"]
     assert {x["event"] for x in store.audit_tail(60)} >= {"bookmark.created", "bookmark.updated", "bookmark.deleted"}
+    # 5c3. 問數建卡片：規則解析 → 以當事人身分乾跑 → 卡片草稿（不存）；行銷有 ai_ask.use 但沒有 attribution 模組 → 該卡進 rejected；對不上 → 422
+    st_ask = c.get("/v1/analytics/ask/status").json(); assert st_ask["parsers"] == ["rules"] and st_ask["default"] == "rules" and st_ask["examples"]
+    ak = c.post(f"/v1/dashboards/{did}/ask", json={"question": "上週各平台成交金額、看盤到委託到成交的漏斗、登入後 4 週留存"}); assert ak.status_code == 200, ak.text
+    akj = ak.json(); assert akj["parser"] == "rules" and akj["dashboard"] == did and [x["kind"] for x in akj["cards"]] == ["events", "funnel", "retention"] and all(x["sql_preview"] and x["selected"] for x in akj["cards"]), akj
+    assert akj["cards"][0]["query"]["group_by"] == ["platform"] and akj["cards"][0]["query"]["time"]["pinned"] is True and akj["cards"][1]["query"]["time"].get("pinned") is None
+    assert c.post("/v1/analytics/ask", json={"question": "幫我看一下天氣"}).status_code == 422
+    assert c.post("/v1/analytics/ask", json={"question": "x", "parser": "llm"}).status_code == 400                   # 沒金鑰
+    login(c, sm, ["marketing"], "mkt")
+    ak2 = c.post("/v1/analytics/ask", json={"question": "成交的歸因，近 7 天登入人數"}).json(); assert [x["kind"] for x in ak2["cards"]] == ["attribution", "events"] and ak2["rejected"] == [], ak2   # 行銷五種分析都有 use
+    from ..insight_agent.configure import validate_cards
+    okc, rej = validate_cards([{"title": "t", "kind": "events", "query": {}, "confidence": 0.9}], lambda k, q: (_ for _ in ()).throw(ValueError("未登記事件")))
+    assert okc == [] and rej[0]["reason"] == "未登記事件"
+    login(c, sm, ["data_analyst"], "ana")
+    assert c.post(f"/v1/dashboards/{did}/explain", json={"mode": "llm"}).json()["note"].startswith("此環境未設定 LLM")
+    assert [x for x in store.audit_tail(30) if x["event"] == "dashboard.asked"][-1]["parser"] == "rules"
     # 5d. 看板進階（docs/30）：規則式解讀 → HTML 看板（inline SVG、無 script／外部資源、抑制列 <K、浮水印）→ 登入下載與簽章分享連結 → 到期 410 → 定時寄送（審批 → 核可 → 立即執行；無 SMTP 只產檔）
     ex = c.post(f"/v1/dashboards/{did}/explain").json()
     assert ex["method"] == "rules" and len(ex["summary"]) == 3 and len(ex["cards"]) == 5 and all(x["line"] for x in ex["cards"]) and any("抑制" in w for x in ex["cards"] for w in x["warnings"]), ex
@@ -498,7 +513,7 @@ def main(store: Any | None = None) -> None:
     assert {x["event"] for x in store.audit_tail(400)} >= {"role.change_requested", "role.changed", "role.deleted", "iam.break_glass.requested", "iam.user.created", "iam.user.changed", "iam.user.deleted", "auth.session.revoked", "audit.exported", "authz.denied"}
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+bookmarks+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+bookmarks+ask(rules)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":
