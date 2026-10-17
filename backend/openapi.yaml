@@ -1412,9 +1412,24 @@ components:
         directory: { type: string, description: 所屬目錄（客戶價值／交易偏好／風險／活躍／行銷…） }
         description: { type: string }
         dtype: { type: string, enum: [string, number, bool], default: string }
-        kind: { type: string, enum: [values, sql], description: 'values＝自定義標籤值：每個值一條用戶規則（UsersQuery；最多 24 值）；sql＝SQL 標籤：SELECT one_id_uint, tag_value' }
+        kind: { type: string, enum: [values, sql, metric, firstlast, rfm], description: 'values＝自定義標籤值：每個值一條用戶規則（UsersQuery；最多 24 值）；sql＝SQL 標籤：SELECT one_id_uint, tag_value；metric＝基礎指標值（事件在窗口內的次數／總和／均值／最大／最小／有行為天數，可分桶）；firstlast＝首末次特徵（首次或末次某事件的日期、距今天數分桶、或當時某屬性值）；rfm＝RFM（最近一次距今 R、次數 F、金額 M 各分 n 級，輸出 R5F4M3 分數或八類客群）' }
         values: { type: array, maxItems: 24, items: { type: object, required: [value, rule], properties: { value: { type: string }, rule: { $ref: '#/components/schemas/UsersQuery' } } } }
         sql: { type: string }
+        project: { type: string, description: 'metric／firstlast／rfm 的事件專案（預設 altatech_dmp）' }
+        spec:
+          type: object
+          description: 'metric／firstlast／rfm 的參數（依 kind 取用）'
+          properties:
+            event: { type: string, description: 事件名（語意層目錄） }
+            agg: { type: string, enum: [count, sum, avg, max, min, days], description: 'metric：count 次數、sum／avg／max／min 需 field、days 有行為天數' }
+            field: { type: string, description: 'metric 的數值欄位（amount、props.xxx）；firstlast feature=field 時的屬性；與 UsersQuery 的欄位鍵同一套' }
+            window_days: { type: integer, minimum: 0, maximum: 730, description: '回溯天數（以計算基準日往前）；firstlast 可為 0＝不限' }
+            buckets: { type: array, maxItems: 10, items: { type: number }, description: '遞增分桶界線：<b0、b0–b1、…、≥bn；metric 與 firstlast(days_since) 可用；不給則輸出原值' }
+            which: { type: string, enum: [first, last], description: firstlast }
+            feature: { type: string, enum: [date, days_since, field], description: 'firstlast：首末次日期、距基準日天數（可分桶）、當時的屬性值' }
+            amount_field: { type: string, default: amount, description: 'rfm 的金額欄位' }
+            bins: { type: integer, minimum: 2, maximum: 10, default: 5, description: 'rfm 每個維度分幾級（ntile）' }
+            output: { type: string, enum: [score, segment], default: score, description: 'rfm：score＝R5F4M3；segment＝八類客群（重要價值／重要發展／重要保持／重要挽留／一般價值／一般發展／一般保持／一般挽留，以各維度高於中位為高）' }
         update: { type: object, properties: { mode: { type: string, enum: [manual, routine] }, freq: { type: string, enum: [daily, weekly, monthly] }, earliest: { type: string, example: '06:00' }, keep: { type: integer, minimum: 1, maximum: 100 } } }
         fields: { type: object, description: 自定義欄位（所屬部門、需求提出人、需求類別）, additionalProperties: { type: string } }
     Tag:
