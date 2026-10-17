@@ -1,0 +1,23 @@
+# 效能與時效目標（docs/17 §5 效能目標、docs/13 容量規劃）。第一階段以審計 query.executed／query.sql 與排程器資料評估；正式環境由 Prometheus 同一組門檻供 Grafana／Alertmanager。
+version: 1
+query_p95_ms:                      # 各模組查詢 P95 目標（毫秒）；30 天漏斗 10 秒、事件分析 3 秒、人數估算 1 秒
+  events: 3000
+  funnel: 10000
+  retention: 10000
+  path: 10000
+  attribution: 10000
+  users: 5000
+  estimate: 1000
+  dashboard: 10000
+  sql: 60000
+freshness:                          # 時效：行為事件 15 分鐘可查；日批來源當日 07:00 前到齊；標籤／分群例行 60 分鐘內完成
+  behavior_events_min: 15
+  daily_batch_deadline: "07:00"
+  routine_max_min: 60
+serving:                            # 服務層
+  http_error_rate_max: 0.02         # 5 分鐘內 5xx 比例
+  http_p95_ms: 2000
+activation:
+  delivery_success_min: 0.98        # 24 小時交付成功率
+storage:
+  clickhouse_hot_tb: 7.8            # 3 年全熱規劃值（docs/13）；超過 90% 啟用冷層或擴容

@@ -475,14 +475,18 @@ paths:
   /v1/meta/virtual-properties:
     get: { tags: [Meta], summary: '虛擬屬性（表達式組合屬性與維度表欄位；查詢時計算）', responses: { '200': { description: ok } } }
     post: { tags: [Meta], summary: '建立虛擬屬性（名稱不可與既有屬性重複；表達式 ≤ 1024 字元；型別推斷與預覽）', responses: { '201': { description: created } } }
+  /metrics:
+    get: { tags: [Ops], summary: 'Prometheus 文字格式指標（HTTP 請求數／耗時、查詢耗時與結果（依模組）、同步任務執行與列數、來源延遲、例行作業耗時與失敗、推送交付狀態、ClickHouse 表用量）；叢集內由 ServiceMonitor 抓取，需 Bearer（DMP_METRICS_TOKEN）或 governance.view 的 session', responses: { '200': { description: 'text/plain; version=0.0.4' }, '401': { description: 未授權 } } }
   /v1/ops/pipeline:
-    get: { tags: [Ops], summary: '端到端資料流各段吞吐、延遲、狀態（Prometheus 供數）與資料品質指標', responses: { '200': { description: ok } } }
+    get: { tags: [Ops], summary: '端到端資料流：來源（同步任務：最近一次、列數、水位、延遲）→ 進倉（ClickHouse 各表列數／用量／最新事件時間）→ 服務（5 分鐘請求率、錯誤率、查詢 P95）→ 下游（推送交付 24h、暫停的目的地）；資料品質（隔離／拒絕率、K 匿名抑制）；需 governance.view', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/OpsPipeline' } } } } } }
   /v1/ops/query-perf:
-    get: { tags: [Ops], summary: '各模組查詢 P50/P95/P99、掃描量、快取命中、SLA 達成（query_log 彙總）', parameters: [{ name: window, in: query, schema: { type: string, default: 24h } }], responses: { '200': { description: ok } } }
+    get: { tags: [Ops], summary: '各模組查詢次數、P50/P95/P99、錯誤數、平均列數與 SLA 達成（第一階段以審計 query.executed／query.sql 彙總；ClickHouse 可用時加 system.query_log 的掃描列數與記憶體）；需 governance.view', parameters: [{ name: window, in: query, schema: { type: string, enum: [1h, 24h, 7d], default: 24h } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/OpsQueryPerf' } } } } } }
   /v1/ops/batch-jobs:
-    get: { tags: [Ops], summary: '批次作業狀態（Airflow）與儲存用量', responses: { '200': { description: ok } } }
+    get: { tags: [Ops], summary: '批次作業狀態（排程器同步任務＋例行：分群／標籤例行計算、推送重試與增量、看板定時寄送）與儲存用量（ClickHouse 表、控制面）；Airflow／dbt 作業第二階段；需 governance.view', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/OpsBatchJobs' } } } } } }
   /v1/ops/batch-jobs/{name}/rerun:
-    post: { tags: [Ops], summary: '重跑作業（需 governance.d；審計 batch.rerun）', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+    post: { tags: [Ops], summary: '立即重跑同步任務（name = 同步任務 id）；需 governance.admin；審計 batch.rerun', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted }, '404': { description: 無此作業 }, '409': { description: 作業正在執行或已停用 } } }
+  /v1/ops/alerts:
+    get: { tags: [Ops], summary: '告警：依 backend/ops/alerts.yaml 的規則對當前指標評估（來源延遲、同步失敗、查詢 P95 超 SLA、交付進死信、目的地自動暫停、例行作業連續失敗、ClickHouse 表用量、隔離率）；回傳觸發中的告警與全部規則；通知管道（Email／LINE）第二階段，叢集內由 PrometheusRule 同規則送 Alertmanager；需 governance.view', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/OpsAlerts' } } } } } }
   /v1/migration/inventory:
     get: { tags: [Migration], summary: '神策歷史資料盤點（資料集、來源表、日期範圍、筆數、導出方式、目標表、狀態；docs/22 §3）', responses: { '200': { description: ok } } }
   /v1/migration/inventory/refresh:
@@ -1259,6 +1263,92 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         replay_of: { type: string, nullable: true }
+    OpsStage:
+      type: object
+      description: 資料流的一段（sources／warehouse／serving／activation）
+      properties:
+        key: { type: string }
+        cn: { type: string }
+        status: { type: string, enum: [ok, warn, error, unknown] }
+        summary: { type: string, description: 一行摘要（吞吐／延遲） }
+        items: { type: array, items: { type: object, additionalProperties: true }, description: 該段的明細列（同步任務、表、模組、目的地） }
+    OpsPipeline:
+      type: object
+      properties:
+        at: { type: string, format: date-time }
+        stages: { type: array, items: { $ref: '#/components/schemas/OpsStage' } }
+        quality:
+          type: array
+          description: 資料品質指標（隔離率、拒絕率、K 匿名抑制、同步失敗）
+          items: { type: object, properties: { key: { type: string }, cn: { type: string }, value: { type: number, nullable: true }, text: { type: string }, status: { type: string, enum: [ok, warn, error, unknown] } } }
+        slo: { type: object, additionalProperties: true, description: 設計目標（backend/ops/sla.yaml） }
+    OpsQueryPerf:
+      type: object
+      properties:
+        window: { type: string }
+        at: { type: string, format: date-time }
+        modules:
+          type: array
+          items:
+            type: object
+            properties:
+              module: { type: string }
+              cn: { type: string }
+              n: { type: integer }
+              errors: { type: integer }
+              p50_ms: { type: number, nullable: true }
+              p95_ms: { type: number, nullable: true }
+              p99_ms: { type: number, nullable: true }
+              avg_rows: { type: number, nullable: true }
+              sla_ms: { type: integer, nullable: true, description: 'P95 目標（backend/ops/sla.yaml）' }
+              sla_ok: { type: boolean, nullable: true }
+              scan_rows_avg: { type: number, nullable: true, description: 'system.query_log（ClickHouse 可用時）' }
+              memory_peak_mb: { type: number, nullable: true }
+        slow: { type: array, description: 最慢的 10 條（sql_hash、模組、耗時、使用者）, items: { type: object, additionalProperties: true } }
+        clickhouse: { type: object, nullable: true, additionalProperties: true, description: system.query_log／system.metrics 摘要 }
+    OpsBatchJobs:
+      type: object
+      properties:
+        at: { type: string, format: date-time }
+        jobs:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              cn: { type: string }
+              kind: { type: string, enum: [sync, routine] }
+              schedule: { type: string }
+              enabled: { type: boolean }
+              last_at: { type: string, nullable: true }
+              last_status: { type: string, nullable: true }
+              last_ms: { type: number, nullable: true }
+              last_detail: { type: string, nullable: true }
+              next_at: { type: string, nullable: true }
+              rerunnable: { type: boolean }
+        storage:
+          type: array
+          items: { type: object, properties: { name: { type: string }, rows: { type: integer, nullable: true }, bytes: { type: integer, nullable: true }, parts: { type: integer, nullable: true }, note: { type: string } } }
+    OpsAlert:
+      type: object
+      properties:
+        key: { type: string }
+        cn: { type: string }
+        severity: { type: string, enum: [low, medium, high, critical] }
+        value: { type: number, nullable: true }
+        threshold: { type: number }
+        op: { type: string, enum: ['>', '>=', '<', '<='] }
+        unit: { type: string }
+        subject: { type: string, description: 觸發的對象（任務／模組／目的地） }
+        text: { type: string }
+        firing: { type: boolean }
+    OpsAlerts:
+      type: object
+      properties:
+        at: { type: string, format: date-time }
+        firing: { type: array, items: { $ref: '#/components/schemas/OpsAlert' } }
+        rules: { type: array, items: { $ref: '#/components/schemas/OpsAlert' } }
+        notify: { type: array, items: { type: string }, description: 通知角色（第一階段只在頁面顯示） }
     TagCreate:
       type: object
       required: [name, kind]

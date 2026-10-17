@@ -1,0 +1,16 @@
+# 監控告警規則（docs/17 §5.16、docs/27 G2）。GET /v1/ops/alerts 用當前指標評估，叢集內由 deploy/helm/altatech-dmp/templates/monitoring.yaml 的 PrometheusRule 以同名規則送 Alertmanager。
+# 每條規則：metric（ops 服務算出的指標鍵）、op／threshold、severity、window（說明用）；per 表示逐對象評估（任務、模組、目的地）。
+version: 1
+notify: [it_admin, admin]                    # 通知角色（第一階段只在資料流與效能頁顯示；Email／LINE 管道第二階段）
+rules:
+  - { key: source_lag,        cn: 來源延遲,           metric: source_lag_min,        per: task,        op: '>',  threshold: 120,  unit: min, severity: high,     window: 即時,  text: 同步任務水位落後超過兩小時（日批來源以排程間隔為準） }
+  - { key: sync_failed,       cn: 同步任務失敗,       metric: sync_failed,           per: task,        op: '>=', threshold: 1,    unit: 次,  severity: high,     window: 最近一次, text: 最近一次同步失敗或重試耗盡（paused／failed） }
+  - { key: quarantine_rate,   cn: 隔離率,             metric: quarantine_rate,       per: task,        op: '>',  threshold: 0.05, unit: 比例, severity: medium,  window: 最近一次, text: 隔離＋拒絕列數佔讀入列數超過 5%（事件未登記或型別不符） }
+  - { key: query_p95,         cn: 查詢 P95 超標,      metric: query_p95_ms,          per: module,      op: '>',  threshold: 1.0,  unit: 倍 SLA, severity: medium, window: 24h,   text: 模組 24 小時查詢 P95 超過 backend/ops/sla.yaml 的目標 }
+  - { key: query_errors,      cn: 查詢錯誤率,         metric: query_error_rate,      per: module,      op: '>',  threshold: 0.05, unit: 比例, severity: medium,  window: 24h,   text: 模組 24 小時查詢失敗比例超過 5% }
+  - { key: http_errors,       cn: API 5xx 比例,       metric: http_error_rate,       op: '>',  threshold: 0.02, unit: 比例, severity: high,     window: 5m,    text: 5 分鐘內 5xx 回應比例超過 2% }
+  - { key: delivery_dlq,      cn: 交付進死信,         metric: delivery_dlq_24h,      op: '>=', threshold: 1,    unit: 筆,  severity: high,     window: 24h,   text: 推送交付重試耗盡進入死信（需人工重放） }
+  - { key: destination_paused, cn: 目的地自動暫停,    metric: destination_paused,    per: destination, op: '>=', threshold: 1,    unit: 個,  severity: medium,   window: 即時,  text: 連續失敗達門檻後自動暫停的目的地 }
+  - { key: routine_failed,    cn: 例行作業失敗,       metric: routine_failed_24h,    op: '>=', threshold: 3,    unit: 次,  severity: high,     window: 24h,   text: 背景例行（分群／標籤／推送／寄送）24 小時內失敗達 3 次 }
+  - { key: events_stale,      cn: 行為事件停滯,       metric: events_stale_min,      op: '>',  threshold: 60,   unit: min, severity: critical, window: 即時,  text: 最新行為事件時間落後現在超過 60 分鐘（串流中斷；SLA 為 15 分鐘可查） }
+  - { key: storage_hot,       cn: ClickHouse 熱層用量, metric: clickhouse_hot_ratio, op: '>',  threshold: 0.9,  unit: 比例, severity: medium,  window: 即時,  text: 熱層用量超過規劃值 90%（啟用冷層或擴容） }
