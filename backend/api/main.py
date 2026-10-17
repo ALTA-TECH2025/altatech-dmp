@@ -110,7 +110,7 @@ def build() -> Any:
             print(f"[llm] 未啟用：{type(e).__name__} {e}（需要 anthropic 套件與密鑰）")
     app = create_app(auth, store, ch, export_dir=os.environ.get("DMP_EXPORT_DIR"), scheduler=sched, mailer=mailer, llm=llm, secret_of=resolver, mail_domains=[x.strip() for x in os.environ.get("DMP_MAIL_DOMAINS", "").split(",") if x.strip()],
                      render_key=os.environ.get("DMP_RENDER_KEY"), base_url=os.environ.get("DMP_BASE_URL", ""),
-                     metrics_token=resolver(os.environ["DMP_METRICS_TOKEN_REF"]) if os.environ.get("DMP_METRICS_TOKEN_REF") else os.environ.get("DMP_METRICS_TOKEN"))
+                     metrics_token=resolver(os.environ["DMP_METRICS_TOKEN_REF"]) if os.environ.get("DMP_METRICS_TOKEN_REF") else os.environ.get("DMP_METRICS_TOKEN"), grafana_url=os.environ.get("DMP_GRAFANA_URL"))
     if os.environ.get("DMP_WEB_DIST"):
         from .app import mount_web
         mount_web(app, Path(os.environ["DMP_WEB_DIST"]))
@@ -158,6 +158,12 @@ def start_ticker(app: Any, store: Any, ch: Any) -> None:
                         act.tick(system)                                     # 到期重試、日批後增量推送
             except Exception as e:
                 store.audit("scheduler.tick.failed", {"error": str(e)[:300]})
+            ops = getattr(app.state, "ops", None)
+            if ops is not None:
+                try:
+                    ops.snapshot()                                           # 系統監控頁的每分鐘快照（獨立於上面的例行，失敗不影響）
+                except Exception as e:
+                    store.audit("ops.snapshot.failed", {"error": str(e)[:300]})
     threading.Thread(target=loop, name="dmp-tick", daemon=True).start()
 
 

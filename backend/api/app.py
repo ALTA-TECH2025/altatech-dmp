@@ -27,7 +27,7 @@ from .store import Store
 
 def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_service: SegmentService | None = None, export_dir: Any | None = None, approval_service: ApprovalService | None = None,
                scheduler: Scheduler | None = None, secret_writer: Any | None = None, migration_runner: Any | None = None, mailer: Any | None = None, mail_domains: list[str] | None = None,
-               render_key: str | None = None, base_url: str = "", llm: Any | None = None, secret_of: Any | None = None, transport: Any | None = None, metrics_token: str | None = None) -> FastAPI:
+               render_key: str | None = None, base_url: str = "", llm: Any | None = None, secret_of: Any | None = None, transport: Any | None = None, metrics_token: str | None = None, grafana_url: str | None = None) -> FastAPI:
     app = FastAPI(title="AltaTech DMP API", version="0.1.0", docs_url="/v1/docs", openapi_url="/v1/openapi.json")
 
     approvals = approval_service or ApprovalService(store)
@@ -80,7 +80,7 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     sched = scheduler or Scheduler(Path(tempfile.gettempdir()) / "dmp-sched.db", LocalRunner(ch if hasattr(ch, "insert_json") and not ch.__class__.__name__.startswith("Fake") else None))
     app.include_router(integration.build_router(store, get_subject, sched, secret_writer))
     app.state.scheduler = sched
-    ops_svc = OpsService(store, ch, sched)                                     # 資料流與效能：排程器＋審計＋程序內指標＋ClickHouse 系統表
+    ops_svc = OpsService(store, ch, sched, grafana_url=grafana_url)            # 資料流與效能：排程器＋審計＋程序內指標＋ClickHouse 系統表
     app.include_router(ops.build_router(store, get_subject, ops_svc, metrics_token))
     app.state.ops = ops_svc
 

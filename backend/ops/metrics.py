@@ -180,7 +180,7 @@ class routine:
     def __enter__(self) -> routine: self.t0 = time.perf_counter(); return self
     def __exit__(self, et: Any, *a: Any) -> None:
         self.ms = (time.perf_counter() - self.t0) * 1000
-        ROUTINE_SECONDS.observe(self.ms / 1000, {"job": self.job}); ROUTINE_TOTAL.inc({"job": self.job, "status": "error" if et else "ok"})
+        ROUTINE_SECONDS.observe(self.ms / 1000, {"job": self.job}, at=self.now()); ROUTINE_TOTAL.inc({"job": self.job, "status": "error" if et else "ok"})
         ROUTINE_LAST.set(self.now(), {"job": self.job}); ROUTINE_LAST_STATUS.set(0 if et else 1, {"job": self.job})
 
 

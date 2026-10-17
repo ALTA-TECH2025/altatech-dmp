@@ -675,8 +675,11 @@ def main(store: Any | None = None) -> None:
     al = c.get("/v1/ops/alerts").json(); assert len(al["rules"]) == 11 and al["notify"] == ["it_admin", "admin"] and all(a["firing"] for a in al["firing"]) and any(a["key"] == "http_errors" or True for a in al["rules"]), al["rules"][:2]
     mt = c.get("/metrics"); assert mt.status_code == 200 and mt.headers["content-type"].startswith("text/plain") and "dmp_http_requests_total{" in mt.text and 'dmp_query_seconds_bucket{module="events",le="+Inf"}' in mt.text and "dmp_clickhouse_table_bytes{table=\"events\"} 48000000" in mt.text and "dmp_process_uptime_seconds" in mt.text, mt.text[:400]
     assert any('route="/v1/dashboards/{' in l for l in mt.text.splitlines()) and not any("d_seed" in l or "d_demo" in l for l in mt.text.splitlines() if "dmp_http_requests_total{" in l), "路由樣板而不是實際 id"
-    login(c, sm, ["marketing"], "mkt"); assert c.get("/v1/ops/pipeline").status_code == 403 and c.get("/metrics").status_code == 403 and c.post("/v1/ops/batch-jobs/x/rerun").status_code == 403
-    login(c, sm, ["data_analyst"], "ana"); assert c.get("/v1/ops/alerts").status_code == 200 and c.post("/v1/ops/batch-jobs/x/rerun").status_code == 403        # 分析師 governance.view 可看、不可重跑
+    app.state.ops.snapshot(); app.state.ops.snapshot(time.time() + 60)
+    se = c.get("/v1/ops/series?hours=6").json(); assert len(se["panels"]) == 17 and se["points"] == 2 and se["grafana"]["url"] is None and all(p["expr"] for p in se["panels"]) and se["panels"][0]["series"][0]["name"] == "all", (se["points"], se["panels"][0])
+    assert c.get("/v1/ops/series?hours=2").status_code == 422
+    login(c, sm, ["marketing"], "mkt"); assert c.get("/v1/ops/pipeline").status_code == 403 and c.get("/metrics").status_code == 403 and c.post("/v1/ops/batch-jobs/x/rerun").status_code == 403 and c.get("/v1/ops/series").status_code == 403
+    login(c, sm, ["data_analyst"], "ana"); assert c.get("/v1/ops/alerts").status_code == 200 and c.post("/v1/ops/batch-jobs/x/rerun").status_code == 403 and c.get("/v1/ops/series").status_code == 403        # 分析師 governance.view 可看、不可重跑、看不到系統監控
     c2 = TestClient(create_app(AuthService(cfg, {}, sm, None), store, ch, metrics_token="tok-123")); assert c2.get("/metrics").status_code == 401 and c2.get("/metrics", headers={"Authorization": "Bearer nope"}).status_code == 401 and c2.get("/metrics", headers={"Authorization": "Bearer tok-123"}).status_code == 200
     login(c, sm, ["admin"], "adm")
     # 7. CSRF：非 GET 沒帶 header → 403

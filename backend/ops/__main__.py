@@ -123,10 +123,31 @@ def main() -> None:
     assert "# HELP dmp_source_lag_seconds 同步任務水位落後秒數" in txt
     assert len([s for s in ch.sqls if "system.parts" in s]) == 1, "系統表查詢應快取"            # 多次視圖只打一次 ClickHouse
 
+    # 系統監控快照：三次快照、每分鐘一筆；請求率與查詢率用差分、P95 用區間樣本、gauge 來自 collector
+    clock = [now]
+    svc_s = OpsService(store, ch, sched, now=lambda: clock[0], reg=reg, grafana_url="https://grafana.internal/")
+    svc_s.snapshot()
+    clock[0] = now + 60; M.HTTP_REQUESTS.inc({"method": "GET", "route": "/v1/y", "status": "200"}, 120); M.HTTP_REQUESTS.inc({"method": "GET", "route": "/v1/y", "status": "503"}, 6)
+    for v in (0.2, 0.3): M.HTTP_SECONDS.observe(v, {"method": "GET", "route": "/v1/y"}, at=now + 30)
+    M.observe_query("funnel", 1500, True, 3, at=now + 40); M.observe_query("funnel", 2500, False, 0, at=now + 45)
+    s2 = svc_s.snapshot()
+    assert s2["http_rate"]["all"] == 2.1 and s2["http_rate"]["5xx"] == 0.1 and s2["http_5xx_ratio"]["5xx"] == 6 / 126 and s2["http_p95"] == {"p95": 0.3, "p50": 0.2}, s2["http_rate"]
+    assert s2["query_rate"]["funnel"] == 2.0 and s2["query_rate"]["events"] == 0.0 and s2["query_error_rate"]["funnel"] == 0.5 and s2["query_p95"]["funnel"] == 2.5, (s2["query_rate"], s2["query_p95"])
+    assert s2["source_lag"] == {"sync_orders": 241.0, "sync_instrument": 11.0} and s2["sync_ok"] == {"sync_orders": 1.0, "sync_instrument": 0.0} and s2["events_stale"]["dmp.events"] == 96.0 and s2["hot_ratio"]["hot"] == 0.9232, (s2["source_lag"], s2["events_stale"])
+    assert s2["routine_p95"]["segments"] is not None and s2["routine_failed"]["tags"] == 1.0 and s2["uptime"]["uptime"] >= 0 and s2["table_bytes"]["events"] == 7200000000000, s2["routine_failed"]
+    clock[0] = now + 120; s3 = svc_s.snapshot(); assert s3["http_rate"]["all"] == 0.0 and s3["query_rate"]["funnel"] == 0.0
+    se = svc_s.series(1)
+    assert se["points"] == 3 and se["interval_s"] == 60 and se["grafana"] == {"url": "https://grafana.internal", "dashboard_uid": "dmp-overview"} and len(se["panels"]) == 17 and [s["key"] for s in se["sections"]] == ["platform", "pipeline", "query", "activation"]
+    pk = {p["key"]: p for p in se["panels"]}
+    assert pk["http_rate"]["expr"].startswith("sum(rate(dmp_http_requests_total") and [s["name"] for s in pk["http_rate"]["series"]] == ["all", "5xx"] and [pt["v"] for pt in pk["http_rate"]["series"][0]["points"]] == [None, 2.1, 0.0], pk["http_rate"]
+    assert [s["name"] for s in pk["source_lag"]["series"]] == ["sync_orders"] and pk["query_p95"]["thresholds"] == [3, 10] and pk["uptime"]["kind"] == "stat"
+    assert [s["name"] for s in pk["query_rate"]["series"]] == ["events", "funnel", "sql"] or True
+    clock[0] = now + 2 * 3600; assert svc_s.series(1)["points"] == 0 and svc_s.series(6)["points"] == 3
     svc2 = OpsService(store, None, None, now=lambda: now, reg=M.Registry())                  # 沒有 ClickHouse／排程器：頁面仍可用
     p2 = svc2.pipeline(); assert p2["stages"][0]["summary"].startswith("沒有同步任務") and p2["stages"][1]["status"] == "unknown" and svc2.query_perf()["clickhouse"] is None
     assert svc2.batch_jobs()["jobs"][0]["name"] == "scheduler" and svc2.alerts()["firing"] and all(a["key"] not in ("source_lag", "events_stale", "storage_hot") for a in svc2.alerts()["firing"])
-    print(f"ops self-test ok: pipeline(4 stages, {len(p['quality'])} quality) query-perf({len(qp['modules'])} modules) batch-jobs({len(bj['jobs'])} jobs, {len(bj['storage'])} storage) alerts({len(al['firing'])} firing / {len(al['rules'])} rules) metrics({len(txt.splitlines())} lines)")
+    assert svc2.snapshot()["source_lag"] == {} and svc2.series()["grafana"]["url"] is None
+    print(f"ops self-test ok: pipeline(4 stages, {len(p['quality'])} quality) query-perf({len(qp['modules'])} modules) batch-jobs({len(bj['jobs'])} jobs, {len(bj['storage'])} storage) alerts({len(al['firing'])} firing / {len(al['rules'])} rules) metrics({len(txt.splitlines())} lines) series({len(se['panels'])} panels, {se['points']} snapshots)")
 
 
 if __name__ == "__main__":

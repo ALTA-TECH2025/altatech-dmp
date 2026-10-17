@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,8 @@ from . import metrics as M
 ROOT = Path(__file__).resolve().parent
 SLA: dict[str, Any] = yaml.safe_load((ROOT / "sla.yaml").read_text(encoding="utf-8"))
 ALERTS: dict[str, Any] = yaml.safe_load((ROOT / "alerts.yaml").read_text(encoding="utf-8"))
+PANELS: dict[str, Any] = yaml.safe_load((ROOT / "panels.yaml").read_text(encoding="utf-8"))
+SNAPSHOT_KEEP = 1440                                           # 每分鐘一筆，保留 24 小時
 WINDOWS = {"1h": 3600, "24h": 86400, "7d": 7 * 86400}
 MODULE_CN = {"events": "事件分析", "funnel": "漏斗分析", "retention": "留存分析", "path": "行為路徑", "attribution": "歸因分析", "users": "用戶列表", "estimate": "人數估算", "dashboard": "儀表板", "dashboard_render": "儀表板輸出", "bookmark": "書籤", "sql": "自定義 SQL", "segments": "分群", "tags": "標籤", "profile": "用戶細查"}
 ROUTINES = [("scheduler", "同步任務排程", "每分鐘"), ("dashboard_share", "看板定時寄送", "每分鐘"), ("segments", "分群例行計算與到期清理", "每 10 分鐘"), ("tags", "標籤例行計算", "每 10 分鐘"), ("activation", "推送重試與日批後增量", "每分鐘")]
@@ -54,9 +57,11 @@ def _status(v: float | None, warn: float, bad: float, higher_is_worse: bool = Tr
 
 
 class OpsService:
-    def __init__(self, store: Any, ch: Any | None, scheduler: Any | None, now: Any = time.time, reg: M.Registry = M.REG):
-        self.store, self.ch, self.sched, self.now, self.reg = store, ch, scheduler, now, reg
+    def __init__(self, store: Any, ch: Any | None, scheduler: Any | None, now: Any = time.time, reg: M.Registry = M.REG, grafana_url: str | None = None):
+        self.store, self.ch, self.sched, self.now, self.reg, self.grafana_url = store, ch, scheduler, now, reg, (grafana_url or "").rstrip("/") or None
         self._cache: dict[str, tuple[float, Any]] = {}
+        self._ring: deque[tuple[float, dict[str, dict[str, float | None]]]] = deque(maxlen=SNAPSHOT_KEEP)
+        self._last: dict[str, Any] = {}
         reg.collector(self._collect, {"dmp_source_lag_seconds": "同步任務水位落後秒數", "dmp_sync_last_ok": "同步任務最近一次是否成功", "dmp_sync_quarantine_ratio": "最近一次隔離＋拒絕比例",
                                       "dmp_delivery_24h": "24 小時推送交付數（依狀態）", "dmp_destination_paused": "自動暫停的目的地", "dmp_events_stale_seconds": "最新行為事件落後秒數",
                                       "dmp_clickhouse_table_bytes": "ClickHouse 表磁碟用量", "dmp_clickhouse_table_rows": "ClickHouse 表列數", "dmp_clickhouse_hot_ratio": "熱層用量佔規劃值比例"})
@@ -246,6 +251,79 @@ class OpsService:
         order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         firing.sort(key=lambda a: (order.get(a["severity"], 9), a["key"]))
         return {"at": self._iso(), "firing": firing, "rules": rules, "notify": ALERTS.get("notify", [])}
+
+    # ---------------- 系統監控：每分鐘快照 → 時間序列（與 Grafana 面板同一份定義） ----------------
+    def snapshot(self, now: float | None = None) -> dict[str, dict[str, float | None]]:
+        """把程序內指標與 collector 的當前值依 panels.yaml 算成每個面板的序列值，存進環形緩衝。由 start_ticker 每分鐘呼叫。"""
+        t = now if now is not None else self.now()
+        prev = self._last; dt = max(1.0, t - prev["ts"]) if prev else None
+        http = {k: v for k, v in M.HTTP_REQUESTS.values.items()}
+        total = sum(http.values()); err = sum(v for k, v in http.items() if dict(k).get("status", "").startswith("5"))
+        qtot: dict[str, float] = {}; qerr: dict[str, float] = {}
+        for k, v in M.QUERY_TOTAL.values.items():
+            d = dict(k); qtot[d["module"]] = qtot.get(d["module"], 0) + v
+            if d.get("status") == "error": qerr[d["module"]] = qerr.get(d["module"], 0) + v
+        collected: dict[str, list[tuple[dict[str, str], float]]] = {}
+        try:
+            for name, labels, value in self._collect(): collected.setdefault(name, []).append((labels, value))
+        except Exception:
+            pass
+        since = prev["ts"] if prev else t - 60
+        out: dict[str, dict[str, float | None]] = {}
+        for p in PANELS["panels"]:
+            src = str(p["source"]); row: dict[str, float | None] = {}
+            if src == "http_rate":
+                row = {"all": (total - prev["http_total"]) / dt if dt else None, "5xx": (err - prev["http_5xx"]) / dt if dt else None}
+            elif src == "http_quantiles":
+                p50, p95, _ = M.quantiles(M.HTTP_SECONDS.samples(since=since)); row = {"p95": p95, "p50": p50}
+            elif src == "http_error_ratio":
+                dtot = total - prev["http_total"] if dt else total; derr = err - prev["http_5xx"] if dt else err
+                row = {"5xx": (derr / dtot) if dtot else 0.0}
+            elif src == "uptime":
+                row = {"uptime": round(t - self.reg.started_at)}
+            elif src == "routine_p95":
+                for job, _cn, _s in ROUTINES:
+                    v = M.quantiles(M.ROUTINE_SECONDS.samples({"job": job}, since=t - 1800))[1]
+                    if v is not None: row[job] = v
+            elif src.startswith("counter:"):
+                _, name, cond, by = src.split(":"); ck, cv = cond.split("=")
+                m = M.REG.metrics.get(name)                                     # 共用指標都在模組層的 REG
+                for k, v in (getattr(m, "values", {}) or {}).items():
+                    d = dict(k)
+                    if d.get(ck) == cv: row[d.get(by, "")] = row.get(d.get(by, ""), 0.0) + v   # type: ignore[operator]
+            elif src == "query_p95":
+                mods = {dict(k)["module"] for k in M.QUERY_SECONDS.recent}
+                for mod in sorted(mods):
+                    v = M.quantiles(M.QUERY_SECONDS.samples({"module": mod}, since=t - 3600))[1]
+                    if v is not None: row[mod] = v
+            elif src == "query_rate":
+                pq = prev.get("query_total", {}) if dt else {}
+                row = {mod: ((n - pq.get(mod, 0)) / dt * 60) if dt else None for mod, n in sorted(qtot.items())}
+            elif src == "query_error_ratio":
+                row = {mod: (qerr.get(mod, 0) / n) if n else 0.0 for mod, n in sorted(qtot.items())}
+            elif src.startswith("gauge:"):
+                parts = src.split(":"); name = parts[1]; scale = 1 / 60 if len(parts) > 2 and parts[2] == "/60" else 1.0
+                for labels, value in collected.get(name, []):
+                    row[next(iter(labels.values()), str(p.get("legend", "")))] = round(value * scale, 4)
+            out[p["key"]] = row
+        self._ring.append((t, out))
+        self._last = {"ts": t, "http_total": total, "http_5xx": err, "query_total": dict(qtot)}
+        return out
+
+    def series(self, hours: int = 6) -> dict[str, Any]:
+        t = self.now(); since = t - hours * 3600
+        pts = [(ts, row) for ts, row in self._ring if ts >= since]
+        iso = lambda x: datetime.fromtimestamp(x, UTC).isoformat(timespec="seconds")
+        panels = []
+        for p in PANELS["panels"]:
+            names: list[str] = []
+            for _, row in pts:
+                for n in row.get(p["key"], {}):
+                    if n not in names: names.append(n)
+            panels.append({"id": p["id"], "key": p["key"], "cn": p["cn"], "section": p["section"], "kind": p["kind"], "unit": p["unit"], "expr": p["expr"], "thresholds": list(p.get("thresholds", [])),
+                           "series": [{"name": n, "points": [{"t": iso(ts), "v": row.get(p["key"], {}).get(n)} for ts, row in pts]} for n in names]})
+        return {"hours": hours, "from": iso(since), "to": iso(t), "interval_s": 60, "points": len(pts), "grafana": {"url": self.grafana_url, "dashboard_uid": PANELS["dashboard"]["uid"]},
+                "sections": [dict(s) for s in PANELS["sections"]], "panels": panels}
 
     # ---------------- Prometheus collector ----------------
     def _collect(self) -> list[tuple[str, dict[str, str], float]]:

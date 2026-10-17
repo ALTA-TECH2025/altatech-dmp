@@ -55,6 +55,13 @@ def build_router(store: Any, get_subject: Any, svc: OpsService, metrics_token: s
         except KeyError:
             raise HTTPException(404, f"沒有可重跑的作業：{name}（只有同步任務可重跑；例行作業由排程自動執行）") from None
 
+    @r.get("/v1/ops/series")
+    def series(hours: int = Query(6, ge=1, le=24), subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "admin")
+        if hours not in (1, 6, 24):
+            raise HTTPException(422, "hours 只能是 1、6、24")
+        return svc.series(hours)
+
     @r.get("/v1/ops/alerts")
     def alerts(subject: Subject = Depends(get_subject)) -> dict[str, Any]:
         need(subject, "view")
