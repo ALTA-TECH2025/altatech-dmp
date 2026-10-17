@@ -270,6 +270,8 @@ paths:
     get: { tags: [Auth], summary: 'IdP 回呼：換 token、驗 ID token（JWKS／iss／aud／nonce／amr／tid）、群組對應角色、建立 session（Set-Cookie dmp_sid HttpOnly + dmp_csrf）；無角色轉 /no-access；審計 auth.login.*', parameters: [{ name: code, in: query, schema: { type: string } }, { name: state, in: query, schema: { type: string } }], responses: { '302': { description: 轉向 return_to }, '401': { description: 驗證失敗 } } }
   /auth/ldap:
     post: { tags: [Auth], summary: '帳密登入（direct 模式）：provider=ad 走 LDAPS bind、provider=local 走本機帳號（scrypt 密碼 + TOTP；外包／單機環境用）；第一步回 next=totp，第二步帶 totp 驗證；速率限制與鎖定；審計', requestBody: { content: { application/json: { schema: { type: object, required: [username, password], properties: { provider: { type: string, enum: [ad, local], default: ad }, username: { type: string }, password: { type: string }, totp: { type: string } } } } } }, responses: { '200': { description: ok 或 next=totp }, '401': { description: 帳號或密碼錯誤 } } }
+  /auth/step-up:
+    post: { tags: [Auth], summary: 'admin step-up：session 超過 15 分鐘後再驗一次 TOTP 延展 admin 權限（只對 provider=local 或其他有 TOTP 驗證能力的提供者）；需 X-CSRF-Token；審計 auth.step_up', requestBody: { content: { application/json: { schema: { type: object, required: [totp], properties: { totp: { type: string } } } } } }, responses: { '200': { description: ok（含目前有效角色） }, '401': { description: 驗證碼錯誤 }, '400': { description: 此登入方式不支援 } } }
   /auth/logout:
     post: { tags: [Auth], summary: '登出：刪 session、清 cookie；回 IdP end_session 網址供前端跳轉（RP-initiated logout）；需 X-CSRF-Token', responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean }, idp_logout: { type: string, nullable: true } } } } } } } }
   /auth/token:
