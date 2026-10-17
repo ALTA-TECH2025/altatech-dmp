@@ -26,6 +26,7 @@ import { BookmarksPage } from '@/dashboards/BookmarksPage';
 import { SqlPage } from '@/sql/SqlPage';
 import { SettingsPage } from '@/settings/SettingsPage';
 import { ProfileEntryPage } from '@/users/ProfileEntryPage';
+import { OpsPage } from '@/ops/OpsPage';
 import type { Module } from '@/api/types';
 
 /** 尚未實作的頁面：標示「第二階段」（規劃內、排在後續里程碑）或「待開發」（本階段範圍、尚未接上），說明目前狀態與可替代入口。 */
@@ -74,7 +75,7 @@ export function App() {
             <Route path="/governance" element={<GovernancePage />} />
             <Route path="/governance/users" element={<UserSchemaPage />} />
             <Route path="/governance/items" element={<ItemsPage />} />
-            <Route path="/governance/pipeline" element={<Placeholder title="資料流與效能" module="governance" stage="phase2" note="端到端資料流、查詢 P50／P95／P99、批次作業與儲存：由 Prometheus／Grafana 與 ClickHouse query_log 供數，第二階段接上。" instead={{ to: '/integration', cn: '數據整合（同步任務執行紀錄）' }} />} />
+            <Route path="/governance/pipeline" element={<OpsPage />} />
             <Route path="/migration" element={<MigrationPage />} />
             <Route path="/audit" element={<AuditPage />} />
             <Route path="/settings" element={<SettingsPage />} />

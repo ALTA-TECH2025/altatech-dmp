@@ -189,7 +189,20 @@ label.chk input { width: auto; }
 .signal.up { background: #2E9E6B; } .signal.down { background: var(--red); } .signal.flat { background: #C9A227; }
 @media (max-width: 900px) { .dash-grid { grid-template-columns: minmax(0, 1fr); } .dash-card.w2 { grid-column: auto; } .w-toggle { display: none; } }
 /* 手機：標題列與分段切換可換行、卡片工具列靠左、指標卡兩欄、範例按鈕可折行 */
+/* 資料流與效能 */
+.pipe { display: flex; gap: 0; align-items: stretch; flex-wrap: wrap; }
+.pipe-wrap { display: flex; align-items: stretch; flex: 1 1 200px; min-width: 0; }
+.pipe-arrow { align-self: center; color: var(--muted); padding: 0 8px; font-size: 18px; }
+.pipe-stage { flex: 1 1 auto; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--soft); }
+.pipe-stage .hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.pipe-stage.warn { border-color: #F0D3A8; background: #FDF6EA; }
+.pipe-stage.error { border-color: #F0C0C0; background: #FBE9E9; }
+.st-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+.st-dot.ok { background: var(--st-good); } .st-dot.warn { background: var(--st-warn); } .st-dot.error { background: var(--st-serious); }
+.ok-note { background: #E8F6EF; border: 1px solid #BDE3CF; color: #1A6B44; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+
 @media (max-width: 600px) {
+  .pipe-wrap { flex-basis: 100%; } .pipe-arrow { display: none; } .pipe-stage { margin-bottom: 8px; }
   .card-h { flex-wrap: wrap; row-gap: 6px; }
   .card-h .right { margin-left: 0; width: 100%; justify-content: flex-start; }
   .dash-card .card-h .right.row { width: auto; }

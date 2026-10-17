@@ -38,7 +38,7 @@ export const NAV: NavGroup[] = [
     { path: '/governance/users', cn: '用戶表管理', module: 'governance' },
     { path: '/governance/items', cn: '維度表與字典', module: 'governance' },
     { path: '/migration', cn: '歷史資料遷移', module: 'governance' },
-    { path: '/governance/pipeline', cn: '資料流與效能', module: 'governance', stage: 'phase2' },
+    { path: '/governance/pipeline', cn: '資料流與效能', module: 'governance' },
   ] },
   { id: 'sys', cn: '系統管理', items: [
     { path: '/iam', cn: '權限中心', module: 'iam' },
