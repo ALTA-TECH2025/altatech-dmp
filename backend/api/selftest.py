@@ -306,6 +306,37 @@ def main(store: Any | None = None) -> None:
         assert c.delete(f"/v1/dashboards/{did}/cards/{x['id']}").json()["ok"]
     assert c.delete(f"/v1/dashboards/{wid}").json()["ok"]
     assert {x["event"] for x in store.audit_tail(60)} >= {"bookmark.created", "bookmark.updated", "bookmark.deleted"}
+    # 5c4. 自定義 SQL 沙盒：分析師可用（表目錄標示脫敏欄位）、唯讀執行、脫敏欄位 400、行銷 403、記錄、下載（events.export）、已存查詢、kind=sql 書籤與卡片；中間表需資訊管理
+    tb = c.get("/v1/sql/tables").json(); assert any(t["name"] == "dmp.events" for t in tb["tables"]) and not any(t["name"] == "dmp.id_map" for t in tb["tables"]) and tb["examples"]
+    assert next(col for t in tb["tables"] if t["name"] == "dmp.events" for col in t["columns"] if col["name"] == "one_id")["allowed"] is False
+    sq = c.post("/v1/sql/query", json={"sql": "SELECT event_date AS bucket, count() AS m1 FROM dmp.events WHERE event = 'bond_deal' GROUP BY bucket", "limit": 100}); assert sq.status_code == 200, sq.text
+    sqj = sq.json(); assert sqj["rows"] and sqj["sql_effective"].startswith("SELECT * FROM (") and sqj["sql_effective"].endswith("LIMIT 100") and sqj["lineage"] == ["dmp.events"] and sqj["scan_rows_estimate"] == 16384
+    assert c.post("/v1/sql/query", json={"sql": "SELECT one_id FROM dmp.events"}).status_code == 400 and c.post("/v1/sql/query", json={"sql": "DROP TABLE dmp.events"}).status_code == 400
+    assert c.post("/v1/sql/query", json={"sql": "SELECT count() FROM dmp.events", "explain": True}).json()["explained"] is True
+    hist = c.get("/v1/sql/history").json(); assert hist and hist[0]["status"] == "ok" and hist[0]["rows"] >= 1
+    dl = c.get(f"/v1/sql/query/{sqj['run_id']}/download"); assert dl.status_code == 200 and dl.text.startswith("# AltaTech DMP 自定義 SQL") and "_watermark" in dl.text
+    sv = c.post("/v1/sql/saved", json={"name": "每日成交", "group": "債券", "sql": "SELECT event_date, count() AS n FROM dmp.events WHERE event = {{ev}} GROUP BY event_date", "params_default": {"ev": "bond_deal"}, "shared": {"roles": ["marketing"]}}); assert sv.status_code == 201, sv.text
+    assert c.put(f"/v1/sql/saved/{sv.json()['id']}", json={"name": "每日成交（改）"}).json()["name"] == "每日成交（改）" and c.get("/v1/sql/saved").json()[0]["group"] == "債券"
+    assert c.post("/v1/sql/saved", json={"name": "bad", "sql": "SELECT one_id FROM dmp.events"}).status_code == 400
+    sb = c.post("/v1/bookmarks", json={"name": "SQL 書籤", "kind": "sql", "query": {"sql": "SELECT event_date AS bucket, count() AS m1 FROM dmp.events GROUP BY bucket"}, "add_to": [did]}); assert sb.status_code == 201, sb.text
+    sql_card = next(x for x in c.get(f"/v1/dashboards/{did}").json()["cards"] if x.get("bookmark") == sb.json()["id"])
+    cds = c.post(f"/v1/dashboards/{did}/cards/{sql_card['id']}/data").json(); assert cds["rows"] and cds["chart_spec"]["type"] == "table" and cds["card"]["kind"] == "sql"
+    assert c.post("/v1/bookmarks", json={"name": "x", "kind": "sql", "query": {"sql": "SELECT one_id FROM dmp.events"}}).status_code == 400
+    assert c.post("/v1/sql/mid-tables", json={"name": "deals", "sql": "SELECT count() FROM dmp.events"}).status_code == 403          # 分析師不能建中間表
+    login(c, sm, ["marketing"], "mkt")
+    assert c.get("/v1/sql/tables").status_code == 403 and c.post("/v1/sql/query", json={"sql": "SELECT count() FROM dmp.events"}).status_code == 403
+    assert c.get("/v1/sql/saved").status_code == 403                                                                                     # 行銷沒有沙盒權限：連已存查詢也不給
+    assert c.post(f"/v1/dashboards/{did}/cards/{sql_card["id"]}/data").status_code in (403, 404)                                      # 行銷看 sql 卡：無沙盒權限（此時看板也還沒分享）
+    login(c, sm, ["it_admin"], "it")
+    mt = c.post("/v1/sql/mid-tables", json={"name": "deals_daily", "sql": "SELECT event_date, count() AS n FROM dmp.events GROUP BY event_date", "note": "每日成交"}); assert mt.status_code == 201, mt.text
+    assert mt.json()["name"] == "mid_deals_daily" and any(t["name"] == "dmp.mid_deals_daily" for t in c.get("/v1/sql/tables").json()["tables"])
+    assert c.post("/v1/sql/query", json={"sql": "SELECT * FROM dmp.mid_deals_daily"}).status_code == 200
+    assert c.post("/v1/sql/mid-tables/mid_deals_daily/refresh").status_code == 200 and c.delete("/v1/sql/mid-tables/mid_deals_daily").status_code == 204
+    login(c, sm, ["data_analyst"], "ana")
+    assert c.delete(f"/v1/sql/saved/{sv.json()['id']}").status_code == 204 and c.delete(f"/v1/bookmarks/{sb.json()['id']}").status_code == 204
+    for x in [x for x in c.get(f"/v1/dashboards/{did}").json()["cards"] if x.get("bookmark") == sb.json()["id"]]:
+        assert c.delete(f"/v1/dashboards/{did}/cards/{x['id']}").json()["ok"]
+    assert {x["event"] for x in store.audit_tail(80)} >= {"query.sql", "sql.downloaded", "sql.saved", "sql.mid_table.created", "sql.mid_table.deleted"}
     # 5c3. 問數建卡片：規則解析 → 以當事人身分乾跑 → 卡片草稿（不存）；行銷有 ai_ask.use 但沒有 attribution 模組 → 該卡進 rejected；對不上 → 422
     st_ask = c.get("/v1/analytics/ask/status").json(); assert st_ask["parsers"] == ["rules"] and st_ask["default"] == "rules" and st_ask["examples"]
     ak = c.post(f"/v1/dashboards/{did}/ask", json={"question": "上週各平台成交金額、看盤到委託到成交的漏斗、登入後 4 週留存"}); assert ak.status_code == 200, ak.text
@@ -513,7 +544,7 @@ def main(store: Any | None = None) -> None:
     assert {x["event"] for x in store.audit_tail(400)} >= {"role.change_requested", "role.changed", "role.deleted", "iam.break_glass.requested", "iam.user.created", "iam.user.changed", "iam.user.deleted", "auth.session.revoked", "audit.exported", "authz.denied"}
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+bookmarks+ask(rules)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+bookmarks+sql sandbox+ask(rules)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":

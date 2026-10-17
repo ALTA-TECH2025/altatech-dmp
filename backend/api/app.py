@@ -19,7 +19,7 @@ from ..integration.scheduler import Scheduler
 from ..security.policy import Subject
 from ..segments import SegmentService
 from ..semantic.compiler import Catalog
-from . import analytics, ask, bookmarks, dashboards, exports, iam, integration, meta, migration, segments, sysadmin, users
+from . import analytics, ask, bookmarks, dashboards, exports, iam, integration, meta, migration, segments, sql, sysadmin, users
 from .store import Store
 
 
@@ -59,6 +59,7 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     app.include_router(ask.build_router(store, get_subject, share.cat, llm))
     app.include_router(dashboards.build_router(store, get_subject, ch, share=share))
     app.include_router(bookmarks.build_router(store, get_subject, ch))
+    app.include_router(sql.build_router(store, get_subject, ch, share.cat))
     app.include_router(meta.build_router(store, get_subject, ch))
     app.include_router(migration.build_router(store, get_subject, ch, migration_runner))
     app.include_router(users.build_router(store, get_subject, ch))

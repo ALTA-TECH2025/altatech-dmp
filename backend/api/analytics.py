@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..security.policy import Subject, authorize
+from ..security.policy import RBAC, Subject, authorize
 from ..semantic.compiler import Catalog, Compiled, compile_query
 from ..semantic.compiler.attribution import compile_attribution, parse_attribution, shape
 from ..semantic.compiler.funnel import compile_funnel, parse_funnel, with_rates
@@ -106,7 +106,25 @@ class _Attribution(_Run):
         return {**shape(rows, aq), "chart_spec": {"type": "attribution", "x": "touch", "series": aq.models, "split": bool(aq.split)}}
 
 
-RUNNERS: dict[str, _Run] = {r.kind: r for r in (_Events(), _Funnel(), _Retention(), _Path(), _Attribution())}
+class _Sql(_Run):
+    """自定義 SQL 當作一種分析（書籤／看板卡片 kind=sql）：沙盒規則驗證後包成唯讀查詢；表格呈現。"""
+    kind, module = "sql", "events"
+    def compile(self, body: dict[str, Any], d: Any, cat: Catalog) -> tuple[Compiled, Any]:
+        from ..sql import sandbox
+        if not sandbox.sandbox_allowed(list(body.get("_roles") or []), RBAC["roles"]):
+            raise PermissionError("此身分沒有自定義 SQL 權限（數據分析、資訊管理、系統管理員）")
+        try:
+            c = sandbox.compile_sql(str(body.get("sql") or ""), body.get("params") or None, d, cat, list(body.get("_roles") or []), int(body.get("limit") or sandbox.MAX_LIMIT), sandbox.MID_TABLES)
+        except sandbox.SandboxError as e:
+            raise ValueError(str(e)) from None
+        return c, body
+    def shape(self, rows: list[dict[str, Any]], q: Any, c: Compiled) -> dict[str, Any]:
+        cols = list(rows[0].keys()) if rows else []
+        return {"rows": rows, "columns": cols, "chart_spec": {"type": "table", "x": cols[0] if cols else None, "series": [k for k in cols[1:] if rows and isinstance(rows[0].get(k), int | float)]}, "masked": {}}
+    def extra_audit(self, q: Any) -> dict[str, Any]: return {"sql_sandbox": True}
+
+
+RUNNERS: dict[str, _Run] = {r.kind: r for r in (_Events(), _Funnel(), _Retention(), _Path(), _Attribution(), _Sql())}
 
 
 def compile_kind(kind: str, subject: Subject, body: dict[str, Any], cat: Catalog) -> tuple[Compiled, Any, Any]:
@@ -115,6 +133,8 @@ def compile_kind(kind: str, subject: Subject, body: dict[str, Any], cat: Catalog
     d = authorize(subject, "use", run.module, {"export": bool(body.get("export"))} if kind == "events" else None)
     if not d.allowed:
         raise HTTPException(403, d.reason)
+    if kind == "sql":
+        body = {**body, "_roles": list(subject.roles)}                      # 沙盒需要角色（可用表、sql_sandbox 旗標）
     try:
         c, q = run.compile(body, d, cat)
     except PermissionError as e:
