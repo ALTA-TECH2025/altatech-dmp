@@ -8,11 +8,11 @@
 |---|---|
 | 開發期間 | 2026-10-14 ～ 10-17，4 天，147 個 commit（vibe coding，單一工作流） |
 | 後端 Python | 約 17,500 行（FastAPI、語意編譯器、政策引擎、分群／標籤／推送、整合、遷移、OneID、本機帳號） |
-| 正式前端 TypeScript | 約 6,200 行（React 19，27 個頁面，66 個單元測試） |
-| 契約 | OpenAPI 173 個路徑（另有 `/metrics`），其中 138 個已有實作（另有 7 個實作路徑尚未回寫契約；以路由宣告比對）；semantic／security／mcp YAML |
+| 正式前端 TypeScript | 約 6,200 行（React 19，28 個頁面，70 個單元測試） |
+| 契約 | OpenAPI 174 個路徑（另有 `/metrics`），其中 139 個已有實作（另有 7 個實作路徑尚未回寫契約；以路由宣告比對）；semantic／security／mcp YAML |
 | 自動化驗證 | 18 組 Python 自測（含真 ClickHouse 端到端、80 條黃金查詢 oracle 逐列比對、36 條必拒）、ruff、OpenAPI 驗證、yaml 載入、vitest、Playwright 截圖流程（本機真資料與示範站） |
 | 示範站 | https://altatech-dmp-demo.vercel.app（瀏覽器內固定資料，五種角色切換；手機版可用） |
-| 文件 | docs/01–31 共 31 份；系統圖四張附實作狀態 |
+| 文件 | docs/01–32 共 32 份（含給客戶的開源元件來源／授權／付費清單 docs/32）；系統圖四張附實作狀態 |
 
 ### 1.1 相對原計畫，已經提前做掉的事
 
@@ -185,3 +185,4 @@ v2.1 相對 v2 的差別來自兩件事：
 - docs/17 §5a 實作狀態與待確認清單、docs/27 §1 模組狀態表：每個里程碑結束時更新。
 - docs/22 §6 時程 v1 保留作為對照；本文為時程 v2.1、人力 v2.2（人力配置與 Claude Team 協同見 §2a、§2b），之後版本在本文更新。
 - 系統圖狀態標籤：`docs/diagrams/build.py` 的 `STATUS` 表，改完執行 `python3 docs/diagrams/build.py`。
+- 第三方元件：新增套件同時改 `LICENSES.md` 與 docs/32 §1；Grafana 看板由 `python3 -m backend.ops.grafana` 從 `backend/ops/panels.yaml` 產生。

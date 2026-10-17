@@ -1,4 +1,4 @@
-# 第三方元件授權清單（原產地與治理單位盤點見 docs/25）（白名單：Apache-2.0、MIT、BSD-2/3、ISC、PostgreSQL、MPL-2.0、UBI EULA、GPLv2+Classpath Exception for OpenJDK）
+# 第三方元件授權清單（原產地與治理單位盤點見 docs/25；給客戶的「來源、授權、是否商用付費」整理版見 docs/32）（白名單：Apache-2.0、MIT、BSD-2/3、ISC、PostgreSQL、MPL-2.0、UBI EULA、GPLv2+Classpath Exception for OpenJDK）
 
 | 元件 | 版本 | 授權 | 用途 | 備註 | 治理單位（國家） |
 |---|---|---|---|---|---|
@@ -6,7 +6,7 @@
 | Apicurio Registry | 2.x | Apache-2.0 | Schema Registry | 取代 Confluent Schema Registry | Red Hat（美） |
 | Debezium | 2.7 | Apache-2.0 | CDC | Flink CDC（阿里巴巴起源）已移除，見 docs/25 | Red Hat（美） |
 | Apache Flink + K8s Operator | 1.19 / 1.10 | Apache-2.0 | 串流 | — | ASF（美；起源德國 TU Berlin） |
-| ClickHouse / Keeper | 24.8 LTS | Apache-2.0 | OLAP | — | ClickHouse Inc.（美；起源俄羅斯 Yandex） |
+| ClickHouse / Keeper | 25.8 LTS | Apache-2.0 | OLAP | — | ClickHouse Inc.（美；起源俄羅斯 Yandex） |
 | Altinity clickhouse-operator | 0.24 | Apache-2.0 | Operator | — | Altinity（美） |
 | Apache Spark / Iceberg / Trino | 3.5 / 1.6 / 460 | Apache-2.0 | 批次／湖／Ad-hoc | — | ASF／ASF／Trino SF（美） |
 | Apache Airflow | 2.10 | Apache-2.0 | 排程 | — | ASF（美） |

@@ -111,7 +111,7 @@
 | 5.13b 自定義 SQL | 🟢 已實作 | 唯讀沙盒、權限表目錄、脫敏預校驗、動態參數、預覽／下載／已存查詢／記錄／中間表、存書籤進看板 | 格式化、EXPLAIN 視覺化 | 下載上限依角色 |
 | 5.14 權限中心 | 🟢 已實作 | 五角色＋自訂、指派與範圍、模組矩陣、行級模擬、成員目錄、本機帳號＋TOTP、session 強制登出、雙人複核、臨時提權 | 真實 AD／Entra ID 對接驗證（只接過假 IdP） | 客戶 IdP（Entra／AD／Keycloak）與群組→角色對照 |
 | 5.15 日誌統計／審計 | 🟢 已實作 | 全操作審計、看板（指標卡、趨勢、模組／角色、敏感存取、告警規則）、CSV 匯出含浮水印 | 審計 WORM（GCS 物件鎖）、DSAR 流程 | 審計保存年限 |
-| 5.16 資料流與效能 | 🟡 部分實作 | 資料流四段（來源同步 → ClickHouse 進倉 → API 與查詢 → 推送交付）與資料品質、各模組查詢 P50/P95/P99 對 SLA（`ops/sla.yaml`）、批次作業（同步任務可重跑、背景例行）與儲存用量、告警（`ops/alerts.yaml` 11 條規則）；API 輸出 Prometheus 指標 `/metrics`；Helm 的 ServiceMonitor／PrometheusRule（同一組規則）／Grafana 看板 | OTel 追蹤、OpenSearch／Cloud Logging 日誌、告警通知管道（Email／LINE）與值班分工、query_log 物化、Airflow 作業接入 | SLA 實測：行為事件 15 分鐘可查、30 天漏斗 10 秒、標籤日批 60 分鐘（M2 效能基準回填） |
+| 5.16 資料流與效能 | 🟡 部分實作 | 資料流四段（來源同步 → ClickHouse 進倉 → API 與查詢 → 推送交付）與資料品質、各模組查詢 P50/P95/P99 對 SLA（`ops/sla.yaml`）、批次作業（同步任務可重跑、背景例行）與儲存用量、告警（`ops/alerts.yaml` 11 條規則）；API 輸出 Prometheus 指標 `/metrics`；Helm 的 ServiceMonitor／PrometheusRule（同一組規則）／Grafana 看板；**系統管理 › 系統監控頁**（系統管理員、資訊管理）：Grafana 同一組 17 個面板在平台內看（`ops/panels.yaml` 一份兩用、每面板附 PromQL、API 每分鐘快照保留 24 小時、設 `DMP_GRAFANA_URL` 可跳到 Grafana 同一面板） | OTel 追蹤、OpenSearch／Cloud Logging 日誌、告警通知管道（Email／LINE）與值班分工、query_log 物化、Airflow 作業接入 | SLA 實測：行為事件 15 分鐘可查、30 天漏斗 10 秒、標籤日批 60 分鐘（M2 效能基準回填） |
 | 5.17 歷史資料遷移 | 🟢 已實作（工具） | 盤點、橋接表、導出任務狀態機、三方對帳 T2／T5／T6、並行期樣本 | 真資料尚未跑 | 神策 70 億筆的導出方式（Impala／HDFS／API）與並行期長度 |
 | 總覽／儀表板 | 🟢 已實作 | 書籤→看板、拖曳排版、解讀（規則）、單檔 HTML、定時寄送、AI 生成卡片、四個需求表情境範例看板、手機版 | 模型解讀需 LLM 金鑰 | — |
 | 部署與營運 | 🟡 部分實作 | Helm、values（機房／GCP 檔位）、ClickHouse Keeper、CI 弱掃（Trivy／hadolint／gitleaks）、PostgreSQL 控制面、監控最小版（ServiceMonitor、PrometheusRule、Grafana 看板） | OpenTofu GCP、Operators、Valkey、物件儲存冷層、告警通知管道、備份／DR 演練 | GCP 或機房；A 檔 6 台 vs D 檔 3 台 |
@@ -191,3 +191,4 @@
 | docs/22 | 神策 → GA360 遷移與歷史資料銜接：埋點設計建議（橋接表）、資料盤點與導出載入、新舊整合測試 T1–T9、交易結合分析、第一階段時程（v1） |
 | docs/27 | 實作狀態、信心度、需求表落差 |
 | docs/31 | 進度更新：時程 v2.1、人力配置與 Claude Team 協同、挑戰難點、下一步規劃（2026-10-17） |
+| docs/32 | 第三方開源元件清單（給客戶）：來源／治理單位、授權、是否需商用付費；第一階段實際使用 vs 規劃中 vs 刻意不用 |
