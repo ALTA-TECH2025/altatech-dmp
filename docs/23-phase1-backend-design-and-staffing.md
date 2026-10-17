@@ -210,6 +210,30 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 - 架構文件：docs/02 的計算層描述要加「第一階段微批」註記（本文即為該註記）。
 - 兩個人要在前兩週擠出時間學 ClickHouse；如果連這個都擠不出來，風險回到人力，不是技術。
 
+### 6.5 ClickHouse 顧問的條件與來源（2026-10-17 補）
+
+顧問 20 天的用途：三次設計審查（W2 schema：排序鍵／分區／按 one_id 分片；W8 效能：10 億基準、MV 覆蓋率、抽樣；W16 容量：70 億載入、13 個月熱層＋冷層 TTL、2 shard × 2 replica）＋隨叫問答（查詢守門、mutation 代價、Bitmap 記憶體、備份與升級）。
+
+**神策原廠不是來源**：神策分析引擎是 Impala＋Kudu＋Parquet，不是 ClickHouse；神策背景對口徑、IDM、埋點、對帳有用（分析師已具備），對排序鍵／MV／調校幫不上。
+
+必要條件：
+1. 生產環境跑過 ≥ 100 億列、多分片多副本、Keeper；用過 Altinity Operator 或自管 K8s 部署。
+2. 做過行為分析型工作負載：windowFunnel、retention、sequenceMatch、uniq 與 Bitmap 去重、按用戶分片避免 shuffle、SAMPLE 分桶（只做 log／監控的 ClickHouse 經驗不夠）。
+3. 設計過 MV／projection 覆蓋策略與回填，知道何時不該用 MV。
+4. 容量與維運：磁碟與記憶體估算、冷層到物件儲存、zero-copy replication、clickhouse-backup、LTS 升級路徑。
+5. 加分：能讀 Python 與 SQL 樣板、中文溝通、金融業資料保護意識。
+
+來源（依契合度）：
+1. 前 ByteDance／火山引擎 DataFinder／ByteHouse 行為分析平台工程師（事件、漏斗、留存蓋在 ClickHouse 上，最對口）。
+2. Altinity（Operator 維護者；按天計價的顧問與支援；遠端、英文），適合設計審查＋緊急問答，可與第 1 類並用。
+3. ClickHouse Inc. Professional Services（原廠，貴；適合只買效能審查）。
+4. GrowingIO、易觀等後來轉 ClickHouse 的分析廠商前工程師。
+5. 台灣本地實際運維過十億級的團隊（廣告、遊戲、電商），先過篩選題。
+
+篩選（30 分鐘）：給 `backend/clickhouse/schema.sql` 與黃金資料集的五個 SQL 樣板，請對方說明——排序鍵為何是 project／event_date／event／one_id／time 而非 time 在前；哪些查詢該走 MV、哪些不該；70 億載入與 13 個月 TTL 的磁碟怎麼估。答得出代價與取捨才用。
+
+合約要點：NDA；只接觸測試環境與合成資料；交付三份審查報告與問答紀錄（回寫 docs/09、13）；按天計價、20 天上限。
+
 ## 7. 驗收門檻（每模組的「做完」定義）
 
 | 模組 | 做完的定義 |
