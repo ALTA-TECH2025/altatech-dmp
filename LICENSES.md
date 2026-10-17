@@ -24,8 +24,10 @@
 | Grafana OSS | 11.x | AGPL-3.0（例外：僅內部使用、不散布、不修改） | 看板與告警 | 法務核可之白名單例外；不得嵌入產品對外提供 | Grafana Labs（美） |
 | Apache Superset | 4.x | Apache-2.0 | 選配 BI | 取代 Metabase（AGPL） | ASF（美） |
 | FastAPI / Pydantic / SQLGlot / clickhouse-connect | — | MIT / MIT / MIT / Apache-2.0 | 後端 | — | 個人（德）／Pydantic（英）／TobikoData（美）／ClickHouse Inc.（美） |
-| React / Vite / TypeScript / React Router / React Flow | — | MIT / MIT / Apache-2.0 / MIT / MIT | 前端 | ECharts（百度起源）改為自繪 SVG + D3，見 docs/25 | Meta／VoidZero（美；創辦人大陸出生）／Microsoft／Shopify／xyflow（德） |
-| D3（d3-scale / d3-shape）/ Plotly.js（備選） | 7.x / 2.x | ISC / MIT | 圖表 | 自繪 SVG 為主；互動大圖才用 Plotly.js | Observable（美）／Plotly（加） |
+| React / Vite / TypeScript / React Router / React Flow | — | MIT / MIT / Apache-2.0 / MIT / MIT | 前端 | — | Meta／VoidZero（美；創辦人大陸出生）／Microsoft／Shopify／xyflow（德） |
+| Apache ECharts（含 zrender） | 6.1.0 | Apache-2.0 | 圖表（分群畫像、標籤分布；分析圖逐步換用） | Apache 軟體基金會頂級專案；只載入用到的圖型與元件、SVG 渲染；npm audit 0 漏洞（2026-10-17） | ASF（美） |
+| Mantine（@mantine/core、@mantine/hooks；帶入 floating-ui、react-remove-scroll 等 MIT 相依） | 8.3.18 | MIT | 前端設計系統（表單、表格、標章、版面） | 主題 token 與 app.css 同一套；npm audit 0 漏洞（2026-10-17）；見 docs/35 | Mantine 開源社群（主要維護者在烏克蘭） |
+| D3（d3-scale / d3-shape）/ Plotly.js（備選） | 7.x / 2.x | ISC / MIT | 圖表 | 自繪 SVG 的分析圖仍用；互動大圖才用 Plotly.js | Observable（美）／Plotly（加） |
 | mcp（官方 SDK）/ LangGraph | — | MIT / MIT | Agent | — | Anthropic／LangChain（美） |
 | PyJWT / cryptography | 2.x / 4x | MIT / Apache-2.0 或 BSD-3 | 登入（OIDC ID token 驗證、API token） | — | 個人（美）／PyCA（美） |
 | python-ldap | 3.x | PSF 式（permissive） | 直連 AD（direct 模式才需要；broker 模式不裝） | 需 libldap | python-ldap 社群（德） |

@@ -1,10 +1,13 @@
-// 分群：列表（搜尋、狀態、回收站）／新建與編輯（規則 = 用戶列表同一套條件、更新方式）／詳情（狀態與審批、最新版本、歷史版本、成員、預覽畫像、血緣、動作）。
+// 分群：列表（搜尋、狀態、回收站）／新建與編輯（規則 = 用戶列表同一套條件、更新方式）／詳情（狀態與審批、最新版本、歷史版本、成員、預覽畫像、血緣、動作）。設計系統元件組合。
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Alert, Anchor, Badge, Button, Group, List, NativeSelect, Paper, SegmentedControl, SimpleGrid, Stack, Table, Text, TextInput, Title } from '@mantine/core';
 import { api, ApiError } from '@/api/client';
 import type { Catalog } from '@/analytics/types';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
+import { Chart, hbar } from '@/ds/Chart';
+import { EmptyState, KeyValue, Mono, PageHeader, SectionTitle, StatTile, StatusBadge } from '@/ds';
 import { ExportDialog } from '@/users/ExportDialog';
 import { ProfileDrawer } from '@/users/ProfileDrawer';
 import { RuleBuilder } from '@/users/RuleBuilder';
@@ -19,6 +22,7 @@ export function SegmentsPage() {
 
 type Draft = SegmentCreate & { update: NonNullable<SegmentCreate['update']> };
 const newDraft = (): Draft => ({ name: '', description: '', kind: 'rule', rule: emptyRule(), update: { mode: 'routine', freq: 'daily', earliest: '02:00', keep: 7 }, tz: 'Asia/Taipei' });   // 動態分群：預設每日凌晨 02:00 重算
+const n = (x: number | null | undefined) => (x == null ? '—' : x.toLocaleString());
 
 function SegmentsInner() {
   const { me, can } = useAuth();
@@ -38,43 +42,47 @@ function SegmentsInner() {
   const shown = list.filter((s) => (tab === 'recycled' ? s.status === 'recycled' : tab === 'pending' ? s.status === 'pending_approval' : s.status !== 'recycled') && (!search || s.name.includes(search) || (s.description ?? '').includes(search)));
   const segOpts = list.filter((s) => s.status !== 'recycled').map((s) => ({ id: s.id, name: s.name }));
   const current = id && id !== 'new' ? list.find((s) => s.id === id) ?? null : null;
+  const pending = list.filter((s) => s.status === 'pending_approval').length;
   return (
     <div className="page">
-      <div className="page-h"><div><h1>分群</h1><p>動態分群：規則 = 用戶屬性／所屬分群 × 行為（事件、事件屬性、指標比較、近 N 天）× 且／或分組，以 Bitmap 計算存成版本，預設每日凌晨 02:00 重算最新符合資格的受眾；行銷建立的分群需數位經營審批後生效；分析落點也可存成分群。</p></div>
-        {can('segments', 'use') && <div className="right"><Link className="btn-primary" to="/segments/new">＋ 新建分群</Link></div>}</div>
-      {err && <div className="alert" style={{ marginBottom: 12 }}>{err}</div>}
-      <div className={current || id === 'new' ? 'stack' : 'grid c21'}>
-        <div className="stack">
-          {id === 'new' ? <SegmentForm cat={cat} segOpts={segOpts} initial={newDraft()} onDone={async (s) => { await reload(); nav(`/segments/${s.id}`); }} onCancel={() => nav('/segments')} />
-            : current ? <SegmentDetail seg={current} cat={cat} segOpts={segOpts} me={me?.user.id} can={can} onChanged={reload} busy={busy} setBusy={setBusy} setErr={setErr} />
-            : (
-              <div className="card flush">
-                <div className="row" style={{ padding: 12, marginTop: 0 }}>
-                  <div className="seg" style={{ marginBottom: 0 }}>{([['all', '全部'], ['pending', '待審批'], ['recycled', '回收站']] as const).map(([k, cn]) => <a key={k} href="#" className={tab === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setTab(k); }}>{cn}{k === 'pending' && list.some((s) => s.status === 'pending_approval') ? ` (${list.filter((s) => s.status === 'pending_approval').length})` : ''}</a>)}</div>
-                  <input aria-label="搜尋分群" placeholder="搜尋名稱／說明" value={search} onChange={(e) => setSearch(e.target.value)} />
-                </div>
-                <div className="tbl-wrap"><table className="tbl">
-                  <thead><tr><th>分群</th><th>狀態</th><th className="num">人數</th><th>更新</th><th>最近計算</th><th>建立者</th></tr></thead>
-                  <tbody>{shown.map((s) => (
-                    <tr key={s.id} className="clickable" onClick={() => nav(`/segments/${s.id}`)}>
-                      <td><b>{s.name}</b><span className="sub">{s.kind === 'result' ? '結果保存 · ' : ''}{summarizeRule(s.rule, cat, segOpts).slice(0, 80)}</span></td>
-                      <td><span className={`pill ${STATUS_PILL[s.status]}`}>{STATUS_CN[s.status]}</span>{s.latest?.stale && <span className="pill amber">規則已改</span>}</td>
-                      <td className="num mono">{s.latest?.users != null ? s.latest.users.toLocaleString() : '—'}</td>
-                      <td className="sub">{updateText(s.update, s.tz)}</td>
-                      <td className="sub mono">{s.latest ? `${s.latest.basetime} v${s.latest.version} ${s.latest.status === 'failed' ? '失敗' : ''}` : '尚未計算'}</td>
-                      <td className="sub">{s.owner}</td>
-                    </tr>))}
-                    {!shown.length && <tr><td colSpan={6} className="sub" style={{ textAlign: 'center', padding: 24 }}>沒有分群</td></tr>}
-                  </tbody></table></div>
-              </div>
-            )}
-        </div>
-        {!current && id !== 'new' && <div className="card"><div className="card-h"><h3>說明</h3></div><ul className="priv">
-          <li>規則與用戶列表同一套條件；「完成 A 未完成 B」= 做過 A 且 未做過 B。</li>
-          <li>人數預估是精確的 Bitmap 基數；計算會把名單寫成版本（手動 1 版、例行留 N 版），查詢端引用分群時取最新版本。</li>
-          <li>結果保存分群（從漏斗流失、留存某期等落點建立）不可改規則；手動分群不可改更新方式；例行分群不可改頻率。</li>
-          <li>回收站保留 15 天後徹底刪除；有下游引用時需確認。所有動作寫審計。</li></ul></div>}
-      </div>
+      <PageHeader title="分群" lead="動態分群：規則 = 用戶屬性／所屬分群 × 行為（事件、事件屬性、指標比較、近 N 天）× 且／或分組，以 Bitmap 計算存成版本，預設每日凌晨 02:00 重算最新符合資格的受眾；行銷建立的分群需數位經營審批後生效；分析落點也可存成分群。"
+        actions={can('segments', 'use') && <Button component={Link} to="/segments/new" variant="filled">＋ 新建分群</Button>} />
+      {err && <Alert color="red" variant="light" mb="md">{err}</Alert>}
+      {id === 'new' ? <SegmentForm cat={cat} segOpts={segOpts} initial={newDraft()} onDone={async (s) => { await reload(); nav(`/segments/${s.id}`); }} onCancel={() => nav('/segments')} />
+        : current ? <SegmentDetail seg={current} cat={cat} segOpts={segOpts} me={me?.user.id} can={can} onChanged={reload} busy={busy} setBusy={setBusy} setErr={setErr} />
+        : (
+          <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
+            <Paper p={0} style={{ overflow: 'hidden' }}>
+              <Group p="sm" gap="sm">
+                <SegmentedControl size="xs" value={tab} onChange={(v) => setTab(v as typeof tab)} data={[{ value: 'all', label: '全部' }, { value: 'pending', label: pending ? `待審批 (${pending})` : '待審批' }, { value: 'recycled', label: '回收站' }]} />
+                <TextInput aria-label="搜尋分群" placeholder="搜尋名稱／說明" value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1, maxWidth: 320 }} />
+              </Group>
+              <Table.ScrollContainer minWidth={760}>
+                <Table>
+                  <Table.Thead><Table.Tr><Table.Th>分群</Table.Th><Table.Th>狀態</Table.Th><Table.Th ta="right">人數</Table.Th><Table.Th>更新</Table.Th><Table.Th>最近計算</Table.Th><Table.Th>建立者</Table.Th></Table.Tr></Table.Thead>
+                  <Table.Tbody>{shown.map((s) => (
+                    <Table.Tr key={s.id} style={{ cursor: 'pointer' }} onClick={() => nav(`/segments/${s.id}`)}>
+                      <Table.Td><Text fw={600} size="sm">{s.name}</Text><Text size="xs" c="dimmed" lineClamp={1}>{s.kind === 'result' ? '結果保存 · ' : ''}{summarizeRule(s.rule, cat, segOpts)}</Text></Table.Td>
+                      <Table.Td><Group gap={4}><StatusBadge tone={STATUS_PILL[s.status]}>{STATUS_CN[s.status]}</StatusBadge>{s.latest?.stale && <StatusBadge tone="amber">規則已改</StatusBadge>}</Group></Table.Td>
+                      <Table.Td ta="right"><Mono>{n(s.latest?.users)}</Mono></Table.Td>
+                      <Table.Td><Text size="xs" c="dimmed">{updateText(s.update, s.tz)}</Text></Table.Td>
+                      <Table.Td><Text size="xs" c="dimmed" ff="monospace">{s.latest ? `${s.latest.basetime} v${s.latest.version}${s.latest.status === 'failed' ? ' 失敗' : ''}` : '尚未計算'}</Text></Table.Td>
+                      <Table.Td><Text size="xs" c="dimmed">{s.owner}</Text></Table.Td>
+                    </Table.Tr>))}
+                    {!shown.length && <Table.Tr><Table.Td colSpan={6}><EmptyState>沒有分群</EmptyState></Table.Td></Table.Tr>}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
+            </Paper>
+            <Paper><SectionTitle title="說明" />
+              <List size="sm" spacing="xs" c="dimmed">
+                <List.Item>規則與用戶列表同一套條件；「完成 A 未完成 B」= 做過 A 且 未做過 B。</List.Item>
+                <List.Item>人數預估是精確的 Bitmap 基數；計算會把名單寫成版本（手動 1 版、例行留 N 版），查詢端引用分群時取最新版本。</List.Item>
+                <List.Item>結果保存分群（從漏斗流失、留存某期等落點建立）不可改規則；手動分群不可改更新方式；例行分群不可改頻率。</List.Item>
+                <List.Item>回收站保留 15 天後徹底刪除；有下游引用時需確認。所有動作寫審計。</List.Item>
+              </List></Paper>
+          </SimpleGrid>
+        )}
     </div>
   );
 }
@@ -91,23 +99,33 @@ function SegmentForm({ cat, segOpts, initial, existing, onDone, onCancel }: { ca
     try { const s = existing ? await api.put<Segment>(`/v1/segments/${existing.id}`, clean()) : await api.post<Segment>('/v1/segments', clean()); await onDone(s); }
     catch (e) { setErr(e instanceof ApiError ? e.message : '儲存失敗'); } finally { setBusy(false); }
   };
-  const ro = existing?.kind === 'result';
+  const ro = existing?.kind === 'result'; const manual = d.update.mode === 'manual';
+  const upd = (p: Partial<Draft['update']>) => setD({ ...d, update: { ...d.update, ...p } });
   return (
-    <div className="card" style={{ maxWidth: 960 }}>
-      <div className="card-h"><h3>{existing ? '編輯分群' : '新建分群'}</h3></div>
-      <div className="grid c2"><label>名稱<input aria-label="分群名稱" value={d.name} maxLength={60} onChange={(e) => setD({ ...d, name: e.target.value })} /></label><label>說明<input value={d.description ?? ''} onChange={(e) => setD({ ...d, description: e.target.value })} /></label></div>
-      <div style={{ marginTop: 14 }}><RuleBuilder q={d.rule} cat={cat} segments={segOpts.filter((s) => s.id !== existing?.id)} readOnly={ro} onChange={(r) => { setD({ ...d, rule: r }); setEst(null); }} /></div>
-      <div className="grid c3" style={{ marginTop: 14 }}>
-        <label>更新方式<select aria-label="更新方式" value={d.update.mode} disabled={!!existing} onChange={(e) => setD({ ...d, update: { ...d.update, mode: e.target.value as 'manual' | 'routine' } })}><option value="manual">手動（1 版）</option><option value="routine">例行</option></select></label>
-        <label>頻率<select aria-label="頻率" value={d.update.freq} disabled={d.update.mode === 'manual' || !!existing} onChange={(e) => setD({ ...d, update: { ...d.update, freq: e.target.value as 'daily' } })}><option value="daily">每天</option><option value="weekly">每週一</option><option value="monthly">每月 1 日</option></select></label>
-        <label>最早計算時間<input type="time" aria-label="最早計算時間" value={d.update.earliest} disabled={d.update.mode === 'manual'} onChange={(e) => setD({ ...d, update: { ...d.update, earliest: e.target.value } })} /></label>
-        <label>保留版本數<input type="number" min={1} max={100} value={d.update.mode === 'manual' ? 1 : d.update.keep} disabled={d.update.mode === 'manual'} onChange={(e) => setD({ ...d, update: { ...d.update, keep: Number(e.target.value) || 1 } })} /></label>
-        <label>時區<input value={d.tz ?? 'Asia/Taipei'} onChange={(e) => setD({ ...d, tz: e.target.value })} /></label>
-      </div>
-      <div className="row"><button className="btn-ghost" disabled={!ruleValid(d.rule) || busy} onClick={() => void estimate()}>估人數{est ? `：${est.users.toLocaleString()}` : ''}</button>
-        <button className="btn-primary" disabled={!d.name.trim() || !ruleValid(d.rule) || busy} onClick={() => void save()}>{busy ? '儲存中…' : existing ? '儲存' : '建立'}</button><button className="btn-ghost" onClick={onCancel}>取消</button>{err && <span className="alert">{err}</span>}</div>
-      <p className="note">{summarizeRule(d.rule, cat, segOpts)}</p>
-    </div>
+    <Paper maw={980}>
+      <Stack gap="md">
+        <SectionTitle title={existing ? '編輯分群' : '新建分群'} />
+        <SimpleGrid cols={{ base: 1, sm: 2 }}>
+          <TextInput label="名稱" aria-label="分群名稱" value={d.name} maxLength={60} required onChange={(e) => setD({ ...d, name: e.target.value })} />
+          <TextInput label="說明" value={d.description ?? ''} onChange={(e) => setD({ ...d, description: e.target.value })} />
+        </SimpleGrid>
+        <Paper shadow="none" radius="md"><RuleBuilder q={d.rule} cat={cat} segments={segOpts.filter((s) => s.id !== existing?.id)} readOnly={ro} onChange={(r) => { setD({ ...d, rule: r }); setEst(null); }} /></Paper>
+        <SimpleGrid cols={{ base: 2, sm: 5 }}>
+          <NativeSelect label="更新方式" aria-label="更新方式" value={d.update.mode} disabled={!!existing} data={[{ value: 'manual', label: '手動（1 版）' }, { value: 'routine', label: '例行' }]} onChange={(e) => upd({ mode: e.target.value as 'manual' | 'routine' })} />
+          <NativeSelect label="頻率" aria-label="頻率" value={d.update.freq} disabled={manual || !!existing} data={[{ value: 'daily', label: '每天' }, { value: 'weekly', label: '每週一' }, { value: 'monthly', label: '每月 1 日' }]} onChange={(e) => upd({ freq: e.target.value as 'daily' })} />
+          <TextInput label="最早計算時間" aria-label="最早計算時間" type="time" value={d.update.earliest} disabled={manual} onChange={(e) => upd({ earliest: e.target.value })} />
+          <TextInput label="保留版本數" type="number" min={1} max={100} value={manual ? 1 : d.update.keep} disabled={manual} onChange={(e) => upd({ keep: Number(e.target.value) || 1 })} />
+          <TextInput label="時區" value={d.tz ?? 'Asia/Taipei'} onChange={(e) => setD({ ...d, tz: e.target.value })} />
+        </SimpleGrid>
+        <Group gap="xs">
+          <Button disabled={!ruleValid(d.rule) || busy} onClick={() => void estimate()}>估人數{est ? `：${est.users.toLocaleString()}` : ''}</Button>
+          <Button variant="filled" disabled={!d.name.trim() || !ruleValid(d.rule) || busy} loading={busy} onClick={() => void save()}>{existing ? '儲存' : '建立'}</Button>
+          <Button variant="subtle" onClick={onCancel}>取消</Button>
+          {err && <Alert color="red" variant="light" py={6}>{err}</Alert>}
+        </Group>
+        <Text size="sm" c="dimmed">{summarizeRule(d.rule, cat, segOpts)}</Text>
+      </Stack>
+    </Paper>
   );
 }
 
@@ -139,40 +157,50 @@ function SegmentDetail({ seg, cat, segOpts, me, can, onChanged, busy, setBusy, s
   const actions = actionsFor(seg, can, me);
   const colCn = (c: string) => (c === 'one_id' ? 'one_id' : cat?.user_props.find((u) => u.key === c)?.cn ?? c);
   const propCn = useMemo(() => Object.fromEntries((cat?.user_props ?? []).map((u) => [u.key, u.cn])), [cat]);
+  const charts = useMemo(() => (preview ? Object.entries(preview.profile).map(([prop, rows]) => [prop, hbar(rows.slice(0, 8), preview.users)] as const) : []), [preview]);
   if (editing) return <SegmentForm cat={cat} segOpts={segOpts} existing={seg} initial={{ name: seg.name, description: seg.description, kind: seg.kind, rule: normalizeRule(seg.rule), update: seg.update, tz: seg.tz }} onDone={async () => { setEditing(false); await onChanged(); }} onCancel={() => setEditing(false)} />;
+  const approval = { none: '不需審批', pending: '待審批', approved: `已核可（${seg.approval.by}）`, rejected: `退回：${seg.approval.note}` }[seg.approval.status];
   return (
-    <div className="stack">
-      <div className="card">
-        <div className="card-h"><Link to="/segments" className="sub">← 分群列表</Link><h3>{seg.name}</h3><span className={`pill ${STATUS_PILL[seg.status]}`}>{STATUS_CN[seg.status]}</span>{seg.kind === 'result' && <span className="pill custom">結果保存</span>}{seg.latest?.stale && <span className="pill amber">規則已改，請重新計算</span>}</div>
-        <p className="note">{seg.description || summarizeRule(seg.rule, cat, segOpts)}</p>
-        {seg.description && <p className="note">{summarizeRule(seg.rule, cat, segOpts)}</p>}
-        <div className="tiles" style={{ marginTop: 12 }}>
-          <div className="tile"><span className="sub">最新人數</span><b>{seg.latest?.users != null ? seg.latest.users.toLocaleString() : '—'}</b><span className="sub">{seg.latest ? `v${seg.latest.version} · ${seg.latest.basetime} · ${TRIGGER_CN[seg.latest.trigger]}${seg.latest.status === 'failed' ? ` · 失敗：${seg.latest.error ?? ''}` : ''}` : '尚未計算'}</span></div>
-          <div className="tile"><span className="sub">更新方式</span><b style={{ fontSize: 14 }}>{updateText(seg.update, seg.tz)}</b></div>
-          <div className="tile"><span className="sub">審批</span><b style={{ fontSize: 14 }}>{{ none: '不需審批', pending: '待審批', approved: `已核可（${seg.approval.by}）`, rejected: `退回：${seg.approval.note}` }[seg.approval.status]}</b><span className="sub">建立者 {seg.owner} · {seg.created_at.slice(0, 16)}</span></div>
-        </div>
-        <div className="row">
-          {actions.filter((a) => a !== 'approve').map((a) => <button key={a} className={`btn-ghost${a === 'purge' ? ' danger' : ''}`} disabled={busy} onClick={() => void act(a)}>{ACTION_CN[a]}</button>)}
-          <button className="btn-ghost" disabled={busy} onClick={() => void loadPreview()}>預覽人數與畫像</button>
-          {seg.latest?.status === 'success' && can('users', 'use') && <button className="btn-ghost" disabled={busy} onClick={() => { setCursors([]); void loadMembers(); }}>看成員</button>}
-          {seg.latest?.status === 'success' && can('users', 'export') && <button className="btn-ghost" disabled={busy} onClick={() => setExporting(true)}>匯出成員（審批）</button>}
-        </div>
-        {exporting && <ExportDialog base={{ kind: 'segment_members', segment_id: seg.id, basetime: 'latest' }} onClose={() => setExporting(false)} />}
-        {actions.includes('approve') && <div className="row" style={{ background: 'var(--soft)', padding: 10, borderRadius: 10 }}><input aria-label="審批意見" placeholder="審批意見（退回時必填）" value={note} onChange={(e) => setNote(e.target.value)} /><button className="btn-primary" disabled={busy} onClick={() => void act('approve', { approve: true, note })}>核可</button><button className="btn-ghost danger" disabled={busy || !note.trim()} onClick={() => void act('approve', { approve: false, note })}>退回</button></div>}
-      </div>
-      {preview && <div className="card"><div className="card-h"><h3>預覽</h3><span className="sub">{preview.users.toLocaleString()} 人（精確）</span></div>
-        <div className="grid c2">{Object.entries(preview.profile).map(([prop, rows]) => <div key={prop}><b className="sub" style={{ marginBottom: 6 }}>{propCn[prop] ?? prop}</b><div className="bars">{rows.map((r) => <div key={r.value} className="bar"><span>{r.value || '（空）'}</span><i style={{ width: `${preview.users ? (r.users / preview.users) * 100 : 0}%` }} /><em className="mono">{r.users.toLocaleString()}</em></div>)}</div></div>)}</div></div>}
+    <Stack gap="md">
+      <Paper>
+        <Stack gap="sm">
+          <Group gap="xs"><Anchor component={Link} to="/segments" size="sm" c="dimmed">← 分群列表</Anchor><Title order={2}>{seg.name}</Title><StatusBadge tone={STATUS_PILL[seg.status]}>{STATUS_CN[seg.status]}</StatusBadge>{seg.kind === 'result' && <Badge color="violet">結果保存</Badge>}{seg.latest?.stale && <StatusBadge tone="amber">規則已改，請重新計算</StatusBadge>}</Group>
+          {seg.description && <Text size="sm">{seg.description}</Text>}
+          <Text size="sm" c="dimmed">{summarizeRule(seg.rule, cat, segOpts)}</Text>
+          <SimpleGrid cols={{ base: 1, sm: 3 }}>
+            <StatTile label="最新人數" value={n(seg.latest?.users)} hint={seg.latest ? `v${seg.latest.version} · ${seg.latest.basetime} · ${TRIGGER_CN[seg.latest.trigger]}${seg.latest.status === 'failed' ? ` · 失敗：${seg.latest.error ?? ''}` : ''}` : '尚未計算'} />
+            <StatTile label="更新方式" value={<Text fw={600} size="sm">{updateText(seg.update, seg.tz)}</Text>} />
+            <StatTile label="審批" value={<Text fw={600} size="sm">{approval}</Text>} hint={`建立者 ${seg.owner} · ${seg.created_at.slice(0, 16)}`} />
+          </SimpleGrid>
+          <Group gap="xs">
+            {actions.filter((a) => a !== 'approve').map((a) => <Button key={a} color={a === 'purge' ? 'red' : undefined} disabled={busy} onClick={() => void act(a)}>{ACTION_CN[a]}</Button>)}
+            <Button disabled={busy} onClick={() => void loadPreview()}>預覽人數與畫像</Button>
+            {seg.latest?.status === 'success' && can('users', 'use') && <Button disabled={busy} onClick={() => { setCursors([]); void loadMembers(); }}>看成員</Button>}
+            {seg.latest?.status === 'success' && can('users', 'export') && <Button disabled={busy} onClick={() => setExporting(true)}>匯出成員（審批）</Button>}
+          </Group>
+          {exporting && <ExportDialog base={{ kind: 'segment_members', segment_id: seg.id, basetime: 'latest' }} onClose={() => setExporting(false)} />}
+          {actions.includes('approve') && <Paper shadow="none" radius="md" bg="var(--soft)" p="sm"><Group gap="xs"><TextInput aria-label="審批意見" placeholder="審批意見（退回時必填）" value={note} onChange={(e) => setNote(e.target.value)} style={{ flex: 1 }} /><Button variant="filled" disabled={busy} onClick={() => void act('approve', { approve: true, note })}>核可</Button><Button color="red" disabled={busy || !note.trim()} onClick={() => void act('approve', { approve: false, note })}>退回</Button></Group></Paper>}
+        </Stack>
+      </Paper>
+      {preview && <Paper><SectionTitle title="預覽" right={<Text size="sm" c="dimmed">{preview.users.toLocaleString()} 人（精確）</Text>} />
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>{charts.map(([prop, opt]) => <Stack key={prop} gap={4}><Text size="xs" fw={600} c="dimmed">{propCn[prop] ?? prop}</Text><Chart option={opt} height={Math.max(120, Math.min(8, preview.profile[prop].length) * 24 + 16)} label={`${propCn[prop] ?? prop} 分布`} /></Stack>)}</SimpleGrid></Paper>}
       {members && <UsersTable res={members} colCn={colCn} busy={busy} canPrev={cursors.length > 0} onPrev={() => { const s = cursors.slice(0, -1); setCursors(s); void loadMembers(s[s.length - 1]); }} onNext={() => { if (members.next_cursor) { setCursors([...cursors, members.next_cursor]); void loadMembers(members.next_cursor); } }} onOpen={can('profile', 'use') ? setOpen : undefined} />}
-      <div className="grid c2">
-        <div className="card flush"><div className="card-h" style={{ padding: '12px 12px 0' }}><h3>歷史版本</h3></div><div className="tbl-wrap"><table className="tbl"><thead><tr><th>版本</th><th>基準日</th><th className="num">人數</th><th>狀態</th><th>觸發</th><th>計算於</th></tr></thead><tbody>
-          {versions.map((v) => <tr key={v.version}><td className="mono">v{v.version}</td><td className="mono">{v.basetime}</td><td className="num mono">{v.users?.toLocaleString() ?? '—'}</td><td><span className={`pill ${v.status === 'success' ? 'blue' : v.status === 'failed' ? 'red' : 'gray'}`}>{v.status}</span>{v.error && <span className="sub">{v.error}</span>}</td><td>{TRIGGER_CN[v.trigger]}</td><td className="sub mono">{v.computed_at.slice(0, 16)} · {v.ms} ms</td></tr>)}
-          {!versions.length && <tr><td colSpan={6} className="sub">尚未計算</td></tr>}</tbody></table></div></div>
-        <div className="card"><div className="card-h"><h3>血緣</h3></div>
-          <p className="sub">上游</p><div className="row" style={{ marginTop: 4 }}>{(lineage?.up ?? seg.lineage.up).map((u) => <span key={u} className="pill">{u}</span>)}</div>
-          <p className="sub" style={{ marginTop: 10 }}>下游（引用本分群）</p><div className="row" style={{ marginTop: 4 }}>{(lineage?.down ?? []).length ? lineage?.down.map((d) => { const sid = d.replace('segment:', ''); return <Link key={d} to={`/segments/${sid}`} className="pill blue">{segOpts.find((s) => s.id === sid)?.name ?? d}</Link>; }) : <span className="sub">無</span>}</div></div>
-      </div>
+      <SimpleGrid cols={{ base: 1, md: 2 }}>
+        <Paper p={0} style={{ overflow: 'hidden' }}><Group p="sm" pb={0}><Title order={3}>歷史版本</Title></Group>
+          <Table.ScrollContainer minWidth={520}><Table>
+            <Table.Thead><Table.Tr><Table.Th>版本</Table.Th><Table.Th>基準日</Table.Th><Table.Th ta="right">人數</Table.Th><Table.Th>狀態</Table.Th><Table.Th>觸發</Table.Th><Table.Th>計算於</Table.Th></Table.Tr></Table.Thead>
+            <Table.Tbody>
+              {versions.map((v) => <Table.Tr key={v.version}><Table.Td><Mono>v{v.version}</Mono></Table.Td><Table.Td><Mono>{v.basetime}</Mono></Table.Td><Table.Td ta="right"><Mono>{n(v.users)}</Mono></Table.Td><Table.Td><StatusBadge tone={v.status === 'success' ? 'blue' : v.status === 'failed' ? 'red' : 'gray'}>{v.status}</StatusBadge>{v.error && <Text size="xs" c="dimmed">{v.error}</Text>}</Table.Td><Table.Td>{TRIGGER_CN[v.trigger]}</Table.Td><Table.Td><Text size="xs" c="dimmed" ff="monospace">{v.computed_at.slice(0, 16)} · {v.ms} ms</Text></Table.Td></Table.Tr>)}
+              {!versions.length && <Table.Tr><Table.Td colSpan={6}><EmptyState>尚未計算</EmptyState></Table.Td></Table.Tr>}
+            </Table.Tbody></Table></Table.ScrollContainer></Paper>
+        <Paper><SectionTitle title="血緣" />
+          <KeyValue rows={[
+            ['上游', <Group gap={4} key="up">{(lineage?.up ?? seg.lineage.up).map((u) => <Badge key={u} color="gray">{u}</Badge>)}</Group>],
+            ['下游（引用本分群）', <Group gap={4} key="down">{(lineage?.down ?? []).length ? lineage?.down.map((d) => { const sid = d.replace('segment:', ''); return <Badge key={d} component={Link} to={`/segments/${sid}`} color="brand" style={{ cursor: 'pointer' }}>{segOpts.find((s) => s.id === sid)?.name ?? d}</Badge>; }) : <Text size="sm" c="dimmed">無</Text>}</Group>],
+          ]} /></Paper>
+      </SimpleGrid>
       {open && <ProfileDrawer oneId={open} cat={cat} project={seg.project} onClose={() => setOpen(null)} />}
-    </div>
+    </Stack>
   );
 }
 

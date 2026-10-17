@@ -9,7 +9,7 @@
 |---|---|
 | 有沒有必須付費的軟體授權？ | **沒有。** 第一階段所有元件都是 OSI 認可的開源授權（Apache-2.0、MIT、BSD、PostgreSQL、MPL-2.0、ISC）或免費再散布的基底映像（Red Hat UBI）。唯一的 copyleft 元件是 Grafana OSS（AGPL-3.0），只做內部看板、不修改、不對外提供，不觸發散布義務（法務已核可，見 docs/07 §3）。 |
 | 哪些是「可選付費」？ | 雲端託管或企業版：GCP（GKE、Cloud SQL、GCS、Managed Prometheus，依用量計費，機房部署不需要）、ClickHouse Cloud、Grafana Cloud／Enterprise、Confluent、Astronomer、Rancher Prime、Red Hat 訂閱（RHEL 節點 OS；用 Rocky Linux 則免費）。第一階段的設計都不依賴這些。 |
-| 有沒有中國大陸原產的元件？ | **沒有。** 曾評估的 Apache SeaTunnel、Flink CDC（阿里巴巴起源）、Apache ECharts（百度起源）、DolphinScheduler 都已排除或未採用（docs/25）。需要揭露的兩項：ClickHouse 起源於俄羅斯 Yandex（2021 起由美國公司 ClickHouse Inc. 治理，Apache-2.0）；Vite／Vitest（VoidZero Inc.，美國公司）與 SeaweedFS（SeaweedFS Inc.，美國公司）的主要作者為大陸出生。 |
+| 有沒有中國大陸原產的元件？ | **沒有。** 曾評估的 Apache SeaTunnel、Flink CDC（阿里巴巴起源）、DolphinScheduler 都已排除或未採用（docs/25）；Apache ECharts 由 Apache 軟體基金會治理（Apache-2.0），列為使用中（§1.3）。需要揭露的兩項：ClickHouse 起源於俄羅斯 Yandex（2021 起由美國公司 ClickHouse Inc. 治理，Apache-2.0）；Vite／Vitest（VoidZero Inc.，美國公司）與 SeaweedFS（SeaweedFS Inc.，美國公司）的主要作者為大陸出生。 |
 | 客戶要付的只有什麼？ | 基礎設施（機房硬體或 GCP 用量）、GA360（Google 商業產品，客戶既有）、LLM API（第一階段 AI 閘道關閉，不需要）、人力。另有兩個外部服務依用量：告警通知若用 LINE 官方帳號，Messaging API 免費方案每月 200 則推送、超過要買訊息方案（Email 走客戶既有 SMTP，免費）；GA4 BigQuery 匯出的 BigQuery 儲存與查詢費。 |
 
 ## 1. 第一階段實際使用（已在程式碼或部署套件中）
@@ -64,7 +64,8 @@
 | React Router | 路由 | MIT | 不需要 | Shopify／Remix（美／加） |
 | TypeScript | 型別 | Apache-2.0 | 不需要 | Microsoft（美） |
 | Vite / Vitest | 建置／測試 | MIT | 不需要 | VoidZero Inc.（美；創辦人大陸出生、居新加坡） |
-| 圖表 | 自繪 SVG（折線、漏斗、路徑、留存矩陣），**沒有引入圖表套件** | — | — | 本專案；ECharts（百度起源）刻意不用 |
+| Apache ECharts 6 | 圖表（分群畫像、標籤分布；分析頁的折線、漏斗、路徑、留存矩陣目前仍是自繪 SVG，逐步換用） | Apache-2.0 | 不需要 | Apache 軟體基金會頂級專案（2021 年畢業） |
+| Mantine 8 | 設計系統：表單、表格、標章、版面元件 | MIT | 不需要 | Mantine 開源社群 |
 | 字型 | 不載入外部字型：CSS 以系統字型為主，等寬以 IBM Plex Mono（OFL-1.1）為優先、系統等寬為後備，未安裝即用系統字型 | — | — | — |
 
 ### 1.4 開發與 CI（不進產品）
@@ -103,7 +104,7 @@
 | Redis ≥ 7.4、MongoDB、Elasticsearch、MinIO、Metabase | RSAL／SSPL／AGPL（伺服器端 copyleft 或非 OSI 授權） | Valkey、PostgreSQL、OpenSearch、SeaweedFS／GCS、Superset |
 | HashiCorp Vault／Terraform、Airbyte | BSL 1.1／ELv2（非開源） | OpenBao、OpenTofu、dlt |
 | Confluent Platform（Schema Registry、ksqlDB） | Confluent Community License | Apicurio、Flink SQL |
-| Apache SeaTunnel、Flink CDC、Apache ECharts、DolphinScheduler | 中國大陸起源（供應商評分表要求） | dlt、Debezium、自繪 SVG、Airflow |
+| Apache SeaTunnel、Flink CDC、DolphinScheduler | 中國大陸起源（供應商評分表要求） | dlt、Debezium、Airflow |
 | Oracle JDK、Highcharts、AG Grid Enterprise、Tableau／Power BI | 商業授權 | Temurin、自繪、Superset |
 
 ## 4. 怎麼維持這張表是對的
