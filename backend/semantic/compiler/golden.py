@@ -100,6 +100,7 @@ def scenario_events(rng: random.Random, ids: list[str]) -> list[dict[str, Any]]:
     n = [0]
     def put(oid: str, ev: str, t: datetime, plat: str, *, channel: str = "app", utm_source: str = "", utm_campaign: str = "", symbol: str = "", amount: float | None = None, props: dict[str, Any] | None = None) -> None:
         n[0] += 1
+        if t.date() > NOW: return                                  # 隔天／兩天後的後續行為不能落到資料集範圍（DAY0 … NOW）之外，否則 ClickHouse 端的範圍斷言會失敗
         out.append({"project": PROJECT, "one_id": oid, "event": ev, "time": t, "event_date": t.date(), "platform": plat, "channel": channel, "utm_source": utm_source, "utm_campaign": utm_campaign,
                     "symbol": symbol, "amount": amount, "props": props or {}, "event_id": hashlib.sha256(f"golden-scenario|{n[0]}".encode()).hexdigest()[:32]})
     def day_time(day: int) -> datetime:
@@ -414,6 +415,7 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
     ch.query("CREATE TABLE IF NOT EXISTS dmp.id_edges (id_type_a LowCardinality(String), id_a String, id_type_b LowCardinality(String), id_b String, source LowCardinality(String), evidence_event_id String, first_seen DateTime64(3, 'UTC'), last_seen DateTime64(3, 'UTC'), seen_count UInt32, confidence Float32, status LowCardinality(String), one_id String, version UInt64) ENGINE = ReplacingMergeTree(version) ORDER BY (id_type_a, id_a, id_type_b, id_b)")
     ch.insert_json("dmp.id_edges", edges)
     ch.query(f"ALTER TABLE dmp.events DELETE WHERE project = '{PROJECT}'", settings={"mutations_sync": 2})
+    ev.sort(key=lambda r: str(r["time"]))                           # 依時間寫入：每個 part 的日期範圍連續，EXPLAIN ESTIMATE 的邊界顆粒才不會隨情境事件增加而膨脹
     for i in range(0, len(ev), 20_000):
         ch.insert_json("dmp.events", ev[i:i + 20_000])
     ch.insert_json("dmp.users", us)
