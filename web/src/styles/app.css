@@ -139,3 +139,8 @@ ol.timeline li::before { content: ''; position: absolute; left: -19px; top: 6px;
 .bar em { font-style: normal; text-align: right; color: var(--body); }
 label.chk { flex-direction: row; align-items: center; gap: 8px; }
 label.chk input { width: auto; }
+
+/* 鍵值清單（任務摘要、連線詳情） */
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; font-size: 13px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }

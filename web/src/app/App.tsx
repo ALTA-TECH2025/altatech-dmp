@@ -13,6 +13,7 @@ import { AttributionPage } from '@/analytics/AttributionPage';
 import { UsersPage } from '@/users/UsersPage';
 import { SegmentsPage } from '@/segments/SegmentsPage';
 import { ApprovalsPage } from '@/approvals/ApprovalsPage';
+import { IntegrationPage } from '@/integration/IntegrationPage';
 import type { Module } from '@/api/types';
 
 function Placeholder({ title, module }: { title: string; module: Module }) {
@@ -44,7 +45,7 @@ export function App() {
             <Route path="/segments/:id" element={<SegmentsPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/triggers" element={<Placeholder title="即時觸發" module="triggers" />} />
-            <Route path="/integration" element={<Placeholder title="數據整合" module="integration" />} />
+            <Route path="/integration" element={<IntegrationPage />} />
             <Route path="/governance/*" element={<Placeholder title="資料治理" module="governance" />} />
             <Route path="/migration" element={<Placeholder title="神策遷移" module="governance" />} />
             <Route path="/audit" element={<Placeholder title="日誌統計" module="audit" />} />
