@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 
 from ..security.policy import Subject, authorize
 from .ldap import LdapError, LdapProvider
+from .local import LocalError, LocalProvider
 from .mapping import map_roles, me_payload
 from .oidc import LoginState, OIDCError, OIDCProvider
 from .session import ApiTokens, Session, SessionManager
@@ -24,7 +25,7 @@ LOGIN_COOKIE = "dmp_login"
 @dataclass
 class AuthService:
     cfg: dict[str, Any]
-    providers: dict[str, OIDCProvider | LdapProvider]
+    providers: dict[str, OIDCProvider | LdapProvider | LocalProvider]
     sessions: SessionManager
     tokens: ApiTokens | None = None
     assignments: Callable[[], list[dict[str, Any]]] = lambda: []
@@ -35,7 +36,7 @@ class AuthService:
         return self.cfg.get("mode", "broker")
 
     def visible_providers(self) -> list[dict[str, str]]:
-        keys = ["keycloak"] if self.mode == "broker" else ["entra", "ad"]
+        keys = ["keycloak"] if self.mode == "broker" else ["entra", "ad", "local"]
         return [{"key": k, "cn": self.providers[k].cfg["cn"], "kind": self.providers[k].cfg["kind"]} for k in keys if k in self.providers]
 
     def finish_login(self, ident: Any, ip: str) -> Session:
@@ -98,21 +99,48 @@ def build_router(svc: AuthService) -> APIRouter:
 
     @r.post("/auth/ldap")
     def ldap_login(body: dict[str, Any], req: Request, resp: Response) -> dict[str, Any]:
-        p = svc.providers.get("ad")
-        if not isinstance(p, LdapProvider) or svc.mode != "direct":
-            raise HTTPException(400, "此環境未啟用網域帳號登入")
+        """帳密登入（direct 模式）：provider=ad → LDAPS bind；provider=local → 本機帳號。mfa=totp 時第一步回 next=totp，第二步帶 totp 真正驗證。"""
+        key = str(body.get("provider") or "ad")
+        p = svc.providers.get(key)
+        if key not in ("ad", "local") or not isinstance(p, LdapProvider | LocalProvider) or svc.mode != "direct":
+            raise HTTPException(400, "此環境未啟用帳密登入" if key in ("ad", "local") else "未知的身分提供者")
+        ip = req.client.host if req.client else ""
+        username = str(body.get("username", ""))
         try:
-            ident = p.authenticate(str(body.get("username", "")), str(body.get("password", "")), req.client.host if req.client else "")
-        except LdapError as e:
-            svc.sessions.audit("auth.login.failed", {"provider": "ad", "user": str(body.get("username", ""))[:64], "why": str(e)})
+            ident = p.authenticate(username, str(body.get("password", "")), ip)
+        except (LdapError, LocalError) as e:
+            svc.sessions.audit("auth.login.failed", {"provider": key, "user": username[:64], "why": str(e)})
             raise HTTPException(401, str(e)) from None
         if p.cfg.get("mfa") == "totp":
-            if not body.get("totp"):
-                return {"next": "totp", "message": "請輸入驗證器 6 位數"}       # 第二因子：前端再送一次含 totp 的請求（真正驗證在 totp 模組）
+            code = str(body.get("totp") or "")
+            if not code:
+                return {"next": "totp", "message": "請輸入驗證器 6 位數"}       # 第二因子：前端再送一次含 totp 的請求
+            check = getattr(p, "check_totp", None)                               # AD 直連的 TOTP 需另接驗證器服務；沒有實作時這裡不放行 mfa
+            if check is None or not check(username, code):
+                svc.sessions.audit("auth.login.failed", {"provider": key, "user": username[:64], "why": "totp"})
+                raise HTTPException(401, "驗證碼錯誤或已使用" if check else "此環境尚未接上 TOTP 驗證器")
             ident.amr = ["pwd", "mfa"]
-        s = svc.finish_login(ident, req.client.host if req.client else "")
+        s = svc.finish_login(ident, ip)
         _set(resp, svc.sessions.cookie_headers(s))
         return {"ok": True, "roles": s.roles, "return_to": "/" if s.roles else "/no-access"}
+
+    @r.post("/auth/step-up")
+    def step_up(body: dict[str, Any], req: Request) -> dict[str, Any]:
+        """admin 角色需 MFA 且認證在 15 分鐘內；超過後再輸入一次 TOTP 延展（只對有 TOTP 驗證能力的提供者）。"""
+        s = current_session(svc, req)
+        p = svc.providers.get(s.provider)
+        check = getattr(p, "check_totp", None)
+        if check is None:
+            raise HTTPException(400, "此登入方式的 step-up 由身分提供者處理，請重新登入")
+        if not check(s.username, str(body.get("totp") or "")):
+            svc.sessions.audit("auth.step_up.failed", {"user": s.user_id})
+            raise HTTPException(401, "驗證碼錯誤或已使用")
+        s.step_up_at = int(svc.sessions.now())
+        if "mfa" not in s.amr:
+            s.amr = [*s.amr, "mfa"]
+        svc.sessions.store.put(s)
+        svc.sessions.audit("auth.step_up", {"user": s.user_id})
+        return {"ok": True, "roles": svc.sessions.subject(s).roles}
 
     @r.post("/auth/logout")
     def logout(req: Request) -> Response:

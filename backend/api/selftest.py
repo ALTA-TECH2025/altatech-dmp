@@ -244,13 +244,39 @@ def main(store: Any | None = None) -> None:
     assert c.get("/v1/integration/tables").json()[0]["used_by"] == ["sync_orders"]
     login(c, sm, ["marketing"], "mkt"); assert c.post("/v1/integration/sync-tasks/sync_orders/run").status_code == 403
     assert {x["event"] for x in store.audit_tail(60)} >= {"integration.connection.created", "integration.connection.tested", "integration.connection.rotated", "integration.table.registered", "integration.task.created", "task.rerun"}
+    # 5c. 儀表板：分析師建看板＋存卡片（建立時以建立者身分編譯：格式錯 400）→ 分享給行銷角色 → 行銷能看、卡片資料以「行銷」身分重算（遮罩）→ 行銷不能改 → 時間覆寫 → admin 全看
+    login(c, sm, ["data_analyst"], "ana")
+    db = c.post("/v1/dashboards", json={"name": "債券業務日報", "time": {"preset": "7d"}, "cards": [{"title": "成交金額", "kind": "events", "query": q, "chart": "line", "width": 2}]})
+    assert db.status_code == 201 and db.json()["mine"] and db.json()["cards"][0]["created_by"] == "entra:ana", db.text
+    did = db.json()["id"]
+    assert c.post(f"/v1/dashboards/{did}/cards", json={"title": "x", "kind": "events", "query": {"metrics": [{"event": "nope", "agg": "total"}], "time": q["time"]}}).status_code == 400
+    assert c.post(f"/v1/dashboards/{did}/cards", json={"title": "x", "kind": "magic", "query": q}).status_code == 400
+    for kind, body in (("funnel", fq), ("retention", rq), ("path", pq), ("attribution", aq)):
+        assert c.post(f"/v1/dashboards/{did}/cards", json={"title": kind, "kind": kind, "query": body}).status_code == 201, kind
+    cards = c.get(f"/v1/dashboards/{did}").json()["cards"]; assert [x["kind"] for x in cards] == ["events", "funnel", "retention", "path", "attribution"]
+    cd = c.post(f"/v1/dashboards/{did}/cards/{cards[0]['id']}/data").json()
+    assert cd["card"]["kind"] == "events" and cd["rows"] and cd["time"]["from"] and cd["time"]["to"] and cd["time"]["from"] != q["time"]["from"], cd   # 7d 預設覆寫原查詢區間
+    assert c.post(f"/v1/dashboards/{did}/cards/{cards[0]['id']}/data", json={"time": {"from": "2026-10-01", "to": "2026-10-03"}}).json()["time"]["to"] == "2026-10-03"
+    assert c.post(f"/v1/dashboards/{did}/cards/{cards[0]['id']}/data", json={"time": {"preset": "1y"}}).status_code == 400
+    assert c.post(f"/v1/dashboards/{did}/cards/{cards[2]['id']}/data").json()["rows"][0]["cohort"]
+    assert c.post(f"/v1/dashboards/{did}/cards/{cards[3]['id']}/data").json()["nodes"] and c.post(f"/v1/dashboards/{did}/cards/{cards[4]['id']}/data").json()["summary"]
+    login(c, sm, ["marketing"], "mkt"); assert c.get(f"/v1/dashboards/{did}").status_code == 404 and c.get("/v1/dashboards").json() == []
+    login(c, sm, ["data_analyst"], "ana"); assert c.put(f"/v1/dashboards/{did}", json={"shared": {"roles": ["marketing"]}, "cards": [{"id": cards[1]["id"], "title": "漏斗"}, {"id": cards[0]["id"], "width": 1}]}).json()["cards"][0]["title"] == "漏斗"
+    login(c, sm, ["marketing"], "mkt")
+    lst = c.get("/v1/dashboards").json(); assert len(lst) == 1 and lst[0]["cards"] == 2 and lst[0]["editable"] is False and lst[0]["mine"] is False
+    assert c.put(f"/v1/dashboards/{did}", json={"name": "改"}).status_code == 403 and c.delete(f"/v1/dashboards/{did}").status_code == 403
+    assert c.post(f"/v1/dashboards/{did}/cards/{cards[1]['id']}/data").json()["rows"][0]["step"] == 1          # 以行銷身分跑（funnel 模組行銷有 use）
+    assert c.post(f"/v1/dashboards/{did}/cards", json={"title": "x", "kind": "events", "query": q}).status_code == 403
+    assert [x for x in store.audit_tail(10) if x["event"] == "query.executed"][-1]["module"] == "dashboard"
+    login(c, sm, ["admin"], "adm"); assert c.get(f"/v1/dashboards/{did}").json()["editable"] and c.delete(f"/v1/dashboards/{did}/cards/{cards[1]['id']}").json()["ok"]
+    assert c.delete(f"/v1/dashboards/{did}").json()["ok"] and c.get("/v1/dashboards").json() == []
     login(c, sm, ["marketing"], "mkt")
     # 6. 審計：行銷只看自己；admin 全看
     mine = c.get("/v1/audit").json(); assert mine and all(x.get("user") == "entra:mkt" for x in mine)
     login(c, sm, ["admin"], "adm"); allrows = c.get("/v1/audit").json(); assert len(allrows) > len(mine)
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":

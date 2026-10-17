@@ -8,6 +8,13 @@
   DMP_STORE_PATH        控制面 JSON 檔（單機開發用）
   DMP_EXPORT_DIR        匯出檔目錄（核可後產生的 CSV；正式環境換物件儲存 + 到期清理）
   DMP_API_KEY_PEM / DMP_API_PUB_PEM   API token 簽章金鑰檔（沒有就不開 /auth/token）
+  DMP_SCHED_DB          同步任務排程狀態（SQLite 路徑）；沒有就用暫存檔（重啟後水位重來）
+  DMP_LOCAL_ACCOUNTS    本機帳號檔（JSON；idp.yaml › local_accounts）；設了且 mode=direct 就多一個 provider=local 的帳密登入
+  DMP_LOCAL_ALLOWED_ROLES  本機帳號可持有的角色（逗號分隔；* = 全部）；預設照 idp.yaml（只有 custom_*）。單機測試環境才放開
+  DMP_WEB_DIST          前端建置目錄（web/dist）；設了就由 API 同源提供前端（SPA）
+  DMP_TICK              1 = 背景執行緒：每分鐘跑同步任務排程、每 10 分鐘跑分群例行計算與清理（單機環境用；正式環境交給排程系統）
+  DMP_K_IDM / DMP_K_ACCT  代碼化（tokenization）金鑰（單機測試用明文；正式環境從密鑰庫以 secret_ref 掛載）
+  DMP_COOKIE_SECURE     0 = session cookie 不加 Secure（只給沒有 TLS 的單機測試；正式環境一律 TLS）
 """
 from __future__ import annotations
 
@@ -21,6 +28,7 @@ import httpx
 
 from ..auth.api import AuthService, load_cfg
 from ..auth.ldap import LdapProvider
+from ..auth.local import LocalAccounts, LocalProvider
 from ..auth.oidc import OIDCProvider
 from ..auth.session import ApiTokens, SessionManager
 from ..auth.session import MemoryStore as SessionMemory
@@ -40,6 +48,8 @@ def build() -> Any:
     cfg = load_cfg()
     if os.environ.get("DMP_IDP_MODE"):
         cfg["mode"] = os.environ["DMP_IDP_MODE"]
+    if os.environ.get("DMP_COOKIE_SECURE") == "0":
+        cfg["session"]["cookie"]["secure"] = False
     secrets: dict[str, str] = {}
     if os.environ.get("DMP_SECRETS_JSON"):
         secrets = json.loads(Path(os.environ["DMP_SECRETS_JSON"]).read_text(encoding="utf-8"))
@@ -52,11 +62,18 @@ def build() -> Any:
     sessions = SessionManager(cfg["session"], SessionMemory(), lambda e, d: store.audit(e, d), now=time.time, admin_requires=cfg["role_mapping"].get("admin_requires"))
     providers: dict[str, Any] = {}
     for key, p in cfg["providers"].items():
-        if p["kind"] == "oidc":
-            providers[key] = OIDCProvider(key, p, _http, resolver)
-        elif p["kind"] == "ldap" and cfg["mode"] == "direct":
-            from ..auth.ldap import PythonLdapClient
-            providers[key] = LdapProvider(key, p, PythonLdapClient(p["url"], resolver(p["ca_bundle_ref"])), resolver)
+        try:
+            if p["kind"] == "oidc":
+                providers[key] = OIDCProvider(key, p, _http, resolver)
+            elif p["kind"] == "ldap" and cfg["mode"] == "direct":
+                from ..auth.ldap import PythonLdapClient
+                providers[key] = LdapProvider(key, p, PythonLdapClient(p["url"], resolver(p["ca_bundle_ref"])), resolver)
+        except (KeyError, ImportError) as e:                     # 密鑰沒掛載／驅動沒裝 → 這個提供者不啟用（單機環境常見），不要讓整個 API 起不來
+            print(f"[auth] provider {key} 未啟用：{type(e).__name__} {e}")
+    la_cfg = cfg.get("local_accounts") or {}
+    if os.environ.get("DMP_LOCAL_ACCOUNTS") and la_cfg.get("enabled") and cfg["mode"] == "direct":
+        allowed = [x.strip() for x in os.environ.get("DMP_LOCAL_ALLOWED_ROLES", "").split(",") if x.strip()] or list(la_cfg.get("allowed_roles") or ["custom_*"])
+        providers["local"] = LocalProvider(LocalAccounts(Path(os.environ["DMP_LOCAL_ACCOUNTS"]), {**la_cfg.get("password_policy", {}), "max_days": la_cfg.get("max_days", 90)}, allowed), {"mfa": la_cfg.get("mfa", "totp")})
     tokens = None
     if os.environ.get("DMP_API_KEY_PEM"):
         tokens = ApiTokens(cfg["session"]["api_token"], Path(os.environ["DMP_API_KEY_PEM"]).read_text(), Path(os.environ["DMP_API_PUB_PEM"]).read_text())
@@ -67,7 +84,42 @@ def build() -> Any:
         from ..integration.runner import LocalRunner
         from ..integration.scheduler import Scheduler
         sched = Scheduler(os.environ["DMP_SCHED_DB"], LocalRunner(ch))
-    return create_app(auth, store, ch, export_dir=os.environ.get("DMP_EXPORT_DIR"), scheduler=sched)
+    for ref, env in (("k_idm", "DMP_K_IDM"), ("k_acct", "DMP_K_ACCT")):
+        if os.environ.get(env):
+            from ..integration import modeling
+            modeling.set_key(ref, os.environ[env].encode())
+    app = create_app(auth, store, ch, export_dir=os.environ.get("DMP_EXPORT_DIR"), scheduler=sched)
+    if os.environ.get("DMP_WEB_DIST"):
+        from .app import mount_web
+        mount_web(app, Path(os.environ["DMP_WEB_DIST"]))
+    if os.environ.get("DMP_TICK") == "1":
+        start_ticker(app, store, ch)
+    return app
+
+
+def start_ticker(app: Any, store: Any, ch: Any) -> None:
+    """單機環境的背景例行：每分鐘 scheduler.tick()（到點的同步任務）、每 10 分鐘分群例行計算＋到期清理。錯誤只記錄不中斷。"""
+    import threading
+
+    from ..security.policy import Subject, authorize
+    from ..segments import SegmentService
+    sched = getattr(app.state, "scheduler", None)
+    seg = SegmentService(store, ch) if ch is not None else None
+    system = Subject("system:scheduler", ["admin"])
+
+    def loop() -> None:
+        n = 0
+        while True:
+            time.sleep(60); n += 1
+            try:
+                if sched is not None:
+                    sched.tick()
+                if seg is not None and n % 10 == 0:
+                    seg.tick(system, lambda s: authorize(Subject(s["owner"], ["data_analyst"]), "use", "users"))
+                    seg.purge_expired(system)
+            except Exception as e:
+                store.audit("scheduler.tick.failed", {"error": str(e)[:300]})
+    threading.Thread(target=loop, name="dmp-tick", daemon=True).start()
 
 
 app = build() if os.environ.get("DMP_BUILD_APP", "1") == "1" and __name__ != "__main__" else None

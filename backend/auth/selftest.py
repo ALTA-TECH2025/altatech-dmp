@@ -189,9 +189,35 @@ def main() -> None:
     tk2 = c.post("/auth/token", headers={"X-CSRF-Token": c.cookies["dmp_csrf"]}).json()["access_token"]
     assert tokens.verify(tk2).roles == ["marketing", "digital_ops"]
     r = c.post("/auth/ldap", json={"username": "wuch", "password": "Passw0rd!"}); assert r.json()["next"] == "totp"
+    r = c.post("/auth/ldap", json={"username": "wuch", "password": "Passw0rd!", "totp": "123456"}); assert r.status_code == 401 and "驗證器" in r.json()["detail"]   # AD 直連尚未接 TOTP 驗證器 → 不放行
     r = c.post("/auth/logout", headers={"X-CSRF-Token": c.cookies["dmp_csrf"]}); assert r.status_code == 200 and "logout" in (r.json()["idp_logout"] or "")
     assert c.get("/v1/iam/me").status_code == 401
-    print(f"auth self-test ok: oidc(entra pkce/jwks/amr/overage) ldap(bind/nested/limits) session(idle/absolute/csrf/evict/step-up) api-token routes; audit events={len(audit)}")
+    # 9. 本機帳號（provider=local）：密碼 → next=totp → 錯碼 401 → 正確碼登入（amr pwd+mfa，角色來自帳號）→ 15 分鐘後 admin 降級 → step-up 回復 → 不允許的角色被濾掉
+    import tempfile
+    from pathlib import Path as _P
+
+    from .local import LocalAccounts, LocalProvider, totp_code
+    la = LocalAccounts(_P(tempfile.mkdtemp(prefix="dmp-la-")) / "accounts.json", {"min_length": 14, "lockout_after": 5, "lockout_minutes": 15, "max_days": 90}, ["admin", "data_analyst", "custom_*"], clock)
+    la.add("ops.local", "local-admin-password-1", ["admin", "data_analyst"], name="本機管理員")
+    la.data["accounts"]["ops.local"]["roles"].append("digital_ops")        # 模擬帳號檔被改／政策收緊：登入時仍過白名單
+    svc.providers["local"] = LocalProvider(la, now=clock)
+    assert [p["key"] for p in c.get("/auth/providers").json()["providers"]] == ["entra", "ad", "local"]
+    r = c.post("/auth/ldap", json={"provider": "local", "username": "ops.local", "password": "local-admin-password-1"}); assert r.json()["next"] == "totp", r.text
+    assert c.post("/auth/ldap", json={"provider": "local", "username": "ops.local", "password": "local-admin-password-1", "totp": "000000"}).status_code == 401
+    assert c.post("/auth/ldap", json={"provider": "local", "username": "ops.local", "password": "nope-nope-nope-nope"}).status_code == 401
+    assert c.post("/auth/ldap", json={"provider": "x", "username": "a", "password": "b"}).status_code == 400
+    sec = la.data["accounts"]["ops.local"]["totp_secret"]
+    r = c.post("/auth/ldap", json={"provider": "local", "username": "ops.local", "password": "local-admin-password-1", "totp": totp_code(sec, clock())})
+    assert r.status_code == 200 and r.json()["roles"] == ["admin", "data_analyst"], r.text                  # digital_ops 不在 allowed_roles → 濾掉
+    me = c.get("/v1/iam/me").json(); assert me["user"]["provider"] == "local" and [x["key"] for x in me["roles"] if x.get("active")] == ["admin", "data_analyst"] and me["session"]["amr"] == ["pwd", "mfa"], me["session"]
+    clock.t += 16 * 60
+    me = c.get("/v1/iam/me").json(); assert me["session"]["step_up_needed"] and "admin" not in [x["key"] for x in me["roles"] if x.get("active")]
+    assert c.post("/auth/step-up", json={"totp": "000000"}, headers={"X-CSRF-Token": c.cookies["dmp_csrf"]}).status_code == 401
+    r = c.post("/auth/step-up", json={"totp": totp_code(sec, clock())}, headers={"X-CSRF-Token": c.cookies["dmp_csrf"]}); assert r.status_code == 200 and "admin" in r.json()["roles"], r.text
+    assert not c.get("/v1/iam/me").json()["session"]["step_up_needed"]
+    assert {x["event"] for x in audit} >= {"auth.login.failed", "auth.step_up.failed", "auth.step_up"}
+    c.post("/auth/logout", headers={"X-CSRF-Token": c.cookies["dmp_csrf"]})
+    print(f"auth self-test ok: oidc(entra pkce/jwks/amr/overage) ldap(bind/nested/limits) local(scrypt/totp/step-up) session(idle/absolute/csrf/evict/step-up) api-token routes; audit events={len(audit)}")
 
 
 if __name__ == "__main__":

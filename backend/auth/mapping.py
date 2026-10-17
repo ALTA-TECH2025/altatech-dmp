@@ -18,7 +18,9 @@ def map_roles(ident: Identity, mapping: dict[str, Any], assignments: list[dict[s
     """回傳 (roles, scope, applied_rules)。群組比對：Entra 用 Object ID（entra_id）、其他用群組名（不分大小寫）。"""
     roles: list[str] = []; applied: list[str] = []; scope: dict[str, Any] = {}
     gset = {g.lower() for g in ident.groups}
-    for rule in mapping.get("by_group", []):
+    if ident.provider == "local":                                   # 本機帳號：角色寫在帳號裡（已過 allowed_roles 白名單），不走群組
+        roles = list(dict.fromkeys(ident.raw.get("roles") or [])); applied.append("local:account")
+    for rule in mapping.get("by_group", []) if ident.provider != "local" else []:
         hit = (rule.get("entra_id", "").lower() in gset) if ident.provider == "entra" else (str(rule.get("group", "")).lower() in gset)
         if hit:
             roles += [r for r in rule["roles"] if r not in roles]; applied.append(rule.get("group", rule.get("entra_id")))

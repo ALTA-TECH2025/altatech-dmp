@@ -50,143 +50,132 @@ def chart_spec(raw: dict[str, Any], c: Compiled) -> dict[str, Any]:
     return {"type": "stat", "series": metrics}
 
 
+class _Run:
+    """一種分析（events／funnel／retention／path／attribution）的執行器：授權 → 解析／編譯 → 執行 → 審計 → 回應。
+    路由與儀表板卡片共用；module 參數讓儀表板的審計寫 dashboard 而非各分析模組。"""
+    kind: str = ""
+    module: str = ""          # rbac 模組（授權用）
+
+    def compile(self, body: dict[str, Any], d: Any, cat: Catalog) -> tuple[Compiled, Any]: ...
+    def shape(self, rows: list[dict[str, Any]], q: Any, c: Compiled) -> dict[str, Any]: ...
+    def extra_audit(self, q: Any) -> dict[str, Any]: return {}
+
+
+class _Events(_Run):
+    kind, module = "events", "events"
+    def compile(self, body: dict[str, Any], d: Any, cat: Catalog) -> tuple[Compiled, Any]:
+        return compile_query(body, decision=d, cat=cat, profile=str(body.get("profile") or "human")), body
+    def shape(self, rows: list[dict[str, Any]], q: Any, c: Compiled) -> dict[str, Any]:
+        return {"rows": rows, "chart_spec": chart_spec(q, c), "columns": c.columns, "masked": c.masked}
+
+
+class _Funnel(_Run):
+    kind, module = "funnel", "funnel"
+    def compile(self, body: dict[str, Any], d: Any, cat: Catalog) -> tuple[Compiled, Any]:
+        fq = parse_funnel(body, cat); return compile_funnel(fq, cat, d, str(body.get("profile") or "human")), fq
+    def shape(self, rows: list[dict[str, Any]], fq: Any, c: Compiled) -> dict[str, Any]:
+        return {"rows": with_rates(rows, fq.steps), "steps": [{"event": s.event, "alias": s.alias} for s in fq.steps], "columns": c.columns + ["alias", "event", "rate_prev", "rate_first"],
+                "chart_spec": {"type": "funnel", "x": "step", "series": ["users"], "group": ["g1"] if fq.group_by else [], "trend": fq.trend}}
+
+
+class _Retention(_Run):
+    kind, module = "retention", "events"          # 留存屬 events 模組（rbac：事件／漏斗／路徑／歸因／留存）
+    def compile(self, body: dict[str, Any], d: Any, cat: Catalog) -> tuple[Compiled, Any]:
+        rq = parse_retention(body, cat); return compile_retention(rq, cat, d, str(body.get("profile") or "human")), rq
+    def shape(self, rows: list[dict[str, Any]], rq: Any, c: Compiled) -> dict[str, Any]:
+        today = rq.time.now or _date.today()
+        return {"rows": with_complete(rows, rq, today), "columns": c.columns + ["complete"],
+                "chart_spec": {"type": "retention_matrix", "x": "period", "y": "cohort", "value": "rate", "group": ["g1"] if rq.group_by else [], "model": rq.model, "unit": rq.unit, "periods": rq.periods, "lo": rq.lo}}
+
+
+class _Path(_Run):
+    kind, module = "path", "path"
+    def compile(self, body: dict[str, Any], d: Any, cat: Catalog) -> tuple[Compiled, Any]:
+        raw = {**body, "sample": body["sample"] if "sample" in body else 0.1}          # 路徑預設抽樣 1/10（與神策同）；明確給 null 才不抽樣
+        pq = parse_path(raw, cat); return compile_path(pq, cat, d, str(body.get("profile") or "human")), pq
+    def shape(self, rows: list[dict[str, Any]], pq: Any, c: Compiled) -> dict[str, Any]:
+        return {**sankey(rows, pq), "sampled": pq.sample, "chart_spec": {"type": "sankey", "direction": pq.direction, "steps": pq.steps, "anchor": pq.anchor}}
+    def extra_audit(self, pq: Any) -> dict[str, Any]: return {"sample": pq.sample}
+
+
+class _Attribution(_Run):
+    kind, module = "attribution", "attribution"
+    def compile(self, body: dict[str, Any], d: Any, cat: Catalog) -> tuple[Compiled, Any]:
+        aq = parse_attribution(body, cat); return compile_attribution(aq, cat, d, str(body.get("profile") or "human")), aq
+    def shape(self, rows: list[dict[str, Any]], aq: Any, c: Compiled) -> dict[str, Any]:
+        return {**shape(rows, aq), "chart_spec": {"type": "attribution", "x": "touch", "series": aq.models, "split": bool(aq.split)}}
+
+
+RUNNERS: dict[str, _Run] = {r.kind: r for r in (_Events(), _Funnel(), _Retention(), _Path(), _Attribution())}
+
+
+def compile_kind(kind: str, subject: Subject, body: dict[str, Any], cat: Catalog) -> tuple[Compiled, Any, Any]:
+    """授權 + 解析／編譯（不執行）；錯誤轉 HTTP 400／403。回 (compiled, parsed_query, decision)。"""
+    run = RUNNERS[kind]
+    d = authorize(subject, "use", run.module, {"export": bool(body.get("export"))} if kind == "events" else None)
+    if not d.allowed:
+        raise HTTPException(403, d.reason)
+    try:
+        c, q = run.compile(body, d, cat)
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from None
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    return c, q, d
+
+
+def execute_kind(kind: str, store: Store, ch: Executor | None, cat: Catalog, subject: Subject, body: dict[str, Any], module: str | None = None, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """完整一次分析：編譯 → ClickHouse → 審計 query.executed（module 預設為該分析模組；儀表板傳 dashboard）→ 回應。"""
+    run = RUNNERS[kind]
+    c, q, _ = compile_kind(kind, subject, body, cat)
+    if ch is None:
+        raise HTTPException(503, "此環境未連接 ClickHouse（只能 /v1/semantic/compile）")
+    mod = module or run.kind
+    sql_hash = hashlib.sha256(c.sql.encode()).hexdigest()[:16]
+    t0 = time.perf_counter()
+    try:
+        rows = run_rows(ch, c)
+    except RuntimeError as e:
+        store.audit("query.failed", {"user": subject.user_id, "module": mod, "sql_hash": sql_hash, "error": str(e)[:200], **(extra or {})})
+        raise HTTPException(502, f"查詢失敗：{str(e)[:300]}") from None
+    ms = round((time.perf_counter() - t0) * 1000)
+    audit = {"user": subject.user_id, "module": mod, "sql_hash": sql_hash, "rows": len(rows), "ms": ms, "row_policy": c.row_filters, "lineage": c.lineage, **run.extra_audit(q), **(extra or {})}
+    if kind == "events":
+        audit.update({"layer": c.layer, "masked": list(c.masked)})
+    store.audit("query.executed", audit)
+    return {**run.shape(rows, q, c), "sql": c.sql, "lineage": c.lineage, "cost": {"ms": ms, "rows": len(rows), "layer": c.layer}, "warnings": c.warnings}
+
+
 def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catalog | None = None) -> APIRouter:
     r = APIRouter()
     cat = cat or Catalog()
 
-    def compile_for(subject: Subject, raw: dict[str, Any]) -> Compiled:
-        d = authorize(subject, "use", "events", {"export": bool(raw.get("export"))})
-        if not d.allowed:
-            raise HTTPException(403, d.reason)
-        try:
-            return compile_query(raw, decision=d, cat=cat, profile=str(raw.get("profile") or "human"))
-        except PermissionError as e:
-            raise HTTPException(403, str(e)) from None
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from None
-
     @r.post("/v1/semantic/compile")
     def compile_(body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
-        c = compile_for(subject, body)
+        c, _, _ = compile_kind("events", subject, body, cat)
         est = estimate_rows(ch, c.sql) if ch is not None else None
         return {"sql": c.sql, "layer": c.layer, "columns": c.columns, "settings": c.settings, "lineage": c.lineage, "warnings": c.warnings,
                 "estimated_scan_rows": est, "estimated_scan_bytes": (est * 150) if est is not None else None, "masked": c.masked, "k_anonymity": c.k_anonymity}
 
     @r.post("/v1/analytics/events")
     def events(body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
-        c = compile_for(subject, body)
-        if ch is None:
-            raise HTTPException(503, "此環境未連接 ClickHouse（只能 /v1/semantic/compile）")
-        t0 = time.perf_counter()
-        try:
-            rows = run_rows(ch, c)
-        except RuntimeError as e:
-            store.audit("query.failed", {"user": subject.user_id, "sql_hash": hashlib.sha256(c.sql.encode()).hexdigest()[:16], "error": str(e)[:200]})
-            raise HTTPException(502, f"查詢失敗：{str(e)[:300]}") from None
-        ms = round((time.perf_counter() - t0) * 1000)
-        store.audit("query.executed", {"user": subject.user_id, "module": "events", "sql_hash": hashlib.sha256(c.sql.encode()).hexdigest()[:16], "layer": c.layer,
-                                       "rows": len(rows), "ms": ms, "masked": list(c.masked), "row_policy": c.row_filters, "lineage": c.lineage})
-        return {"rows": rows, "chart_spec": chart_spec(body, c), "sql": c.sql, "lineage": c.lineage, "cost": {"ms": ms, "rows": len(rows), "layer": c.layer},
-                "warnings": c.warnings, "columns": c.columns, "masked": c.masked}
+        return execute_kind("events", store, ch, cat, subject, body)
 
     @r.post("/v1/analytics/funnel")
     def funnel(body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
-        d = authorize(subject, "use", "funnel")
-        if not d.allowed:
-            raise HTTPException(403, d.reason)
-        try:
-            fq = parse_funnel(body, cat); c = compile_funnel(fq, cat, d, str(body.get("profile") or "human"))
-        except PermissionError as e:
-            raise HTTPException(403, str(e)) from None
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from None
-        if ch is None:
-            raise HTTPException(503, "此環境未連接 ClickHouse")
-        t0 = time.perf_counter()
-        try:
-            rows = run_rows(ch, c)
-        except RuntimeError as e:
-            store.audit("query.failed", {"user": subject.user_id, "module": "funnel", "error": str(e)[:200]})
-            raise HTTPException(502, f"查詢失敗：{str(e)[:300]}") from None
-        ms = round((time.perf_counter() - t0) * 1000)
-        store.audit("query.executed", {"user": subject.user_id, "module": "funnel", "sql_hash": hashlib.sha256(c.sql.encode()).hexdigest()[:16], "rows": len(rows), "ms": ms, "row_policy": c.row_filters, "lineage": c.lineage})
-        return {"rows": with_rates(rows, fq.steps), "steps": [{"event": s.event, "alias": s.alias} for s in fq.steps], "sql": c.sql, "lineage": c.lineage,
-                "cost": {"ms": ms, "rows": len(rows), "layer": c.layer}, "warnings": c.warnings, "columns": c.columns + ["alias", "event", "rate_prev", "rate_first"],
-                "chart_spec": {"type": "funnel", "x": "step", "series": ["users"], "group": ["g1"] if fq.group_by else [], "trend": fq.trend}}
+        return execute_kind("funnel", store, ch, cat, subject, body)
 
     @r.post("/v1/analytics/retention")
     def retention(body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
-        d = authorize(subject, "use", "events")          # 留存屬 events 模組（rbac：事件／漏斗／路徑／歸因／留存）
-        if not d.allowed:
-            raise HTTPException(403, d.reason)
-        try:
-            rq = parse_retention(body, cat); c = compile_retention(rq, cat, d, str(body.get("profile") or "human"))
-        except PermissionError as e:
-            raise HTTPException(403, str(e)) from None
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from None
-        if ch is None:
-            raise HTTPException(503, "此環境未連接 ClickHouse")
-        t0 = time.perf_counter()
-        try:
-            rows = run_rows(ch, c)
-        except RuntimeError as e:
-            store.audit("query.failed", {"user": subject.user_id, "module": "retention", "error": str(e)[:200]})
-            raise HTTPException(502, f"查詢失敗：{str(e)[:300]}") from None
-        ms = round((time.perf_counter() - t0) * 1000)
-        store.audit("query.executed", {"user": subject.user_id, "module": "retention", "sql_hash": hashlib.sha256(c.sql.encode()).hexdigest()[:16], "rows": len(rows), "ms": ms, "row_policy": c.row_filters, "lineage": c.lineage})
-        today = rq.time.now or _date.today()
-        return {"rows": with_complete(rows, rq, today), "sql": c.sql, "lineage": c.lineage, "cost": {"ms": ms, "rows": len(rows), "layer": c.layer}, "warnings": c.warnings,
-                "columns": c.columns + ["complete"], "chart_spec": {"type": "retention_matrix", "x": "period", "y": "cohort", "value": "rate", "group": ["g1"] if rq.group_by else [], "model": rq.model, "unit": rq.unit, "periods": rq.periods, "lo": rq.lo}}
+        return execute_kind("retention", store, ch, cat, subject, body)
 
     @r.post("/v1/analytics/path")
     def path(body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
-        d = authorize(subject, "use", "path")
-        if not d.allowed:
-            raise HTTPException(403, d.reason)
-        raw = {**body, "sample": body["sample"] if "sample" in body else 0.1}          # 路徑預設抽樣 1/10（與神策同）；明確給 null 才不抽樣
-        try:
-            pq = parse_path(raw, cat); c = compile_path(pq, cat, d, str(body.get("profile") or "human"))
-        except PermissionError as e:
-            raise HTTPException(403, str(e)) from None
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from None
-        if ch is None:
-            raise HTTPException(503, "此環境未連接 ClickHouse")
-        t0 = time.perf_counter()
-        try:
-            rows = run_rows(ch, c)
-        except RuntimeError as e:
-            store.audit("query.failed", {"user": subject.user_id, "module": "path", "error": str(e)[:200]})
-            raise HTTPException(502, f"查詢失敗：{str(e)[:300]}") from None
-        ms = round((time.perf_counter() - t0) * 1000)
-        store.audit("query.executed", {"user": subject.user_id, "module": "path", "sql_hash": hashlib.sha256(c.sql.encode()).hexdigest()[:16], "rows": len(rows), "ms": ms, "row_policy": c.row_filters, "lineage": c.lineage, "sample": pq.sample})
-        return {**sankey(rows, pq), "sampled": pq.sample, "sql": c.sql, "lineage": c.lineage, "cost": {"ms": ms, "rows": len(rows), "layer": c.layer}, "warnings": c.warnings,
-                "chart_spec": {"type": "sankey", "direction": pq.direction, "steps": pq.steps, "anchor": pq.anchor}}
+        return execute_kind("path", store, ch, cat, subject, body)
 
     @r.post("/v1/analytics/attribution")
     def attribution(body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
-        d = authorize(subject, "use", "attribution")
-        if not d.allowed:
-            raise HTTPException(403, d.reason)
-        try:
-            aq = parse_attribution(body, cat); c = compile_attribution(aq, cat, d, str(body.get("profile") or "human"))
-        except PermissionError as e:
-            raise HTTPException(403, str(e)) from None
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from None
-        if ch is None:
-            raise HTTPException(503, "此環境未連接 ClickHouse")
-        t0 = time.perf_counter()
-        try:
-            rows = run_rows(ch, c)
-        except RuntimeError as e:
-            store.audit("query.failed", {"user": subject.user_id, "module": "attribution", "error": str(e)[:200]})
-            raise HTTPException(502, f"查詢失敗：{str(e)[:300]}") from None
-        ms = round((time.perf_counter() - t0) * 1000)
-        store.audit("query.executed", {"user": subject.user_id, "module": "attribution", "sql_hash": hashlib.sha256(c.sql.encode()).hexdigest()[:16], "rows": len(rows), "ms": ms, "row_policy": c.row_filters, "lineage": c.lineage})
-        return {**shape(rows, aq), "sql": c.sql, "lineage": c.lineage, "cost": {"ms": ms, "rows": len(rows), "layer": c.layer}, "warnings": c.warnings,
-                "chart_spec": {"type": "attribution", "x": "touch", "series": aq.models, "split": bool(aq.split)}}
+        return execute_kind("attribution", store, ch, cat, subject, body)
 
     @r.get("/v1/semantic/catalog")
     def catalog(subject: Subject = Depends(get_subject)) -> dict[str, Any]:

@@ -15,6 +15,8 @@ docs/23 §4.4：router 只做「驗證 → Policy → 呼叫服務 → 審計」
 | `POST /v1/analytics/retention` | 留存：四模型 × 日週月 → 同期群 × 期的人數／留存／比例 + complete；審計 | events.use |
 | `GET /v1/semantic/catalog` | 查詢建構器目錄（事件、維度、用戶屬性、聚合、運算子；L3 不給） | events.view |
 | `POST /v1/analytics/events` | 編譯 → ClickHouse → rows + chart_spec + cost；審計 query.executed | events.use |
+| `GET/POST /v1/dashboards`、`GET/PUT/DELETE /v1/dashboards/{id}`、`POST /cards`、`DELETE /cards/{card}`、`POST /cards/{card}/data` | 儀表板：卡片 = 一種分析 + 查詢 body（存條件不存結果）；建立時以建立者身分編譯一次；卡片資料以「檢視者」身分重算（遮罩、行級、K 匿名照檢視者），審計 query.executed module=dashboard；時間覆寫：請求 → 儀表板 preset → 卡片釘住區間；擁有者／admin 可編輯，分享給角色或使用者只能看 | overview.view／overview.use |
+| `POST /auth/ldap`（provider=ad｜local）、`POST /auth/step-up` | 帳密登入：AD（LDAPS）或本機帳號（`backend/auth/local.py`：scrypt、TOTP、鎖定、到期、allowed_roles 白名單）；admin 超過 15 分鐘後輸入 TOTP 延展 | — |
 | `POST /v1/users/estimate`、`/v1/users/list` | 用戶列表：條件 → Bitmap 估數；keyset 分頁列表（欄位依角色遮罩、每頁 ≤ 500、最多 10 萬筆）；審計 users.estimated／users.listed | users.use |
 | `GET /v1/profiles/{one_id}`、`/timeline`、`/identities` | 用戶細查：畫像 + 近 30 天摘要 + 分群、行為序列（倒序分頁、props 去 L4 鍵）、身分圖（id_edges）；需 reason 4–200 字；範圍外 404；審計 profile.viewed／timeline／identities 只記 one_id 雜湊 | profile.use |
 | `/v1/segments*` | 分群引擎最小版（`backend/segments/`）：建立／審批／估數與畫像／計算（版本保留）／例行 tick／成員列表／複製／暫停／血緣／回收站／徹底刪除 | segments.view／use／approve／admin |
@@ -31,3 +33,7 @@ CLICKHOUSE_URL=http://127.0.0.1:8123 DMP_SECRETS_JSON=secrets.json uvicorn backe
 - 密鑰：`DMP_SECRETS_JSON` 是 secret_ref → 明文 的對照（只在執行節點由密鑰庫掛載）；程式碼與設定檔只出現 secret_ref。
 - 端到端：`backend/integration/e2e_clickhouse.py` 最後跑 `api/e2e_stage.py`，以 admin 與行銷兩種身分打 `/v1/analytics/events`／funnel／retention／`/v1/users/list`，結果需與直接執行編譯器 SQL 相同；數據分析身分打細查三端點。
 - 之後：路徑／歸因端點（等編譯器樣板）、export 審批流程、schemathesis 契約測試、五角色 × 端點權限矩陣自動展開。
+
+## 單機啟動（main.py 的環境變數）
+
+`DMP_WEB_DIST`（API 同源提供前端 SPA）、`DMP_LOCAL_ACCOUNTS`／`DMP_LOCAL_ALLOWED_ROLES`（本機帳號）、`DMP_TICK=1`（背景執行同步任務排程與分群例行）、`DMP_COOKIE_SECURE=0`（無 TLS 測試）、`DMP_K_IDM`／`DMP_K_ACCT`（代碼化金鑰）；`python3 -m backend.api.seed` 載合成資料、建五種角色帳號、建範例儀表板。一鍵流程見 `deploy/quickstart/README.md`。

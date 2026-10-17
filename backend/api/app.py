@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from ..approvals import ApprovalService, ExportService, RevealService
 from ..auth.api import AuthService, subject_from_request
@@ -17,7 +17,7 @@ from ..integration.runner import LocalRunner
 from ..integration.scheduler import Scheduler
 from ..security.policy import Subject
 from ..segments import SegmentService
-from . import analytics, exports, iam, integration, segments, users
+from . import analytics, dashboards, exports, iam, integration, segments, users
 from .store import Store
 
 
@@ -41,6 +41,7 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     app.include_router(auth_router(auth))
     app.include_router(iam.build_router(store, get_subject))
     app.include_router(analytics.build_router(store, get_subject, ch))
+    app.include_router(dashboards.build_router(store, get_subject, ch))
     app.include_router(users.build_router(store, get_subject, ch))
     seg_svc = segment_service or SegmentService(store, ch)
     seg_svc.approvals = approvals
@@ -50,6 +51,7 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     app.include_router(exports.build_router(store, get_subject, approvals, exp, reveals))
     sched = scheduler or Scheduler(Path(tempfile.gettempdir()) / "dmp-sched.db", LocalRunner(ch if hasattr(ch, "insert_json") and not ch.__class__.__name__.startswith("Fake") else None))
     app.include_router(integration.build_router(store, get_subject, sched, secret_writer))
+    app.state.scheduler = sched
 
     @app.exception_handler(PermissionError)
     def _perm(_: Request, e: PermissionError) -> JSONResponse:
@@ -72,3 +74,20 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
         return {"ok": True, "clickhouse": ch is not None, "idp_mode": auth.mode}
 
     return app
+
+
+def mount_web(app: FastAPI, dist: Path) -> None:
+    """API 同源提供前端建置檔（web/dist）：單機／小型部署不另起 nginx。/v1、/auth、/healthz 以外的 GET → 檔案存在就給檔案，否則回 index.html（SPA 路由）。
+    正式環境仍建議 nginx／Ingress 放前面（快取、壓縮、TLS）。"""
+    dist = dist.resolve()
+    index = dist / "index.html"
+    if not index.exists():
+        raise FileNotFoundError(f"找不到 {index}：先在 web/ 執行 npm run build")
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def spa(path: str) -> Any:
+        f = (dist / path).resolve() if path else index
+        if path and f.is_relative_to(dist) and f.is_file():
+            hdr = {"Cache-Control": "public, max-age=31536000, immutable"} if path.startswith("assets/") else {"Cache-Control": "no-cache"}
+            return FileResponse(f, headers=hdr)
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
