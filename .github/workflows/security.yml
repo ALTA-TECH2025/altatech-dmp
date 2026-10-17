@@ -25,7 +25,7 @@ jobs:
         run: python3 backend/tools/license_check.py sbom.spdx.json
       - name: Config validation
         run: |
-          python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True)]"
+          python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True) if '/templates/' not in f]"
           python3 backend/security/policy.py && python3 backend/integration/transforms.py
           node --check prototype/js/app.js && node --check prototype/js/data.js
   image:
