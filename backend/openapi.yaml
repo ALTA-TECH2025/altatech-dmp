@@ -802,10 +802,11 @@ components:
         warnings: { type: array, items: { type: string } }
     UsersQuery:
       type: object
-      description: 用戶列表條件：全部是「人」的條件（用戶屬性／分群／做過未做過／來自分析結果的下鑽）；事件欄位請放在 behaviors.filters
+      description: '用戶條件（用戶列表／分群／標籤值共用，神策式）：用戶屬性條件樹（且／或可巢狀）＋ 行為條件（做過／未做過某事件、指標＝總次數／某屬性總和／平均／最大／最小／有行為天數、比較運算、期間＝近 N 天或自訂）＋ 兩塊之間的且／或；例行計算時「近 N 天」以計算基準日為準（動態標籤）'
       properties:
         project: { type: string }
-        filters: { description: 用戶屬性（user.<key>，只限寬表 L0–L2）與分群（seg.<id>）條件；可巢狀 and／or, oneOf: [{ type: array, items: { type: object } }, { type: object, properties: { op: { type: string, enum: [and, or] }, items: { type: array, items: { type: object } } } }] }
+        combine: { type: string, enum: [and, or], default: and, description: 用戶屬性條件（filters／segment）與行為條件（behaviors）之間的組合 }
+        filters: { description: '用戶屬性（user.<key>，只限寬表 L0–L2）與分群（seg.<id>）條件樹：陣列＝全部符合（且）；{ op: and|or, items: [條件或子群組] } 可巢狀（建議最多兩層）；條件 { field, op, value }，運算子依型別：字串 eq/neq/in/nin/like/nlike/set/nset、數值 eq/neq/gt/gte/lt/lte/between/set/nset、布林 true/false、日期 rel({days})/between/set/nset、分群 in/nin', oneOf: [{ type: array, items: { type: object } }, { type: object, properties: { op: { type: string, enum: [and, or] }, items: { type: array, items: { type: object } } } }] }
         segment: { type: string, description: 等同 filters 加 seg.<id> in }
         behaviors: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/UsersBehavior' } }
         behaviors_op: { type: string, enum: [and, or], default: and }
@@ -816,10 +817,12 @@ components:
       required: [event]
       properties:
         event: { type: string }
-        filters: { type: array, items: { type: object }, description: 事件屬性條件 }
-        done: { type: boolean, default: true, description: false = 期間內一次都沒做過（忽略 count） }
-        count: { type: object, properties: { op: { type: string, enum: [gte, lte, eq, between], default: gte }, value: { description: '數字或 [a, b]' } } }
-        time: { type: object, properties: { from: { type: string }, to: { type: string } } }
+        filters: { description: '事件屬性條件：陣列（且）或 { op: and|or, items }', oneOf: [{ type: array, items: { type: object } }, { type: object }] }
+        done: { type: boolean, default: true, description: false = 期間內一次都沒做過（忽略 measure／cmp） }
+        measure: { type: object, description: '指標：count 總次數（預設）、sum／avg／max／min 需 field（數值事件屬性，如 amount）、days 有行為天數', properties: { agg: { type: string, enum: [count, sum, avg, max, min, days], default: count }, field: { type: string } } }
+        cmp: { type: object, description: 指標比較；未給時等同 count ≥ 1, properties: { op: { type: string, enum: [gte, lte, eq, gt, lt, between], default: gte }, value: { description: '數字或 [a, b]' } } }
+        count: { type: object, deprecated: true, description: 舊寫法＝measure count ＋ cmp, properties: { op: { type: string, enum: [gte, lte, eq, between], default: gte }, value: { description: '數字或 [a, b]' } } }
+        time: { type: object, description: '期間：{ last_days: N }＝到基準日（time.now 或例行計算的 basetime）為止近 N 天，動態標籤用這個；或 { from, to } 自訂日期', properties: { last_days: { type: integer, minimum: 1, maximum: 730 }, from: { type: string }, to: { type: string } } }
     UsersSource:
       type: object
       description: 從分析結果的某個落點下鑽成用戶列表（漏斗某步到達／流失、留存某同期群某期留存／未留存、事件分析某桶某分組）
@@ -898,7 +901,7 @@ components:
         description: { type: string }
         kind: { type: string, enum: [rule, result], default: rule, description: result = 從分析結果點保存（rule.source 必填，規則不可再改） }
         rule: { $ref: '#/components/schemas/UsersQuery' }
-        update: { type: object, properties: { mode: { type: string, enum: [manual, routine], default: manual }, freq: { type: string, enum: [daily, weekly, monthly], default: daily }, earliest: { type: string, default: '06:00', description: 'HH:MM，最早計算時間' }, keep: { type: integer, minimum: 1, maximum: 100, default: 7, description: 例行版本保留數；手動固定 1 } } }
+        update: { type: object, properties: { mode: { type: string, enum: [manual, routine], default: routine, description: '預設例行（動態分群：每日凌晨重算符合規則的受眾）' }, freq: { type: string, enum: [daily, weekly, monthly], default: daily }, earliest: { type: string, default: '02:00', description: 'HH:MM，最早計算時間' }, keep: { type: integer, minimum: 1, maximum: 100, default: 7, description: 例行版本保留數；手動固定 1 } } }
         tz: { type: string, default: Asia/Taipei }
     Segment:
       allOf:
@@ -1430,7 +1433,7 @@ components:
             amount_field: { type: string, default: amount, description: 'rfm 的金額欄位' }
             bins: { type: integer, minimum: 2, maximum: 10, default: 5, description: 'rfm 每個維度分幾級（ntile）' }
             output: { type: string, enum: [score, segment], default: score, description: 'rfm：score＝R5F4M3；segment＝八類客群（重要價值／重要發展／重要保持／重要挽留／一般價值／一般發展／一般保持／一般挽留，以各維度高於中位為高）' }
-        update: { type: object, properties: { mode: { type: string, enum: [manual, routine] }, freq: { type: string, enum: [daily, weekly, monthly] }, earliest: { type: string, example: '06:00' }, keep: { type: integer, minimum: 1, maximum: 100 } } }
+        update: { type: object, description: '預設例行每日 02:00 計算（動態標籤：每日凌晨重算符合規則的受眾）；manual 只在手動觸發時計算', properties: { mode: { type: string, enum: [manual, routine] }, freq: { type: string, enum: [daily, weekly, monthly] }, earliest: { type: string, example: '02:00' }, keep: { type: integer, minimum: 1, maximum: 100 } } }
         fields: { type: object, description: 自定義欄位（所屬部門、需求提出人、需求類別）, additionalProperties: { type: string } }
     Tag:
       allOf:
