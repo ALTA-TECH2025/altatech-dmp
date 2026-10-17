@@ -1,7 +1,8 @@
 """審批單與匯出申請。
 
 審批單：{type, requester, approver_roles, summary, detail, object{kind,id}, status pending→approved/rejected/expired}。
-  審批角色（docs/10 §6）：匯出／分群／推送／agent 提議／L2 揭露 = 數位經營；L3 揭露 = 系統管理員；admin 皆可；不能審自己的申請（admin 例外）。
+  審批角色（docs/10 §6）：匯出／分群／推送／agent 提議／L2 揭露 = 數位經營；L3 揭露 = 系統管理員；admin 皆可；不能審自己的申請（admin 例外；
+  但 role_change／break_glass 這兩種權限類審批一律不可自審）。
   核可／退回後呼叫受控物件的 hook（匯出：改 approved／rejected；分群：生效／退回）。逾期（7 天）未審 → expired。
 匯出：申請（需 users.export 模組權限、用途、保存天數；先估列數 ≤ masking.yaml export.max_rows）→ 審批單 → 核可後 7 天內由申請者本人產檔（authorize(action="export") 帶 approval_id；
   欄位策略比 UI 嚴一級：masking.yaml 的 export 策略）→ CSV：檔頭註解（申請單、使用者、時間、浮水印）+ 每列 _watermark 欄 → 下載；三步都審計。
@@ -22,7 +23,9 @@ from ..security.policy import MASK, Subject, authorize, has_grant
 from ..semantic.compiler import Catalog
 from ..semantic.compiler.users import compile_estimate, compile_export, parse_users
 
-APPROVER_ROLES: dict[str, list[str]] = {"export": ["digital_ops"], "segment": ["digital_ops"], "push": ["digital_ops"], "reveal_l2": ["digital_ops"], "reveal_l3": ["admin"], "agent_proposal": ["digital_ops"]}
+APPROVER_ROLES: dict[str, list[str]] = {"export": ["digital_ops"], "segment": ["digital_ops"], "push": ["digital_ops"], "reveal_l2": ["digital_ops"], "reveal_l3": ["admin"], "agent_proposal": ["digital_ops"],
+                                        "role_change": ["admin", "digital_ops"], "break_glass": ["admin", "digital_ops"]}
+STRICT_SELF = {"role_change", "break_glass"}       # 權限類審批：連 admin 也不能審自己的申請（雙人複核）
 TTL_DAYS = 7
 EXPORT_WINDOW_DAYS = 7
 MAX_EXPORT_ROWS = int(MASK.get("export", {}).get("max_rows", 100_000))
@@ -85,8 +88,8 @@ class ApprovalService:
             raise Conflict(f"審批單不在待審批狀態（{a['status']}）")
         if not self.can_approve(subject, a["type"]):
             raise PermissionError(f"此類型（{a['type']}）需 {'／'.join(a['approver_roles'])} 審批")
-        if a["requester"] == subject.user_id and "admin" not in subject.roles:
-            raise Conflict("不能審批自己的申請")
+        if a["requester"] == subject.user_id and ("admin" not in subject.roles or a["type"] in STRICT_SELF):
+            raise Conflict("不能審批自己的申請" + ("（權限變更需另一位系統管理員或數位經營複核）" if a["type"] in STRICT_SELF else ""))
         if not approve and not note.strip():
             raise ValueError("退回需附意見")
         a.update({"status": "approved" if approve else "rejected", "decided_at": self._ts(), "decided_by": subject.user_id, "note": note.strip()})

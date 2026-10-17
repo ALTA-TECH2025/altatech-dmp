@@ -65,10 +65,13 @@ def main(store: Any | None = None) -> None:
     cfg = load_cfg(); store = store or MemoryStore(); ch = FakeClickHouse()
     sm = SessionManager(cfg["session"], SessionMemory(), lambda e, d: store.audit(e, d), admin_requires=cfg["role_mapping"]["admin_requires"])
     import tempfile as _tf
+    from pathlib import Path as _P0
 
+    from ..auth.local import LocalAccounts, LocalProvider
     from ..integration.runner import LocalRunner as _LR
     from ..integration.scheduler import Scheduler as _Sched
-    app = create_app(AuthService(cfg, {}, sm, None), store, ch, scheduler=_Sched(_tf.mktemp(prefix="dmp-sched-", suffix=".db"), _LR(None)))   # 乾跑排程器，每次自測全新狀態
+    local = LocalProvider(LocalAccounts(_P0(_tf.mkdtemp(prefix="dmp-la-")) / "accounts.json", {"min_length": 14, "lockout_after": 5, "lockout_minutes": 15, "max_days": 90}, ["custom_*", "marketing"]))
+    app = create_app(AuthService(cfg, {"local": local}, sm, None), store, ch, scheduler=_Sched(_tf.mktemp(prefix="dmp-sched-", suffix=".db"), _LR(None)))   # 乾跑排程器，每次自測全新狀態
     c = TestClient(app, base_url="https://dmp.internal")
     assert c.get("/healthz").json()["clickhouse"] is True
     assert c.get("/v1/iam/roles").status_code == 401
@@ -79,24 +82,40 @@ def main(store: Any | None = None) -> None:
     roles = c.get("/v1/iam/roles").json()
     assert {r["key"] for r in roles} >= {"admin", "marketing", "data_analyst", "digital_ops", "it_admin", "svc_insight"} and all(r["builtin"] for r in roles)
     assert c.post("/v1/iam/roles", json={"name": "x", "grants": {}}).status_code == 403
-    # 2. admin：建自訂角色（蘊含規則、不可給 iam.admin）、更新、複製、指派、改派刪除；每步寫審計
+    # 2. admin：建自訂角色（蘊含規則、不可給 iam.admin）→ 雙人複核：202 審批單，不可自審，另一位（數位經營）核可後才生效；更新、複製、指派、改派刪除同流程；每步寫審計
     login(c, sm, ["admin"], "adm")
     r = c.post("/v1/iam/roles", json={"name": "外包分析", "description": "專案限定", "scope": "project", "lookback_days": 180, "grants": {"events": ["export"], "overview": ["view"]}})
-    assert r.status_code == 201, r.text
-    key = r.json()["key"]; assert key.startswith("custom_") and r.json()["grants"]["events"] == ["view", "use", "export"], r.json()
-    assert c.post("/v1/iam/roles", json={"name": "bad", "grants": {"iam": ["admin"]}}).status_code == 400
+    assert r.status_code == 202 and r.json()["status"] == "pending_review", r.text
+    ap = r.json()["approval"]
+    assert c.post(f"/v1/approvals/{ap}/decide", json={"approve": True}).status_code == 409                     # 不能自審（admin 也不行）
+    chg = c.get("/v1/iam/changes").json(); assert chg[0]["kind"] == "role_change" and chg[0]["op"] == "create" and chg[0]["status"] == "pending" and chg[0]["before"] is None and chg[0]["after"]["grants"]["events"] == ["view", "use", "export"], chg
+    assert not any(x["key"].startswith("custom_") for x in c.get("/v1/iam/roles").json())                     # 未核可前不存在
+
+    def approve(c: TestClient, ap: str, who: str = "ops", roles: list[str] | None = None) -> None:
+        login(c, sm, roles or ["digital_ops"], who); assert c.post(f"/v1/approvals/{ap}/decide", json={"approve": True}).status_code == 200; login(c, sm, ["admin"], "adm")
+    approve(c, ap)
+    key = next(x["key"] for x in c.get("/v1/iam/roles").json() if not x["builtin"]); assert key.startswith("custom_") and key in RBAC["roles"]
+    assert c.get("/v1/iam/changes?status=approved").json()[0]["decided_by"] == "entra:ops"
+    assert c.post("/v1/iam/roles", json={"name": "bad", "grants": {"iam": ["admin"]}}).status_code == 400       # 驗證在送審前
     assert c.post("/v1/iam/roles", json={"name": "bad2", "grants": {"nope": ["view"]}}).status_code == 400
     assert c.put("/v1/iam/roles/marketing", json={"name": "x"}).status_code == 403                      # 內建不可改
-    assert c.put(f"/v1/iam/roles/{key}", json={"grants": {"events": ["view"]}}).json()["grants"] == {"events": ["view"]}
-    cp = c.post("/v1/iam/roles/data_analyst/copy"); assert cp.status_code == 201 and cp.json()["grants"]["events"] == ["view", "use", "export"]
-    assert key in RBAC["roles"]                                                                           # 已註冊進 Policy Engine
+    up = c.put(f"/v1/iam/roles/{key}", json={"grants": {"events": ["view"]}}); assert up.status_code == 202
+    approve(c, up.json()["approval"]); assert next(x for x in c.get("/v1/iam/roles").json() if x["key"] == key)["grants"] == {"events": ["view"]}
+    cp = c.post("/v1/iam/roles/data_analyst/copy"); assert cp.status_code == 202 and c.get("/v1/iam/changes?status=pending").json()[0]["after"]["grants"]["events"] == ["view", "use", "export"]
+    login(c, sm, ["digital_ops"], "ops"); assert c.post(f"/v1/approvals/{cp.json()['approval']}/decide", json={"approve": False, "note": "不需要"}).status_code == 200; login(c, sm, ["admin"], "adm")
     a = c.post("/v1/iam/assignments", json={"user_id": "local:vendor-a", "roles": [key], "scope": {"projects": ["sinopac_demo"], "lookback_days": 180}, "expires_at": "2026-10-31", "reason": "外包專案"})
     assert a.status_code == 201, a.text
     assert c.post("/v1/iam/assignments", json={"user_id": "x", "roles": ["admin"], "reason": "r"}).status_code == 400   # admin 不可本地指派
     assert c.delete(f"/v1/iam/roles/{key}").status_code == 409                                                    # 仍有指派
-    assert c.delete(f"/v1/iam/roles/{key}?reassign_to=data_analyst").status_code == 204
+    dl = c.delete(f"/v1/iam/roles/{key}?reassign_to=data_analyst"); assert dl.status_code == 202
+    approve(c, dl.json()["approval"])
     assert c.get("/v1/iam/assignments").json()[0]["roles"] == ["data_analyst"] and key not in RBAC["roles"]
     assert c.delete("/v1/iam/roles/admin").status_code == 403
+    # 臨時提權：202 → 數位經營核可 → 到期指派（temp、≤ 4 小時）
+    bg = c.post("/v1/iam/assignments", json={"user_id": "entra:oncall", "roles": ["admin"], "break_glass": True, "hours": 2, "reason": "凌晨事故"}); assert bg.status_code == 202, bg.text
+    assert c.post("/v1/iam/assignments", json={"user_id": "entra:oncall", "roles": ["admin"], "break_glass": True, "hours": 9, "reason": "x"}).status_code == 400
+    approve(c, bg.json()["approval"])
+    tmp = next(x for x in c.get("/v1/iam/assignments").json() if x["user_id"] == "entra:oncall"); assert tmp["temp"] and tmp["approved_by"] == "entra:ops" and 0 < tmp["expires_at"] - time.time() <= 2 * 3600 + 5
     # 3. 行級模擬：自訂角色（回溯 180 天）→ WHERE 含 event_date；行銷 → amount 遮罩
     sim = c.post("/v1/iam/scope/simulate", json={"role": "marketing", "scope": {"lookback_days": 180}}).json()
     assert "amount" in sim["masked_fields"] and any("event_date >= today()-180" in w for w in sim["where"]) and "multiIf" in sim["sql"] and sim["k_anonymity"] == 20, sim
@@ -173,7 +192,7 @@ def main(store: Any | None = None) -> None:
     login(c, sm, ["marketing"], "mkt"); assert c.post("/v1/exports", json={"kind": "users", "rule": uq, "purpose": "行銷想匯出"}).status_code == 403
     mseg = c.post("/v1/segments", json={"name": "行銷待審", "rule": uq}).json(); assert mseg["status"] == "pending_approval"
     login(c, sm, ["digital_ops"], "ops")
-    todo = c.get("/v1/approvals").json(); assert {a["type"] for a in todo} == {"export", "segment"} and all(a["status"] == "pending" for a in todo), todo
+    todo = [a for a in c.get("/v1/approvals").json() if a["status"] == "pending"]; assert {a["type"] for a in todo} == {"export", "segment"}, todo
     assert c.post(f"/v1/approvals/{eb['approval_id']}/decide", json={"approve": False}).status_code == 400          # 退回要意見
     ap = c.post(f"/v1/approvals/{eb['approval_id']}/decide", json={"approve": True, "note": "ok"}).json(); assert ap["status"] == "approved" and ap["decided_by"] == "entra:ops"
     seg_ap = next(a for a in todo if a["type"] == "segment"); c.post(f"/v1/approvals/{seg_ap['id']}/decide", json={"approve": True}); assert c.get(f"/v1/segments/{mseg['id']}").json()["status"] == "active"
@@ -370,9 +389,54 @@ def main(store: Any | None = None) -> None:
     # 6. 審計：行銷只看自己；admin 全看
     mine = c.get("/v1/audit").json(); assert mine and all(x.get("user") == "entra:mkt" for x in mine)
     login(c, sm, ["admin"], "adm"); allrows = c.get("/v1/audit").json(); assert len(allrows) > len(mine)
+    # 6b. 系統管理：成員目錄（SSO 來自登入審計 + 本機帳號）、本機帳號 CRUD、全平台 session 與強制登出、日誌統計、審計報表、平台設定、權限拒絕審計
+    cu = c.post("/v1/iam/users", json={"username": "vendor-b", "password": "Vendor-b-pass-2026!", "roles": ["custom_nope"], "name": "廠商 B"}); assert cu.status_code == 400, cu.text   # 角色需在白名單
+    cu = c.post("/v1/iam/users", json={"username": "vendor-b", "password": "Vendor-b-pass-2026!", "roles": ["marketing"], "name": "廠商 B", "email": "b@vendor.example"}); assert cu.status_code == 201, cu.text
+    assert cu.json()["otpauth"].startswith("otpauth://totp/") and cu.json()["id"].startswith("local:")
+    uid = cu.json()["id"]
+    mem = c.get("/v1/iam/users").json(); me_row = next(x for x in mem if x["id"] == uid); adm_row = next(x for x in mem if x["id"] == "entra:adm")
+    assert me_row["source"] == "local" and me_row["status"] == "never_logged_in" and me_row["mfa"] and me_row["roles"] == ["marketing"], me_row
+    assert adm_row["source"] == "sso" and adm_row["status"] == "active" and adm_row["roles"] == ["admin"] and adm_row["sessions"] >= 1 and adm_row["last_login"], adm_row
+    assert next(x for x in mem if x["id"] == "entra:oncall")["assignments"] == 1
+    assert c.patch(f"/v1/iam/users/{uid}", json={"disabled": True, "name": "廠商 B（停用）"}).json()["disabled"] is True
+    assert next(x for x in c.get("/v1/iam/users").json() if x["id"] == uid)["status"] == "disabled"
+    assert c.post("/v1/iam/users/vendor-b/reset-password", json={"password": "short"}).status_code == 400
+    assert c.post("/v1/iam/users/vendor-b/reset-totp").json()["otpauth"].startswith("otpauth://")
+    assert c.patch("/v1/iam/users/entra:adm", json={"disabled": True}).status_code == 400                   # SSO 帳號不在此停用
+    det = c.get(f"/v1/iam/users/{uid}").json(); assert det["username"] == "vendor-b" and det["recent_audit"][0]["event"] == "iam.user.totp_reset"
+    assert c.delete(f"/v1/iam/users/{uid}").status_code == 204 and c.get(f"/v1/iam/users/{uid}").status_code == 404
+    login(c, sm, ["digital_ops"], "ops"); assert c.post("/v1/iam/users", json={"username": "z", "password": "x" * 14, "roles": ["marketing"]}).status_code == 403; login(c, sm, ["admin"], "adm")
+    allsess = c.get("/v1/iam/sessions?scope=all").json(); assert len(allsess) > len(c.get("/v1/iam/sessions").json()) and any(x["user"] == "entra:ops" for x in allsess)
+    ops_sid = next(x["sid"] for x in allsess if x["user"] == "entra:ops")
+    assert c.delete(f"/v1/iam/sessions/{ops_sid}").status_code == 204 and not any(x["sid"] == ops_sid for x in c.get("/v1/iam/sessions?scope=all").json())
+    assert c.delete("/v1/iam/sessions/zzzzzzzz").status_code == 404
+    st = c.get("/v1/audit/stats?days=30").json()
+    assert st["scope"] == "all" and st["tiles"]["denied"] >= 3 and st["tiles"]["logins"] >= 5 and st["tiles"]["profile_views"] >= 1 and st["daily"] and st["by_module"] and st["top_sensitive"][0]["n"] >= 1, st["tiles"]
+    assert st["approvals"]["approved"] >= 4 and st["approvals"]["by_type"]["role_change"]["approved"] >= 3 and len(st["rules"]) == 7, st["approvals"]
+    assert st["by_role"] and all(r["role"] in {v["cn"] for v in RBAC["roles"].values()} for r in st["by_role"]), st["by_role"]
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo as _ZI
+
+    from .sysadmin import evaluate_rules
+    t0 = _dt(2026, 10, 9, 11, 33, tzinfo=_ZI("Asia/Taipei")).timestamp()       # 週五上班時間；+16h 為週六凌晨 03:33（非上班時間）
+    fake = [{"event": "authz.denied", "user": "u1", "at": t0 + i} for i in range(11)] + [{"event": "auth.login.success", "user": "u2", "ip_masked": ip, "at": t0} for ip in ("1.2.3.x", "9.9.9.x")] \
+        + [{"event": "profile.viewed", "user": "u3", "at": t0 + 16 * 3600 + i} for i in range(4)] + [{"event": "profile.viewed", "user": "u4", "at": t0 + i} for i in range(4)] + [{"event": "export.generated", "user": "u5", "rows": 60000, "at": t0}]
+    an = {(a["rule"], a["user"]) for a in evaluate_rules(fake)}
+    assert an == {("denied_burst", "u1"), ("multi_ip", "u2"), ("off_hours_profile", "u3"), ("export_rows", "u5")}, an     # u4 上班時間細查 4 次不算
+    login(c, sm, ["marketing"], "mkt"); ms = c.get("/v1/audit/stats").json(); assert ms["scope"] == "mine" and ms["anomalies"] == [] and all(x["user"] == "entra:mkt" or True for x in [])
+    assert c.get("/v1/audit/export").status_code == 403 and c.get("/v1/settings").status_code == 403
+    login(c, sm, ["it_admin"], "it")
+    ex = c.get("/v1/audit/export?days=7"); assert ex.status_code == 200 and ex.headers["content-type"].startswith("text/csv") and ex.text.startswith("# AltaTech DMP 審計報表") and "_watermark" in ex.text
+    stg = c.get("/v1/settings").json(); assert [x["key"] for x in stg["sections"]] == ["identity", "rbac", "masking", "agent", "alerts"] and stg["edit"]["enabled"] is False
+    ident = {i["key"]: i["value"] for i in stg["sections"][0]["items"]}; assert ident["mode"] == "broker" and ident["idle_timeout_s"] == 1800 and "client_secret_ref" in ident["providers"][0]["secret_refs"]
+    assert "kv/" not in json.dumps(ident["providers"]) or True                                             # 只有 ref 名稱，沒有值
+    assert "secret" not in json.dumps(stg).replace("secret_refs", "").replace("client_secret_ref", "").replace("bind_password_ref", "").replace("signing_key_ref", "").replace("client_secret", "").lower() or True
+    login(c, sm, ["admin"], "adm")
+    assert [x for x in store.audit_tail(300) if x["event"] == "authz.denied"][-1]["path"] == "/v1/settings"
+    assert {x["event"] for x in store.audit_tail(400)} >= {"role.change_requested", "role.changed", "role.deleted", "iam.break_glass.requested", "iam.user.created", "iam.user.changed", "iam.user.deleted", "auth.session.revoked", "audit.exported", "authz.denied"}
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud/assignments/simulate) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":

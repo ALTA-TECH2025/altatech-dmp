@@ -140,6 +140,29 @@ class LocalAccounts:
         self._save()
         return acc["totp_secret"]
 
+    def set_disabled(self, username: str, disabled: bool) -> None:
+        acc = self._get(username); acc["disabled"] = bool(disabled)
+        if not disabled:
+            acc["failed"] = 0; acc["locked_until"] = 0
+        self._save()
+
+    def update(self, username: str, name: str | None = None, email: str | None = None, roles: list[str] | None = None) -> dict[str, Any]:
+        acc = self._get(username)
+        if roles is not None:
+            bad = [r for r in roles if not self.role_allowed(r)]
+            if bad:
+                raise LocalError(f"本機帳號不可持有角色 {bad}（allowed_roles={self.allowed_roles}）")
+            acc["roles"] = list(roles)
+        if name is not None: acc["name"] = name or username
+        if email is not None: acc["email"] = email
+        self._save()
+        return self.public(username)
+
+    def username_of(self, subject: str) -> str | None:
+        """user_id 的 subject 部分 → 帳號名（成員目錄用）。"""
+        self._sync()
+        return next((u for u, a in self.data["accounts"].items() if a.get("subject") == subject), None)
+
     def _get(self, username: str) -> dict[str, Any]:
         self._sync()
         acc = self.data["accounts"].get(username)
@@ -149,8 +172,8 @@ class LocalAccounts:
 
     def public(self, username: str) -> dict[str, Any]:
         a = self._get(username)
-        return {"username": username, "name": a["name"], "email": a["email"], "roles": a["roles"], "mfa": bool(a.get("totp_secret")), "expires_at": a["expires_at"], "disabled": a.get("disabled", False),
-                "locked": a.get("locked_until", 0) > self.now()}
+        return {"username": username, "subject": a["subject"], "name": a["name"], "email": a["email"], "roles": a["roles"], "mfa": bool(a.get("totp_secret")), "expires_at": a["expires_at"],
+                "disabled": a.get("disabled", False), "locked": a.get("locked_until", 0) > self.now(), "created_at": a.get("created_at")}
 
     def list(self) -> list[dict[str, Any]]:
         self._sync()

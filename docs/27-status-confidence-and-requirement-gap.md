@@ -9,7 +9,7 @@
 | 模組 | 狀態 | 後端 | 前端 | 自動化驗證 |
 |---|---|---|---|---|
 | 登入與身分（Entra ID OIDC+PKCE、AD LDAPS、Keycloak 代理、TOTP、群組→角色） | 可演示 | `auth/` | 登入頁、路由守門 | `python3 -m backend.auth` 自測（IdP 為假伺服器） |
-| 權限中心（五角色＋自訂、指派、模組矩陣、行級模擬） | 可演示 | `api/iam.py`、`security/policy.py` | 權限中心頁 | policy 自測、api 自測 |
+| 權限中心（五角色＋自訂、指派、模組矩陣、行級模擬；成員目錄與本機帳號管理、全平台 session 強制登出、自訂角色變更與臨時提權雙人複核） | 可演示 | `api/iam.py`、`api/sysadmin.py`、`security/policy.py`、`approvals/engine.py` | 權限中心頁（角色／成員／指派／數據權限／隱碼／session／變更審核） | policy 自測、api 自測（含 role_change／break_glass 流程） |
 | 安全策略注入（行級、欄位遮罩 L1–L4、K 匿名、查詢預算、審計） | 可演示 | `semantic/compiler/policy.py` | 遮罩值在列表／細查顯示 | 36 條必拒查詢；黃金測試按角色驗遮罩 |
 | 事件分析（14 種聚合、公式、分組、對比、Top N、抽樣） | 可演示 | `analytics/events` | 事件分析頁 | 31 條黃金查詢 |
 | 漏斗分析（windowFunnel、關聯屬性＝業務 ID、口徑、分組、趨勢） | 可演示 | `analytics/funnel` | 漏斗頁 | 9 條黃金＋5 必拒 |
@@ -23,8 +23,9 @@
 | 間隔／分佈／Session／LTV 分析 | 契約 | — | 原型 | — |
 | 標籤（七種）、自定義 SQL、名單推送（Webhook 有骨架）、即時觸發 | 契約／原型 | `activation/webhook.py` 骨架 | 原型；正式前端為占位頁 | — |
 | 總覽／儀表板 | 可演示 | `/v1/dashboards*`：卡片存查詢、以檢視者身分重算、分享角色／使用者 | 列表、卡片網格（五種分析）、存為看板卡片、分享 | API 自測；單機環境 Playwright 走過登入 → 儀表板 → 存卡片 |
-| 日誌統計 | 可演示 | `/v1/audit` | 最近 N 筆、篩選、事件分佈（效能統計第二階段） | API 自測 |
-| 平台設定 | 待開發 | — | 占位頁（標示待開發） | — |
+| 日誌統計 | 可演示 | `/v1/audit`、`/v1/audit/stats`、`/v1/audit/export`、`security/audit_alerts.yaml` | docs/10 §8 看板：指標卡、每日趨勢、模組／角色、敏感存取 Top、審批、告警規則評估、agent 活動（二期）、審計報表匯出；明細列表（效能／query_log 彙總第二階段） | API 自測（含規則評估） |
+| 平台設定 | 可演示（唯讀） | `/v1/settings` | 身分與登入、權限、隱碼與揭露、Agent 預算、審計告警五區塊；密鑰只顯示 secret_ref；線上修改（雙人複核）標第二階段 | API 自測 |
+| 神策式逐事件／逐屬性可見白名單、專案註冊表 | 第二階段 | — | 目前以等級制隱碼 + 行級範圍 + 自訂角色 `scope.projects` 取代 | — |
 | 示範站（Vercel） | 可演示 | 無（瀏覽器內固定資料，`web/src/demo/`） | 正式前端全部頁面；登入改選角色；未實作頁標示第二階段／待開發 | 示範建置 Playwright 走過全部路由 |
 | 數據整合（連線與密鑰參照、數據表登記、同步任務：建模、排程、執行器；GA4 BigQuery 匯出接入、神策格式檔匯入、MSSQL 抽取） | 可演示 | `integration/`、`api/integration.py` | 數據整合頁（數據源／數據表／同步任務／建立任務精靈） | API 自測（連線／數據表／任務乾跑）＋端到端 sensors／ga4／dbapi 段 |
 | 神策查詢 API 直連連接器 | 後端完成（待驗） | `integration/sensors_api.py` | — | 自測用假伺服器；對客戶測試環境因 API Secret 範圍不符尚未打通 |

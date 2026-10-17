@@ -1,4 +1,4 @@
-"""FastAPI 應用組裝：auth（登入／session／me）+ iam + analytics。每個 router 只做：驗證 → Policy → 服務 → 審計。
+"""FastAPI 應用組裝：auth（登入／session／me）+ iam + sysadmin（成員／日誌統計／平台設定）+ analytics…。每個 router 只做：驗證 → Policy → 服務 → 審計。
 
 create_app(auth_service, store, ch) 讓測試能注入假 IdP／假 ClickHouse；main.py 由環境變數組裝正式物件。
 """
@@ -7,7 +7,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, JSONResponse
 
 from ..approvals import ApprovalService, ExportService, RevealService
@@ -17,7 +18,7 @@ from ..integration.runner import LocalRunner
 from ..integration.scheduler import Scheduler
 from ..security.policy import Subject
 from ..segments import SegmentService
-from . import analytics, dashboards, exports, iam, integration, meta, migration, segments, users
+from . import analytics, dashboards, exports, iam, integration, meta, migration, segments, sysadmin, users
 from .store import Store
 
 
@@ -30,6 +31,7 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
 
     def get_subject(request: Request) -> Subject:
         s = subject_from_request(auth, request)
+        request.state.user_id = s.user_id                                      # 403 時審計 authz.denied 用
         one_id = request.path_params.get("one_id") if request.path_params else None
         s.reveals = reveals.active_for(s.user_id, one_id)                       # 揭露中的欄位 → authorize 放行為明文
         if s.reveals and request.url.path.startswith(("/v1/users", "/v1/profiles", "/v1/analytics", "/v1/segments")) and request.method in ("GET", "POST"):
@@ -39,7 +41,9 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     # auth 的審計寫進同一個 store（SessionManager 建立時已綁 audit callable；這裡只補 store 的 audit 給 iam／analytics）
     auth.assignments = store.assignments
     app.include_router(auth_router(auth))
-    app.include_router(iam.build_router(store, get_subject))
+    app.include_router(iam.build_router(store, get_subject, approvals))
+    local_provider = auth.providers.get("local")
+    app.include_router(sysadmin.build_router(store, get_subject, getattr(local_provider, "accounts", None), auth.sessions.store, auth.cfg, approvals))
     app.include_router(analytics.build_router(store, get_subject, ch))
     app.include_router(dashboards.build_router(store, get_subject, ch))
     app.include_router(meta.build_router(store, get_subject, ch))
@@ -54,6 +58,12 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     sched = scheduler or Scheduler(Path(tempfile.gettempdir()) / "dmp-sched.db", LocalRunner(ch if hasattr(ch, "insert_json") and not ch.__class__.__name__.startswith("Fake") else None))
     app.include_router(integration.build_router(store, get_subject, sched, secret_writer))
     app.state.scheduler = sched
+
+    @app.exception_handler(HTTPException)
+    async def _http(request: Request, e: HTTPException) -> Any:
+        if e.status_code == 403:                                                # 權限拒絕也是審計事件（日誌統計看板的「權限拒絕」）
+            store.audit("authz.denied", {"user": getattr(request.state, "user_id", ""), "path": request.url.path, "method": request.method, "reason": str(e.detail)[:200]})
+        return await http_exception_handler(request, e)
 
     @app.exception_handler(PermissionError)
     def _perm(_: Request, e: PermissionError) -> JSONResponse:

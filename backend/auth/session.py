@@ -60,6 +60,10 @@ class MemoryStore:
     def list_user(self, user_id: str) -> list[Session]:
         return sorted([s for s in self.d.values() if s.user_id == user_id], key=lambda s: s.created_at)
 
+    def list_all(self) -> list[Session]:
+        """全平台 session（權限中心 › session 分頁，iam.admin）。"""
+        return sorted(self.d.values(), key=lambda s: s.last_seen, reverse=True)
+
 
 class SessionManager:
     def __init__(self, cfg: dict[str, Any], store: SessionStore, audit: Callable[[str, dict[str, Any]], None], now: Callable[[], float] = time.time,

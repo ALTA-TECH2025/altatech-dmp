@@ -168,14 +168,42 @@ def build_router(svc: AuthService) -> APIRouter:
         svc.sessions.audit("auth.token.issued", {"user": s.user_id, "roles": subj.roles})
         return {"access_token": svc.tokens.issue(s, subj.roles), "token_type": "Bearer", "expires_in": svc.cfg["session"]["api_token"]["ttl_s"]}
 
+    def _row(x: Session, me: Session) -> dict[str, Any]:
+        return {"sid": x.sid[:8], "user": x.user_id, "username": x.username, "name": x.name, "provider": x.provider, "roles": x.roles, "amr": x.amr, "created_at": x.created_at, "last_seen": x.last_seen,
+                "ip_masked": x.attrs.get("ip", "")[:7] + "…", "current": x.sid == me.sid}
+
     @r.get("/v1/iam/sessions")
-    def sessions(req: Request) -> list[dict[str, Any]]:
+    def sessions(req: Request, scope: str = "me") -> list[dict[str, Any]]:
+        """scope=me：本人；scope=all：全平台（iam.admin）。"""
         s = current_session(svc, req)
-        d = authorize(svc.sessions.subject(s), "view", "iam")
+        subj = svc.sessions.subject(s)
+        d = authorize(subj, "admin" if scope == "all" else "view", "iam")
         if not d.allowed:
             raise HTTPException(403, d.reason)
-        return [{"sid": x.sid[:8], "user": x.user_id, "provider": x.provider, "roles": x.roles, "created_at": x.created_at, "last_seen": x.last_seen, "ip_masked": x.attrs.get("ip", "")[:7] + "…"}
-                for x in svc.sessions.store.list_user(s.user_id)]
+        if scope == "all":
+            lister = getattr(svc.sessions.store, "list_all", None)
+            if lister is None:
+                raise HTTPException(501, "此 session 儲存不支援列全平台")
+            return [_row(x, s) for x in lister()]
+        return [_row(x, s) for x in svc.sessions.store.list_user(s.user_id)]
+
+    @r.delete("/v1/iam/sessions/{sid}", status_code=204)
+    def revoke_session(sid: str, req: Request) -> Response:
+        """強制登出：本人的任一個 session，或 iam.admin 對任何人（sid 前 8 碼）。"""
+        s = current_session(svc, req)
+        subj = svc.sessions.subject(s)
+        mine = [x for x in svc.sessions.store.list_user(s.user_id) if x.sid.startswith(sid)]
+        target = mine[0] if mine else None
+        if target is None:
+            if not authorize(subj, "admin", "iam").allowed:
+                raise HTTPException(404, "session 不存在")
+            lister = getattr(svc.sessions.store, "list_all", None)
+            target = next((x for x in (lister() if lister else []) if x.sid.startswith(sid)), None)
+            if target is None:
+                raise HTTPException(404, "session 不存在")
+        svc.sessions.logout(target.sid)
+        svc.sessions.audit("auth.session.revoked", {"user": s.user_id, "target": target.user_id, "sid": target.sid[:8], "self": target.user_id == s.user_id})
+        return Response(status_code=204)
 
     return r
 

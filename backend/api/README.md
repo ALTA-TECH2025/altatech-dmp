@@ -4,9 +4,11 @@ docs/23 §4.4：router 只做「驗證 → Policy → 呼叫服務 → 審計」
 
 | 端點 | 服務 | 權限 |
 |---|---|---|
-| `/auth/*`、`/v1/iam/me`、`/v1/iam/sessions` | `backend/auth`（docs/24） | session cookie |
-| `GET/POST/PUT/DELETE /v1/iam/roles`、`/roles/{key}/copy` | 自訂角色（內建唯讀）；註冊進 Policy Engine | iam.view／iam.admin |
-| `/v1/iam/assignments` | 本地指派（自訂角色、範圍、到期、拒絕；admin 只能 break-glass） | iam.admin |
+| `/auth/*`、`/v1/iam/me`、`/v1/iam/sessions?scope=me|all`、`DELETE /v1/iam/sessions/{sid}` | `backend/auth`（docs/24）；全平台 session 與強制登出需 iam.admin | session cookie |
+| `GET/POST/PUT/DELETE /v1/iam/roles`、`/roles/{key}/copy`、`GET /v1/iam/changes` | 自訂角色（內建唯讀）；`rbac.yaml custom_roles.second_review` 開啟時建立／修改／刪除回 202 審批單 `role_change`（前後快照、不可自審），核可後才註冊進 Policy Engine | iam.view／iam.admin |
+| `/v1/iam/assignments` | 本地指派（自訂角色、範圍、到期、拒絕）；`break_glass=true` 回 202 審批單 `break_glass`，核可後建立 ≤ 4 小時的 admin 到期指派 | iam.admin |
+| `GET/POST /v1/iam/users`、`GET/PATCH/DELETE /v1/iam/users/{id}`、`/reset-password`、`/reset-totp` | `sysadmin.py` 成員目錄（登入審計 ∪ 本機帳號 ∪ 本地指派：狀態、最近登入、失敗登入、session、指派）；本機帳號管理（白名單角色、TOTP、停用即踢 session） | iam.view／iam.admin |
+| `GET /v1/audit/stats`、`GET /v1/audit/export`、`GET /v1/settings` | 日誌統計看板（指標卡、每日趨勢、模組／角色、敏感存取 Top、審批、告警規則評估 `security/audit_alerts.yaml`）；審計報表 CSV（浮水印）；平台設定唯讀（密鑰只顯示 secret_ref） | audit.view／use、audit.export、iam.view |
 | `POST /v1/iam/scope/simulate` | Policy 行級條件 + 編譯器對範例查詢注入後的 SQL | iam.view |
 | `POST /v1/semantic/compile` | 查詢編譯器 dry-run（SQL、層級、血緣、EXPLAIN ESTIMATE） | events.use |
 | `POST /v1/analytics/funnel` | 漏斗：編譯 → ClickHouse → 每步人數 + 轉換率；審計 | funnel.use |
@@ -23,7 +25,7 @@ docs/23 §4.4：router 只做「驗證 → Policy → 呼叫服務 → 審計」
 | `GET /v1/profiles/{one_id}`、`/timeline`、`/identities` | 用戶細查：畫像 + 近 30 天摘要 + 分群、行為序列（倒序分頁、props 去 L4 鍵）、身分圖（id_edges）；需 reason 4–200 字；範圍外 404；審計 profile.viewed／timeline／identities 只記 one_id 雜湊 | profile.use |
 | `/v1/segments*` | 分群引擎最小版（`backend/segments/`）：建立／審批／估數與畫像／計算（版本保留）／例行 tick／成員列表／複製／暫停／血緣／回收站／徹底刪除 | segments.view／use／approve／admin |
 | `/v1/approvals*`、`/v1/exports*`、`/v1/reveals` | 審批單（類型決定審批角色、hook 回寫受控物件、逾期）、匯出申請（用途、估列數、核可後產檔：遮罩嚴一級 + 浮水印、下載）與欄位揭露申請（L2／L3、限單一用戶、時效、每次查看審計）；`backend/approvals/` | users.export／類型審批角色 |
-| `GET /v1/audit` | 審計尾端（行銷／分析只看自己） | audit.view |
+| `GET /v1/audit` | 審計尾端（行銷／分析只看自己）；403 一律寫 `authz.denied` | audit.view |
 | `integration.py` | `/v1/integration/connectors`、`/connections`（建立／詳情／PATCH／停用／test／rotate／privileges）、`/tables`（登記／rescan）、`/sync-tasks`（建立／run／runs／preview） | integration.view／use／admin | 連線只存 secret_ref（明文 422）、回應遮罩；測試 = dns／tcp 探測（auth 以後由執行節點注入 probes）；任務 = 模型 yaml + 來源 + 排程交 Scheduler（SQLite）；run 同步執行（無 ClickHouse 時乾跑）；preview 以樣本跑映射與清洗 |
 
 ```bash
