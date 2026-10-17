@@ -143,6 +143,10 @@ def main() -> None:
     for sess, path in ((mkt, "/v1/iam/roles"), (mkt, "/v1/settings"), (ana, "/v1/iam/users"), (mkt, "/v1/audit/export")):   # 幾筆權限拒絕，讓看板有「權限拒絕」
         with contextlib.suppress(RuntimeError):
             sess.call("GET", path)
+    # 7. 儀表板定時寄送：範例看板留一筆待審批
+    seed = next((d for d in adm.call("GET", "/v1/dashboards") if d.get("seed")), None)
+    if seed and not adm.call("GET", f"/v1/dashboards/{seed['id']}/schedules"):
+        adm.call("POST", f"/v1/dashboards/{seed['id']}/schedules", {"weekday": 0, "hour": 8, "audience": {"roles": ["digital_ops", "marketing"]}, "expires_days": 14})
     print("demo fill ok")
 
 

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { isDemo } from '@/demo/mode';
 import type { Dashboard, Explain, RenderArtifact, Schedule } from './types';
 
 const ROLES: [string, string][] = [['admin', '系統管理員'], ['marketing', '行銷'], ['data_analyst', '數據分析'], ['digital_ops', '數位經營'], ['it_admin', '資訊管理']];
@@ -64,7 +65,7 @@ function HtmlTab({ d, canUse }: { d: Dashboard; canUse: boolean }) {
       {list && list.length > 0 && <div className="tbl-wrap" style={{ marginTop: 10 }}><table className="tbl"><thead><tr><th>產生</th><th>受眾</th><th>卡片</th><th>大小</th><th className="num">下載</th><th>到期</th><th /></tr></thead>
         <tbody>{list.map((a) => <tr key={a.artifact_id} className={a.expired ? '' : undefined}><td className="mono">{fmt(a.created_at)}<span className="sub">{a.created_by}</span></td><td>{a.audience || '—'}</td><td className="num">{a.cards_included}{a.cards_skipped.length ? ` (+${a.cards_skipped.length} 略)` : ''}</td><td className="num mono">{Math.round(a.bytes / 1024)} KB</td><td className="num">{a.downloads}</td>
           <td>{a.expired ? <span className="pill gray">已到期</span> : <span className="mono">{a.expires_at.slice(0, 10)}</span>}</td>
-          <td className="num">{!a.expired && <><a className="btn-ghost sm" href={a.url} target="_blank" rel="noreferrer">開啟</a> <button className="btn-ghost sm" onClick={() => copy(a.share_url)}>複製分享連結</button></>}</td></tr>)}</tbody></table></div>}
+          <td className="num">{!a.expired && <><a className="btn-ghost sm" href={isDemo ? '/demo/d_seed_bond.html' : a.url} target="_blank" rel="noreferrer">開啟</a> <button className="btn-ghost sm" onClick={() => copy(isDemo ? '/demo/d_seed_bond.html' : a.share_url)}>複製分享連結</button></>}</td></tr>)}</tbody></table></div>}
       {list && list.length === 0 && <p className="note">還沒有產物。</p>}
     </>
   );

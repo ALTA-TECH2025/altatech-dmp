@@ -58,6 +58,8 @@ def main() -> None:
         det = adm.call("GET", f"/v1/dashboards/{d['id']}"); put("GET", f"/v1/dashboards/{d['id']}", det); put("GET", "/v1/dashboards/*", det)
         for c in det["cards"]:
             r = adm.call("POST", f"/v1/dashboards/{d['id']}/cards/{c['id']}/data", {}); put("POST", f"/v1/dashboards/{d['id']}/cards/{c['id']}/data", r); put("POST", "/v1/dashboards/*/cards/*/data", r)
+        for m, sub, body in (("POST", "explain", {}), ("POST", "render", {"audience": "示範：債券部週會", "expires_days": 30}), ("GET", "renders", None), ("GET", "schedules", None)):
+            r = adm.call(m, f"/v1/dashboards/{d['id']}/{sub}", body); put(m, f"/v1/dashboards/{d['id']}/{sub}", r); put(m, f"/v1/dashboards/*/{sub}", r)
     for sgm in fx["routes"].get("GET /v1/segments", []):
         for sub in ("versions", "lineage", "versions/latest/members?page_size=50"):
             try:
