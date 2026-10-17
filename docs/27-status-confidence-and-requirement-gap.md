@@ -25,6 +25,7 @@
 | 總覽／儀表板 | 可演示 | `/v1/dashboards*`：卡片存查詢、以檢視者身分重算、分享角色／使用者 | 列表、卡片網格（五種分析）、存為看板卡片、分享 | API 自測；單機環境 Playwright 走過登入 → 儀表板 → 存卡片 |
 | 日誌統計 | 可演示 | `/v1/audit` | 最近 N 筆、篩選、事件分佈（效能統計第二階段） | API 自測 |
 | 平台設定 | 待開發 | — | 占位頁（標示待開發） | — |
+| 示範站（Vercel） | 可演示 | 無（瀏覽器內固定資料，`web/src/demo/`） | 正式前端全部頁面；登入改選角色；未實作頁標示第二階段／待開發 | 示範建置 Playwright 走過全部路由 |
 | 數據整合（連線與密鑰參照、數據表登記、同步任務：建模、排程、執行器；GA4 BigQuery 匯出接入、神策格式檔匯入、MSSQL 抽取） | 可演示 | `integration/`、`api/integration.py` | 數據整合頁（數據源／數據表／同步任務／建立任務精靈） | API 自測（連線／數據表／任務乾跑）＋端到端 sensors／ga4／dbapi 段 |
 | 神策查詢 API 直連連接器 | 後端完成（待驗） | `integration/sensors_api.py` | — | 自測用假伺服器；對客戶測試環境因 API Secret 範圍不符尚未打通 |
 | 神策 → GA360 遷移（盤點、埋點銜接表、導出任務、對帳 T2／T5／T6、時序） | 可演示 | `/v1/migration/*`（`migration/inventory.yaml`、`bridge.py`、`sensors_api`、ClickHouse 對帳） | 正式頁；無神策連線時導出任務標「待連線」 | API 自測（假神策 API）；單機 ClickHouse 對帳樣本 |

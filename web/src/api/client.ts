@@ -59,4 +59,8 @@ function detail(d: unknown): string | undefined {
   return undefined;
 }
 
-export const api = createClient();
+import { demoFetch } from '@/demo/fetch';
+import { isDemo } from '@/demo/mode';
+
+/** 正式：同源 fetch；示範建置（VITE_DEMO=1）：固定資料、不導向登入。 */
+export const api = createClient(isDemo ? { fetchImpl: demoFetch, onUnauthorized: () => undefined } : {});

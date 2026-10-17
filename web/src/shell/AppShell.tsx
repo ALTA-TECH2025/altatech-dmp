@@ -4,6 +4,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { NAV } from './nav';
+import { DEMO_ROLES, demoRole, isDemo, setDemoRole } from '@/demo/mode';
 
 export function AppShell() {
   const { me, can, logout } = useAuth();
@@ -31,6 +32,7 @@ export function AppShell() {
         <header className="topbar">
           <button className="burger" aria-label="選單" onClick={() => setOpen((v) => !v)}>☰</button>
           <div className="grow" />
+          {isDemo && <span className="row" style={{ marginTop: 0, gap: 6 }}><span className="pill amber" title="固定資料來自單機後端 + 合成黃金資料集；寫入動作只模擬成功">示範模式 · 固定資料 · 變更不保存</span><select aria-label="示範角色" value={demoRole()} onChange={(e) => { setDemoRole(e.target.value); location.reload(); }}>{DEMO_ROLES.map(([k, cn]) => <option key={k} value={k}>{cn}</option>)}</select></span>}
           {me.session.step_up_needed && (me.user.provider === 'local' ? <StepUp /> : <a className="pill amber" href={`/auth/login?provider=${me.session.idp_mode === 'broker' ? 'keycloak' : 'entra'}&return_to=${encodeURIComponent(location.pathname)}`}>管理動作需重新驗證</a>)}
           <div className="who">
             <b>{me.user.name || me.user.username}</b>

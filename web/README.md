@@ -46,3 +46,13 @@ npm run build          # dist/（由 apps.web 映像的 nginx 提供，與 API �
 - 不把任何 token 放進 localStorage／sessionStorage；瀏覽器只有 httpOnly session cookie。
 - 新頁面：在 `nav.ts` 加項目（綁模組）→ `App.tsx` 加路由並包 `RequireGrant` → 頁面只透過 `api` 存取資料。
 - 不新增建置工具或 UI 框架；第三方套件需在 `LICENSES.md` 白名單內。
+
+## 示範模式（Vercel）
+
+`npm run build:demo`（`VITE_DEMO=1`）建置的版本不打後端：`src/demo/fetch.ts` 以 `src/demo/fixtures.json` 回答所有請求（固定資料由 `backend/tools/demo_fill.py` + `demo_capture.py` 從單機後端與合成黃金資料集擷取；無真實客戶資料，密鑰在回應裡本來就是遮罩），登入頁改為選角色進入、頂欄可切換角色，寫入動作只回「模擬成功」。原型保留在 `/prototype/`。重新擷取：
+
+```bash
+deploy/quickstart/run_local.sh up && DMP_SEED_PASSWORD=… deploy/quickstart/run_local.sh seed
+DMP_LOCAL_ACCOUNTS=~/dmp-local/accounts.json DMP_SEED_PASSWORD=… python3 -m backend.tools.demo_fill && python3 -m backend.tools.demo_capture
+cd web && npm run build:demo
+```

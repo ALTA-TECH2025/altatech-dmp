@@ -4,6 +4,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from '@/api/client';
 import type { ProvidersResponse } from '@/api/types';
+import { DEMO_ROLES, isDemo, setDemoRole } from '@/demo/mode';
 
 export function LoginPage() {
   const params = new URLSearchParams(location.search);
@@ -41,10 +42,11 @@ export function LoginPage() {
       <div className="card gate-card">
         <h1>登入</h1>
         {err && <div className="alert">{err}</div>}
-        {oidc.map((p) => (
+        {isDemo && <div className="stack"><p className="note">示範模式：固定資料（合成黃金資料集，無真實客戶），選一個角色直接進入；寫入動作只模擬成功。正式環境走 SSO／本機帳號 + TOTP。</p>{DEMO_ROLES.map(([k, cn]) => <button key={k} className="btn-primary wide" onClick={() => { setDemoRole(k); location.assign(returnTo); }}>以「{cn}」進入</button>)}</div>}
+        {!isDemo && oidc.map((p) => (
           <button key={p.key} className="btn-primary wide" onClick={() => sso(p.key)} disabled={busy}>{p.cn}登入</button>
         ))}
-        {hasLdap && (
+        {!isDemo && hasLdap && (
           <form onSubmit={ldap} className="stack" aria-label="帳密登入">
             <div className="divider"><span>{oidc.length ? '或' : ''}使用{pwdCn}</span></div>
             {pwd.length > 1 && <label>登入方式<select value={pwdKey} onChange={(e) => setPwdKey(e.target.value)} disabled={needTotp}>{pwd.map((p) => <option key={p.key} value={p.key}>{p.cn}</option>)}</select></label>}
@@ -54,7 +56,7 @@ export function LoginPage() {
             <button className="btn-ghost wide" type="submit" disabled={busy}>{needTotp ? '驗證並登入' : '登入'}</button>
           </form>
         )}
-        {prov && prov.providers.length === 0 && <p className="note">此環境尚未設定身分提供者（backend/auth/idp.yaml）。</p>}
+        {!isDemo && prov && prov.providers.length === 0 && <p className="note">此環境尚未設定身分提供者（backend/auth/idp.yaml）。</p>}
         <p className="note">登入即表示同意存取受到審計；所有查詢與匯出都會記錄到日誌統計。</p>
       </div>
     </div>
