@@ -291,8 +291,8 @@ paths:
   /v1/segments/import:
     post: { tags: [Segments], summary: '導入創建：上傳 txt／csv，指定匹配屬性（任一 ID 欄位或用戶屬性）、是否保留未匹配 ID；先做 L4 欄位掃描', responses: { '202': { description: queued } } }
   /v1/tags:
-    get: { tags: [Segments], summary: '標籤目錄', responses: { '200': { description: ok } } }
-    post: { tags: [Segments], summary: '建立標籤', responses: { '201': { description: created } } }
+    get: { tags: [Segments], summary: '標籤目錄（第一階段：分群對應值／SQL 兩種建立方式；含最新版本人數與分布）', parameters: [{ name: status, in: query, schema: { type: string } }, { name: q, in: query, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Tag' } } } } } } }
+    post: { tags: [Segments], summary: '建立標籤（行銷建立需數位經營審批；數據分析／數位經營／系統管理員直接生效；建立後可立即計算）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/TagCreate' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Tag' } } } } } }
   /v1/tags/{id}:
     get: { tags: [Segments], summary: '標籤詳情（基礎資訊、所屬目錄、創建方式、規則、更新方式、存儲、審批、自定義欄位）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
     put: { tags: [Segments], summary: '編輯標籤（基礎資訊、規則或重新上傳、存儲設定；留變更記錄）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
@@ -310,6 +310,10 @@ paths:
     post: { tags: [Segments], summary: '審批（通過／退回／拒絕）；數位經營或系統管理員', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/tags/{id}/recycle:
     post: { tags: [Segments], summary: '移入回收站（保留 N 天後自動徹底刪除）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/tags/{id}/compute:
+    post: { tags: [Segments], summary: '立即計算一版（basetime 預設今天）：每個標籤值一個 Bitmap 寫入 dmp.user_tags；回傳版本紀錄（人數、分布、耗時）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { basetime: { type: string, format: date } } } } } }, responses: { '202': { description: computed } } }
+  /v1/tags/tick:
+    post: { tags: [Segments], summary: '例行標籤到點計算（正式環境由排程器每 10 分鐘呼叫；需 segments.approve）', responses: { '200': { description: ok } } }
   /v1/tags/custom-fields:
     get: { tags: [Segments], summary: '標籤自定義欄位定義（字串／日期；文字框、單選、多選、日期）', responses: { '200': { description: ok } } }
   /v1/sql/tables:
@@ -534,6 +538,11 @@ paths:
     post: { tags: [Activation], summary: '建立目的地（需 segments.approve；新目的地首次推送另需稽核核可）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Destination' } } } }, responses: { '201': { description: created } } }
   /v1/destinations/{id}/test:
     post: { tags: [Activation], summary: '送測試事件（audience.test，3 筆假資料）並回傳接收端回應', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/destinations/{id}:
+    get: { tags: [Activation], summary: '目的地詳情（secret 只顯示參照；含 7 天成功率、最近交付）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    put: { tags: [Activation], summary: '編輯目的地（名稱、可附標籤、識別子、IP 白名單；URL 與 secret 變更視同新目的地：首次推送需再核可）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/destinations/{id}/pause:
+    post: { tags: [Activation], summary: '停用／啟用目的地（停用期間推送單暫停、交付進入重試佇列）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/destinations/{id}/rotate-secret:
     post: { tags: [Activation], summary: '輪替 Webhook secret（新舊並存 24 小時）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/audiences/{id}/push:
@@ -543,6 +552,17 @@ paths:
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
       requestBody: { content: { application/json: { schema: { type: object, properties: { destination_ids: { type: array, items: { type: string } }, mode: { type: string, enum: [delta, full] }, schedule: { type: string, enum: [now, after_batch, realtime, cron] }, cron: { type: string }, include_tags: { type: array, items: { type: string } } } } } } }
       responses: { '202': { description: accepted（pending_approval 或已排程） } }
+  /v1/pushes:
+    get: { tags: [Activation], summary: '推送單清單（分群 × 目的地 × 模式 × 排程；狀態、最近交付版本、審批）', parameters: [{ name: segment_id, in: query, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Push' } } } } } } }
+  /v1/pushes/{id}:
+    get: { tags: [Activation], summary: '推送單詳情（含最近 20 筆交付）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    delete: { tags: [Activation], summary: '刪除推送單（已有交付的保留紀錄，狀態改 deleted）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
+  /v1/pushes/{id}/run:
+    post: { tags: [Activation], summary: '立即執行一次（增量：與上次交付版本比對；全量：整份）；需推送單 active', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: 'ok（回傳本次交付摘要）' } } }
+  /v1/pushes/{id}/pause:
+    post: { tags: [Activation], summary: '暫停／恢復推送單', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/activation/tick:
+    post: { tags: [Activation], summary: '例行：到期重試、日批後（分群有新版本）自動增量推送；正式環境由排程器每分鐘呼叫；需 segments.approve', responses: { '200': { description: ok } } }
   /v1/deliveries:
     get: { tags: [Activation], summary: '交付紀錄（受眾包、目的地、版本、批次、狀態、重試、下游回應）', parameters: [{ name: audience_id, in: query, schema: { type: string } }, { name: status, in: query, schema: { type: string, enum: [ok, retrying, failed, dlq] } }], responses: { '200': { description: ok } } }
   /v1/deliveries/{id}/replay:
@@ -1194,6 +1214,7 @@ components:
         name: { type: string }
         type: { type: string, enum: [webhook, kafka, gcs] }
         url: { type: string, description: webhook 專用 }
+        secret_ref: { type: string, description: 'Webhook 簽章密鑰的密鑰庫參照（kv/data/dmp/<env>/<name>#<key>）；永不接受明文' }
         identifier: { type: string, enum: [customer_code, one_id, client_id] }
         allowed_tags: { type: array, items: { type: string } }
         masking_level: { type: string, enum: [L1, L2], default: L2 }
@@ -1201,6 +1222,72 @@ components:
         mtls: { type: boolean }
         consent_required: { type: array, items: { type: string } }
         status: { type: string, enum: [active, paused, pending_approval] }
+    Push:
+      type: object
+      required: [segment_id, destination_ids, mode]
+      properties:
+        id: { type: string }
+        segment_id: { type: string }
+        segment_name: { type: string }
+        destination_ids: { type: array, items: { type: string } }
+        mode: { type: string, enum: [delta, full] }
+        schedule: { type: string, enum: [now, after_batch, cron], default: after_batch }
+        cron: { type: string, description: 'schedule=cron 時：HH:MM（每日）' }
+        include_tags: { type: array, items: { type: string }, description: 附帶標籤（須在每個目的地 allowed_tags 內；L2 數值一律區間化） }
+        status: { type: string, enum: [pending_approval, active, paused, rejected, deleted] }
+        approval_id: { type: string, nullable: true }
+        owner: { type: string }
+        created_at: { type: string, format: date-time }
+        last_delivered_version: { type: integer, nullable: true }
+        last_run_at: { type: string, format: date-time, nullable: true }
+        last_result: { type: object, nullable: true, description: '{added, removed, batches, ok, failed}' }
+    Delivery:
+      type: object
+      properties:
+        id: { type: string, description: 冪等鍵 X-DMP-Delivery-Id }
+        push_id: { type: string }
+        segment_id: { type: string }
+        destination_id: { type: string }
+        version: { type: integer }
+        mode: { type: string, enum: [delta, full, test] }
+        event: { type: string, enum: [audience.delta, audience.full, audience.complete, audience.test] }
+        batch: { type: object, properties: { index: { type: integer }, total: { type: integer }, size: { type: integer } } }
+        status: { type: string, enum: [ok, retrying, failed, dlq] }
+        attempts: { type: integer }
+        next_retry_at: { type: string, format: date-time, nullable: true }
+        response: { type: object, nullable: true, properties: { status: { type: integer, nullable: true }, ms: { type: integer }, body: { type: string } } }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        replay_of: { type: string, nullable: true }
+    TagCreate:
+      type: object
+      required: [name, kind]
+      properties:
+        name: { type: string, maxLength: 60, description: 顯示名 }
+        key: { type: string, pattern: '^[a-z][a-z0-9_]{1,40}$', description: '標籤名稱（dmp.user_tags.tag_id；留空由顯示名產生）' }
+        directory: { type: string, description: 所屬目錄（客戶價值／交易偏好／風險／活躍／行銷…） }
+        description: { type: string }
+        dtype: { type: string, enum: [string, number, bool], default: string }
+        kind: { type: string, enum: [values, sql], description: 'values＝自定義標籤值：每個值一條用戶規則（UsersQuery；最多 24 值）；sql＝SQL 標籤：SELECT one_id_uint, tag_value' }
+        values: { type: array, maxItems: 24, items: { type: object, required: [value, rule], properties: { value: { type: string }, rule: { $ref: '#/components/schemas/UsersQuery' } } } }
+        sql: { type: string }
+        update: { type: object, properties: { mode: { type: string, enum: [manual, routine] }, freq: { type: string, enum: [daily, weekly, monthly] }, earliest: { type: string, example: '06:00' }, keep: { type: integer, minimum: 1, maximum: 100 } } }
+        fields: { type: object, description: 自定義欄位（所屬部門、需求提出人、需求類別）, additionalProperties: { type: string } }
+    Tag:
+      allOf:
+        - $ref: '#/components/schemas/TagCreate'
+        - type: object
+          properties:
+            id: { type: string }
+            status: { type: string, enum: [draft, pending_approval, active, paused, recycled] }
+            owner: { type: string }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+            approval: { type: object, properties: { status: { type: string, enum: [none, pending, approved, rejected] }, by: { type: string, nullable: true }, at: { type: string, nullable: true }, note: { type: string } } }
+            latest: { type: object, nullable: true, properties: { version: { type: integer }, basetime: { type: string }, users: { type: integer, nullable: true }, status: { type: string }, computed_at: { type: string }, ms: { type: integer }, distribution: { type: array, items: { type: object, properties: { value: { type: string }, users: { type: integer } } } }, error: { type: string, nullable: true } } }
+            versions: { type: array, items: { type: object } }
+            lineage: { type: object, properties: { up: { type: array, items: { type: string } }, down: { type: array, items: { type: string } } } }
+            recycled_at: { type: string, nullable: true }
     TagSnapshot:
       type: object
       properties:
