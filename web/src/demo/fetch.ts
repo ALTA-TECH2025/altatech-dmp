@@ -81,6 +81,7 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
   const seg = path.split('/').filter(Boolean);            // ['v1','dashboards',id,...]
   const who = me(fx);
   if (seg[0] !== 'v1') return null;
+  if (seg[1] === 'ops' && seg[2] === 'batch-jobs' && seg[4] === 'rerun' && method === 'POST') return { body: { job: seg[3], status: 'success', demo: true }, status: 202 };   // 示範：重跑同步任務
   if (seg[1] === 'analytics' && seg[2] === 'ask') {
     if (seg[3] === 'status') return { body: { allowed: true, parsers: ['rules'], default: 'rules', model: null, examples: ['上週各平台成交金額、看盤到委託到成交的漏斗、登入後 4 週留存', '近 7 天各渠道開戶申請人數', '成交之前做什麼', '推播點擊對成交的貢獻'], note: '示範模式：瀏覽器內規則解析（與後端 rules 解析器同構）；正式環境設定 LLM 金鑰後改用模型解析，草稿會再乾跑編譯。' } };
     return askOverlay(String(b.question ?? ''), null, fx);

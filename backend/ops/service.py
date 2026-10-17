@@ -24,7 +24,17 @@ ALERTS: dict[str, Any] = yaml.safe_load((ROOT / "alerts.yaml").read_text(encodin
 WINDOWS = {"1h": 3600, "24h": 86400, "7d": 7 * 86400}
 MODULE_CN = {"events": "事件分析", "funnel": "漏斗分析", "retention": "留存分析", "path": "行為路徑", "attribution": "歸因分析", "users": "用戶列表", "estimate": "人數估算", "dashboard": "儀表板", "dashboard_render": "儀表板輸出", "bookmark": "書籤", "sql": "自定義 SQL", "segments": "分群", "tags": "標籤", "profile": "用戶細查"}
 ROUTINES = [("scheduler", "同步任務排程", "每分鐘"), ("dashboard_share", "看板定時寄送", "每分鐘"), ("segments", "分群例行計算與到期清理", "每 10 分鐘"), ("tags", "標籤例行計算", "每 10 分鐘"), ("activation", "推送重試與日批後增量", "每分鐘")]
-CH_TABLES_CN = {"events": "行為事件", "users": "用戶表", "user_tags": "標籤 Bitmap", "segment_members": "分群成員", "quarantine": "隔離區", "id_edges": "OneID 邊", "touchpoints": "歸因觸點", "audit_log": "審計", "raw": "原始事件", "prop_log": "屬性變更"}
+CH_TABLES_CN = {"events": "行為事件", "users": "用戶表", "user_tags": "標籤 Bitmap", "segment_members": "分群成員", "quarantine": "隔離區", "id_edges": "OneID 邊", "touchpoints": "歸因觸點", "audit_log": "審計", "raw": "原始事件", "prop_log": "屬性變更", "id_map": "ID 映射"}
+
+
+def _table_cn(name: str) -> str:
+    if name.startswith(".inner_id."): return "物化視圖內部表"
+    if name.startswith(".inner."): return f"物化視圖 {name[7:]}"
+    return CH_TABLES_CN.get(name, name)
+
+
+def _bytes(b: float) -> str:
+    return f"{b / 1e12:.2f} TB" if b >= 1e12 else f"{b / 1e9:.2f} GB" if b >= 1e9 else f"{b / 1e6:.1f} MB"
 
 
 def _parse_ts(s: Any) -> float | None:
@@ -66,7 +76,7 @@ class OpsService:
 
     def ch_tables(self) -> list[dict[str, Any]] | None:
         rows = self._ch_rows("parts", "SELECT table, sum(rows) AS rows, sum(bytes_on_disk) AS bytes, count() AS parts FROM system.parts WHERE database = 'dmp' AND active GROUP BY table ORDER BY bytes DESC")
-        return [{"name": r["table"], "cn": CH_TABLES_CN.get(r["table"], r["table"]), "rows": int(r["rows"]), "bytes": int(r["bytes"]), "parts": int(r["parts"])} for r in rows] if rows is not None else None
+        return [{"name": r["table"], "cn": _table_cn(r["table"]), "rows": int(r["rows"]), "bytes": int(r["bytes"]), "parts": int(r["parts"])} for r in rows] if rows is not None else None
 
     def events_stale_min(self) -> float | None:
         rows = self._ch_rows("freshness", "SELECT max(time) AS t FROM dmp.events WHERE event_date >= today() - 1")
@@ -163,7 +173,7 @@ class OpsService:
         ]
         stages = [
             {"key": "sources", "cn": "來源同步", "status": src_status, "summary": f"{len(src)} 個任務；最近一次讀入 {rin:,} 列" if src else "沒有同步任務（排程器未啟用）", "items": src},
-            {"key": "warehouse", "cn": "ClickHouse 進倉", "status": wh_status, "summary": ("未連接 ClickHouse" if tables is None else f"{len(tables)} 張表，{(used or 0) / 1e9:.2f} GB；事件落後 {stale:.0f} 分鐘" if stale is not None else f"{len(tables)} 張表，{(used or 0) / 1e9:.2f} GB"), "items": wh_items},
+            {"key": "warehouse", "cn": "ClickHouse 進倉", "status": wh_status, "summary": ("未連接 ClickHouse" if tables is None else f"{len(tables)} 張表，{_bytes(used or 0)}；事件落後 {stale:.0f} 分鐘" if stale is not None else f"{len(tables)} 張表，{_bytes(used or 0)}"), "items": wh_items},
             {"key": "serving", "cn": "API 與查詢", "status": sv_status, "summary": f"5 分鐘 {sv['requests_5m']} 次請求，P95 {sv['http_p95_ms'] or 0} ms，5xx {sv['http_error_rate'] * 100:.2f}%；查詢 P95 {sv['query_p95_ms'] or 0} ms", "items": [sv]},
             {"key": "activation", "cn": "推送交付", "status": act["status"], "summary": (f"24 小時 {sum(act['deliveries_24h'].values())} 筆交付，成功率 {act['success_rate'] * 100:.1f}%" if act["success_rate"] is not None else "24 小時內沒有交付") + (f"；{len(act['paused_destinations'])} 個目的地自動暫停" if act["paused_destinations"] else ""), "items": [act]},
         ]
