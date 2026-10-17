@@ -1,4 +1,4 @@
-// 總覽／儀表板：/overview 列表（我的、分享給我的）與新增；/overview/:id 卡片網格（每張以檢視者身分重算）、區間切換、分享、改名、移除卡片、刪除。
+// 總覽／儀表板：/overview 列表（我的、分享給我的）與新增；/overview/:id 卡片網格（每張以檢視者身分重算）、區間切換、分享、改名、移除卡片、刪除、拖曳排序與寬度；看板進階（解讀／HTML 看板／定時寄送）。
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
@@ -6,6 +6,7 @@ import type { Catalog } from '@/analytics/types';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
 import { CardView } from './CardView';
+import { SharePanel } from './SharePanel';
 import { KIND_CN, PRESET_CN } from './dashboards';
 import type { Dashboard, DashboardSummary, Preset } from './types';
 
@@ -77,6 +78,7 @@ function DashboardDetail({ id }: { id: string }) {
   const [share, setShare] = useState(false);
   const [adv, setAdv] = useState(false);
   const [roles, setRoles] = useState<string[]>([]); const [users, setUsers] = useState('');
+  const [drag, setDrag] = useState<string | null>(null); const [over, setOver] = useState<string | null>(null);
   useEffect(() => { api.get<Dashboard>(`/v1/dashboards/${id}`).then((x) => { setD(x); setRoles(x.shared.roles); setUsers(x.shared.users.join(', ')); }).catch((e: Error) => setErr(e.message)); }, [id]);
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch(() => setCat(null)); }, []);
   const labelOf = useMemo(() => { const m = new Map((cat?.events ?? []).map((e) => [e.name, e.cn])); return (n: string) => m.get(n) ?? n; }, [cat]);
@@ -96,22 +98,12 @@ function DashboardDetail({ id }: { id: string }) {
             <button className="btn-ghost" onClick={() => setShare((v) => !v)}>分享</button>
             <button className="btn-ghost danger" onClick={() => { if (confirm(`刪除「${d.name}」？卡片會一起刪除。`)) api.del(`/v1/dashboards/${id}`).then(() => nav('/overview')).catch((e: Error) => setErr(e.message)); }}>刪除</button>
           </>}
-          <button className="btn-ghost" onClick={() => setAdv((v) => !v)} title="第二階段">AI 生成 / HTML 看板 <span className="pill gray">第二階段</span></button>
+          <button className="btn-ghost" onClick={() => setAdv((v) => !v)}>解讀 / HTML 看板 / 定時寄送</button>
           <Link className="btn-ghost" to="/overview">所有儀表板</Link>
         </div>
       </div>
       {err && <div className="alert">{err}</div>}
-      {adv && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="card-h"><h3>儀表板進階選項</h3><span className="pill gray">第二階段 · docs/30</span><button className="btn-ghost sm right" onClick={() => setAdv(false)}>關閉</button></div>
-          <div className="grid c3">
-            <div><b>問數建卡片</b><p className="note">一句話（「上週各平台成交金額、看盤到成交漏斗」）→ MCP dashboard.compose 在既有分析模型與語意層上做選擇，產出卡片草稿供確認後加入；不生成任意 SQL，卡片仍以檢視者身分重算。</p></div>
-            <div><b>看板解讀</b><p className="note">dashboard.explain：對每張卡做趨勢、異常、上期對比摘要，產出洞察草稿；只讀。</p></div>
-            <div><b>HTML 看板與定時寄送</b><p className="note">伺服器以產生者身分重算並渲染單檔 HTML（inline SVG、無明細、套遮罩與 K 匿名、浮水印與到期），寄給主管或貼 Teams；排程寄送走審批。</p></div>
-          </div>
-          <div className="row"><button className="btn-primary" disabled title="第二階段啟用 AI 閘道後開放">AI 生成卡片</button><button className="btn-ghost" disabled title="第二階段">產生 HTML 看板</button><span className="note" style={{ marginTop: 0 }}>目前可用：各分析頁「存為看板卡片」、分享給角色／使用者、區間切換。</span></div>
-        </div>
-      )}
+      {adv && <SharePanel d={d} onClose={() => setAdv(false)} />}
       {share && d.editable && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-h"><h3>分享</h3><span className="sub">被分享者只能檢視；卡片資料以他們自己的權限重算</span></div>
@@ -127,11 +119,21 @@ function DashboardDetail({ id }: { id: string }) {
           {d.cards.map((c) => (
             <CardView key={c.id} dash={d} card={c} k={k} labelOf={labelOf} reloadKey={reload}
               onRename={d.editable ? () => { const t = prompt('卡片標題', c.title); if (t && t.trim()) void put({ cards: d.cards.map((x) => (x.id === c.id ? { id: x.id, title: t.trim() } : { id: x.id })) }); } : undefined}
-              onRemove={d.editable ? () => { if (confirm(`移除卡片「${c.title}」？`)) api.del(`/v1/dashboards/${id}/cards/${c.id}`).then(() => setD({ ...d, cards: d.cards.filter((x) => x.id !== c.id) })).catch((e: Error) => setErr(e.message)); } : undefined} />
+              onWidth={d.editable ? () => void put({ cards: d.cards.map((x) => ({ id: x.id, ...(x.id === c.id ? { width: x.width === 2 ? 1 : 2 } : {}) })) }) : undefined}
+              onRemove={d.editable ? () => { if (confirm(`移除卡片「${c.title}」？`)) api.del(`/v1/dashboards/${id}/cards/${c.id}`).then(() => setD({ ...d, cards: d.cards.filter((x) => x.id !== c.id) })).catch((e: Error) => setErr(e.message)); } : undefined}
+              rootProps={d.editable ? {
+                draggable: true, title: '拖曳可排序',
+                onDragStart: (e) => { setDrag(c.id); e.dataTransfer.effectAllowed = 'move'; },
+                onDragOver: (e) => { e.preventDefault(); if (over !== c.id) setOver(c.id); },
+                onDragLeave: () => setOver((o) => (o === c.id ? null : o)),
+                onDrop: (e) => { e.preventDefault(); const from = drag; setDrag(null); setOver(null); if (!from || from === c.id) return; const ids = d.cards.map((x) => x.id); const next = ids.filter((x) => x !== from); next.splice(next.indexOf(c.id), 0, from); void put({ cards: next.map((x) => ({ id: x })) }); },
+                onDragEnd: () => { setDrag(null); setOver(null); },
+                className: `card dash-card w${c.width}${drag === c.id ? ' dragging' : ''}${over === c.id && drag !== c.id ? ' dropzone' : ''}`,
+              } : undefined} />
           ))}
         </div>
       )}
-      <p className="note" style={{ marginTop: 12 }}>卡片種類：{d.cards.map((c) => KIND_CN[c.kind]).filter((v, i, a) => a.indexOf(v) === i).join('、') || '—'}；每張卡片的 SQL 與血緣可按「SQL」查看，查詢都寫入審計。</p>
+      <p className="note" style={{ marginTop: 12 }}>卡片種類：{d.cards.map((c) => KIND_CN[c.kind]).filter((v, i, a) => a.indexOf(v) === i).join('、') || '—'}；每張卡片的 SQL 與血緣可按「SQL」查看，查詢都寫入審計。{d.editable && '拖曳卡片可排序，「全寬／½ 寬」切換寬度。'}</p>
     </div>
   );
 }

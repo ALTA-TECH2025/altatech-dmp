@@ -1,5 +1,5 @@
 // 一張卡片：POST /v1/dashboards/{id}/cards/{card}/data（以檢視者身分重算）→ 依 kind／chart 畫圖；錯誤與抑制照分析頁規則。
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type HTMLAttributes } from 'react';
 import { api, ApiError } from '@/api/client';
 import { shareSeries } from '@/analytics/AttributionPage';
 import { FunnelChart } from '@/analytics/FunnelChart';
@@ -11,7 +11,7 @@ import type { AttributionResult, EventsResult, FunnelRow, RetentionRow } from '@
 import { firstGroup, metricLabels, tableColumns, timeText } from './dashboards';
 import type { CardData, Dashboard, DashboardCard } from './types';
 
-export function CardView({ dash, card, k, labelOf, reloadKey, onRemove, onRename }: { dash: Dashboard; card: DashboardCard; k: number; labelOf: (n: string) => string; reloadKey: number; onRemove?: () => void; onRename?: () => void }) {
+export function CardView({ dash, card, k, labelOf, reloadKey, onRemove, onRename, onWidth, rootProps }: { dash: Dashboard; card: DashboardCard; k: number; labelOf: (n: string) => string; reloadKey: number; onRemove?: () => void; onRename?: () => void; onWidth?: () => void; rootProps?: HTMLAttributes<HTMLDivElement> }) {
   const [data, setData] = useState<CardData | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
@@ -22,13 +22,14 @@ export function CardView({ dash, card, k, labelOf, reloadKey, onRemove, onRename
     return () => { alive = false; };
   }, [dash.id, card.id, dash.time.preset, reloadKey]);
   return (
-    <div className={`card dash-card w${card.width}`}>
+    <div className={`card dash-card w${card.width}`} {...rootProps}>
       <div className="card-h">
         <h3>{card.title}</h3>
         <span className="sub">{data ? `${timeText(data.time, dash.time.preset)} · ${data.cost.ms} ms` : busy ? '載入中…' : ''}</span>
         <div className="right row" style={{ marginTop: 0, gap: 4 }}>
           {data && <button className="btn-ghost sm" onClick={() => setShowSql((v) => !v)} title="SQL 與血緣">SQL</button>}
           {onRename && <button className="btn-ghost sm" onClick={onRename}>改名</button>}
+          {onWidth && <button className="btn-ghost sm" onClick={onWidth} title="切換寬度">{card.width === 2 ? '½ 寬' : '全寬'}</button>}
           {onRemove && <button className="btn-ghost sm danger" onClick={onRemove}>移除</button>}
         </div>
       </div>

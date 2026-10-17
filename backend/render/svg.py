@@ -41,10 +41,11 @@ def _num(v: Any) -> float | None:
 
 def line_chart(series: list[dict[str, Any]], kind: str = "line") -> str:
     """series = [{label, points: [{x, y|None, suppressed}]}]；x 類別軸（折線依 x 排序）。"""
-    series = series[:8]
+    series = [s for s in series if any(_num(p["y"]) is not None for p in s["points"])][:8]      # 全部抑制／空的序列不畫（例：分組為空的抑制列）
     xs = sorted({p["x"] for s in series for p in s["points"]}) if kind == "line" else list(dict.fromkeys(p["x"] for s in series for p in s["points"]))
     if not xs or not series:
-        return '<p class="note">沒有資料</p>'
+        return '<p class="note">沒有資料（或全部因 K 匿名抑制）</p>'
+    marked: set[str] = set()                                                                       # 每個 x 只標一次 <K
     mx = max((_num(p["y"]) or 0 for s in series for p in s["points"]), default=0)
     top = _nice(mx); pw = W - L - R; ph = H - T - B
     def X(i: int) -> float: return L + (pw * (i + 0.5) / len(xs) if kind == "bar" else (pw * i / max(1, len(xs) - 1)))
@@ -52,9 +53,9 @@ def line_chart(series: list[dict[str, Any]], kind: str = "line") -> str:
     out = [f'<svg viewBox="0 0 {W} {H}" width="100%" role="img" aria-label="chart">']
     for g in range(5):
         y = T + ph * g / 4; out.append(f'<line x1="{L}" y1="{y:.1f}" x2="{W - R}" y2="{y:.1f}" stroke="#E6E9EF"/><text x="{L - 6}" y="{y + 4:.1f}" font-size="10" fill="#6B7280" text-anchor="end">{esc(fmt(top * (4 - g) / 4))}</text>')
-    step = max(1, len(xs) // 8)
+    step = max(1, math.ceil(len(xs) / 8))
     for i, x in enumerate(xs):
-        if i % step == 0 or i == len(xs) - 1:
+        if i % step == 0 or (i == len(xs) - 1 and i % step >= step / 2):
             out.append(f'<text x="{X(i):.1f}" y="{H - 14}" font-size="10" fill="#6B7280" text-anchor="middle">{esc(str(x)[-10:])}</text>')
     for si, s in enumerate(series):
         col = PALETTE[si % len(PALETTE)]; by = {p["x"]: p for p in s["points"]}
@@ -63,7 +64,8 @@ def line_chart(series: list[dict[str, Any]], kind: str = "line") -> str:
             for i, x in enumerate(xs):
                 p = by.get(x); v = _num(p["y"]) if p else None
                 if v is None:
-                    if p and p.get("suppressed"): out.append(f'<text x="{X(i) + (si - len(series) / 2 + 0.5) * bw:.1f}" y="{T + ph - 4}" font-size="9" fill="#9CA3AF" text-anchor="middle">&lt;K</text>')
+                    if p and p.get("suppressed") and x not in marked:
+                        marked.add(x); out.append(f'<text x="{X(i):.1f}" y="{T + ph - 4}" font-size="9" fill="#9CA3AF" text-anchor="middle">&lt;K</text>')
                     continue
                 x0 = X(i) + (si - len(series) / 2) * bw
                 out.append(f'<rect x="{x0:.1f}" y="{Y(v):.1f}" width="{max(1, bw - 2):.1f}" height="{max(0, T + ph - Y(v)):.1f}" fill="{col}" rx="2"/>')
@@ -74,7 +76,8 @@ def line_chart(series: list[dict[str, Any]], kind: str = "line") -> str:
                 for a, b in pts: out.append(f'<circle cx="{a:.1f}" cy="{b:.1f}" r="2.5" fill="{col}"/>')
             for i, x in enumerate(xs):
                 p = by.get(x)
-                if p and p.get("suppressed"): out.append(f'<text x="{X(i):.1f}" y="{T + ph - 4}" font-size="9" fill="#9CA3AF" text-anchor="middle">&lt;K</text>')
+                if p and p.get("suppressed") and _num(p["y"]) is None and x not in marked:
+                    marked.add(x); out.append(f'<text x="{X(i):.1f}" y="{T + ph - 4}" font-size="9" fill="#9CA3AF" text-anchor="middle">&lt;K</text>')
     out.append("</svg>")
     leg = "".join(f'<span class="lg"><i style="background:{PALETTE[i % len(PALETTE)]}"></i>{esc(s["label"])}</span>' for i, s in enumerate(series))
     return "".join(out) + f'<div class="legend">{leg}</div>'
@@ -164,7 +167,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;font
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:8px}.tile{background:#F7F8FB;border:1px solid #E6E9EF;border-radius:8px;padding:10px 12px}.tile span{display:block;font-size:11px;color:#6B7280}.tile b{font-size:22px;font-variant-numeric:tabular-nums}
 .funnel .fr{display:grid;grid-template-columns:110px minmax(0,1fr) 70px 150px;gap:8px;align-items:center;margin:4px 0}.fb{background:#EEF1F6;border-radius:4px;height:14px}.fb i{display:block;height:14px;background:#2C73EA;border-radius:4px}.fv{text-align:right;font-variant-numeric:tabular-nums}.fp{color:#6B7280;font-size:11px}
 .explain{background:#fff;border:1px solid #E6E9EF;border-left:4px solid #2C73EA;border-radius:10px;padding:12px 16px;margin-top:16px}.explain ul{margin:6px 0 0 18px;padding:0}
-.wm{position:fixed;right:12px;bottom:10px;font-size:11px;color:#9CA3AF;background:rgba(255,255,255,.85);padding:4px 8px;border-radius:6px;border:1px solid #E6E9EF}
+.wm{position:fixed;right:12px;bottom:10px;font-size:10px;color:#9CA3AF;background:rgba(255,255,255,.7);padding:3px 8px;border-radius:6px;pointer-events:none}
 @media(max-width:800px){.grid{grid-template-columns:minmax(0,1fr)}.w2{grid-column:auto}}@media print{.wm{position:static}}"""
 
 

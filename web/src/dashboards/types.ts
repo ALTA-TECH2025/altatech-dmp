@@ -15,3 +15,16 @@ export interface CardData {
   nodes?: { level: number; node: string; users: number }[]; links?: { level: number; from: string; to: string; users: number }[]; paths?: unknown[]; anchor_users?: number; sampled?: number | null;
   summary?: { conversions: number; converters: number; touched: number; untouched: number; value: number; avg_touches: number | null }; models?: string[];
 }
+
+// ---- 進階（docs/30）：解讀、HTML 看板產物、定時寄送 ----
+export interface ExplainCard { card: string; title: string; kind: CardKind; line: string; signal: 'up' | 'down' | 'flat' | 'none'; warnings: string[] }
+export interface Explain { method: 'rules'; summary: string[]; cards: ExplainCard[]; generated_at: string; period: string }
+export interface RenderArtifact {
+  artifact_id: string; dashboard: string; name: string; url: string; share_url: string; audience: string; created_by: string; created_at: string; expires_at: string; bytes: number;
+  cards_included: number; cards_skipped: { card: string; title: string; why: string }[]; downloads: number; expired: boolean;
+}
+export interface ScheduleRun { at: string; trigger: 'tick' | 'manual'; artifact_id: string | null; status: 'sent' | 'rendered_no_transport' | 'failed'; recipients: number; error: string | null }
+export interface Schedule {
+  id: string; dashboard: string; weekday: number | null; hour: number; audience: { roles: string[]; emails: string[] }; expires_days: number; include_explain: boolean;
+  status: 'pending_approval' | 'active' | 'paused' | 'rejected'; approval: string | null; created_by: string; created_at: string; last_run: ScheduleRun | null;
+}

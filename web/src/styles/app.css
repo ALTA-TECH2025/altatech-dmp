@@ -182,4 +182,9 @@ label.chk input { width: auto; }
 .dash-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .dash-card.w2 { grid-column: span 2; }
 .dash-card .card-h { flex-wrap: wrap; }
+.dash-card[draggable='true'] .card-h h3 { cursor: grab; }
+.dash-card.dragging { opacity: .45; }
+.dash-card.dropzone { outline: 2px dashed var(--brand); outline-offset: 2px; }
+.signal { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--muted); }
+.signal.up { background: #2E9E6B; } .signal.down { background: var(--red); } .signal.flat { background: #C9A227; }
 @media (max-width: 900px) { .dash-grid { grid-template-columns: minmax(0, 1fr); } .dash-card.w2 { grid-column: auto; } }
