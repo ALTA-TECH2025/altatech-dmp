@@ -1,6 +1,6 @@
 # 30. 儀表板進階：MCP／AI 問數生成卡片與 HTML 看板（第二階段規劃）
 
-狀態：**B（規則式）、C、D 與拖曳排版已實作**（契約見 `backend/openapi.yaml` Dashboards；實作 `backend/api/dashboards.py`、`backend/render/`）；**A 問數建卡片**與 B 的自然語言版本等 AI 閘道啟用（第二階段）。第一階段的儀表板（docs/27 C9）已可用：任何分析頁的查詢存成卡片、以檢視者權限重算、分享給角色或使用者。本文規劃在此之上加「問數」與「HTML 看板」兩個進階選項，全部沿用既有查詢編譯器、Policy Engine、審計與 MCP 工具閘道（docs/03、`backend/mcp/tools.yaml`）。
+狀態：**A（問數建卡片）、B、C、D 與拖曳排版已實作**（契約見 `backend/openapi.yaml` Dashboards；實作 `backend/insight_agent/configure.py`、`backend/api/ask.py`、`backend/api/dashboard_share.py`、`backend/render/`）。A 與 B 的敘述版各有兩個解析器：`rules`（內建關鍵字規則，離線與示範站可用）與 `llm`（設定 `DMP_LLM_API_KEY_REF`／`DMP_LLM_BASE_URL` 後走企業 LLM Gateway 或 Claude API，結構化輸出同一份 schema；模型只在語意層目錄上做選擇，草稿一律再以當事人身分乾跑編譯）。20 題 golden 在 `backend/insight_agent/evals/ask_golden.yaml`，`python3 -m backend.insight_agent.configure` 跑規則解析器通過率。第一階段的儀表板（docs/27 C9）已可用：任何分析頁的查詢存成卡片、以檢視者權限重算、分享給角色或使用者。本文規劃在此之上加「問數」與「HTML 看板」兩個進階選項，全部沿用既有查詢編譯器、Policy Engine、審計與 MCP 工具閘道（docs/03、`backend/mcp/tools.yaml`）。
 
 ## 0a. 書籤 → 看板（神策「書籤／概覽」對應）
 

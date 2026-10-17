@@ -127,7 +127,7 @@ tools:
     input: { dashboard_id: string, time: object }
     scope: read
   - name: dashboard.compose
-    description: 問數建看板（第二階段）：自然語言 → analysis.configure 的配置卡 → 存成儀表板卡片（走 /v1/dashboards，卡片仍以檢視者身分重算；不生成任意 SQL）。
+    description: 問數建看板：自然語言 → analysis.configure 的配置卡（實作：backend/insight_agent/configure.py，與 REST /v1/analytics/ask 同一段邏輯；rules 解析器離線可用、llm 解析器需 LLM Gateway 金鑰）→ 存成儀表板卡片或書籤（卡片仍以檢視者身分重算；不生成任意 SQL）。
     input: { question: string, dashboard_id: string, time: object }
     output: { cards: [{ title: string, kind: string, query: object, confidence: number, explanation: string }], dashboard_id: string }
     scope: write_draft           # 建卡片 = 草稿；分享給角色仍由擁有者決定

@@ -186,12 +186,29 @@ paths:
       responses:
         '200': { description: 'events／funnel／retention／path／attribution 的結果物件（與 /v1/analytics/* 相同）', content: { application/json: { schema: { type: object, additionalProperties: true } } } }
         '403': { description: 查看者沒有該分析模組的 use 權限 }
+  /v1/analytics/ask:
+    post:
+      tags: [Dashboards]
+      summary: 問數 → 卡片草稿（不存）：一句話（可多句）→ 在既有五種分析模型與語意層目錄上做選擇（不生成任意 SQL）→ 每張草稿以當事人身分乾跑編譯 → 回卡片（title、kind、query、chart、confidence、explanation、sql_preview、warnings）與候選（對不上的事件／指標）。解析器：rules（內建關鍵字規則，離線可用）或 llm（設了 DMP_LLM_API_KEY_REF 才啟用，走企業 LLM Gateway 或 Claude API，結構化輸出同一份 schema）。需 ai_ask.use；審計 dashboard.asked
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/AskRequest' } } } }
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AskResponse' } } } }
+        '422': { description: 問題無法映射到任何分析模型（回 candidates） }
+  /v1/analytics/ask/status:
+    get: { tags: [Dashboards], summary: 問數可用狀態：parsers（rules 永遠可用；llm 需金鑰）、模型、範例問題, responses: { '200': { description: ok } } }
+  /v1/dashboards/{id}/ask:
+    post:
+      tags: [Dashboards]
+      summary: 同 /v1/analytics/ask，但時間預設用看板的「最近 N 天」，且回應附 dashboard；確認後用 POST /cards 或 /v1/bookmarks 存
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/AskRequest' } } } }
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AskResponse' } } } } }
   /v1/dashboards/{id}/explain:
     post:
       tags: [Dashboards]
-      summary: 看板解讀（規則式，不用 LLM）：以檢視者身分重算每張卡，做趨勢／上期對比／最大跌幅步驟／最新同期群等摘要 → 三句總結 + 每卡一行 + warnings；只讀；審計 dashboard.explained。AI 閘道啟用後改由 MCP dashboard.explain 產生自然語言版本
+      summary: 看板解讀：以檢視者身分重算每張卡，規則產生趨勢／上期對比／最大跌幅步驟／最新同期群等事實 → 三句總結 + 每卡一行 + warnings；mode=llm（設了 DMP_LLM_API_KEY_REF）時再把這些事實交給模型寫成敘述（narrative，只讀、不看明細列）；只讀；審計 dashboard.explained
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
-      requestBody: { required: false, content: { application/json: { schema: { type: object, properties: { time: { type: object } } } } } }
+      requestBody: { required: false, content: { application/json: { schema: { type: object, properties: { time: { type: object }, mode: { type: string, enum: [rules, llm], default: rules } } } } } }
       responses:
         '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/DashboardExplain' } } } }
   /v1/dashboards/{id}/render:
@@ -1028,10 +1045,40 @@ components:
             mine: { type: boolean }
             editable: { type: boolean }
             used_in: { type: array, items: { type: object, properties: { dashboard: { type: string }, name: { type: string } } } }
+    AskRequest:
+      type: object
+      required: [question]
+      properties:
+        question: { type: string, maxLength: 500 }
+        time: { type: object, description: 'preset 或 from/to；沒給就看板的 preset 或最近 30 天' }
+        max_cards: { type: integer, default: 6, maximum: 6 }
+        parser: { type: string, enum: [auto, rules, llm], default: auto, description: auto = 有金鑰用 llm，否則 rules }
+    AskCard:
+      type: object
+      properties:
+        title: { type: string }
+        kind: { type: string, enum: [events, funnel, retention, path, attribution] }
+        query: { type: object, additionalProperties: true }
+        chart: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        explanation: { type: string, description: 為什麼這樣配置（模型、事件、分組、時間） }
+        sql_preview: { type: string, nullable: true }
+        warnings: { type: array, items: { type: string } }
+        selected: { type: boolean, description: 信心度 ≥ 0.6 預設勾選 }
+    AskResponse:
+      type: object
+      properties:
+        run_id: { type: string }
+        parser: { type: string, enum: [rules, llm] }
+        cards: { type: array, items: { $ref: '#/components/schemas/AskCard' } }
+        candidates: { type: object, properties: { events: { type: array, items: { type: object, properties: { name: { type: string }, cn: { type: string } } } }, dimensions: { type: array, items: { type: string } } } }
+        unmatched: { type: array, items: { type: string }, description: 問題裡對不上語意層的片段 }
+        dashboard: { type: string, nullable: true }
     DashboardExplain:
       type: object
       properties:
-        method: { type: string, enum: [rules], description: 規則式；AI 閘道啟用後加 llm }
+        method: { type: string, enum: [rules, llm] }
+        narrative: { type: string, nullable: true, description: mode=llm 時的敘述（三段內） }
         summary: { type: array, items: { type: string }, description: 三句總結 }
         cards: { type: array, items: { type: object, properties: { card: { type: string }, title: { type: string }, kind: { type: string }, line: { type: string }, signal: { type: string, enum: [up, down, flat, none] }, warnings: { type: array, items: { type: string } } } } }
         generated_at: { type: string }
