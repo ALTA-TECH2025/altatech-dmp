@@ -313,18 +313,30 @@ paths:
   /v1/tags/custom-fields:
     get: { tags: [Segments], summary: '標籤自定義欄位定義（字串／日期；文字框、單選、多選、日期）', responses: { '200': { description: ok } } }
   /v1/sql/tables:
-    get: { tags: [SQL], summary: '自定義 SQL 可用的數據庫表與欄位（依數據表權限；含中間表）', responses: { '200': { description: ok } } }
+    get: { tags: [SQL], summary: '自定義 SQL 可用的數據表與欄位（依角色：events／users／user_tags／segment_members／dim_*／中間表；id_map 只給資訊管理與系統管理員；欄位標示敏感等級與是否可用：L3／L4 與 hide 策略欄位不可查詢）、函數提示、範例', responses: { '200': { description: ok } } }
   /v1/sql/query:
-    post: { tags: [SQL], summary: '執行 SQL（唯讀；脫敏預校驗，涉及脫敏欄位直接報錯；行級規則與列級遮罩；每人最多 5 條同時；掃描與逾時上限；結果預覽 1000 列）', responses: { '200': { description: ok }, '400': { description: masked_field_or_non_select }, '429': { description: too_many_running } } }
+    post:
+      tags: [SQL]
+      summary: 執行 SQL（唯讀：只允許單一 SELECT／WITH；sqlglot 解析 ClickHouse 方言；DDL／DML／SETTINGS／INTO OUTFILE 拒絕；只能引用目錄內的表；涉及脫敏欄位（L3／L4／hide）直接 400；有行級範圍的自訂角色不開放；每人最多 5 條同時；max_execution_time 60 s、掃描預算；結果預覽 ≤ 1000 列；審計 query.sql）
+      requestBody: { content: { application/json: { schema: { type: object, required: [sql], properties: { sql: { type: string, maxLength: 20000 }, limit: { type: integer, default: 1000, maximum: 1000 }, params: { type: object, description: '動態參數 {name: value}，以 {{name}} 代入（只允許字串／數字／日期）' }, explain: { type: boolean, default: false, description: 只解析與估算，不執行 } } } } } }
+      responses: { '200': { description: '{ run_id, columns, rows, row_count, truncated, ms, scan_rows_estimate, sql_effective, warnings }' }, '400': { description: masked_field_or_non_select }, '429': { description: 超過每人同時 5 條 } }
   /v1/sql/query/{run_id}/download:
-    get: { tags: [SQL], summary: '下載查詢結果（Excel／CSV；上限 10 萬列；L2 區間化、浮水印；審計 export）', parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get: { tags: [SQL], summary: '下載此次預覽結果 CSV（≤ 1000 列，浮水印、審計 sql.downloaded；需該模組 export）；大量取數請走匯出申請（/v1/exports）', parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: 'text/csv' } } }
   /v1/sql/saved:
-    get: { tags: [SQL], summary: '已存查詢目錄（分組）', responses: { '200': { description: ok } } }
-    post: { tags: [SQL], summary: '添加到查詢／保存至概覽或書籤（含動態參數與可視化設定）', responses: { '201': { description: created } } }
+    get: { tags: [SQL], summary: '已存查詢（我的 + 分享給我的；分組）', responses: { '200': { description: ok } } }
+    post: { tags: [SQL], summary: '儲存查詢（名稱、分組、SQL、動態參數預設值、分享角色）；要放進看板請用 /v1/bookmarks（kind=sql）', responses: { '201': { description: created } } }
+  /v1/sql/saved/{id}:
+    put: { tags: [SQL], summary: 更新已存查詢, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    delete: { tags: [SQL], summary: 刪除已存查詢, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
   /v1/sql/history:
-    get: { tags: [SQL], summary: '查詢記錄（最近 30 天內最近 100 條；成功者可重新下載）', responses: { '200': { description: ok } } }
+    get: { tags: [SQL], summary: '查詢記錄（本人最近 100 條、30 天內；狀態、列數、耗時、錯誤）', responses: { '200': { description: ok } } }
   /v1/sql/mid-tables:
-    post: { tags: [SQL], summary: '保存到中間表：建立 SQL 任務（名稱、調度週期、授權）→ 任務管理與數據表管理各一筆', responses: { '201': { description: created } } }
+    get: { tags: [SQL], summary: '中間表清單（名稱、來源 SQL、列數、建立者、最近重算）', responses: { '200': { description: ok } } }
+    post: { tags: [SQL], summary: '保存到中間表：CREATE TABLE dmp.mid_<name> AS <sql>（同樣經沙盒驗證；需 governance.admin 或 integration.admin；登記到 /v1/sql/tables；審計 sql.mid_table.created）', responses: { '201': { description: created } } }
+  /v1/sql/mid-tables/{name}/refresh:
+    post: { tags: [SQL], summary: 重算中間表（整表重建）, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/sql/mid-tables/{name}:
+    delete: { tags: [SQL], summary: 刪除中間表（有書籤或標籤引用時 409）, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
   /v1/triggers:
     get: { tags: [Triggers], summary: '即時規則', responses: { '200': { description: ok } } }
     post: { tags: [Triggers], summary: '建立規則', responses: { '201': { description: created } } }
@@ -940,7 +952,7 @@ components:
       properties:
         bookmark: { type: string, description: 書籤 id；給了就以書籤的 kind／query 建卡，標題預設書籤名 }
         title: { type: string, minLength: 1, maxLength: 80 }
-        kind: { type: string, enum: [events, funnel, retention, path, attribution] }
+        kind: { type: string, enum: [events, funnel, retention, path, attribution, sql] }
         query: { type: object, additionalProperties: true, description: '對應 /v1/analytics/{kind} 的請求本體（EventsQuery／FunnelQuery／RetentionQuery／PathQuery／AttributionQuery）' }
         chart: { type: string, enum: [auto, line, bar, stat, table], default: auto }
         width: { type: integer, enum: [1, 2], default: 1, description: '1 = 半寬、2 = 全寬' }
@@ -1027,7 +1039,7 @@ components:
       properties:
         name: { type: string, maxLength: 80 }
         description: { type: string, maxLength: 400 }
-        kind: { type: string, enum: [events, funnel, retention, path, attribution] }
+        kind: { type: string, enum: [events, funnel, retention, path, attribution, sql], description: 'sql = 自定義 SQL（query 為 {sql, params?}；以沙盒規則驗證，卡片以表格或折線／長條呈現）' }
         query: { type: object, additionalProperties: true }
         chart: { type: string, enum: [auto, line, bar, stat, table], default: auto }
         shared: { type: object, properties: { roles: { type: array, items: { type: string } }, users: { type: array, items: { type: string } } } }
