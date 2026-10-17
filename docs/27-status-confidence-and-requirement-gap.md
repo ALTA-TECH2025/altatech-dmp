@@ -23,10 +23,11 @@
 | 間隔／分佈／Session／LTV 分析 | 契約 | — | 原型 | — |
 | 標籤（七種）、自定義 SQL、名單推送（Webhook 有骨架）、即時觸發 | 契約／原型 | `activation/webhook.py` 骨架 | 原型；正式前端為占位頁 | — |
 | 總覽／儀表板 | 可演示 | `/v1/dashboards*`：卡片存查詢、以檢視者身分重算、分享角色／使用者 | 列表、卡片網格（五種分析）、存為看板卡片、分享 | API 自測；單機環境 Playwright 走過登入 → 儀表板 → 存卡片 |
-| 日誌統計、平台設定 | 原型 | — | 占位頁 | — |
+| 日誌統計 | 可演示 | `/v1/audit` | 最近 N 筆、篩選、事件分佈（效能統計第二階段） | API 自測 |
+| 平台設定 | 待開發 | — | 占位頁（標示待開發） | — |
 | 數據整合（連線與密鑰參照、數據表登記、同步任務：建模、排程、執行器；GA4 BigQuery 匯出接入、神策格式檔匯入、MSSQL 抽取） | 可演示 | `integration/`、`api/integration.py` | 數據整合頁（數據源／數據表／同步任務／建立任務精靈） | API 自測（連線／數據表／任務乾跑）＋端到端 sensors／ga4／dbapi 段 |
 | 神策查詢 API 直連連接器 | 後端完成（待驗） | `integration/sensors_api.py` | — | 自測用假伺服器；對客戶測試環境因 API Secret 範圍不符尚未打通 |
-| 神策 → GA360 遷移（埋點銜接表、橋接轉名、導出任務狀態機） | 後端完成 | `migration/` | 原型；正式前端占位 | `bridge.py --check` |
+| 神策 → GA360 遷移（盤點、埋點銜接表、導出任務、對帳 T2／T5／T6、時序） | 可演示 | `/v1/migration/*`（`migration/inventory.yaml`、`bridge.py`、`sensors_api`、ClickHouse 對帳） | 正式頁；無神策連線時導出任務標「待連線」 | API 自測（假神策 API）；單機 ClickHouse 對帳樣本 |
 | OneID（主體、關聯邊、血緣、改綁政策、IDM 3.0 欄位） | 後端完成 | `oneid/` | 細查抽屜 ID 圖 | 20 個歸戶情境自測 |
 | MCP 工具閘道（權限／預算／脫敏／審計） | 契約＋骨架 | `mcp/server.py`、`tools.yaml` | — | — |
 | 部署（Helm、values-small、ClickHouse Keeper、Trivy／hadolint／gitleaks） | 可用 | `deploy/` | — | CI deploy job helm lint；弱掃綠 |
