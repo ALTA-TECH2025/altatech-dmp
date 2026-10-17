@@ -1,0 +1,18 @@
+# 告警通知預設值（docs/17 §5.16、docs/27 G2 通報流程）。線上修改（governance.admin）存控制面 config:ops_notify，覆蓋這裡；密鑰只能是 secret_ref。
+# 管道：Email（SMTP，DMP_SMTP_URL）、LINE 官方帳號（Messaging API；LINE Notify 已於 2025 年停止服務，不用）。叢集內 Alertmanager 的告警經 /v1/ops/notify/alertmanager 走同一組管道。
+version: 1
+email:
+  enabled: true
+  to_roles: [it_admin, admin]            # 從成員目錄（登入過的 SSO 帳號＋本機帳號）依角色取 email
+  extra_to: []                            # 值班信箱、群組信箱
+  subject_prefix: "[DMP 告警]"
+line:
+  enabled: false
+  channel_access_token_ref: ""            # 例：kv/data/dmp/prod/line#channel_access_token（長期 token，LINE Developers 的 Messaging API 分頁）
+  to: []                                  # userId（U…）／groupId（C…）／roomId（R…）；把官方帳號加進值班群組後用 webhook 事件取得 groupId
+  api_base: https://api.line.me
+policy:
+  min_severity: medium                    # low 不通知（只在頁面顯示）
+  cooldown_min: 60                        # 同一告警（key＋對象）持續觸發時最多每小時通知一次
+  notify_resolved: true                   # 告警消失時送一則「已恢復」
+  quiet_hours: null                       # 例：{ start: 0, end: 7, tz: Asia/Taipei }：靜音時段只送 critical

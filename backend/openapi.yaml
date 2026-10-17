@@ -487,6 +487,15 @@ paths:
     post: { tags: [Ops], summary: '立即重跑同步任務（name = 同步任務 id）；需 governance.admin；審計 batch.rerun', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted }, '404': { description: 無此作業 }, '409': { description: 作業正在執行或已停用 } } }
   /v1/ops/series:
     get: { tags: [Ops], summary: '系統監控頁的時間序列：與 Grafana 看板同一組面板（backend/ops/panels.yaml；每個面板附 PromQL），由 API 每分鐘快照程序內指標與 collector 存成環形緩衝（最多 24 小時；程序重啟即清空，長期保存看 Prometheus／Grafana）；回傳 Grafana 連結設定（DMP_GRAFANA_URL）供頁面嵌入；需 governance.admin（系統管理員、資訊管理）', parameters: [{ name: hours, in: query, schema: { type: integer, enum: [1, 6, 24], default: 6 } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/OpsSeries' } } } } } }
+  /v1/ops/notify:
+    get: { tags: [Ops], summary: '告警通知設定：Email（SMTP，收件角色＋額外收件人）、LINE 官方帳號（Messaging API push／multicast；channel access token 只存 secret_ref；收件 userId／groupId）、政策（最低嚴重度、同一告警冷卻分鐘、恢復通知）；預設值 backend/ops/notify.yaml，線上修改存控制面；需 governance.admin', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/NotifyConfig' } } } } } }
+    put: { tags: [Ops], summary: '修改通知設定（密鑰只能是 secret_ref；LINE 收件 ID 格式 U／C／R 開頭 33 字元）；審計 ops.notify.changed；需 governance.admin', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/NotifyConfig' } } } }, responses: { '200': { description: ok }, '400': { description: 格式錯誤或密鑰明文 } } }
+  /v1/ops/notify/test:
+    post: { tags: [Ops], summary: '送測試通知到指定管道（email|line），回傳每個收件對象的結果；審計 ops.notify.tested；需 governance.admin', requestBody: { content: { application/json: { schema: { type: object, required: [channel], properties: { channel: { type: string, enum: [email, line] } } } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Notification' } } } }, '409': { description: 管道未啟用或未設定 } } }
+  /v1/ops/notify/history:
+    get: { tags: [Ops], summary: '通知紀錄（最近 N 筆：時間、管道、告警鍵、收件數、狀態、回應摘要）；需 governance.view', parameters: [{ name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Notification' } } } } } } }
+  /v1/ops/notify/alertmanager:
+    post: { tags: [Ops], summary: 'Alertmanager webhook 接收端（叢集內 PrometheusRule 的告警經此走同一組 Email／LINE 管道與冷卻政策）；Bearer DMP_METRICS_TOKEN；接受 Alertmanager v4 payload（alerts[].labels.alertname/severity/key、annotations.summary、status firing|resolved）', responses: { '200': { description: ok }, '401': { description: 未授權 } } }
   /v1/ops/alerts:
     get: { tags: [Ops], summary: '告警：依 backend/ops/alerts.yaml 的規則對當前指標評估（來源延遲、同步失敗、查詢 P95 超 SLA、交付進死信、目的地自動暫停、例行作業連續失敗、ClickHouse 表用量、隔離率）；回傳觸發中的告警與全部規則；通知管道（Email／LINE）第二階段，叢集內由 PrometheusRule 同規則送 Alertmanager；需 governance.view', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/OpsAlerts' } } } } } }
   /v1/migration/inventory:
@@ -1366,6 +1375,27 @@ components:
         points: { type: integer, description: 緩衝內的快照數 }
         grafana: { type: object, properties: { url: { type: string, nullable: true, description: 'DMP_GRAFANA_URL；null = 未設定，頁面只顯示 API 快照' }, dashboard_uid: { type: string } } }
         panels: { type: array, items: { $ref: '#/components/schemas/OpsPanel' } }
+    NotifyConfig:
+      type: object
+      properties:
+        email: { type: object, properties: { enabled: { type: boolean }, to_roles: { type: array, items: { type: string }, description: 依角色從成員目錄取 email（admin、it_admin、digital_ops…） }, extra_to: { type: array, items: { type: string, format: email } }, subject_prefix: { type: string } } }
+        line: { type: object, properties: { enabled: { type: boolean }, channel_access_token_ref: { type: string, description: 'secret_ref（kv/…#token、projects/…/secrets/…、secret://…）；回傳時原樣，不回明文' }, to: { type: array, items: { type: string }, description: 'LINE userId（U…）／groupId（C…）／roomId（R…）；多個用 multicast' }, api_base: { type: string, default: 'https://api.line.me' } } }
+        policy: { type: object, properties: { min_severity: { type: string, enum: [low, medium, high, critical], default: medium }, cooldown_min: { type: integer, default: 60, description: 同一告警（key＋對象）再次通知的最短間隔 }, notify_resolved: { type: boolean, default: true }, quiet_hours: { type: object, nullable: true, properties: { start: { type: integer }, end: { type: integer }, tz: { type: string } }, description: 靜音時段只送 critical } } }
+        updated_at: { type: string, nullable: true }
+        updated_by: { type: string, nullable: true }
+        available: { type: object, description: 執行環境是否具備：email 需 DMP_SMTP_URL、line 需 token 可解析, properties: { email: { type: boolean }, line: { type: boolean } } }
+    Notification:
+      type: object
+      properties:
+        id: { type: string }
+        at: { type: string, format: date-time }
+        channel: { type: string, enum: [email, line] }
+        kind: { type: string, enum: [alert, resolved, test, alertmanager] }
+        alerts: { type: array, items: { type: string }, description: 告警鍵＋對象 }
+        recipients: { type: integer }
+        status: { type: string, enum: [ok, failed, skipped] }
+        response: { type: string, nullable: true }
+        text: { type: string, description: 送出的訊息（純文字） }
     OpsAlerts:
       type: object
       properties:
