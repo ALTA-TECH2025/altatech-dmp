@@ -6,6 +6,7 @@ import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
 import { SaveCardButton } from '@/dashboards/SaveCardButton';
+import { useBookmarkOpen } from '@/dashboards/useBookmarkOpen';
 import { dedupe } from './FunnelPage';
 import { PathChart } from './PathChart';
 import { fmtMs } from './sankey';
@@ -29,6 +30,7 @@ function PathInner() {
   const [busy, setBusy] = useState(false);
   const [showSql, setShowSql] = useState(false);
   const [sent, setSent] = useState<Record<string, unknown> | null>(null);
+  const bm = useBookmarkOpen<typeof q>('path', setQ);
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
   const run = async (over?: Partial<PathQuery>) => {
     const body = { ...q, ...over }; setQ(body);
@@ -36,6 +38,8 @@ function PathInner() {
     try { const sendBody = { ...body, filters: body.filters?.length ? body.filters : undefined, nodes: { ...body.nodes, events: body.nodes?.events?.length ? body.nodes.events : undefined, split: body.nodes?.split?.length ? body.nodes.split : undefined } }; setRes(await api.post<PathResult>('/v1/analytics/path', sendBody)); setSent(sendBody); }
     catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); } finally { setBusy(false); }
   };
+  useEffect(() => { if (bm.pending && cat) { bm.done(); void run(); } // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bm.pending, cat]);
   const k = me?.scope.k_anonymity ?? 20;
   const evCn = (n: string) => { const [ev, val] = n.split(':'); const cn = cat?.events.find((e) => e.name === ev)?.cn ?? ev; return val !== undefined ? `${cn}:${val}` : cn; };
   const splitFields = dedupe(cat ? [...cat.event_columns.filter((c) => c.name !== 'amount' && c.name !== '$event_hour').map((c) => ({ v: c.name, cn: c.cn })), ...cat.dimensions.map((d) => ({ v: d.name, cn: d.cn }))] : []);

@@ -2,7 +2,7 @@
 export type CardKind = 'events' | 'funnel' | 'retention' | 'path' | 'attribution';
 export type CardChart = 'auto' | 'line' | 'bar' | 'stat' | 'table';
 export type Preset = '7d' | '14d' | '30d' | '90d';
-export interface DashboardCard { id: string; title: string; kind: CardKind; query: Record<string, unknown>; chart: CardChart; width: 1 | 2; note: string; created_by: string; created_at: string }
+export interface DashboardCard { id: string; title: string; kind: CardKind; query: Record<string, unknown>; chart: CardChart; width: 1 | 2; note: string; created_by: string; created_at: string; bookmark?: string; bookmark_deleted?: boolean }
 export interface Dashboard {
   id: string; name: string; description: string; owner: string; shared: { roles: string[]; users: string[] }; time: { preset: Preset };
   cards: DashboardCard[]; created_at: string; updated_at: string; mine: boolean; editable: boolean; seed?: boolean;
@@ -27,4 +27,10 @@ export interface ScheduleRun { at: string; trigger: 'tick' | 'manual'; artifact_
 export interface Schedule {
   id: string; dashboard: string; weekday: number | null; hour: number; audience: { roles: string[]; emails: string[] }; expires_days: number; include_explain: boolean;
   status: 'pending_approval' | 'active' | 'paused' | 'rejected'; approval: string | null; created_by: string; created_at: string; last_run: ScheduleRun | null;
+}
+
+// ---- 書籤（神策「書籤」對應）：分析查詢存成可重用、可分享的物件；看板卡片可引用 ----
+export interface Bookmark {
+  id: string; name: string; description: string; kind: CardKind; query: Record<string, unknown>; chart: CardChart; shared: { roles: string[]; users: string[] };
+  owner: string; created_at: string; updated_at: string; mine: boolean; editable: boolean; used_in: { dashboard: string; name: string }[]; added_to?: { dashboard: string; name: string }[];
 }

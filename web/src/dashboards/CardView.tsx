@@ -24,7 +24,7 @@ export function CardView({ dash, card, k, labelOf, reloadKey, onRemove, onRename
   return (
     <div className={`card dash-card w${card.width}`} {...rootProps}>
       <div className="card-h">
-        <h3>{card.title}</h3>
+        <h3>{card.title}{card.bookmark && <span className={`pill ${card.bookmark_deleted ? 'gray' : 'custom'}`} style={{ marginLeft: 6 }} title={card.bookmark_deleted ? '書籤已刪除，顯示刪除前的查詢' : `書籤 ${card.bookmark}`}>{card.bookmark_deleted ? '書籤已刪除' : '書籤'}</span>}</h3>
         <span className="sub">{data ? `${timeText(data.time, dash.time.preset)} · ${data.cost.ms} ms` : busy ? '載入中…' : ''}</span>
         <div className="right row" style={{ marginTop: 0, gap: 4 }}>
           {data && <button className="btn-ghost sm" onClick={() => setShowSql((v) => !v)} title="SQL 與血緣">SQL</button>}

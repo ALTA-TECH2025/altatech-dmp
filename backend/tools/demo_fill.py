@@ -143,6 +143,15 @@ def main() -> None:
     for sess, path in ((mkt, "/v1/iam/roles"), (mkt, "/v1/settings"), (ana, "/v1/iam/users"), (mkt, "/v1/audit/export")):   # 幾筆權限拒絕，讓看板有「權限拒絕」
         with contextlib.suppress(RuntimeError):
             sess.call("GET", path)
+    # 7a. 書籤：分析師存三個書籤（分享給行銷），其中兩個放進「行銷週報」看板
+    if not ana.call("GET", "/v1/bookmarks"):
+        T2 = {"from": "2026-10-01", "to": "2026-10-16", "grain": "day"}
+        b1 = ana.call("POST", "/v1/bookmarks", {"name": "成交筆數（日）", "description": "bond_deal 每日總次數，口徑同神策『成交』", "kind": "events", "chart": "line", "shared": {"roles": ["marketing", "digital_ops"]},
+                                               "query": {"project": "golden", "metrics": [{"event": "bond_deal", "agg": "total", "alias": "deals"}], "time": T2}, "new_dashboard": "行銷週報", "width": 2})
+        wid = b1["added_to"][0]["dashboard"]
+        ana.call("POST", "/v1/bookmarks", {"name": "看盤 → 委託 → 成交（7 天窗）", "kind": "funnel", "shared": {"roles": ["marketing"]}, "add_to": [wid],
+                                          "query": {"project": "golden", "steps": [{"event": "hq_stockdetail_view", "alias": "看盤"}, {"event": "bond_order", "alias": "委託"}, {"event": "bond_deal", "alias": "成交"}], "window": {"value": 7, "unit": "day"}, "order": "loose", "metric": "users", "time": {"from": "2026-10-01", "to": "2026-10-16"}}})
+        ana.call("POST", "/v1/bookmarks", {"name": "登入後 4 週留存", "kind": "retention", "query": {"project": "golden", "initial": {"event": "app_login_success"}, "return": {"event": "app_login_success"}, "model": "interval", "unit": "week", "periods": 3, "time": {"from": "2026-09-20", "to": "2026-10-16"}}})
     # 7. 儀表板定時寄送：範例看板留一筆待審批
     seed = next((d for d in adm.call("GET", "/v1/dashboards") if d.get("seed")), None)
     if seed and not adm.call("GET", f"/v1/dashboards/{seed['id']}/schedules"):

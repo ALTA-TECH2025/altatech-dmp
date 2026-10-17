@@ -6,7 +6,7 @@ export interface NavItem { path: string; cn: string; module: Module; stage?: 'ph
 export interface NavGroup { id: string; cn: string; items: NavItem[] }
 
 export const NAV: NavGroup[] = [
-  { id: 'home', cn: '首頁', items: [{ path: '/overview', cn: '總覽／儀表板', module: 'overview' }] },
+  { id: 'home', cn: '首頁', items: [{ path: '/overview', cn: '總覽／儀表板', module: 'overview' }, { path: '/bookmarks', cn: '書籤', module: 'overview' }] },
   { id: 'analysis', cn: '分析', items: [
     { path: '/events', cn: '事件分析', module: 'events' },
     { path: '/funnel', cn: '漏斗分析', module: 'funnel' },

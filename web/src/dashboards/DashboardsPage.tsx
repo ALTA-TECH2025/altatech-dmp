@@ -8,7 +8,7 @@ import { RequireGrant } from '@/auth/RequireGrant';
 import { CardView } from './CardView';
 import { SharePanel } from './SharePanel';
 import { KIND_CN, PRESET_CN } from './dashboards';
-import type { Dashboard, DashboardSummary, Preset } from './types';
+import type { Bookmark, Dashboard, DashboardSummary, Preset } from './types';
 
 const ROLES: [string, string][] = [['admin', '系統管理員'], ['marketing', '行銷'], ['data_analyst', '數據分析'], ['digital_ops', '數位經營'], ['it_admin', '資訊管理']];
 
@@ -44,7 +44,7 @@ function DashboardList() {
             <select value={preset} onChange={(e) => setPreset(e.target.value as Preset)}>{(Object.keys(PRESET_CN) as Preset[]).map((p) => <option key={p} value={p}>{PRESET_CN[p]}</option>)}</select>
             <button className="btn-primary" disabled={!name.trim()}>建立</button>
           </div>
-          <p className="note">到各分析頁查詢後按「存為看板卡片」即可加卡片。</p>
+          <p className="note">看板由書籤組成：到各分析頁查詢後按「存為書籤」並加入看板，或在看板裡「＋ 加入書籤」。<Link to="/bookmarks">管理書籤</Link></p>
         </form>
       )}
       {[['我的儀表板', mine], ['分享給我的', shared]].map(([h, ds]) => (
@@ -79,6 +79,9 @@ function DashboardDetail({ id }: { id: string }) {
   const [adv, setAdv] = useState(false);
   const [roles, setRoles] = useState<string[]>([]); const [users, setUsers] = useState('');
   const [drag, setDrag] = useState<string | null>(null); const [over, setOver] = useState<string | null>(null);
+  const [bms, setBms] = useState<Bookmark[] | null>(null); const [bmPick, setBmPick] = useState('');
+  const openBm = async () => { const l = await api.get<Bookmark[]>('/v1/bookmarks'); setBms(l); setBmPick(l[0]?.id ?? ''); };
+  const addBm = async () => { if (!bmPick) return; try { await api.post(`/v1/dashboards/${id}/cards`, { bookmark: bmPick }); setD(await api.get<Dashboard>(`/v1/dashboards/${id}`)); setBms(null); } catch (e) { setErr(e instanceof ApiError ? e.message : '加入失敗'); } };
   useEffect(() => { api.get<Dashboard>(`/v1/dashboards/${id}`).then((x) => { setD(x); setRoles(x.shared.roles); setUsers(x.shared.users.join(', ')); }).catch((e: Error) => setErr(e.message)); }, [id]);
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch(() => setCat(null)); }, []);
   const labelOf = useMemo(() => { const m = new Map((cat?.events ?? []).map((e) => [e.name, e.cn])); return (n: string) => m.get(n) ?? n; }, [cat]);
@@ -96,6 +99,7 @@ function DashboardDetail({ id }: { id: string }) {
           {d.editable && <>
             <button className="btn-ghost" onClick={() => { const n = prompt('儀表板名稱', d.name); if (n && n.trim()) void put({ name: n.trim() }); }}>改名</button>
             <button className="btn-ghost" onClick={() => setShare((v) => !v)}>分享</button>
+            <button className="btn-ghost" onClick={() => void openBm()}>＋ 加入書籤</button>
             <button className="btn-ghost danger" onClick={() => { if (confirm(`刪除「${d.name}」？卡片會一起刪除。`)) api.del(`/v1/dashboards/${id}`).then(() => nav('/overview')).catch((e: Error) => setErr(e.message)); }}>刪除</button>
           </>}
           <button className="btn-ghost" onClick={() => setAdv((v) => !v)}>解讀 / HTML 看板 / 定時寄送</button>
@@ -103,6 +107,9 @@ function DashboardDetail({ id }: { id: string }) {
         </div>
       </div>
       {err && <div className="alert">{err}</div>}
+      {bms && d.editable && (
+        <div className="card" style={{ marginBottom: 16 }}><div className="card-h"><h3>加入書籤</h3><span className="sub">書籤 = 分析頁存下的查詢；卡片會跟著書籤更新</span><button className="btn-ghost sm right" onClick={() => setBms(null)}>關閉</button></div>
+          <div className="row"><select value={bmPick} onChange={(e) => setBmPick(e.target.value)} className="grow">{bms.map((b) => <option key={b.id} value={b.id}>{b.name}（{KIND_CN[b.kind]}）</option>)}</select><button className="btn-primary" disabled={!bmPick} onClick={() => void addBm()}>加入</button>{bms.length === 0 && <span className="sub">還沒有書籤：到分析頁查詢後按「存為書籤」。</span>}<Link className="btn-ghost" to="/bookmarks">管理書籤</Link></div></div>)}
       {adv && <SharePanel d={d} onClose={() => setAdv(false)} />}
       {share && d.editable && (
         <div className="card" style={{ marginBottom: 16 }}>
@@ -114,7 +121,7 @@ function DashboardDetail({ id }: { id: string }) {
           <div className="row"><button className="btn-primary" onClick={() => void put({ shared: { roles, users: users.split(/[,\s，、]+/).map((x) => x.trim()).filter(Boolean) } }).then(() => setShare(false))}>儲存分享設定</button></div>
         </div>
       )}
-      {d.cards.length === 0 ? <div className="card"><p className="note">還沒有卡片。到<Link to="/events">事件分析</Link>、<Link to="/funnel">漏斗</Link>、<Link to="/retention">留存</Link>、<Link to="/path">路徑</Link>或<Link to="/attribution">歸因</Link>查詢後按「存為看板卡片」。</p></div> : (
+      {d.cards.length === 0 ? <div className="card"><p className="note">還沒有卡片。按「＋ 加入書籤」挑既有書籤，或到<Link to="/events">事件分析</Link>、<Link to="/funnel">漏斗</Link>、<Link to="/retention">留存</Link>、<Link to="/path">路徑</Link>或<Link to="/attribution">歸因</Link>查詢後按「存為書籤」並加入這個看板。</p></div> : (
         <div className="dash-grid">
           {d.cards.map((c) => (
             <CardView key={c.id} dash={d} card={c} k={k} labelOf={labelOf} reloadKey={reload}

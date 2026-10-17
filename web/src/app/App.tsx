@@ -20,6 +20,7 @@ import { UserSchemaPage } from '@/governance/UserSchemaPage';
 import { ItemsPage } from '@/governance/ItemsPage';
 import { MigrationPage } from '@/migration/MigrationPage';
 import { AuditPage } from '@/audit/AuditPage';
+import { BookmarksPage } from '@/dashboards/BookmarksPage';
 import { SettingsPage } from '@/settings/SettingsPage';
 import { ProfileEntryPage } from '@/users/ProfileEntryPage';
 import type { Module } from '@/api/types';
@@ -46,6 +47,7 @@ export function App() {
             <Route index element={<Navigate to="/overview" replace />} />
             <Route path="/overview" element={<DashboardsPage />} />
             <Route path="/overview/:id" element={<DashboardsPage />} />
+            <Route path="/bookmarks" element={<BookmarksPage />} />
             <Route path="/events" element={<EventsPage />} />
             <Route path="/funnel" element={<FunnelPage />} />
             <Route path="/retention" element={<RetentionPage />} />

@@ -6,6 +6,7 @@ import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
 import { SaveCardButton } from '@/dashboards/SaveCardButton';
+import { useBookmarkOpen } from '@/dashboards/useBookmarkOpen';
 import { dedupe } from './FunnelPage';
 import { LineChart } from './LineChart';
 import { fmtNum, type Series } from './series';
@@ -33,6 +34,7 @@ function AttributionInner() {
   const [busy, setBusy] = useState(false);
   const [showSql, setShowSql] = useState(false);
   const [sent, setSent] = useState<Record<string, unknown> | null>(null);
+  const bm = useBookmarkOpen<typeof q>('attribution', setQ);
   const [metric, setMetric] = useState<'conversions' | 'value'>('conversions');
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
   const setTouch = (i: number, t: Partial<AttributionTouch>) => setQ({ ...q, touches: q.touches.map((x, j) => (j === i ? { ...x, ...t } : x)) });
@@ -41,6 +43,8 @@ function AttributionInner() {
     try { const body = { ...q, filters: q.filters?.length ? q.filters : undefined, split: q.split || undefined, touches: q.touches.map((t) => ({ ...t, alias: t.alias || undefined })) }; setRes(await api.post<AttributionResult>('/v1/analytics/attribution', body)); setSent(body); }
     catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); } finally { setBusy(false); }
   };
+  useEffect(() => { if (bm.pending && cat) { bm.done(); void run(); } // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bm.pending, cat]);
   const k = me?.scope.k_anonymity ?? 20;
   const ready = !!q.target.event && q.touches.length > 0 && q.touches.every((t) => t.event) && q.models.length > 0;
   const splitOptions = dedupe(cat ? [...cat.event_columns.filter((c) => c.type !== 'number' && c.name !== '$event_hour').map((c) => ({ v: c.name, cn: c.cn })), ...cat.dimensions.map((d) => ({ v: d.name, cn: d.cn }))] : []);

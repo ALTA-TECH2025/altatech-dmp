@@ -6,6 +6,7 @@ import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
 import { SaveCardButton } from '@/dashboards/SaveCardButton';
+import { useBookmarkOpen } from '@/dashboards/useBookmarkOpen';
 import { dedupe } from './FunnelPage';
 import type { Catalog, RetentionQuery, RetentionResult, RetentionRow } from './types';
 
@@ -27,6 +28,7 @@ function RetentionInner() {
   const [busy, setBusy] = useState(false);
   const [showSql, setShowSql] = useState(false);
   const [sent, setSent] = useState<Record<string, unknown> | null>(null);
+  const bm = useBookmarkOpen<typeof q>('retention', setQ);
   const [display, setDisplay] = useState<'rate' | 'users'>('rate');
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
   const run = async () => {
@@ -35,6 +37,8 @@ function RetentionInner() {
     catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); }
     finally { setBusy(false); }
   };
+  useEffect(() => { if (bm.pending && cat) { bm.done(); void run(); } // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bm.pending, cat]);
   const k = me?.scope.k_anonymity ?? 20;
   const groups = useMemo(() => {
     if (!res) return [] as [string, RetentionRow[]][];

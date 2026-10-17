@@ -6,6 +6,7 @@ import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
 import { SaveCardButton } from '@/dashboards/SaveCardButton';
+import { useBookmarkOpen } from '@/dashboards/useBookmarkOpen';
 import { FunnelChart } from './FunnelChart';
 import type { Catalog, FunnelQuery, FunnelResult, FunnelStep } from './types';
 
@@ -27,6 +28,7 @@ function FunnelInner() {
   const [busy, setBusy] = useState(false);
   const [showSql, setShowSql] = useState(false);
   const [sent, setSent] = useState<FunnelQuery | null>(null);
+  const bm = useBookmarkOpen<typeof q>('funnel', setQ);
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
 
   const setStep = (i: number, s: Partial<FunnelStep>) => setQ({ ...q, steps: q.steps.map((x, j) => (j === i ? { ...x, ...s } : x)) });
@@ -36,6 +38,8 @@ function FunnelInner() {
     catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); }
     finally { setBusy(false); }
   };
+  useEffect(() => { if (bm.pending && cat) { bm.done(); void run(); } // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bm.pending, cat]);
   const ready = q.steps.length >= 2 && q.steps.every((s) => s.event);
   const groups = useMemo(() => {
     if (!res) return [];

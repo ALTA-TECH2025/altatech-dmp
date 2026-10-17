@@ -6,6 +6,7 @@ import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
 import { SaveCardButton } from '@/dashboards/SaveCardButton';
+import { useBookmarkOpen } from '@/dashboards/useBookmarkOpen';
 import { dedupe } from './FunnelPage';
 import { LineChart } from './LineChart';
 import { fmtNum, groupLabel, toSeries } from './series';
@@ -31,6 +32,7 @@ function EventsInner() {
   const [busy, setBusy] = useState(false);
   const [showSql, setShowSql] = useState(false);
   const [sent, setSent] = useState<EventsQuery | null>(null);
+  const bm = useBookmarkOpen<typeof q>('events', setQ);
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
 
   const setMetric = (i: number, m: Partial<EventsMetric>) => setQ({ ...q, metrics: q.metrics.map((x, j) => (j === i ? { ...x, ...m } : x)) });
@@ -42,6 +44,8 @@ function EventsInner() {
     } catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); }
     finally { setBusy(false); }
   };
+  useEffect(() => { if (bm.pending && cat) { bm.done(); void run(); } // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bm.pending, cat]);
   const k = me?.scope.k_anonymity ?? 20;
   const aliases = q.metrics.map((m, i) => m.alias || `m${i + 1}`);
   const labels = Object.fromEntries(q.metrics.map((m, i) => [m.alias || `m${i + 1}`, `${m.event || '任一事件'} ${AGG_CN[m.agg]}${m.field ? `(${m.field})` : ''}`]));

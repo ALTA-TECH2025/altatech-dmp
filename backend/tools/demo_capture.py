@@ -15,7 +15,7 @@ OUT = Path(__file__).resolve().parents[2] / "web" / "src" / "demo" / "fixtures.j
 ROLES = ["admin", "marketing", "analyst", "ops", "it"]
 T = {"from": "2026-10-01", "to": "2026-10-16", "grain": "day", "pinned": True}
 UQ = {"project": "golden", "filters": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}], "behaviors": [{"event": "bond_deal", "count": {"op": "gte", "value": 3}, "time": {"from": "2026-10-01", "to": "2026-10-16"}}]}
-GETS = ["/auth/providers", "/v1/dashboards", "/v1/exports", "/v1/reveals", "/v1/segments", "/v1/segments?status=recycled", "/v1/semantic/catalog", "/v1/audit?n=200", "/v1/audit?n=100", "/v1/audit?n=500", "/v1/audit?n=1000",
+GETS = ["/auth/providers", "/v1/dashboards", "/v1/bookmarks", "/v1/exports", "/v1/reveals", "/v1/segments", "/v1/segments?status=recycled", "/v1/semantic/catalog", "/v1/audit?n=200", "/v1/audit?n=100", "/v1/audit?n=500", "/v1/audit?n=1000",
         "/v1/approvals?scope=to_me", "/v1/approvals?scope=mine", "/v1/approvals?scope=all",
         "/v1/iam/roles", "/v1/iam/assignments", "/v1/iam/sessions", "/v1/iam/sessions?scope=all", "/v1/iam/users", "/v1/iam/changes", "/v1/iam/masking", "/v1/iam/modules",
         "/v1/settings",
@@ -84,6 +84,8 @@ def main() -> None:
     for j in fx["routes"].get("GET /v1/migration/exports", {}).get("items", []):
         r = adm.call("GET", f"/v1/migration/exports/{j['id']}"); put("GET", f"/v1/migration/exports/{j['id']}", r); put("GET", "/v1/migration/exports/*", r)
     put("GET", "/v1/migration/reconcile", fx["routes"]["GET /v1/migration/reconcile?days=28&project=migration_demo"])
+    for bmk in fx["routes"].get("GET /v1/bookmarks", []):
+        put("GET", f"/v1/bookmarks/{bmk['id']}", adm.call("GET", f"/v1/bookmarks/{bmk['id']}")); r = adm.call("POST", f"/v1/bookmarks/{bmk['id']}/data", {}); put("POST", f"/v1/bookmarks/{bmk['id']}/data", r)
     for m in fx["routes"].get("GET /v1/iam/users", [])[:12]:
         r = adm.call("GET", f"/v1/iam/users/{m['id']}"); put("GET", f"/v1/iam/users/{m['id']}", r); put("GET", "/v1/iam/users/*", r)
     rows = fx["routes"].get("POST /v1/users/list", {}).get("rows", [])
