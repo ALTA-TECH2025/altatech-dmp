@@ -75,8 +75,22 @@ v2.1 相對 v2 的差別來自兩件事：
 產能與風險：
 - 研發 2 人 × 18 週 ≈ 180 人日；剩餘工程量約 165 人日（真資料接入與修正 50、效能 20、功能缺口 40、UAT 缺陷修正 40、結合分析支援 15），**沒有餘裕**；神策經驗讓盤點、口徑、對帳、導出這些原本會回頭找研發的工作留在分析師與運維手上，是這個配置成立的前提。超出時先砍功能缺口（Kafka／GCS、Session 分析延第二階段），不砍真資料與驗收。
 - 兩位研發各自是單點：互為備援，每人至少熟悉對方一個模組；ClickHouse 顧問 20 天保留。
-- 沒有專職 QA：驗收由產品（功能）＋分析師（資料與口徑）＋運維（效能與安全）分擔，研發負責自動化測試不退步（CI 全綠才合併）。
+- 沒有專職 QA：以 **AI QA agent ＋ 半個人** 補（見下方「QA 配置」），不另補運維——剩下的風險在資料與口徑，不在基礎設施。
 - 神策經驗的風險：容易把「神策怎麼做」當成口徑，而不是需求表；口徑差異一律寫進 docs/22 §2.3 並由產品簽認。
+
+### QA 配置：AI QA agent ＋ 驗收主責
+
+| 層 | 誰做 | 內容 | 已有的底子 |
+|---|---|---|---|
+| 回歸（每 PR、每晚） | **AI QA agent**（研發 R2 維護排程與腳本） | 17 組 Python 自測、80 條黃金查詢 oracle 逐列比對、真 ClickHouse 端到端、vitest、Playwright 主線（本機真資料＋示範站）；每晚全跑、每 PR 跑子集 | CI 已有；排程以 Claude Code 定時任務跑並自動分流 |
+| 產測試 | AI QA agent（研發審） | 從 Story 驗收條件生成測試案例與必拒案例；從 `openapi.yaml` 生成契約測試（schemathesis）；新頁面補 Playwright 流程 | Story 模板、契約、既有 Playwright 腳本 |
+| 資料品質 | AI QA agent（分析師審） | T1–T9 對帳排成每日作業；差異超門檻自動開 issue、附初步歸因（事件名、日期、來源） | `migration/` 對帳邏輯、docs/22 §4 |
+| 分流與第一輪審查 | AI QA agent | 自動化失敗先讀 log、重現、判斷 flake／資料／程式，開 issue 指派；PR 第一輪審查（AGENTS.md 規則） | GitHub App 審查已啟用 |
+| **驗收判斷（人簽）** | **數據分析師（資料與口徑）＋ 產品（功能）＋ 運維（效能、安全）** | 真資料上數字對不對得上神策報表、口徑取捨、探索式測試（客戶真實用法）、滲透與法遵檢核、UAT 現場 | — |
+
+- 人力：分析師約 0.3、產品約 0.2 的時間；研發 R2 約 0.1 維護 agent。
+- **第七人的觸發條件**：M2 對帳差異或 M3 並行差異連續兩週收斂不了，補「分析師 B／驗收專責」（不是運維），專做差異歸因與 UAT 案例；若 M4 前都收斂，不補。
+- AI QA agent 的邊界：只跑合成與示範資料、對帳只看筆數與差異率；不碰真資料明細；自動開的 issue 由人決定優先序。
 
 ## 2b. 協同工作方式（全員 Claude Team 帳號）
 
@@ -89,6 +103,7 @@ v2.1 相對 v2 的差別來自兩件事：
 | PM | 站會紀錄、風險登錄、進度報告、待確認追蹤表；時程變更影響分析 | Claude.ai Project（掛 docs/31、docs/17 §5a） | `docs/31`、issue 看板、週報 |
 | 數據分析師 | 盤點清單、對帳 SQL、差異歸因、golden 口徑對照、分群／標籤規則重建、情境看板設計 | Claude Code 在 repo 內跑 `backend/semantic/compiler/golden.py`、自定義 SQL 沙盒、AI 生成卡片；Claude.ai Project 掛神策文件與 docs/21、22 | `golden.py`、`seed.py`、對帳報表（repo `reports/`）、docs/22 §4 |
 | 運維 | Helm values、告警規則、runbook、導出作業腳本、事故分析 | Claude Code 改 `deploy/`、`.github/`；Claude.ai 問 ClickHouse／K8s 操作 | `deploy/`、runbook、監控看板 JSON |
+| AI QA agent（R2 維護） | 每晚全回歸、每 PR 子集、產測試案例與契約測試、T1–T9 每日對帳、失敗分流開 issue、PR 第一輪審查 | Claude Code 定時任務（雲端 session 排程）＋ GitHub Actions | CI 結果、issue、對帳報表（筆數與差異率） |
 
 共同規則：
 1. **資料不進 Claude**：只用合成黃金資料與 `demo_fill` 的示範資料；神策真資料、客戶名單、密鑰一律不貼進對話或 repo（CLAUDE.md 既有規則：模擬資料不含真實客戶、密鑰只能 secret_ref）。對帳報表只放筆數與差異率，不放明細。
