@@ -1,0 +1,12 @@
+# gitleaks 設定（security.yml 的 Secrets scan）。
+# 示範站的固定資料是從本機合成資料擷取的 JSON（sql_hash、event_id、delivery id 等十六進位字串），會被 generic-api-key 規則整檔誤判；
+# 那個檔案由 backend/tools/demo_capture.py 產生、擷取前已確認不含密鑰值（只有 secret_ref 名稱）。真的密鑰只能放密鑰庫，repo 裡只有參照。
+[extend]
+useDefault = true
+
+[allowlist]
+description = "合成示範資料與原型假資料"
+paths = [
+  '''web/src/demo/fixtures\.json''',
+  '''prototype/js/data\.js''',
+]
