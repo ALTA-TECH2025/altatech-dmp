@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any
 
@@ -13,7 +14,7 @@ from fastapi.testclient import TestClient
 from ..auth.api import AuthService, load_cfg
 from ..auth.session import MemoryStore as SessionMemory
 from ..auth.session import SessionManager
-from ..security.policy import RBAC
+from ..security.policy import RBAC, Subject
 from .app import create_app
 from .store import MemoryStore
 
@@ -27,7 +28,18 @@ class FakeClickHouse:
         self.sqls.append(sql)
         if sql.startswith("EXPLAIN ESTIMATE"):
             return "dmp\tevents\t2\t16384\t2\n"
+        if sql.startswith(("INSERT INTO dmp.user_tags", "ALTER TABLE dmp.user_tags", "INSERT INTO dmp.segment_members")):
+            return ""
+        if sql.startswith("SELECT count() FROM dmp.segment_members"):                          # 分群引擎的計數查詢不帶 settings
+            return "3\n"
         assert settings and settings.get("max_execution_time") in (60, 600), settings        # human 60s；匯出走 batch 600s
+        if sql.startswith("SELECT one_id, one_id_uint FROM dmp.segment_members"):
+            v = int(re.search(r"version = (\d+)", sql).group(1))                                 # 版本 n 的成員 = u{n}, u{n+1}, u{n+2}（相鄰版本差一進一出）
+            return "".join(f'{{"one_id":"u{i}","one_id_uint":{i}}}\n' for i in range(v, v + 3))
+        if "FROM dmp.user_tags" in sql:
+            if "bitmapAnd(" in sql: return '{"tag_value":"P1","us":[2,3]}\n{"tag_value":"P2","us":[4]}\n'
+            if "GROUP BY tag_value" in sql: return '{"value":"P1","users":80}\n{"value":"P2","users":40}\n'
+            return '{"users":120}\n'
         if "bitmapCardinality(" in sql:
             return '{"users":123}\n'
         if "bitmapContains(" in sql:
@@ -71,7 +83,13 @@ def main(store: Any | None = None) -> None:
     from ..integration.runner import LocalRunner as _LR
     from ..integration.scheduler import Scheduler as _Sched
     local = LocalProvider(LocalAccounts(_P0(_tf.mkdtemp(prefix="dmp-la-")) / "accounts.json", {"min_length": 14, "lockout_after": 5, "lockout_minutes": 15, "max_days": 90}, ["custom_*", "marketing"]))
-    app = create_app(AuthService(cfg, {"local": local}, sm, None), store, ch, scheduler=_Sched(_tf.mktemp(prefix="dmp-sched-", suffix=".db"), _LR(None)))   # 乾跑排程器，每次自測全新狀態
+    hooks: list[dict[str, Any]] = []; ma_state = {"ok": False}
+    def fake_transport(url: str, headers: dict[str, str], body: bytes, timeout: int) -> tuple[int | None, int, str]:
+        hooks.append({"url": url, "headers": headers, "body": json.loads(body)})
+        if "ma.internal" in url and not ma_state["ok"]: return 503, 12, "upstream busy"
+        return 200, 20, '{"ok":true}'
+    secrets = {"kv/data/dmp/prod/crm#webhook_secret": "crm-s3cret", "kv/data/dmp/prod/ma#webhook_secret": "ma-s3cret"}
+    app = create_app(AuthService(cfg, {"local": local}, sm, None), store, ch, scheduler=_Sched(_tf.mktemp(prefix="dmp-sched-", suffix=".db"), _LR(None)), secret_of=lambda r: secrets[r], transport=fake_transport)   # 乾跑排程器，每次自測全新狀態
     c = TestClient(app, base_url="https://dmp.internal")
     assert c.get("/healthz").json()["clickhouse"] is True
     assert c.get("/v1/iam/roles").status_code == 401
@@ -352,6 +370,97 @@ def main(store: Any | None = None) -> None:
     login(c, sm, ["data_analyst"], "ana")
     assert c.post(f"/v1/dashboards/{did}/explain", json={"mode": "llm"}).json()["note"].startswith("此環境未設定 LLM")
     assert [x for x in store.audit_tail(30) if x["event"] == "dashboard.asked"][-1]["parser"] == "rules"
+    # 5c5. 標籤與推送：標籤（分群對應值／SQL；審批；計算→分布／版本；暫停下游提醒）→ 目的地（secret_ref、測試事件簽章）→ 推送單（首次目的地需核可；全量、增量差集、附帶標籤）→ 交付（重試、自動停用、重放、tick）
+    login(c, sm, ["data_analyst"], "ana")
+    cf = c.get("/v1/tags/custom-fields").json(); assert [f["key"] for f in cf["fields"]] == ["department", "requester", "category"] and "客戶價值" in cf["directories"]
+    tvals = [{"value": "P1", "rule": {"filters": [{"field": "user.tier", "op": "in", "value": ["P1"]}]}}, {"value": "P2", "rule": {"filters": [{"field": "user.tier", "op": "in", "value": ["P2"]}]}}]
+    tg = c.post("/v1/tags", json={"name": "價值分級", "key": "tier_grade", "directory": "客戶價值", "kind": "values", "values": tvals, "update": {"mode": "routine", "freq": "daily", "earliest": "06:00", "keep": 7}, "fields": {"department": "數位金融", "category": "名單推送"}})
+    assert tg.status_code == 201 and tg.json()["status"] == "active" and tg.json()["id"] == "tier_grade" and tg.json()["lineage"]["up"] == ["dmp.users"], tg.text
+    assert c.post("/v1/tags", json={"name": "重複", "key": "tier_grade", "kind": "values", "values": tvals}).status_code == 409
+    assert c.post("/v1/tags", json={"name": "值重複", "kind": "values", "values": [tvals[0], tvals[0]]}).status_code == 400
+    assert c.post("/v1/tags", json={"name": "欄位", "kind": "values", "values": tvals, "fields": {"department": "外星部"}}).status_code == 400
+    assert c.post("/v1/tags", json={"name": "脫敏", "kind": "sql", "sql": "SELECT one_id_uint, one_id AS tag_value FROM dmp.users"}).status_code == 400          # one_id 對分析師脫敏
+    ts_ = c.post("/v1/tags", json={"name": "分級（SQL）", "key": "tier_sql", "kind": "sql", "dtype": "string", "sql": "SELECT one_id_uint, tier AS tag_value FROM dmp.users FINAL"}); assert ts_.status_code == 201 and ts_.json()["status"] == "active", ts_.text
+    cp = c.post("/v1/tags/tier_grade/compute", json={}); assert cp.status_code == 202, cp.text
+    cpb = cp.json(); assert cpb["status"] == "success" and cpb["version"] == 1 and cpb["users"] == 120 and [d["value"] for d in cpb["distribution"]] == ["P1", "P2"], cpb
+    assert ch.sqls[-3].startswith("INSERT INTO dmp.user_tags (tag_id, tag_value, version, users) WITH") and "'tier_grade', 'P2', 1, groupBitmapState(e.one_id_uint)" in ch.sqls[-3], ch.sqls[-3]
+    cp2 = c.post("/v1/tags/tier_sql/compute", json={}).json(); assert cp2["status"] == "success" and "GROUP BY tag_value" in ch.sqls[-3] and "toString(tag_value), 1, groupBitmapState(toUInt64(one_id_uint))" in ch.sqls[-3], (cp2, ch.sqls[-3])
+    dist = c.get("/v1/tags/tier_grade/distribution").json(); assert dist["version"] == 1 and dist["users"] == 120 and dist["distribution"][0] == {"value": "P1", "users": 80}, dist
+    assert len(c.get("/v1/tags/tier_grade/versions").json()) == 1 and c.get("/v1/tags/tier_grade/distribution?basetime=1999-01-01").status_code == 404
+    assert [t["id"] for t in c.get("/v1/tags").json()] == ["tier_sql", "tier_grade"] or {t["id"] for t in c.get("/v1/tags").json()} == {"tier_sql", "tier_grade"}
+    login(c, sm, ["marketing"], "mkt")
+    mt = c.post("/v1/tags", json={"name": "行銷標籤", "key": "mkt_grp", "kind": "values", "values": tvals[:1]}); assert mt.status_code == 201 and mt.json()["status"] == "pending_approval" and mt.json()["approval"]["status"] == "pending", mt.text
+    assert c.post("/v1/tags", json={"name": "行銷 SQL", "kind": "sql", "sql": "SELECT one_id_uint, tier AS tag_value FROM dmp.users"}).status_code == 403
+    assert c.post("/v1/tags/mkt_grp/compute", json={}).status_code == 409 and c.post("/v1/tags/tier_grade/compute", json={}).status_code == 403                 # 待審批不能算；別人的不能算
+    login(c, sm, ["digital_ops"], "ops")
+    tap = next(a for a in c.get("/v1/approvals?scope=to_me").json() if a["type"] == "tag"); assert tap["object"] == {"kind": "tag", "id": "mkt_grp"}
+    assert c.post("/v1/tags/mkt_grp/approve", json={"approve": True, "note": "ok"}).json()["status"] == "active" and c.get(f"/v1/approvals/{tap['id']}").json()["status"] == "approved"
+    # 目的地：行銷 403；數位經營建立（明文密鑰 400、非 https 400、未知標籤 400）；測試事件簽章可驗
+    login(c, sm, ["marketing"], "mkt"); assert c.post("/v1/destinations", json={"name": "x", "url": "https://x.internal/h", "secret_ref": "kv/data/dmp/prod/x#webhook_secret"}).status_code == 403
+    login(c, sm, ["digital_ops"], "ops")
+    assert c.post("/v1/destinations", json={"name": "CRM", "url": "https://crm.internal/dmp/webhook", "secret": "plain"}).status_code == 400
+    assert c.post("/v1/destinations", json={"name": "CRM", "url": "http://crm.internal/dmp/webhook", "secret_ref": "kv/data/dmp/prod/crm#webhook_secret"}).status_code == 400
+    assert c.post("/v1/destinations", json={"name": "CRM", "url": "https://crm.internal/dmp/webhook", "secret_ref": "kv/data/dmp/prod/crm#webhook_secret", "allowed_tags": ["nope"]}).status_code == 400
+    crm = c.post("/v1/destinations", json={"name": "CRM 客戶系統", "url": "https://crm.internal/dmp/webhook", "secret_ref": "kv/data/dmp/prod/crm#webhook_secret", "allowed_tags": ["tier_grade"], "note": "HMAC 簽章"}); assert crm.status_code == 201, crm.text
+    crm = crm.json(); assert crm["status"] == "active" and crm["secret"] == "••••••••" and crm["stats"]["ok_7d"] is None and "secret_ref" in crm
+    ma = c.post("/v1/destinations", json={"name": "行銷自動化 MA", "url": "https://ma.internal/hooks/dmp", "secret_ref": "kv/data/dmp/prod/ma#webhook_secret", "identifier": "one_id"}).json()
+    tst = c.post(f"/v1/destinations/{crm['id']}/test").json(); assert tst["status"] == "ok" and tst["response"]["status"] == 200, tst
+    from ..activation import webhook as _wh
+    h = hooks[-1]; assert h["headers"]["X-DMP-Event"] == "audience.test" and h["body"]["batch"]["size"] == 3 and h["body"]["members"][0]["customer_code"].startswith("cust_") and h["body"]["members"][0]["tags"] == {"tier_grade": "測試"}
+    assert _wh.verify(b"crm-s3cret", h["headers"]["X-DMP-Timestamp"], json.dumps(h["body"], ensure_ascii=False, separators=(",", ":")).encode(), h["headers"]["X-DMP-Signature"])
+    assert c.post(f"/v1/destinations/{crm['id']}/rotate-secret", json={"secret_ref": "kv/data/dmp/prod/crm#webhook_secret"}).status_code == 400
+    # 推送：分析師建分群並算兩版 → 推送單（目的地首次 → 核可）→ 全量 + complete → 分群新版 → tick 增量（差集、附帶標籤）
+    login(c, sm, ["data_analyst"], "ana")
+    sg = c.post("/v1/segments", json={"name": "推送測試分群", "rule": uq, "update": {"mode": "routine", "freq": "daily", "earliest": "03:00", "keep": 7}}).json(); assert sg["status"] == "active", sg
+    sc1 = c.post(f"/v1/segments/{sg['id']}/compute", json={}).json(); assert sc1["status"] == "success", sc1
+    assert c.post(f"/v1/segments/{sg['id']}/compute", json={"basetime": "2026-10-16"}).json()["version"] == 2
+    assert c.post(f"/v1/audiences/{sg['id']}/push", json={"destination_ids": [crm["id"], ma["id"]], "mode": "delta", "include_tags": ["tier_grade"]}).status_code == 400       # MA 不允許附帶標籤
+    assert c.post(f"/v1/audiences/{sg['id']}/push", json={"destination_ids": [crm["id"]], "mode": "realtime"}).status_code == 400
+    assert c.post("/v1/audiences/nope/push", json={"destination_ids": [crm["id"]]}).status_code == 404
+    ps = c.post(f"/v1/audiences/{sg['id']}/push", json={"destination_ids": [crm["id"]], "mode": "delta", "schedule": "after_batch", "include_tags": ["tier_grade"]}); assert ps.status_code == 202, ps.text
+    ps = ps.json(); assert ps["status"] == "pending_approval" and ps["approval_id"], ps
+    assert c.post(f"/v1/pushes/{ps['id']}/run").status_code == 409
+    login(c, sm, ["marketing"], "mkt"); assert c.get("/v1/pushes").json()[0]["id"] == ps["id"] and c.delete(f"/v1/pushes/{ps['id']}").status_code == 403
+    login(c, sm, ["digital_ops"], "ops")
+    pap = next(a for a in c.get("/v1/approvals?scope=to_me").json() if a["type"] == "push"); assert "首次推送" in pap["summary"]
+    c.post(f"/v1/approvals/{pap['id']}/decide", json={"approve": True, "note": "ok"}); assert c.get(f"/v1/pushes/{ps['id']}").json()["status"] == "active"
+    login(c, sm, ["data_analyst"], "ana")
+    n0 = len(hooks); r1 = c.post(f"/v1/pushes/{ps['id']}/run"); assert r1.status_code == 202, r1.text
+    r1 = r1.json(); assert r1 == {**r1, "version": 2, "added": 3, "removed": 0, "batches": 2, "ok": 2, "failed": 0} and r1["destinations"][crm["id"]] == "ok", r1
+    assert [h["headers"]["X-DMP-Event"] for h in hooks[n0:]] == ["audience.full", "audience.complete"] and hooks[n0]["body"]["members"][0]["tags"] == {"tier_grade": "P1"} and hooks[n0]["body"]["members"][2]["tags"] == {"tier_grade": "P2"} and hooks[n0 + 1]["body"]["total"] == 3, hooks[n0:]
+    assert c.post(f"/v1/segments/{sg['id']}/compute", json={"basetime": "2026-10-17"}).json()["version"] == 3
+    tk = app.state.activation.tick(Subject("system:scheduler", ["admin"])); assert tk["ran"][0]["push"] == ps["id"] and tk["ran"][0]["added"] == 1 and tk["ran"][0]["removed"] == 1, tk
+    assert hooks[-1]["headers"]["X-DMP-Event"] == "audience.delta" and [(m["one_id"], m["action"]) for m in hooks[-1]["body"]["members"]] == [("u5", "add"), ("u2", "remove")], hooks[-1]["body"]
+    pd = c.get(f"/v1/pushes/{ps['id']}").json(); assert pd["last_delivered_version"] == 3 and len(pd["deliveries"]) == 3 and all(d["status"] == "ok" and "payload" not in d for d in pd["deliveries"]), pd
+    assert app.state.activation.tick(Subject("system:scheduler", ["admin"]))["ran"] == []                                                      # 沒有新版本就不推
+    # 失敗路徑：MA 回 503 → 重試排程 → 連續 3 次自動停用目的地 → 恢復 → 重放成功；全量推送需審批（ops 也不能自審）
+    login(c, sm, ["digital_ops"], "ops")
+    pf = c.post(f"/v1/audiences/{sg['id']}/push", json={"destination_ids": [ma["id"]], "mode": "full", "schedule": "now"}).json(); assert pf["status"] == "pending_approval", pf
+    assert c.post(f"/v1/approvals/{pf['approval_id']}/decide", json={"approve": True}).status_code == 409                                      # 不能審自己的
+    login(c, sm, ["admin"], "adm"); c.post(f"/v1/approvals/{pf['approval_id']}/decide", json={"approve": True, "note": "ok"})
+    pf2 = c.get(f"/v1/pushes/{pf['id']}").json(); assert pf2["status"] == "active" and pf2["last_result"]["failed"] == 2 and pf2["runs"] == 1, pf2       # 核可後立即執行（schedule=now）：1 批 + complete 都失敗
+    dl = c.get(f"/v1/deliveries?audience_id={sg['id']}&status=retrying").json(); assert len(dl) == 2 and dl[0]["attempts"] == 1 and dl[0]["next_retry_at"] and dl[0]["response"]["status"] == 503, dl
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+    from zoneinfo import ZoneInfo as _Z
+    later = _dt.now(_Z("Asia/Taipei")) + _td(minutes=2)
+    assert c.get(f"/v1/destinations/{ma['id']}").json()["consecutive_failures"] == 2
+    assert len(app.state.activation.tick(Subject("system:scheduler", ["admin"]), now=later)["retried"]) == 1                                    # 第 3 次連續失敗 → 目的地自動停用，另一筆不再重試
+    mad = c.get(f"/v1/destinations/{ma['id']}").json(); assert mad["status"] == "paused" and mad["consecutive_failures"] == 3, mad
+    assert app.state.activation.tick(Subject("system:scheduler", ["admin"]), now=later + _td(hours=1))["retried"] == []                          # 停用中不重試
+    login(c, sm, ["digital_ops"], "ops")
+    assert c.post(f"/v1/destinations/{ma['id']}/pause").json()["status"] == "active"
+    ma_state["ok"] = True
+    rp = c.post(f"/v1/deliveries/{dl[0]['id']}/replay"); assert rp.status_code == 202 and rp.json()["status"] == "ok" and rp.json()["replay_of"] == dl[0]["id"] and hooks[-1]["headers"]["X-DMP-Delivery-Id"] == dl[0]["id"], rp.text
+    assert c.post(f"/v1/deliveries/{dl[0]['id']}/replay").status_code == 409
+    assert c.get(f"/v1/destinations/{ma['id']}").json()["stats"]["deliveries_7d"] == 2
+    # 標籤：有下游引用不能回收；暫停提醒下游；資訊管理可建目的地但不能建標籤規則
+    login(c, sm, ["data_analyst"], "ana")
+    assert c.post("/v1/tags/tier_grade/recycle").status_code == 409 and c.post("/v1/tags/tier_grade/pause").json()["warnings"] and c.post("/v1/tags/tier_grade/pause").json()["status"] == "active"
+    assert c.post("/v1/tags/tier_sql/recycle").status_code == 200 and [t["id"] for t in c.get("/v1/tags?status=recycled").json()] == ["tier_sql"] and c.post("/v1/tags/tier_sql/restore").json()["status"] == "active"
+    login(c, sm, ["it_admin"], "it"); assert c.post("/v1/tags", json={"name": "x", "kind": "values", "values": tvals}).status_code == 403 and c.get("/v1/destinations").status_code == 200
+    evp = {x["event"] for x in store.audit_tail(1000)}; assert {"tag.created", "tag.computed", "tag.approved", "destination.created", "destination.tested", "push.created", "push.ran", "sync.delivered", "sync.failed", "destination.auto_paused", "sync.replayed"} <= evp, evp
+    login(c, sm, ["data_analyst"], "ana")
     # 5d. 看板進階（docs/30）：規則式解讀 → HTML 看板（inline SVG、無 script／外部資源、抑制列 <K、浮水印）→ 登入下載與簽章分享連結 → 到期 410 → 定時寄送（審批 → 核可 → 立即執行；無 SMTP 只產檔）
     ex = c.post(f"/v1/dashboards/{did}/explain").json()
     assert ex["method"] == "rules" and len(ex["summary"]) == 3 and len(ex["cards"]) == 5 and all(x["line"] for x in ex["cards"]) and any("抑制" in w for x in ex["cards"] for w in x["warnings"]), ex
@@ -544,7 +653,7 @@ def main(store: Any | None = None) -> None:
     assert {x["event"] for x in store.audit_tail(400)} >= {"role.change_requested", "role.changed", "role.deleted", "iam.break_glass.requested", "iam.user.created", "iam.user.changed", "iam.user.deleted", "auth.session.revoked", "audit.exported", "authz.denied"}
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+bookmarks+sql sandbox+ask(rules)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+bookmarks+sql sandbox+tags+activation(push/deliveries)+ask(rules)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":

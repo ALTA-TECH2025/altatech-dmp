@@ -166,6 +166,33 @@ def main() -> None:
         ana.call("POST", "/v1/sql/saved", {"name": "各平台成交金額（參數：天數）", "group": "交易", "sql": "SELECT platform, count() AS deals, sum(amount) AS amount\nFROM dmp.events\nWHERE event = 'bond_deal' AND event_date >= today() - {{days}}\nGROUP BY platform ORDER BY amount DESC", "params_default": {"days": 7}, "shared": {"roles": ["digital_ops"]}})
     if not it.call("GET", "/v1/sql/mid-tables"):
         it.call("POST", "/v1/sql/mid-tables", {"name": "mid_deals_daily", "note": "每日成交彙總，供看板與 SQL 直接查", "sql": "SELECT event_date, platform, count() AS deals, uniq(one_id_uint) AS users\nFROM dmp.events WHERE event = 'bond_deal' GROUP BY event_date, platform"})
+    # 9. 標籤與推送：分析師建「價值分級」標籤（分群對應值）並計算；數位經營建兩個目的地（本機接收端 CRM、MA）；分析師對分群建推送單 → 首次目的地需核可 → 執行
+    if not any(t["id"] == "tier_grade" for t in ana.call("GET", "/v1/tags")):
+        ana.call("POST", "/v1/tags", {"name": "價值分級", "key": "tier_grade", "directory": "客戶價值", "description": "依 user.tier 對應 P1／P2／P3；名單推送附帶", "kind": "values",
+                                     "values": [{"value": v, "rule": {"project": "golden", "filters": [{"field": "user.tier", "op": "in", "value": [v]}]}} for v in ("P1", "P2", "P3")],
+                                     "update": {"mode": "routine", "freq": "daily", "earliest": "06:00", "keep": 7}, "fields": {"department": "數位金融", "requester": "王小明", "category": "名單推送"}})
+        ana.call("POST", "/v1/tags/tier_grade/compute", {})
+        ana.call("POST", "/v1/tags", {"name": "近 30 天成交筆數（SQL）", "key": "deals_30d", "directory": "交易活躍", "kind": "sql", "dtype": "number",
+                                     "sql": "SELECT one_id_uint, toString(count()) AS tag_value\nFROM dmp.events WHERE event = 'bond_deal' AND event_date >= today() - 30 GROUP BY one_id_uint"})
+        ana.call("POST", "/v1/tags/deals_30d/compute", {})
+        mkt.call("POST", "/v1/tags", {"name": "Q4 活動名單（待審）", "key": "campaign_q4", "directory": "行銷", "kind": "values", "values": [{"value": "A 組", "rule": {"project": "golden", "filters": [{"field": "user.lifecycle", "op": "in", "value": ["沉睡"]}]}}]})
+    dests = {d["name"]: d for d in ops.call("GET", "/v1/destinations")}
+    if "CRM 客戶系統" not in dests:
+        dests["CRM 客戶系統"] = ops.call("POST", "/v1/destinations", {"name": "CRM 客戶系統", "url": os.environ.get("DMP_DEMO_WEBHOOK", "http://127.0.0.1:9099/dmp/webhook"), "secret_ref": "kv/data/dmp/prod/crm#webhook_secret", "allowed_tags": ["tier_grade", "deals_30d"], "note": "HMAC 簽章、IP 白名單"})
+        ops.call("POST", f"/v1/destinations/{dests['CRM 客戶系統']['id']}/test")
+        dests["行銷自動化 MA"] = ops.call("POST", "/v1/destinations", {"name": "行銷自動化 MA", "url": "https://ma.internal/hooks/dmp", "secret_ref": "kv/data/dmp/prod/ma#webhook_secret", "identifier": "one_id", "allowed_tags": ["tier_grade"], "note": "mTLS"})
+    segs = {s["name"]: s for s in ana.call("GET", "/v1/segments")}
+    hv = segs.get("高價值活躍交易客")
+    if hv and not ana.call("GET", "/v1/pushes"):
+        if not (hv.get("latest") or {}).get("users"):
+            ana.call("POST", f"/v1/segments/{hv['id']}/compute", {})
+        p = ana.call("POST", f"/v1/audiences/{hv['id']}/push", {"destination_ids": [dests["CRM 客戶系統"]["id"]], "mode": "delta", "schedule": "after_batch", "include_tags": ["tier_grade"]})
+        if p.get("approval_id"):
+            ops.call("POST", f"/v1/approvals/{p['approval_id']}/decide", {"approve": True, "note": "CRM 首次推送，已與接收端對過簽章"})
+        ana.call("POST", f"/v1/pushes/{p['id']}/run")
+        p2 = ops.call("POST", f"/v1/audiences/{hv['id']}/push", {"destination_ids": [dests["行銷自動化 MA"]["id"]], "mode": "full", "schedule": "now"})
+        if p2.get("approval_id"):
+            adm.call("POST", f"/v1/approvals/{p2['approval_id']}/decide", {"approve": True, "note": "MA 初始化全量"})
     print("demo fill ok")
 
 

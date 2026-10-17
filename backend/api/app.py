@@ -19,13 +19,13 @@ from ..integration.scheduler import Scheduler
 from ..security.policy import Subject
 from ..segments import SegmentService
 from ..semantic.compiler import Catalog
-from . import analytics, ask, bookmarks, dashboards, exports, iam, integration, meta, migration, segments, sql, sysadmin, users
+from . import activation, analytics, ask, bookmarks, dashboards, exports, iam, integration, meta, migration, segments, sql, sysadmin, tags, users
 from .store import Store
 
 
 def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_service: SegmentService | None = None, export_dir: Any | None = None, approval_service: ApprovalService | None = None,
                scheduler: Scheduler | None = None, secret_writer: Any | None = None, migration_runner: Any | None = None, mailer: Any | None = None, mail_domains: list[str] | None = None,
-               render_key: str | None = None, base_url: str = "", llm: Any | None = None) -> FastAPI:
+               render_key: str | None = None, base_url: str = "", llm: Any | None = None, secret_of: Any | None = None, transport: Any | None = None) -> FastAPI:
     app = FastAPI(title="AltaTech DMP API", version="0.1.0", docs_url="/v1/docs", openapi_url="/v1/openapi.json")
 
     approvals = approval_service or ApprovalService(store)
@@ -60,6 +60,13 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     app.include_router(dashboards.build_router(store, get_subject, ch, share=share))
     app.include_router(bookmarks.build_router(store, get_subject, ch))
     app.include_router(sql.build_router(store, get_subject, ch, share.cat))
+    from ..activation import ActivationService
+    from ..tags import TagService
+    tag_svc = TagService(store, ch, approvals, share.cat)
+    act_svc = ActivationService(store, ch, approvals, secret_of, transport, tags=tag_svc)
+    app.state.tags, app.state.activation = tag_svc, act_svc
+    app.include_router(tags.build_router(store, get_subject, tag_svc))
+    app.include_router(activation.build_router(store, get_subject, act_svc))
     app.include_router(meta.build_router(store, get_subject, ch))
     app.include_router(migration.build_router(store, get_subject, ch, migration_runner))
     app.include_router(users.build_router(store, get_subject, ch))
