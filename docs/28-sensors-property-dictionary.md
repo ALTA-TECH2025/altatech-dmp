@@ -68,3 +68,66 @@ App／Web 埋點的 263 個屬性給 `ga4_param`（snake_case、≤ 40 字元，
 7. `user_group_*`／`user_tag_*` 三千多欄哪些還在用？請在神策分群／標籤列表勾選必留清單（docs/22 §3 盤點項目），其餘不遷。
 8. 用戶屬性導出沒有顯示名（comment 欄全空）；請補匯出含顯示名的版本，L2 的 88 欄才能給中文名登記。
 9. `$dimension_dict_cuaa1–4`、`cuaf9`、`otype`、`user_type` 的代碼表（維度字典）請一併匯出，否則只能存代碼。
+
+## 8. 舊資料的事件與屬性構成（看懂神策專案長什麼樣）
+
+**事件**（`events.yaml` v4，客戶清單 112 + 本系統補充 5 = 117）：
+
+| 來源 | 數量 | 說明 |
+|---|---|---|
+| GA360（App／Web 埋點）取代的神策 SDK 事件 | 72 | 開戶 27、定期定額 8、申購／競拍 8、登入與導航 6、App 基礎 5（$AppStart／$AppEnd／$AppViewScreen／$AppClick／$AppPushClick）、資訊與資源位 4、交易（App）3、搜索 3、行情 3、Web 基礎 2（$pageview／$WebClick）、活動 2、廣告渠道 3 |
+| 神策智能運營（MA）系統事件 | 25 | $Plan*／$Journey* 16、LINE 6、MA 3；只匯入歷史，T0 後無新資料 |
+| 數據中台批次 | 14 | 證券委託／成交／持有 9、帳務 1、業務資料 5（Market_Data、operation_target…） |
+| 渠道回傳、短鏈、業務系統 | 6 | 服務端直寫 |
+
+平台欄位 92 個事件同時標 JavaScript／iOS／Android／服務端，表示同一事件名在 Web 與 App 共用；18 個純服務端。
+
+**事件屬性**（681，§1–§4）按家族：
+
+| 家族 | 數量 | 例 |
+|---|---|---|
+| 數據中台交易／帳務（全大寫） | 241 | MTH_AMT_TW、ORD_DATE、FEE_CY、HAA40 |
+| 神策預置 `$` | 123 | $utm_*、$element_*、$screen_name、$app_version、$event_duration |
+| 客戶前綴 (O) 舊版 ／ (C) CRM 開戶 ／ (B) 借貸 ／ (N) NPS ／ (X) 維護 | 53／50／18／5／13 | (O)成交金額、(C)#開戶完成日期、(B)#融資總餘額 |
+| `#` 自訂（App 交易／開戶） | 51 | StockID、BuyOrSell、Qty、PriceCost、ButtonName、platform |
+| 禮品卡與訂單 | 17 | gift_card_*、transaction_*、cart_*、item_* |
+| 大戶投／大戶豐 App 點擊 | 17 | dwt_appclick_*、dwf_appclick_* |
+| 豐雲學堂與訂單 | 15 | lesson_*、plan_*、order_* |
+| 問卷、EDM、會員、折扣碼、MID、活動 | 35 | form_*、bounce_*、member_*、coupon_*、mid_* |
+
+**用戶屬性**（3,606，§7）：157 個真屬性 + 2,758 分群回寫 + 691 標籤回寫。
+
+讀法：同一個業務概念在舊資料有三套名字，App 自訂事件用 CamelCase（StockID、BuyOrSell、Qty、PriceCost），數據中台批次用全大寫（STOCK_NO、BUY_SALE、MTH_QTY、MTH_AMT_TW），舊版欄位加 (O)。週一事件設計時要決定正式名只留一套，其餘用 alias。
+
+## 9. 模擬資料用詞對照（本系統鍵 ↔ 神策舊名）
+
+原型（`prototype/js/data.js`）的屬性字典、用戶表、查詢條件與用戶時間軸已改用客戶用詞，並加「神策舊名」欄；**鍵名不改**（事件設計週一定案前，語意層契約不動）。對照：
+
+| 本系統鍵 | 神策舊名（App 自訂／數據中台） | 顯示名（照客戶） |
+|---|---|---|
+| symbol | StockID／STOCK_NO | 商品代號 |
+| side | BuyOrSell／BUY_SALE | 交易買賣 |
+| qty | Qty／MTH_QTY | 交易數量 |
+| amount | PriceCost／MTH_AMT_TW | 金額（交易價格／成交金額） |
+| fee | FEE／TradeFees | 手續費 |
+| market | Market／MARKET_NO | 市場別 |
+| order_type | ORD_TYPE | 委託方式 |
+| reason_code | fault_reason／ERROR_CODE | 失敗原因 |
+| channel | platform（#觸發平台）／WEB_ID（委單管道別） | 觸發平台 |
+| branch_id | BrokerID／OPEN_BELONG | 分公司代碼 |
+| agent_id | ADNO／SALE_NO | 營業員員編（姓名 ADNO_Name 是 L4，模擬資料也改成員編） |
+| kyc_level | KYC_RANK_CODE | KYC |
+| duration_ms | $event_duration | 事件時長 |
+| page_group | section／menu | 區塊目錄 |
+| $page_url | $url | 網頁網址 |
+| campaign_id | $sf_plan_id／$utm_campaign | 推播計劃 ID |
+| user.customer_code | s_idno | 去識別化 ID |
+| user.signup_date | st_first_odate／first_odate | 開戶日期 |
+| user.aum_bucket | st_last_asset_amt（分桶） | 資產區間 |
+| user.has_margin | st_mt_acc | 信用戶 |
+| user.gender | gender／$dimension_dict_s_sex | 性別 |
+| user.age_band | s_age（分桶） | 年齡層 |
+| user.lifecycle | $dimension_dict_sleepycust_group | 沉睡客分群（本系統擴成五段生命週期） |
+| user.first_utm_source | $utm_source（用戶表） | 首次來源 |
+| user.last_active_at | last_login_date_dt | 最近登入 |
+| user.tier／churn_score／pref_market | —（神策沒有） | 本系統新增 |

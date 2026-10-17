@@ -290,30 +290,30 @@ export const TRIGGER_FEED = (() => {
 
 /* ------------------------------------------------------------------ profiles (用戶細查) */
 export const PROFILES = [
-  { one_id: 'oid_7k3a9q', cust: 'cust_•••7281', branch: 'TPE01', agent: '王信宏', lifecycle: '成長', fee_tier: 'P2', churn: 23, pref: 'TSE', age: '35-44', since: '2026-08-21', accounts: ['證券 ••••4567', '複委託 ••••9901'],
+  { one_id: 'oid_7k3a9q', cust: 'cust_•••7281', branch: 'TPE01', agent: 'A2041', lifecycle: '成長', fee_tier: 'P2', churn: 23, pref: 'TSE', age: '35-44', since: '2026-08-21', accounts: ['證券 ••••4567', '複委託 ••••9901'],
     identities: [['$identity_login_id', 'cust_•••7281', 'strong'], ['$identity_mobile_hash', 'hmac:9f3a…', 'strong'], ['$identity_account_no', '••••4567', 'multi'], ['$identity_account_no', '••••9901', 'multi'], ['$identity_ga_user_id', 'u_9a7b…', 'strong'], ['$identity_device_id', 'idfv:3C1F…', 'weak'], ['$identity_cookie_id', 'GA1.2.1844…', 'weak'], ['$identity_line_uid', 'U4f2…', 'channel']],
     timeline: [
-      ['10-14 13:58', 'bond_deal', 'trade', '成交 2330 買 1,000 股 @1,050', 'fee 1,496 · channel app'],
-      ['10-14 13:57', 'bond_order', 'trade', '委託 2330 買 1,000 股 限價 1,050', 'channel app · 現股'],
-      ['10-14 13:52', 'hq_stockdetail_view', 'ga', '看盤 2330 台積電', 'duration 94s · from_screen 自選'],
-      ['10-14 13:51', '$AppViewScreen', 'ga', '畫面 自選股', 'app_version 23.4 · iOS'],
+      ['10-14 13:58', 'bond_deal', 'trade', '成交 2330 買 1,000 股 @1,050', '手續費 1,496 · 觸發平台 App'],
+      ['10-14 13:57', 'bond_order', 'trade', '委託 2330 買 1,000 股 限價 1,050', '觸發平台 App · 委託方式 現股'],
+      ['10-14 13:52', 'hq_stockdetail_view', 'ga', '看盤 2330 台積電', '事件時長 94s · APP 頁面名稱 自選股'],
+      ['10-14 13:51', '$AppViewScreen', 'ga', '畫面 自選股', 'APP版本 23.4 · iOS'],
       ['10-14 13:50', 'app_login_success', 'sys', '登入 App', 'auth FaceID'],
-      ['10-14 09:12', 'push_click', 'mkt', '開啟推播「台積電法說會重點」', 'campaign tsmc_q3'],
-      ['10-13 20:40', '$pageview', 'ga', '瀏覽 官網 ETF 專區', 'utm_source line · page_group etf'],
+      ['10-14 09:12', 'push_click', 'mkt', '開啟推播「台積電法說會重點」', '推播計劃 tsmc_q3'],
+      ['10-13 20:40', '$pageview', 'ga', '瀏覽 官網 ETF 專區', 'utm_source line · 區塊目錄 etf'],
       ['10-11 10:05', 'sip_purchase', 'trade', '基金申購 定期定額 3,000', 'fund_code F0088'],
-      ['10-08 14:22', 'order_rejected', 'trade', '委託失敗 2454', 'reason_code USR03 餘額不足'],
-      ['08-21 11:30', 'kh_review_pass', 'sys', '開戶核准 證券', 'branch TPE01 · agent 王信宏'],
-      ['08-20 22:14', 'kh_apply', 'sys', '開戶送件', 'channel app · kyc L2'],
+      ['10-08 14:22', 'order_rejected', 'trade', '委託失敗 2454', '失敗原因 餘額不足'],
+      ['08-21 11:30', 'kh_review_pass', 'sys', '開戶核准 證券', '分公司代碼 TPE01 · 營業員員編 A2041'],
+      ['08-20 22:14', 'kh_apply', 'sys', '開戶送件', '觸發平台 App · KYC L2'],
       ['08-20 21:58', '$pageview', 'ga', '瀏覽 開戶頁', 'utm_source google · utm_campaign brand'],
     ] },
-  { one_id: 'oid_2m8x1c', cust: 'cust_•••0412', branch: 'TPE01', agent: '王信宏', lifecycle: '沉睡', fee_tier: 'P1', churn: 81, pref: 'US', age: '45-54', since: '2019-03-02', accounts: ['證券 ••••1203', '信用 ••••1203', '複委託 ••••7730'],
+  { one_id: 'oid_2m8x1c', cust: 'cust_•••0412', branch: 'TPE01', agent: 'A2041', lifecycle: '沉睡', fee_tier: 'P1', churn: 81, pref: 'US', age: '45-54', since: '2019-03-02', accounts: ['證券 ••••1203', '信用 ••••1203', '複委託 ••••7730'],
     identities: [['$identity_login_id', 'cust_•••0412', 'strong'], ['$identity_mobile_hash', 'hmac:21cc…', 'strong'], ['$identity_account_no', '••••1203', 'multi'], ['$identity_account_no', '••••7730', 'multi'], ['$identity_device_id', 'aid:88AD…', 'weak'], ['$identity_cookie_id', 'GA1.2.0921…', 'weak']],
     timeline: [
       ['09-30 10:12', 'sip_purchase', 'trade', '基金申購 定期定額 10,000', 'fund_code F0021（自動扣款）'],
-      ['09-02 15:40', 'bond_deal', 'trade', '成交 AAPL 賣 50 股', 'channel agent · 複委託'],
-      ['09-02 15:21', 'bond_order', 'trade', '委託 AAPL 賣 50 股', 'channel agent'],
+      ['09-02 15:40', 'bond_deal', 'trade', '成交 AAPL 賣 50 股', '觸發平台 營業員 · 複委託'],
+      ['09-02 15:21', 'bond_order', 'trade', '委託 AAPL 賣 50 股', '觸發平台 營業員'],
       ['08-30 10:12', 'sip_purchase', 'trade', '基金申購 定期定額 10,000', 'fund_code F0021（自動扣款）'],
-      ['08-12 09:05', '$AppViewScreen', 'ga', '畫面 庫存', 'app_version 23.1 · Android'],
+      ['08-12 09:05', '$AppViewScreen', 'ga', '畫面 庫存', 'APP版本 23.1 · Android'],
       ['08-12 09:03', 'app_login_success', 'sys', '登入 App', 'auth password'],
     ] },
 ];
@@ -442,14 +442,14 @@ export const ATTRIBUTION = {
 
 /* 用戶列表（合成 40 人） */
 export const USERS = (() => {
-  const lc = ['新客', '成長', '成熟', '沉睡', '流失'], tiers = ['P1', 'P2', 'P3', 'P4', 'P5'], mk = ['TSE', 'OTC', 'US', 'HK', 'FUND'], br = ['TPE01', 'TPE02', 'TCH01', 'KHH01'], ag = ['王信宏', '李佳穎', '張志豪', '周美玲'], ages = ['<25', '25-34', '35-44', '45-54', '55-64', '65+'];
+  const lc = ['新客', '成長', '成熟', '沉睡', '流失'], tiers = ['P1', 'P2', 'P3', 'P4', 'P5'], mk = ['TSE', 'OTC', 'US', 'HK', 'FUND'], br = ['TPE01', 'TPE02', 'TCH01', 'KHH01'], ag = ['A2041', 'A2077', 'A3105', 'A3190'], ages = ['<25', '25-34', '35-44', '45-54', '55-64', '65+'];
   const out = [];
   for (let i = 0; i < 40; i++) {
     const b = br[i % 4];
-    out.push({ one_id: 'oid_' + (0x2f3a9 + i * 7919).toString(36), cust: 'cust_•••' + String(1000 + ri(0, 8999)), branch: b, agent: b === 'TPE01' ? '王信宏' : ag[(i + 1) % 4], lifecycle: pick(lc), tier: pick(tiers), market: pick(mk), age: pick(ages), churn: ri(3, 97), last: `10-${pad2(ri(1, 14))}`, fee90: ri(0, 420) * 1000, orders30: ri(0, 60), platform: pick(['iOS', 'Android', 'Web']) });
+    out.push({ one_id: 'oid_' + (0x2f3a9 + i * 7919).toString(36), cust: 'cust_•••' + String(1000 + ri(0, 8999)), branch: b, agent: b === 'TPE01' ? 'A2041' : ag[(i + 1) % 4], lifecycle: pick(lc), tier: pick(tiers), market: pick(mk), age: pick(ages), churn: ri(3, 97), last: `10-${pad2(ri(1, 14))}`, fee90: ri(0, 420) * 1000, orders30: ri(0, 60), platform: pick(['iOS', 'Android', 'Web']) });
   }
-  out[0] = { ...out[0], one_id: 'oid_7k3a9q', cust: 'cust_•••7281', branch: 'TPE01', agent: '王信宏', lifecycle: '成長', tier: 'P2', market: 'TSE', age: '35-44', churn: 23, last: '10-14', fee90: 48000, orders30: 14, platform: 'iOS' };
-  out[1] = { ...out[1], one_id: 'oid_2m8x1c', cust: 'cust_•••0412', branch: 'TPE01', agent: '王信宏', lifecycle: '沉睡', tier: 'P1', market: 'US', age: '45-54', churn: 81, last: '08-12', fee90: 312000, orders30: 0, platform: 'Android' };
+  out[0] = { ...out[0], one_id: 'oid_7k3a9q', cust: 'cust_•••7281', branch: 'TPE01', agent: 'A2041', lifecycle: '成長', tier: 'P2', market: 'TSE', age: '35-44', churn: 23, last: '10-14', fee90: 48000, orders30: 14, platform: 'iOS' };
+  out[1] = { ...out[1], one_id: 'oid_2m8x1c', cust: 'cust_•••0412', branch: 'TPE01', agent: 'A2041', lifecycle: '沉睡', tier: 'P1', market: 'US', age: '45-54', churn: 81, last: '08-12', fee90: 312000, orders30: 0, platform: 'Android' };
   return out;
 })();
 
@@ -597,24 +597,24 @@ export const PROPS = [
   // 事件屬性（$ 開頭為 SDK/GA 預置屬性）
   { k: 'platform', cn: '平台', scope: 'event', type: 'string', vals: ['iOS', 'Android', 'Web'] },
   { k: '$event_hour', cn: '事件發生時間（時段 0–23）', scope: 'event', type: 'number' },
-  { k: 'channel', cn: '渠道', scope: 'event', type: 'string', vals: ['App', '官網', 'LINE', '營業員', '活動頁'] },
+  { k: 'channel', cn: '觸發平台', scope: 'event', type: 'string', vals: ['App', '官網', 'LINE', '營業員', '活動頁'] },
   { k: '$utm_source', cn: 'UTM 來源', scope: 'event', type: 'string', vals: ['google', 'facebook', 'line', 'direct', 'edm'] },
   { k: '$utm_campaign', cn: 'UTM 活動', scope: 'event', type: 'string', vals: ['q4_open_bonus', 'etf_dca', 'us_stock_launch', 'brand'] },
   { k: '$app_version', cn: 'App 版本', scope: 'event', type: 'string', vals: ['5.2.0', '5.1.3', '5.0.9'] },
   { k: '$os_version', cn: 'OS 版本', scope: 'event', type: 'string', vals: ['iOS 18', 'iOS 17', 'Android 15', 'Android 14'] },
   { k: 'page_group', cn: '頁面群組', scope: 'event', type: 'string', vals: ['account_open', 'quote', 'trade', 'wealth', 'campaign'] },
-  { k: 'symbol', cn: '商品代碼', scope: 'event', type: 'string', vals: ['2330', '2317', '0050', '2454', '00878'] },
-  { k: 'market', cn: '市場', scope: 'event', type: 'string', vals: ['TSE', 'OTC', 'US', 'ETF'] },
-  { k: 'side', cn: '買賣別', scope: 'event', type: 'string', vals: ['buy', 'sell'] },
-  { k: 'order_type', cn: '委託類型', scope: 'event', type: 'string', vals: ['limit', 'market', 'odd_lot', 'day_trade'] },
-  { k: 'reason_code', cn: '失敗原因碼', scope: 'event', type: 'string', vals: ['E001 餘額不足', 'E012 漲跌停', 'E020 零股限制', 'E031 額度不足'] },
+  { k: 'symbol', cn: '商品代號', scope: 'event', type: 'string', vals: ['2330', '2317', '0050', '2454', '00878'] },
+  { k: 'market', cn: '市場別', scope: 'event', type: 'string', vals: ['TSE', 'OTC', 'US', 'ETF'] },
+  { k: 'side', cn: '交易買賣', scope: 'event', type: 'string', vals: ['buy', 'sell'] },
+  { k: 'order_type', cn: '委託方式', scope: 'event', type: 'string', vals: ['limit', 'market', 'odd_lot', 'day_trade'] },
+  { k: 'reason_code', cn: '失敗原因', scope: 'event', type: 'string', vals: ['E001 餘額不足', 'E012 漲跌停', 'E020 零股限制', 'E031 額度不足'] },
   { k: 'method', cn: '入金方式', scope: 'event', type: 'string', vals: ['約定轉帳', 'ATM', '超商', '信用卡'] },
-  { k: 'branch_id', cn: '分公司', scope: 'event', type: 'string', vals: ['TPE01', 'TPE02', 'TCH01', 'KHH01'] },
-  { k: 'kyc_level', cn: 'KYC 等級', scope: 'event', type: 'string', vals: ['L1', 'L2', 'L3'] },
-  { k: 'amount', cn: '金額', scope: 'event', type: 'number' },
-  { k: 'qty', cn: '數量', scope: 'event', type: 'number' },
+  { k: 'branch_id', cn: '分公司代碼', scope: 'event', type: 'string', vals: ['TPE01', 'TPE02', 'TCH01', 'KHH01'] },
+  { k: 'kyc_level', cn: 'KYC', scope: 'event', type: 'string', vals: ['L1', 'L2', 'L3'] },
+  { k: 'amount', cn: '金額（交易價格）', scope: 'event', type: 'number' },
+  { k: 'qty', cn: '交易數量', scope: 'event', type: 'number' },
   { k: 'fee', cn: '手續費', scope: 'event', type: 'number' },
-  { k: 'duration_ms', cn: '停留時長（ms）', scope: 'event', type: 'number' },
+  { k: 'duration_ms', cn: '事件時長', scope: 'event', type: 'number' },
   { k: 'result_count', cn: '搜尋結果數', scope: 'event', type: 'number' },
   // 用戶屬性（profile）
   { k: 'u.lifecycle', cn: '生命週期', scope: 'user', type: 'string', vals: ['新客', '成長', '成熟', '沉睡', '流失'] },
@@ -622,11 +622,11 @@ export const PROPS = [
   { k: 'u.age_band', cn: '年齡層', scope: 'user', type: 'string', vals: ['18–25', '26–35', '36–45', '46–55', '56+'] },
   { k: 'u.gender', cn: '性別', scope: 'user', type: 'string', vals: ['M', 'F'] },
   { k: 'u.first_utm_source', cn: '首次來源', scope: 'user', type: 'string', vals: ['google', 'facebook', 'line', 'direct', 'edm'] },
-  { k: 'u.aum_bucket', cn: '資產區間', scope: 'user', type: 'string', vals: ['< 10 萬', '10–50 萬', '50–100 萬', '100–500 萬', '> 500 萬'] },
+  { k: 'u.aum_bucket', cn: '資產區間（最近資產）', scope: 'user', type: 'string', vals: ['< 10 萬', '10–50 萬', '50–100 萬', '100–500 萬', '> 500 萬'] },
   { k: 'u.branch_id', cn: '所屬分公司', scope: 'user', type: 'string', vals: ['TPE01', 'TPE02', 'TCH01', 'KHH01'] },
   { k: 'u.account_age_days', cn: '開戶天數', scope: 'user', type: 'number' },
   { k: 'u.has_margin', cn: '信用戶', scope: 'user', type: 'bool' },
-  { k: 'u.signup_date', cn: '註冊日期', scope: 'user', type: 'date' },
+  { k: 'u.signup_date', cn: '開戶日期', scope: 'user', type: 'date' },
   // 標籤（標籤引擎輸出，可直接當條件）
   { k: 'tag.churn_risk', cn: '流失風險', scope: 'tag', type: 'string', vals: ['高', '中', '低'] },
   { k: 'tag.trade_style', cn: '交易風格', scope: 'tag', type: 'string', vals: ['當沖', '波段', '長期', 'ETF 定期定額'] },
@@ -658,46 +658,46 @@ export const SAVED_REPORTS = [
 
 /* ------------------------------------------------------------------ v0.5：元事件／屬性字典／用戶表／Item 表／資料流與效能／使用者指派 */
 export const META_PROPS = [
-  // 全域屬性字典（事件屬性 + 預置屬性）：型別、敏感等級、來源、枚舉、被幾個事件使用
-  { k: '$page_url', cn: '頁面網址', type: 'string', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 2, note: '去除查詢字串後入倉', status: 'live' },
-  { k: 'page_group', cn: '頁面群組', type: 'string', scope: 'event', sens: 'L1', src: '事件化規則', enum: ['account_open', 'quote', 'trade', 'wealth', 'campaign'], usedBy: 3, status: 'live' },
-  { k: '$screen_name', cn: '畫面名稱', type: 'string', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'live' },
-  { k: 'symbol', cn: '商品代碼', type: 'string', scope: 'event', sens: 'L2', src: '數據中台 / GA360', usedBy: 6, note: '關聯維度表 dim_instrument', item: 'dim_instrument', status: 'live' },
-  { k: 'market', cn: '市場', type: 'string', scope: 'event', sens: 'L1', src: '交易 CDC', enum: ['TSE', 'OTC', 'US', 'HK', 'FUND'], usedBy: 4, status: 'live' },
-  { k: 'side', cn: '買賣別', type: 'string', scope: 'event', sens: 'L1', src: '交易 CDC', enum: ['buy', 'sell'], usedBy: 2, status: 'live' },
-  { k: 'order_type', cn: '委託類型', type: 'string', scope: 'event', sens: 'L1', src: '交易 CDC', enum: ['limit', 'market', 'odd_lot', 'day_trade'], usedBy: 1, status: 'live' },
-  { k: 'amount', cn: '金額', type: 'number', unit: 'TWD', scope: 'event', sens: 'L2', src: '數據中台（交易／帳務）', usedBy: 4, note: '匯出一律區間化', status: 'live' },
-  { k: 'qty', cn: '數量', type: 'number', unit: '股', scope: 'event', sens: 'L2', src: '交易 CDC', usedBy: 2, status: 'live' },
-  { k: 'fee', cn: '手續費', type: 'number', unit: 'TWD', scope: 'event', sens: 'L2', src: '交易 CDC', usedBy: 1, status: 'live' },
-  { k: 'reason_code', cn: '失敗原因碼', type: 'string', scope: 'event', sens: 'L1', src: '交易 CDC', enum: ['E001', 'E012', 'E020', 'E031', 'SYS02'], usedBy: 1, note: '維度字典：42 個代碼 → 說明', item: 'dict:reason_code', status: 'live' },
-  { k: 'channel', cn: '渠道', type: 'string', scope: 'event', sens: 'L1', src: '多來源', enum: ['app', 'web', 'agent', 'ivr', 'api'], usedBy: 7, status: 'live' },
-  { k: 'branch_id', cn: '分公司', type: 'string', scope: 'event', sens: 'L1', src: '開戶系統 / CRM', usedBy: 2, note: '行級權限鍵；關聯維度表 dim_branch', item: 'dim_branch', status: 'live' },
-  { k: 'agent_id', cn: '營業員', type: 'string', scope: 'event', sens: 'L3', src: 'CRM', usedBy: 1, note: '客戶歸屬維度（營業員不是本系統使用者）；代碼化；關聯維度表 dim_agent', item: 'dim_agent', status: 'live' },
-  { k: 'kyc_level', cn: 'KYC 等級', type: 'string', scope: 'event', sens: 'L2', src: '開戶系統', enum: ['L1', 'L2', 'L3'], usedBy: 1, status: 'live' },
-  { k: 'duration_ms', cn: '停留時長', type: 'number', unit: 'ms', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'live' },
-  { k: 'campaign_id', cn: '活動 ID', type: 'string', scope: 'event', sens: 'L1', src: 'MA / GA360', usedBy: 2, item: 'dim_campaign', status: 'live' },
-  { k: 'exp_id', cn: '實驗 ID', type: 'string', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'quarantine', note: '隨 ga.ab_exposure 進隔離區，待登記' },
-  { k: 'memo', cn: '備註', type: 'string', scope: 'event', sens: 'L4', src: 'CRM', usedBy: 0, status: 'blocked', note: '個資掃描命中手機號：拒絕入倉' },
+  // 全域屬性字典（事件屬性 + 預置屬性）：型別、敏感等級、來源、枚舉、被幾個事件使用；sa = 客戶神策舊資料的屬性名（docs/28），顯示名沿用客戶用詞
+  { k: '$page_url', cn: '網頁網址', sa: '$url', type: 'string', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 2, note: '去除查詢字串後入倉', status: 'live' },
+  { k: 'page_group', cn: '區塊目錄（頁面群組）', sa: 'section／menu', type: 'string', scope: 'event', sens: 'L1', src: '事件化規則', enum: ['account_open', 'quote', 'trade', 'wealth', 'campaign'], usedBy: 3, status: 'live' },
+  { k: '$screen_name', cn: 'APP 頁面名稱', sa: '$screen_name', type: 'string', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'live' },
+  { k: 'symbol', cn: '商品代號', sa: 'StockID／STOCK_NO', type: 'string', scope: 'event', sens: 'L2', src: '數據中台 / GA360', usedBy: 6, note: '關聯維度表 dim_instrument', item: 'dim_instrument', status: 'live' },
+  { k: 'market', cn: '市場別', sa: 'Market／MARKET_NO', type: 'string', scope: 'event', sens: 'L1', src: '交易 CDC', enum: ['TSE', 'OTC', 'US', 'HK', 'FUND'], usedBy: 4, status: 'live' },
+  { k: 'side', cn: '交易買賣（買賣別）', sa: 'BuyOrSell／BUY_SALE', type: 'string', scope: 'event', sens: 'L1', src: '交易 CDC', enum: ['buy', 'sell'], usedBy: 2, status: 'live' },
+  { k: 'order_type', cn: '委託方式', sa: 'ORD_TYPE', type: 'string', scope: 'event', sens: 'L1', src: '交易 CDC', enum: ['limit', 'market', 'odd_lot', 'day_trade'], usedBy: 1, status: 'live' },
+  { k: 'amount', cn: '金額（交易價格／成交金額）', sa: 'PriceCost／MTH_AMT_TW', type: 'number', unit: 'TWD', scope: 'event', sens: 'L2', src: '數據中台（交易／帳務）', usedBy: 4, note: '匯出一律區間化', status: 'live' },
+  { k: 'qty', cn: '交易數量', sa: 'Qty／MTH_QTY', type: 'number', unit: '股', scope: 'event', sens: 'L2', src: '交易 CDC', usedBy: 2, status: 'live' },
+  { k: 'fee', cn: '手續費', sa: 'FEE／TradeFees', type: 'number', unit: 'TWD', scope: 'event', sens: 'L2', src: '交易 CDC', usedBy: 1, status: 'live' },
+  { k: 'reason_code', cn: '失敗原因', sa: 'fault_reason／ERROR_CODE', type: 'string', scope: 'event', sens: 'L1', src: '交易 CDC', enum: ['E001', 'E012', 'E020', 'E031', 'SYS02'], usedBy: 1, note: '維度字典：42 個代碼 → 說明', item: 'dict:reason_code', status: 'live' },
+  { k: 'channel', cn: '觸發平台（委單管道別）', sa: 'platform／WEB_ID', type: 'string', scope: 'event', sens: 'L1', src: '多來源', enum: ['app', 'web', 'agent', 'ivr', 'api'], usedBy: 7, status: 'live' },
+  { k: 'branch_id', cn: '分公司代碼', sa: 'BrokerID／OPEN_BELONG', type: 'string', scope: 'event', sens: 'L1', src: '開戶系統 / CRM', usedBy: 2, note: '行級權限鍵；關聯維度表 dim_branch', item: 'dim_branch', status: 'live' },
+  { k: 'agent_id', cn: '營業員員編', sa: 'ADNO／SALE_NO', type: 'string', scope: 'event', sens: 'L3', src: 'CRM', usedBy: 1, note: '客戶歸屬維度（營業員不是本系統使用者）；代碼化；關聯維度表 dim_agent', item: 'dim_agent', status: 'live' },
+  { k: 'kyc_level', cn: 'KYC', sa: 'KYC_RANK_CODE', type: 'string', scope: 'event', sens: 'L2', src: '開戶系統', enum: ['L1', 'L2', 'L3'], usedBy: 1, status: 'live' },
+  { k: 'duration_ms', cn: '事件時長', sa: '$event_duration', type: 'number', unit: 'ms', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'live' },
+  { k: 'campaign_id', cn: '推播計劃 ID／utm_campaign', sa: '$sf_plan_id／$utm_campaign', type: 'string', scope: 'event', sens: 'L1', src: 'MA / GA360', usedBy: 2, item: 'dim_campaign', status: 'live' },
+  { k: 'exp_id', cn: '實驗 ID', sa: '—（神策無）', type: 'string', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'quarantine', note: '隨 ga.ab_exposure 進隔離區，待登記' },
+  { k: 'memo', cn: '備註', sa: 'msg', type: 'string', scope: 'event', sens: 'L4', src: 'CRM', usedBy: 0, status: 'blocked', note: '個資掃描命中手機號：拒絕入倉' },
 ];
 export const USER_PROPS = [
   // 用戶表（profile）屬性：來源、更新頻率、敏感等級、可用於篩選／分組、覆蓋率
-  { k: 'one_id', cn: 'OneID', type: 'string', src: 'OneID 服務', upd: '即時', sens: 'L3', filter: false, group: false, cover: 100, note: '主鍵；代碼化，可 JOIN 不可反推' },
-  { k: 'customer_code', cn: '客戶代碼', type: 'string', src: 'CRM（CDC）', upd: '即時', sens: 'L3', filter: true, group: false, cover: 87.4 },
-  { k: 'lifecycle', cn: '生命週期', type: 'enum', src: '標籤引擎（規則）', upd: '每日 06:00', sens: 'L1', filter: true, group: true, cover: 100, enum: ['新客', '成長', '成熟', '沉睡', '流失'] },
-  { k: 'tier', cn: '價值分級', type: 'enum', src: '標籤引擎（SQL）', upd: '每週一', sens: 'L2', filter: true, group: true, cover: 62.3, enum: ['P1', 'P2', 'P3', 'P4', 'P5'] },
-  { k: 'age_band', cn: '年齡層', type: 'enum', src: 'CRM（CDC，出生年 → 分桶）', upd: '每日', sens: 'L2', filter: true, group: true, cover: 86.9, note: '只存分桶，不存生日' },
-  { k: 'gender', cn: '性別', type: 'enum', src: 'CRM（CDC）', upd: '每日', sens: 'L2', filter: true, group: true, cover: 86.9 },
-  { k: 'branch_id', cn: '所屬分公司', type: 'string', src: 'CRM（CDC）', upd: '每日', sens: 'L1', filter: true, group: true, cover: 87.4, note: '行級權限鍵（當前歸屬）' },
-  { k: 'agent_id', cn: '所屬營業員', type: 'string', src: 'CRM（CDC）', upd: '每日', sens: 'L3', filter: true, group: false, cover: 85.1, note: '客戶歸屬維度；代碼化' },
-  { k: 'first_utm_source', cn: '首次來源', type: 'string', src: '事件推導（首次 $pageview）', upd: '即時（set_once）', sens: 'L1', filter: true, group: true, cover: 71.2 },
-  { k: 'signup_date', cn: '開戶日期', type: 'date', src: '開戶系統', upd: '即時', sens: 'L1', filter: true, group: false, cover: 87.4 },
-  { k: 'account_age_days', cn: '開戶天數', type: 'number', src: '計算（today − signup_date）', upd: '每日', sens: 'L1', filter: true, group: true, cover: 87.4, note: '數值自動分桶' },
-  { k: 'aum_bucket', cn: '資產區間', type: 'enum', src: '帳務（日批，分桶）', upd: '每日 05:00', sens: 'L2', filter: true, group: true, cover: 80.5, note: '只存區間，不存金額' },
-  { k: 'has_margin', cn: '信用戶', type: 'bool', src: 'CRM（CDC）', upd: '每日', sens: 'L2', filter: true, group: true, cover: 87.4 },
-  { k: 'churn_score', cn: '流失風險分', type: 'number', src: '模型（標籤引擎）', upd: '每日 07:30', sens: 'L2', filter: true, group: true, cover: 100 },
-  { k: 'pref_market', cn: '偏好市場', type: 'enum', src: '標籤引擎（統計）', upd: '每日 06:00', sens: 'L1', filter: true, group: true, cover: 72.3 },
-  { k: 'last_active_at', cn: '最近活躍', type: 'datetime', src: '事件推導', upd: '即時', sens: 'L1', filter: true, group: false, cover: 100 },
-  { k: 'name / id_no / mobile / email', cn: '姓名／身分證／手機／Email', type: '—', src: '來源系統', upd: '—', sens: 'L4', filter: false, group: false, cover: 0, note: '永不入倉；OneID 只存 HMAC 雜湊' },
+  { k: 'one_id', cn: 'OneID', sa: 'id／second_id', type: 'string', src: 'OneID 服務', upd: '即時', sens: 'L3', filter: false, group: false, cover: 100, note: '主鍵；代碼化，可 JOIN 不可反推' },
+  { k: 'customer_code', cn: '客戶代碼', sa: 's_idno（去識別化 ID）', type: 'string', src: 'CRM（CDC）', upd: '即時', sens: 'L3', filter: true, group: false, cover: 87.4 },
+  { k: 'lifecycle', cn: '生命週期', sa: '$dimension_dict_sleepycust_group（沉睡客分群）', type: 'enum', src: '標籤引擎（規則）', upd: '每日 06:00', sens: 'L1', filter: true, group: true, cover: 100, enum: ['新客', '成長', '成熟', '沉睡', '流失'] },
+  { k: 'tier', cn: '價值分級', sa: '—（本系統新增）', type: 'enum', src: '標籤引擎（SQL）', upd: '每週一', sens: 'L2', filter: true, group: true, cover: 62.3, enum: ['P1', 'P2', 'P3', 'P4', 'P5'] },
+  { k: 'age_band', cn: '年齡層', sa: 's_age（分桶）', type: 'enum', src: 'CRM（CDC，出生年 → 分桶）', upd: '每日', sens: 'L2', filter: true, group: true, cover: 86.9, note: '只存分桶，不存生日' },
+  { k: 'gender', cn: '性別', sa: 'gender／$dimension_dict_s_sex', type: 'enum', src: 'CRM（CDC）', upd: '每日', sens: 'L2', filter: true, group: true, cover: 86.9 },
+  { k: 'branch_id', cn: '所屬分公司', sa: '—（事件屬性 BrokerID／OPEN_BELONG）', type: 'string', src: 'CRM（CDC）', upd: '每日', sens: 'L1', filter: true, group: true, cover: 87.4, note: '行級權限鍵（當前歸屬）' },
+  { k: 'agent_id', cn: '所屬營業員', sa: 'SALE_NO', type: 'string', src: 'CRM（CDC）', upd: '每日', sens: 'L3', filter: true, group: false, cover: 85.1, note: '客戶歸屬維度；代碼化' },
+  { k: 'first_utm_source', cn: '首次來源', sa: '$utm_source（用戶表＝首次）', type: 'string', src: '事件推導（首次 $pageview）', upd: '即時（set_once）', sens: 'L1', filter: true, group: true, cover: 71.2 },
+  { k: 'signup_date', cn: '開戶日期', sa: 'st_first_odate／first_odate', type: 'date', src: '開戶系統', upd: '即時', sens: 'L1', filter: true, group: false, cover: 87.4 },
+  { k: 'account_age_days', cn: '開戶天數', sa: '—（由 st_first_odate 計算）', type: 'number', src: '計算（today − signup_date）', upd: '每日', sens: 'L1', filter: true, group: true, cover: 87.4, note: '數值自動分桶' },
+  { k: 'aum_bucket', cn: '資產區間', sa: 'st_last_asset_amt（分桶）', type: 'enum', src: '帳務（日批，分桶）', upd: '每日 05:00', sens: 'L2', filter: true, group: true, cover: 80.5, note: '只存區間，不存金額' },
+  { k: 'has_margin', cn: '信用戶', sa: 'st_mt_acc', type: 'bool', src: 'CRM（CDC）', upd: '每日', sens: 'L2', filter: true, group: true, cover: 87.4 },
+  { k: 'churn_score', cn: '流失風險分', sa: '—（本系統新增）', type: 'number', src: '模型（標籤引擎）', upd: '每日 07:30', sens: 'L2', filter: true, group: true, cover: 100 },
+  { k: 'pref_market', cn: '偏好市場', sa: '—（本系統新增）', type: 'enum', src: '標籤引擎（統計）', upd: '每日 06:00', sens: 'L1', filter: true, group: true, cover: 72.3 },
+  { k: 'last_active_at', cn: '最近活躍', sa: 'last_login_date_dt', type: 'datetime', src: '事件推導', upd: '即時', sens: 'L1', filter: true, group: false, cover: 100 },
+  { k: 'name / id_no / mobile / email', cn: '姓名／身分證／手機／Email', sa: 's_name／cus_mtel／cuadm／birth_dt 等 33 欄（forbidden_l4）', type: '—', src: '來源系統', upd: '—', sens: 'L4', filter: false, group: false, cover: 0, note: '永不入倉；OneID 只存 HMAC 雜湊' },
 ];
 export const ONEID_RULES = [
   // 對齊神策 IDM 3.0：歸戶在接入時決定、一個 ID 只屬一個用戶、不自動合併已存在的用戶、資料歸優先級最高的 ID；未登入事件以 distinct_id 歸匿名用戶，登入時近 7 天匿名事件改寫到客戶（docs/19）
