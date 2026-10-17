@@ -48,9 +48,29 @@ const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj
 const now = () => new Date().toISOString().slice(0, 19) + 'Z';
 const me = (fx: Fixtures): string => String(((fx.roles[demoRole()] ?? fx.roles.admin) as { user: { id: string } }).user.id);
 const nid = (p: string) => `${p}_demo${Math.random().toString(36).slice(2, 7)}`;
-function sampleData(fx: Fixtures, kind: string): Obj | null {
+function sampleData(fx: Fixtures, kind: string, query?: Obj): Obj | null {
+  if (kind === 'events' && query) return synthEvents(query);
   for (const [k, v] of Object.entries(fx.routes)) if (/^POST \/v1\/dashboards\/d_[^/]+\/cards\/[^/]+\/data$/.test(k) && (v as { card?: { kind?: string } }).card?.kind === kind) return v as Obj;
   return null;
+}
+/** 事件分析卡片在示範模式的合成資料：依查詢的指標別名與分組產生每日數列（固定種子，重新整理也一樣）。 */
+function synthEvents(query: Obj): Obj {
+  const metrics = (Array.isArray(query.metrics) ? query.metrics : []) as Obj[];
+  const aliases = metrics.map((m, i) => String(m.alias || `m${i + 1}`));
+  const time = (query.time ?? {}) as { from?: string; to?: string; grain?: string };
+  const from = new Date(time.from ?? '2026-10-01'); const to = new Date(time.to ?? '2026-10-16');
+  const groups = Array.isArray(query.group_by) && query.group_by.length ? ['iOS', 'Android', 'Web'] : [null];
+  const rows: Obj[] = []; let seed = 7;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
+    for (const g of groups) {
+      const r: Obj = { bucket: d.toISOString().slice(0, 10), suppressed: false, _k: 120 };
+      if (g) r.g1 = g;
+      for (const [i, a] of aliases.entries()) r[a] = Math.round((80 + 40 * Math.sin(d.getDate() / 3 + i) + rnd() * 30) * (g === 'Web' ? 0.4 : 1));
+      rows.push(r);
+    }
+  }
+  return { rows, columns: ['bucket', ...(groups[0] ? ['g1'] : []), ...aliases, '_k', 'suppressed'], chart_spec: { type: 'line', x: 'bucket', series: aliases, group: groups[0] ? ['g1'] : [], suppressed: true }, masked: {}, sql: '-- 示範模式：合成資料，未執行 SQL', lineage: ['dmp.events'], cost: { ms: 12, rows: rows.length, layer: 'L0' }, warnings: ['示範模式：合成資料'] };
 }
 function overlay(method: string, path: string, init: RequestInit | undefined, fx: Fixtures): { body: unknown; status?: number } | null {
   const b = parseBody(init?.body);
@@ -69,7 +89,7 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
       for (const t of targets) { const d = mem.dashboards.get(t) ?? seedCopy(fx, t); if (d) { mem.dashboards.set(String(d.id), d); (d.cards as Obj[]).push(cardOf(nb, who, Number(b.width) === 2 ? 2 : 1)); (nb.added_to as Obj[]).push({ dashboard: d.id, name: d.name }); } }
       nb.used_in = usedIn(String(nb.id)); return { body: nb, status: 201 };
     }
-    if (bm && seg[3] === 'data' && method === 'POST') { const d = sampleData(fx, String(bm.kind)); return { body: { ...(d ?? { rows: [], chart_spec: {}, sql: '', lineage: [], cost: { ms: 0, rows: 0, layer: 'L0' }, warnings: [] }), bookmark: { id: bm.id, kind: bm.kind, chart: bm.chart, name: bm.name } } }; }
+    if (bm && seg[3] === 'data' && method === 'POST') { const d = sampleData(fx, String(bm.kind), bm.query as Obj); return { body: { ...(d ?? { rows: [], chart_spec: {}, sql: '', lineage: [], cost: { ms: 0, rows: 0, layer: 'L0' }, warnings: [] }), bookmark: { id: bm.id, kind: bm.kind, chart: bm.chart, name: bm.name } } }; }
     if (bm && method === 'GET') return { body: { ...bm, used_in: usedIn(id) } };
     if (bm && method === 'PUT') { Object.assign(bm, { ...b, updated_at: now() }); for (const d of mem.dashboards.values()) for (const c of d.cards as Obj[]) if (c.bookmark === id) { c.title = bm.name; c.query = bm.query; c.kind = bm.kind; } return { body: { ...bm, used_in: usedIn(id) } }; }
     if (bm && method === 'DELETE') { mem.bookmarks.delete(id); for (const d of mem.dashboards.values()) for (const c of d.cards as Obj[]) if (c.bookmark === id) c.bookmark_deleted = true; return { body: null, status: 204 }; }
@@ -98,7 +118,7 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
       (d.cards as Obj[]).push(c); d.updated_at = now(); return { body: c, status: 201 };
     }
     if (seg[3] === 'cards' && seg.length === 5 && method === 'DELETE') { d.cards = (d.cards as Obj[]).filter((c) => c.id !== seg[4]); return { body: { ok: true } }; }
-    if (seg[3] === 'cards' && seg[5] === 'data' && method === 'POST') { const c = (d.cards as Obj[]).find((x) => x.id === seg[4]); const data = c ? sampleData(fx, String(c.kind)) : null; return data && c ? { body: { ...data, card: { id: c.id, kind: c.kind, chart: c.chart, title: c.title, bookmark: c.bookmark }, warnings: c.bookmark_deleted ? ['書籤已刪除，顯示的是刪除前的查詢快照'] : (data.warnings as string[] | undefined) ?? [] } } : null; }
+    if (seg[3] === 'cards' && seg[5] === 'data' && method === 'POST') { const c = (d.cards as Obj[]).find((x) => x.id === seg[4]); const data = c ? sampleData(fx, String(c.kind), c.query as Obj) : null; return data && c ? { body: { ...data, card: { id: c.id, kind: c.kind, chart: c.chart, title: c.title, bookmark: c.bookmark }, warnings: c.bookmark_deleted ? ['書籤已刪除，顯示的是刪除前的查詢快照'] : (data.warnings as string[] | undefined) ?? [] } } : null; }
     return null;                                            // explain／render／schedules 等走固定資料（* 比對）
   }
   return null;
