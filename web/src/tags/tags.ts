@@ -3,7 +3,7 @@ import type { TagKind, TagSpec, Delivery, DeliveryStatus, DestinationStatus, Pus
 
 export const TAG_STATUS_CN: Record<TagStatus, string> = { draft: '草稿', pending_approval: '待審批', active: '生效中', paused: '已暫停', recycled: '回收站' };
 export const TAG_STATUS_PILL: Record<TagStatus, string> = { draft: 'gray', pending_approval: 'amber', active: 'blue', paused: 'gray', recycled: 'red' };
-export const TAG_KIND_CN: Record<TagKind, string> = { values: '自定義標籤值', sql: 'SQL 標籤', metric: '基礎指標值', firstlast: '首末次特徵', rfm: 'RFM' };
+export const TAG_KIND_CN: Record<TagKind, string> = { values: '規則標籤（動態）', sql: 'SQL 標籤', metric: '基礎指標值', firstlast: '首末次特徵', rfm: 'RFM' };
 export const AGG_CN = { count: '次數', sum: '總和', avg: '平均', max: '最大值', min: '最小值', days: '有行為天數' } as const;
 export const FEATURE_CN = { date: '發生日期', days_since: '距基準日天數', field: '當時的屬性值' } as const;
 /** 分桶界線 → 標籤值清單（與後端 _bucket_expr 同規則） */

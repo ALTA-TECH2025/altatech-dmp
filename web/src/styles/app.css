@@ -231,3 +231,13 @@ label.chk input { width: auto; }
   .legend { gap: 4px 10px; font-size: 11.5px; }
   .tooltip { min-width: 0; width: 100%; }
 }
+
+/* 規則建構器（神策式條件樹） */
+.rb-group { display: flex; gap: 10px; align-items: stretch; }
+.rb-group.nested { border: 1px dashed var(--line); border-radius: 8px; padding: 8px; background: var(--panel); }
+.rb-op { align-self: stretch; min-width: 30px; padding: 0 4px; border-radius: 8px; border: 1px solid var(--brand-line); background: var(--brand-soft); color: var(--brand); font-weight: 600; font-size: 12px; cursor: pointer; }
+.rb-op.or { background: #EEEBFB; color: var(--purple); border-color: #D6D0F5; }
+.rb-behavior { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); }
+.rb-combine { padding: 6px 10px; border-left: 3px solid var(--brand-line); }
+.rb-behavior .row > select:not(.grow) { flex: 0 1 180px; }
+.rb-behavior .row > input { flex: 0 1 150px; }

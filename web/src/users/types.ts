@@ -1,14 +1,28 @@
 // 與 openapi UsersQuery／UsersListRequest／UsersListResult／Profile／TimelineResult／IdentityGraph／Segment* 對齊
 import type { Cond } from '@/analytics/types';
 
-export interface UsersBehavior { event: string; filters?: Cond[]; done?: boolean; count?: { op: 'gte' | 'lte' | 'eq' | 'between'; value: number | [number, number] }; time?: { from: string; to: string } }
+/** 條件樹：{op: 且／或, items: 條件或子群組}；後端也接受舊的平鋪陣列（視為「且」）。 */
+export interface CondGroup { op: 'and' | 'or'; items: (Cond | CondGroup)[] }
+export type RuleFilters = Cond[] | CondGroup;
+export type MeasureAgg = 'count' | 'sum' | 'avg' | 'max' | 'min' | 'days';
+export type CmpOp = 'gte' | 'lte' | 'eq' | 'gt' | 'lt' | 'between';
+export interface UsersBehavior {
+  event: string;
+  filters?: RuleFilters;                                             // 事件屬性條件（且／或）
+  done?: boolean;                                                    // 做過／未做過
+  measure?: { agg: MeasureAgg; field?: string };                     // 指標：總次數、活躍天數、數值屬性的 sum／avg／max／min
+  cmp?: { op: CmpOp; value: number | [number, number] };             // 比較：≥ ≤ = > < 介於
+  count?: { op: CmpOp; value: number | [number, number] };           // 舊欄位（= measure count + cmp），讀舊規則用
+  time?: { last_days?: number; from?: string; to?: string };         // 近 N 天（以計算基準日回推）或自訂期間
+}
 export interface UsersSource { type: 'funnel' | 'retention' | 'events' | 'path' | 'attribution'; query: Record<string, unknown>; touch?: string; step?: number; reached?: boolean; bucket?: string; group?: unknown; cohort?: string; period?: number; retained?: boolean | null; metric?: string; node?: string; level?: number; label?: string }
 export interface UsersQuery {
   project?: string;
-  filters?: Cond[];
+  filters?: RuleFilters;                                             // 用戶屬性／分群條件樹
   segment?: string;
   behaviors?: UsersBehavior[];
-  behaviors_op?: 'and' | 'or';
+  behaviors_op?: 'and' | 'or';                                       // 行為之間
+  combine?: 'and' | 'or';                                            // 用戶屬性塊 與 行為塊 之間
   time?: { from?: string; to?: string; now?: string };
   source?: UsersSource;
 }

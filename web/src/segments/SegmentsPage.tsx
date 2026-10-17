@@ -8,7 +8,7 @@ import { RequireGrant } from '@/auth/RequireGrant';
 import { ExportDialog } from '@/users/ExportDialog';
 import { ProfileDrawer } from '@/users/ProfileDrawer';
 import { RuleBuilder } from '@/users/RuleBuilder';
-import { emptyRule, ruleValid, summarizeRule } from '@/users/rule';
+import { cleanRule, emptyRule, normalizeRule, ruleValid, summarizeRule } from '@/users/rule';
 import type { Segment, SegmentCreate, SegmentPreview, SegmentStatus, SegmentVersion, UsersEstimate, UsersListResult } from '@/users/types';
 import { UsersTable } from '@/users/UsersTable';
 import { ACTION_CN, STATUS_CN, STATUS_PILL, TRIGGER_CN, actionsFor, updateText, type SegAction } from './segments';
@@ -18,7 +18,7 @@ export function SegmentsPage() {
 }
 
 type Draft = SegmentCreate & { update: NonNullable<SegmentCreate['update']> };
-const newDraft = (): Draft => ({ name: '', description: '', kind: 'rule', rule: emptyRule(), update: { mode: 'manual', freq: 'daily', earliest: '06:00', keep: 7 }, tz: 'Asia/Taipei' });
+const newDraft = (): Draft => ({ name: '', description: '', kind: 'rule', rule: emptyRule(), update: { mode: 'routine', freq: 'daily', earliest: '02:00', keep: 7 }, tz: 'Asia/Taipei' });   // 動態分群：預設每日凌晨 02:00 重算
 
 function SegmentsInner() {
   const { me, can } = useAuth();
@@ -40,7 +40,7 @@ function SegmentsInner() {
   const current = id && id !== 'new' ? list.find((s) => s.id === id) ?? null : null;
   return (
     <div className="page">
-      <div className="page-h"><div><h1>分群</h1><p>規則分群（屬性、分群、做過／未做過、分析落點）以 Bitmap 計算存成版本；行銷建立的分群需數位經營審批後生效；例行分群依頻率與最早計算時間自動更新並保留版本。</p></div>
+      <div className="page-h"><div><h1>分群</h1><p>動態分群：規則 = 用戶屬性／所屬分群 × 行為（事件、事件屬性、指標比較、近 N 天）× 且／或分組，以 Bitmap 計算存成版本，預設每日凌晨 02:00 重算最新符合資格的受眾；行銷建立的分群需數位經營審批後生效；分析落點也可存成分群。</p></div>
         {can('segments', 'use') && <div className="right"><Link className="btn-primary" to="/segments/new">＋ 新建分群</Link></div>}</div>
       {err && <div className="alert" style={{ marginBottom: 12 }}>{err}</div>}
       <div className={current || id === 'new' ? 'stack' : 'grid c21'}>
@@ -84,7 +84,7 @@ function SegmentForm({ cat, segOpts, initial, existing, onDone, onCancel }: { ca
   const [est, setEst] = useState<UsersEstimate | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const clean = (): SegmentCreate => ({ ...d, rule: { ...d.rule, filters: d.rule.filters?.length ? d.rule.filters : undefined, behaviors: d.rule.behaviors?.length ? d.rule.behaviors : undefined }, update: { ...d.update, keep: d.update.mode === 'manual' ? 1 : d.update.keep } });
+  const clean = (): SegmentCreate => ({ ...d, rule: cleanRule(d.rule), update: { ...d.update, keep: d.update.mode === 'manual' ? 1 : d.update.keep } });
   const estimate = async () => { setBusy(true); setErr(null); try { setEst(await api.post<UsersEstimate>('/v1/segments/estimate', { rule: clean().rule })); } catch (e) { setErr(e instanceof ApiError ? e.message : '估數失敗'); } finally { setBusy(false); } };
   const save = async () => {
     setBusy(true); setErr(null);
@@ -139,7 +139,7 @@ function SegmentDetail({ seg, cat, segOpts, me, can, onChanged, busy, setBusy, s
   const actions = actionsFor(seg, can, me);
   const colCn = (c: string) => (c === 'one_id' ? 'one_id' : cat?.user_props.find((u) => u.key === c)?.cn ?? c);
   const propCn = useMemo(() => Object.fromEntries((cat?.user_props ?? []).map((u) => [u.key, u.cn])), [cat]);
-  if (editing) return <SegmentForm cat={cat} segOpts={segOpts} existing={seg} initial={{ name: seg.name, description: seg.description, kind: seg.kind, rule: seg.rule, update: seg.update, tz: seg.tz }} onDone={async () => { setEditing(false); await onChanged(); }} onCancel={() => setEditing(false)} />;
+  if (editing) return <SegmentForm cat={cat} segOpts={segOpts} existing={seg} initial={{ name: seg.name, description: seg.description, kind: seg.kind, rule: normalizeRule(seg.rule), update: seg.update, tz: seg.tz }} onDone={async () => { setEditing(false); await onChanged(); }} onCancel={() => setEditing(false)} />;
   return (
     <div className="stack">
       <div className="card">

@@ -6,7 +6,7 @@ import type { Catalog } from '@/analytics/types';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
 import { RuleBuilder } from '@/users/RuleBuilder';
-import { emptyRule, ruleValid, summarizeRule } from '@/users/rule';
+import { cleanRule, emptyRule, ruleValid, summarizeRule } from '@/users/rule';
 import type { Segment } from '@/users/types';
 import { AGG_CN, DTYPE_CN, FEATURE_CN, TAG_KIND_CN, TAG_STATUS_CN, TAG_STATUS_PILL, bucketLabels, fmtTs, parseBuckets, specText, suggestKey, topDistribution, updateText } from './tags';
 import type { Tag, TagCreate, TagCustomFields, TagKind, TagSpec, TagValue, TagVersion } from './types';
@@ -40,7 +40,7 @@ function TagsInner() {
   const act = async (label: string, fn: () => Promise<unknown>) => { setBusy(true); setErr(null); setMsg(null); try { await fn(); await reload(); setMsg(`${label}完成`); } catch (e) { setErr(e instanceof ApiError ? e.message : `${label}失敗`); } finally { setBusy(false); } };
   return (
     <div className="page">
-      <div className="page-h"><div><h1>標籤</h1><p>標籤 = 每個用戶一個值，存成 Bitmap 版本（dmp.user_tags），可在推送名單時附帶、在分析時當維度。五種建立方式：自定義標籤值（每個值一條用戶規則）、SQL 標籤、基礎指標值、首末次特徵、RFM；行銷建立需數位經營審批；例行標籤到點自動計算。</p></div>
+      <div className="page-h"><div><h1>標籤</h1><p>標籤 = 每個用戶一個值，存成 Bitmap 版本（dmp.user_tags），可在推送名單時附帶、在分析時當維度。動態標籤：每個標籤值一條規則（用戶屬性、事件、事件屬性、指標比較，且／或分組），每日凌晨依規則重算最新符合資格的受眾；另有基礎指標值、首末次特徵、RFM 與 SQL 標籤；行銷建立需數位經營審批。</p></div>
         {can('segments', 'use') && <div className="right"><Link className="btn-primary" to="/tags/new">＋ 新建標籤</Link></div>}</div>
       {err && <div className="alert" style={{ marginBottom: 12 }}>{err}</div>}{msg && <div className="note">{msg}</div>}
       {id === 'new' ? <TagForm cat={cat} cf={cf} segOpts={segOpts} onDone={async (t) => { await reload(); nav(`/tags/${t.id}`); }} onCancel={() => nav('/tags')} />
@@ -137,7 +137,7 @@ function TagDetail({ tag, cat, segOpts, me, can, busy, act }: { tag: Tag; cat: C
 type Draft = { name: string; key: string; directory: string; description: string; dtype: 'string' | 'number' | 'bool'; kind: TagKind; values: TagValue[]; sql: string; spec: TagSpec; buckets: string; project: string; update: Tag['update']; fields: Record<string, string> };
 const SPEC_KINDS: TagKind[] = ['metric', 'firstlast', 'rfm'];
 function TagForm({ cat, cf, segOpts, onDone, onCancel }: { cat: Catalog | null; cf: TagCustomFields | null; segOpts: { id: string; name: string }[]; onDone: (t: Tag) => Promise<void> | void; onCancel: () => void }) {
-  const [d, setD] = useState<Draft>({ name: '', key: '', directory: cf?.directories[0] ?? '客戶價值', description: '', dtype: 'string', kind: 'values', values: [{ value: '', rule: emptyRule('golden') }], spec: { event: '', agg: 'count', window_days: 90, which: 'first', feature: 'date', amount_field: 'amount', bins: 5, output: 'score' }, buckets: '', project: 'golden', sql: "SELECT one_id_uint, toString(count()) AS tag_value\nFROM dmp.events WHERE event = 'bond_deal' AND event_date >= today() - 30\nGROUP BY one_id_uint", update: { mode: 'routine', freq: 'daily', earliest: '06:00', keep: 7 }, fields: {} });
+  const [d, setD] = useState<Draft>({ name: '', key: '', directory: cf?.directories[0] ?? '客戶價值', description: '', dtype: 'string', kind: 'values', values: [{ value: '', rule: emptyRule('golden') }], spec: { event: '', agg: 'count', window_days: 90, which: 'first', feature: 'date', amount_field: 'amount', bins: 5, output: 'score' }, buckets: '', project: 'golden', sql: "SELECT one_id_uint, toString(count()) AS tag_value\nFROM dmp.events WHERE event = 'bond_deal' AND event_date >= today() - 30\nGROUP BY one_id_uint", update: { mode: 'routine', freq: 'daily', earliest: '02:00', keep: 7 }, fields: {} });   // 動態標籤：預設每日凌晨 02:00 重算
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(0);
@@ -150,7 +150,7 @@ function TagForm({ cat, cf, segOpts, onDone, onCancel }: { cat: Catalog | null; 
   const save = async () => {
     setBusy(true); setErr(null);
     const body: TagCreate = { name: d.name, key: d.key || suggestKey(d.name) || undefined, directory: d.directory, description: d.description, dtype: d.dtype, kind: d.kind, update: d.update, fields: d.fields,
-      ...(d.kind === 'values' ? { values: d.values.map((v) => ({ value: v.value.trim(), rule: { ...v.rule, filters: v.rule.filters?.length ? v.rule.filters : undefined, behaviors: v.rule.behaviors?.length ? v.rule.behaviors : undefined } })) } : d.kind === 'sql' ? { sql: d.sql } : { project: d.project, spec: d.kind === 'metric' ? { event: d.spec.event, agg: d.spec.agg, field: d.spec.field || undefined, window_days: d.spec.window_days, buckets: bk?.length ? bk : undefined } : d.kind === 'firstlast' ? { event: d.spec.event, which: d.spec.which, feature: d.spec.feature, field: d.spec.feature === 'field' ? d.spec.field : undefined, window_days: d.spec.window_days ?? 0, buckets: d.spec.feature === 'days_since' && bk?.length ? bk : undefined } : { event: d.spec.event, amount_field: d.spec.amount_field || 'amount', window_days: d.spec.window_days, bins: d.spec.bins, output: d.spec.output } }) };
+      ...(d.kind === 'values' ? { values: d.values.map((v) => ({ value: v.value.trim(), rule: cleanRule(v.rule) })) } : d.kind === 'sql' ? { sql: d.sql } : { project: d.project, spec: d.kind === 'metric' ? { event: d.spec.event, agg: d.spec.agg, field: d.spec.field || undefined, window_days: d.spec.window_days, buckets: bk?.length ? bk : undefined } : d.kind === 'firstlast' ? { event: d.spec.event, which: d.spec.which, feature: d.spec.feature, field: d.spec.feature === 'field' ? d.spec.field : undefined, window_days: d.spec.window_days ?? 0, buckets: d.spec.feature === 'days_since' && bk?.length ? bk : undefined } : { event: d.spec.event, amount_field: d.spec.amount_field || 'amount', window_days: d.spec.window_days, bins: d.spec.bins, output: d.spec.output } }) };
     try { await onDone(await api.post<Tag>('/v1/tags', body)); } catch (e) { setErr(e instanceof ApiError ? e.message : '建立失敗'); } finally { setBusy(false); }
   };
   return (
