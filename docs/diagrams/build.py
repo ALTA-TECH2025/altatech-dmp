@@ -9,12 +9,64 @@ FONT = "'Plus Jakarta Sans','Noto Sans TC','PingFang TC','Microsoft JhengHei',sa
 C = dict(brand="#2C73EA", brandsoft="#E9F0FD", soft="#E9F0FD", line="#B9CFF5", teal="#12B5A8", tealsoft="#E3F7F5", purple="#7C4DD6", purplesoft="#EEE9FB",
          yellow="#E0B400", yellowsoft="#FFF6CC", gray="#56646D", graysoft="#F1F4F6", ink="#1C2B33", muted="#7C8992", red="#D23B3B", redsoft="#FBE5E5", green="#1E9E63", greensoft="#E3F4EA")
 
+# ------------------------------------------------------------------ 實作狀態（2026-10-17；對照 docs/27 §1）：方塊標題含關鍵字 → 狀態
+# done 已實作（可演示）／partial 部分實作／planned 規劃中（第一階段範圍、尚未做）／phase2 第二階段／confirm 待確認（需客戶或實測決定）
+STATUS_CN = {"done": "已實作", "partial": "部分實作", "planned": "規劃中", "phase2": "第二階段", "confirm": "待確認"}
+STATUS_COLOR = {"done": "green", "partial": "yellow", "planned": "gray", "phase2": "purple", "confirm": "red"}
+STATUS: list[tuple[str, str]] = [
+    # 體驗／服務
+    ("DMP Web", "done"), ("AI 洞察助理", "phase2"), ("外部系統與受眾推送", "partial"),
+    ("Insight Agent Runtime", "phase2"), ("Agent Tool Gateway", "planned"), ("Insight Store", "phase2"), ("Agent Runtime", "phase2"), ("Tool Gateway", "planned"), ("洞察物件", "phase2"),
+    ("Semantic Layer", "done"), ("Semantic Compiler", "done"), ("語意層 + 查詢編譯器", "done"), ("Analytics Query API", "partial"), ("Segment & Tag", "done"), ("Policy Engine", "done"), ("Analytics / Segment / Profile API", "done"),
+    ("Activation", "partial"), ("推送 / 觸發", "partial"),
+    # 計算
+    ("Flink", "phase2"), ("flink", "phase2"), ("normalize", "partial"), ("eventize", "partial"), ("oneid-resolve", "partial"), ("session", "phase2"), ("rules", "phase2"), ("CEP", "phase2"),
+    ("dbt + ClickHouse SQL", "partial"), ("Spark", "planned"), ("Airflow", "partial"), ("Checkpoint", "phase2"),
+    # 儲存
+    ("Kafka", "planned"), ("ClickHouse", "done"), ("PostgreSQL + pgvector", "partial"), ("Valkey", "planned"), ("Memorystore", "planned"), ("物件儲存", "planned"), ("Cloud Storage", "planned"), ("冷層", "planned"), ("Iceberg", "planned"),
+    ("L0 events", "done"), ("MV：L1", "done"), ("L3 touchpoints", "partial"), ("users / items / id_map", "done"), ("audit_log", "partial"), ("events（L0 明細）", "done"), ("users ／ dim_*", "done"), ("user_tags Bitmap ／ segments", "partial"),
+    # 接入
+    ("Collector", "planned"), ("GA360 Importer", "done"), ("BigQuery Importer", "done"), ("CDC", "partial"), ("CDC：Debezium", "planned"), ("用戶列表人數預估", "confirm"), ("KafkaConnect", "planned"), ("數據中台批次導入", "confirm"), ("dlt / SeaTunnel", "planned"), ("神策導出", "done"), ("神策歷史匯入", "done"), ("Sensors", "done"),
+    # 橫切
+    ("身分與權限", "done"), ("資料保護", "partial"), ("審計與法遵", "partial"), ("審計與觀測", "partial"), ("Prometheus", "planned"), ("Grafana", "planned"), ("Keycloak", "partial"),
+    ("Docker 部署套件", "done"), ("Helm umbrella", "partial"), ("GKE", "confirm"), ("全部 OSI", "partial"), ("Ingress", "planned"), ("NetworkPolicy", "partial"), ("Cloud SQL", "partial"), ("Cloud KMS", "partial"), ("Secret Manager", "partial"), ("Cloud Logging", "planned"), ("Cloud Armor", "planned"),
+    # 元件組成
+    ("dmp-ingest", "planned"), ("dmp-batch", "partial"), ("dmp-core", "done"), ("dmp-agent", "phase2"), ("dmp-web", "done"),
+    ("內部系統 Webhook", "partial"), ("GCS Parquet", "planned"), ("數倉", "planned"),
+    # 模組圖
+    ("數據整合", "done"), ("元事件管理", "done"), ("用戶表管理", "done"), ("事件分析", "done"), ("漏斗分析", "done"), ("留存分析", "done"), ("行為路徑", "done"), ("歸因分析", "done"), ("用戶列表", "done"),
+    ("標籤與分群", "partial"), ("即時觸發", "partial"), ("自定義 SQL", "done"), ("間隔", "planned"), ("總覽", "done"),
+    # 數據流消費與 SLA
+    ("DMP Web / AI", "partial"), ("Webhook / Kafka", "partial"), ("稽核", "done"), ("Artifact Registry", "planned"), ("Insight Agents", "phase2"), ("LLM Gateway", "phase2"), ("agent 問答", "phase2"), ("audit / insights topics", "planned"), ("外部 AI 客戶端", "phase2"), ("標籤全量日批", "confirm"), ("行為事件可查", "confirm"), ("交易事件可查", "confirm"), ("即時觸發：", "phase2"), ("漏斗", "confirm"), ("估數", "confirm"), ("分群估數", "confirm"),
+]
+NO_BADGE = ("MA", "GA360（", "證券交易系統", "CRM /", "MA / 神策", "GA360 / BigQuery", "GA360 串流", "交易主機", "CRM PostgreSQL", "神策（歷史", "MA / 推播", "GA360 Web", "數據中台／CDP", "CRM / 開戶", "神策歷史（", "MA /")   # 外部來源不標
+UNMATCHED: list[str] = []
+
+MAPPED: list[tuple[str, str]] = []
+
+def status_of(title: str) -> str | None:
+    if any(title.startswith(k) for k in NO_BADGE): return None
+    for key, st in sorted(STATUS, key=lambda kv: -len(kv[0])):        # 最長關鍵字優先（「漏斗分析」勝過「漏斗」）
+        if key in title: MAPPED.append((title, st)); return st
+    UNMATCHED.append(title); return None
+
 class SVG:
     def __init__(self, w, h, title):
         self.w, self.h, self.parts = w, h, []
         self.parts.append(f'<rect width="{w}" height="{h}" fill="#F7F9FB"/>')
         self.parts.append(f'<text x="28" y="40" font-family="{FONT}" font-size="22" font-weight="800" fill="{C["ink"]}">{html.escape(title)}</text>')
-        self.parts.append(f'<text x="28" y="62" font-family="{FONT}" font-size="12" fill="{C["muted"]}">AltaTech DMP · v0.3 · 由 docs/diagrams/build.py 產生</text>')
+        self.parts.append(f'<text x="28" y="62" font-family="{FONT}" font-size="12" fill="{C["muted"]}">AltaTech DMP · v0.8 · 由 docs/diagrams/build.py 產生 · 方塊右上角為實作狀態（2026-10-17，對照 docs/27）</text>')
+        self.status_legend(w - 28 - 5 * 112, 40)
+    def status_legend(self, x, y):
+        self.parts.append(f'<text x="{x - 8}" y="{y}" font-family="{FONT}" font-size="11" fill="{C["muted"]}" text-anchor="end">實作狀態：</text>')
+        for i, (st, cn) in enumerate(STATUS_CN.items()):
+            col = STATUS_COLOR[st]
+            self.parts.append(f'<rect x="{x + i * 112}" y="{y - 11}" width="{len(cn) * 11 + 12}" height="16" rx="8" fill="{C[col + "soft"]}" stroke="{C[col]}"/>')
+            self.parts.append(f'<text x="{x + i * 112 + 6}" y="{y + 1}" font-family="{FONT}" font-size="10.5" font-weight="700" fill="{C[col]}">{cn}</text>')
+    def badge(self, x, y, w, st):
+        cn = STATUS_CN[st]; col = STATUS_COLOR[st]; bw = len(cn) * 11 + 10
+        self.parts.append(f'<rect x="{x + w - bw - 6}" y="{y + 4}" width="{bw}" height="15" rx="7.5" fill="{C[col + "soft"]}" stroke="{C[col]}" stroke-width="1"/>')
+        self.parts.append(f'<text x="{x + w - bw - 1}" y="{y + 15.5}" font-family="{FONT}" font-size="10" font-weight="700" fill="{C[col]}">{cn}</text>')
     def group(self, x, y, w, h, title, fill="#FFFFFF", stroke=C["line"], dash=False):
         self.parts.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="14" fill="{fill}" stroke="{stroke}" stroke-width="1.5" {"stroke-dasharray=\"6 4\"" if dash else ""}/>')
         self.parts.append(f'<text x="{x+14}" y="{y+22}" font-family="{FONT}" font-size="12.5" font-weight="800" fill="{C["muted"]}" letter-spacing=".5">{html.escape(title)}</text>')
@@ -26,6 +78,8 @@ class SVG:
         self.parts.append(f'<text x="{x+12}" y="{ty}" font-family="{FONT}" font-size="{13 if not small else 12}" font-weight="700" fill="{C["ink"]}">{html.escape(title)}</text>')
         for i, ln in enumerate(lines):
             self.parts.append(f'<text x="{x+12}" y="{ty+16+i*14}" font-family="{FONT}" font-size="11" fill="{C["gray"]}">{html.escape(ln)}</text>')
+        st = status_of(title)
+        if st: self.badge(x, y, w, st)
     def arrow(self, x1, y1, x2, y2, label="", color=None, dash=False, curve=False):
         col = color or C["muted"]
         if curve:
@@ -267,3 +321,7 @@ def module_map():
 
 if __name__ == "__main__":
     system_architecture(); component_deployment(); data_flow(); module_map()
+    if UNMATCHED: print("沒有狀態的方塊（請補 STATUS）：", sorted(set(UNMATCHED)))
+    import sys
+    if "--list" in sys.argv:
+        for t, st in MAPPED: print(f"  [{STATUS_CN[st]}] {t}")

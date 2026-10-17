@@ -1,6 +1,6 @@
 # 架構圖集：系統架構、元件組成、數據流
 
-> 版本 v0.3（2026-10-14）。三張圖由 `docs/diagrams/build.py` 產生（純 Python，無相依）；改資料結構後執行 `python3 docs/diagrams/build.py` 重新產生 SVG，PNG 預覽以瀏覽器轉出。下方另附 Mermaid 版本供 GitHub 直接渲染與快速修改。
+> 版本 v0.4（2026-10-17）。四張圖由 `docs/diagrams/build.py` 產生（純 Python，無相依）；改資料結構後執行 `python3 docs/diagrams/build.py` 重新產生 SVG（加 `--list` 印出每個方塊的狀態），PNG 預覽以瀏覽器轉出。**v0.4 起每個方塊右上角標示實作狀態**（已實作／部分實作／規劃中／第二階段／待確認；`STATUS` 表對照 docs/27 §1，待確認清單見 docs/17 §5a）。下方另附 Mermaid 版本供 GitHub 直接渲染與快速修改。
 
 | 圖 | 檔案 | 用途 |
 |---|---|---|
