@@ -279,18 +279,33 @@ paths:
   /v1/iam/me:
     get: { tags: [IAM], summary: '目前身分：使用者、角色（active 標記）、模組權限聯集、欄位遮罩（最嚴格）、範圍、session（idp_mode／amr／step_up_needed／csrf_header）；前端啟動資料', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Me' } } } }, '401': { description: 未登入 } } }
   /v1/iam/sessions:
-    get: { tags: [IAM], summary: '本人目前的 session 清單（建立、最近活動、IP 遮罩）', responses: { '200': { description: ok } } }
+    get: { tags: [IAM], summary: 'session 清單：預設本人；scope=all 列全平台（需 iam.admin；含使用者、身分來源、角色、建立、最近活動、IP 遮罩）', parameters: [{ name: scope, in: query, schema: { type: string, enum: [me, all], default: me } }], responses: { '200': { description: ok } } }
+  /v1/iam/sessions/{sid}:
+    delete: { tags: [IAM], summary: '強制登出一個 session（sid 前 8 碼；本人的任一個，或 iam.admin 對任何人）；審計 auth.session.revoked', parameters: [{ name: sid, in: path, required: true, schema: { type: string } }], responses: { '204': { description: revoked } } }
+  /v1/iam/users:
+    get: { tags: [IAM], summary: '成員目錄（神策「成員管理」對應）：把登入審計（SSO 使用者）、本機帳號與本地指派合併成一張表：身分、來源、角色、狀態（啟用／停用／鎖定／到期／未登入）、最近登入、失敗登入、有效 session 數、指派數；需 iam.view', responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Member' } } } } } } }
+    post: { tags: [IAM], summary: '建立本機帳號（外包／廠商；只能持有 allowed_roles 白名單角色、強制 TOTP、到期日）；回 otpauth URI 一次；需 iam.admin；審計 iam.user.created', requestBody: { content: { application/json: { schema: { type: object, required: [username, password, roles], properties: { username: { type: string }, password: { type: string }, roles: { type: array, items: { type: string } }, name: { type: string }, email: { type: string } } } } } }, responses: { '201': { description: created }, '501': { description: 此環境未啟用本機帳號 } } }
+  /v1/iam/users/{id}:
+    get: { tags: [IAM], summary: '成員詳情：指派、有效 session、最近 50 筆審計', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    patch: { tags: [IAM], summary: '本機帳號：停用／啟用、名稱、信箱、角色（白名單內）；需 iam.admin；審計 iam.user.changed', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    delete: { tags: [IAM], summary: '刪除本機帳號（同時撤銷其 session 與本地指派）；需 iam.admin；審計 iam.user.deleted', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
+  /v1/iam/users/{id}/reset-password:
+    post: { tags: [IAM], summary: '重設本機帳號密碼（延展到期日、解鎖）；需 iam.admin；審計 iam.user.password_reset', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/iam/users/{id}/reset-totp:
+    post: { tags: [IAM], summary: '重設本機帳號 TOTP（回新的 otpauth URI 一次）；需 iam.admin；審計 iam.user.totp_reset', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/iam/changes:
+    get: { tags: [IAM], summary: '權限變更審核：自訂角色變更（role_change）與臨時提權（break_glass）的審批單與前後快照；需 iam.view', parameters: [{ name: status, in: query, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/iam/roles:
     get: { tags: [IAM], summary: '角色列表（內建 + 自訂，含模組權限矩陣與範圍）', responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Role' } } } } } } }
-    post: { tags: [IAM], summary: '建立自訂角色（需 iam.admin；寫入審計 role.changed，正式環境需雙人複核）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } } }, responses: { '201': { description: created } } }
+    post: { tags: [IAM], summary: '建立自訂角色（需 iam.admin）。rbac.yaml custom_roles.second_review 開啟時不直接生效：回 202 與審批單（type=role_change，另一位系統管理員或數位經營核可後才寫入並審計 role.changed）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } } }, responses: { '201': { description: created } } }
   /v1/iam/roles/{key}:
-    put: { tags: [IAM], summary: '更新角色名稱、說明、範圍、權限勾選', parameters: [{ name: key, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } } }, responses: { '200': { description: ok } } }
+    put: { tags: [IAM], summary: '更新角色名稱、說明、範圍、權限勾選（雙人複核開啟時回 202 審批單，附變更前後快照）', parameters: [{ name: key, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Role' } } } }, responses: { '200': { description: ok } } }
     delete: { tags: [IAM], summary: '刪除角色（系統管理員；admin 角色本身不可刪；仍有指派時需帶 reassign_to 改派，否則 409；審計 role.deleted，雙人複核）', parameters: [{ name: key, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
   /v1/iam/roles/{key}/copy:
     post: { tags: [IAM], summary: '複製角色為新草稿', parameters: [{ name: key, in: path, required: true, schema: { type: string } }], responses: { '201': { description: created } } }
   /v1/iam/assignments:
     get: { tags: [IAM], summary: '使用者指派清單（角色、數據範圍、到期、SSO 群組、最近登入；臨時提權標記）', responses: { '200': { description: ok } } }
-    post: { tags: [IAM], summary: '指派角色給使用者（多角色；範圍：組織樹節點／營業員客戶／專案／分群限制／回溯天數；到期日；需 iam.d；審計 iam.assignment.created）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Assignment' } } } }, responses: { '201': { description: created } } }
+    post: { tags: [IAM], summary: '指派角色給使用者（多角色；範圍：組織樹節點／營業員客戶／專案／分群限制／回溯天數；到期日；需 iam.admin；審計 iam.assignment.created）。break_glass=true（臨時提權 admin，hours ≤ 4）不直接生效：回 202 審批單 type=break_glass，由申請者之外的系統管理員或數位經營核可後建立到期指派', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Assignment' } } } }, responses: { '201': { description: created } } }
   /v1/iam/assignments/{id}:
     patch: { tags: [IAM], summary: '修改範圍／到期', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
     delete: { tags: [IAM], summary: '撤銷（含臨時提權）；審計 iam.assignment.revoked', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: revoked } } }
@@ -433,7 +448,13 @@ paths:
   /v1/lineage/{entity}:
     get: { tags: [Governance], summary: '血緣', parameters: [{ name: entity, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/audit:
-    get: { tags: [Governance], summary: '審計（含 agent.tool_called）', responses: { '200': { description: ok } } }
+    get: { tags: [Governance], summary: '審計尾端（含 agent.tool_called；行銷／分析只看自己）', parameters: [{ name: n, in: query, schema: { type: integer, default: 100, maximum: 1000 } }], responses: { '200': { description: ok } } }
+  /v1/audit/stats:
+    get: { tags: [Governance], summary: '日誌統計看板（docs/10 §8）：指標卡、每日趨勢（登入／失敗／權限拒絕／細查／匯出／查詢）、模組使用、依角色細查、敏感存取 Top、審批、agent 活動、告警規則評估結果；audit.use 看全平台，只有 audit.view 看自己', parameters: [{ name: days, in: query, schema: { type: integer, default: 30, maximum: 90 } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AuditStats' } } } } } }
+  /v1/audit/export:
+    get: { tags: [Governance], summary: '匯出審計報表 CSV（檔頭浮水印：匯出者、時間、雜湊；≤ 10000 列）；需 audit.export；審計 audit.exported', parameters: [{ name: days, in: query, schema: { type: integer, default: 30 } }], responses: { '200': { description: 'text/csv' } } }
+  /v1/settings:
+    get: { tags: [Governance], summary: '平台設定（唯讀）：身分與登入（idp.yaml）、權限（rbac.yaml）、隱碼與揭露（masking.yaml）、agent 預算（mcp/tools.yaml、agents.yaml）、審計告警（audit_alerts.yaml）；密鑰只顯示 secret_ref；需 iam.view。線上修改（含雙人複核）為第二階段', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Settings' } } } } } }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer }
@@ -777,7 +798,7 @@ components:
       type: object
       properties:
         id: { type: string }
-        type: { type: string, enum: [export, segment, push, reveal_l2, reveal_l3, agent_proposal], description: 類型決定審批角色（docs/10 §6） }
+        type: { type: string, enum: [export, segment, push, reveal_l2, reveal_l3, agent_proposal, role_change, break_glass], description: 類型決定審批角色（docs/10 §6）；role_change／break_glass 一律不可自審 }
         requester: { type: string }
         approver_roles: { type: array, items: { type: string } }
         summary: { type: string, description: 一行說明（給審批者看） }
@@ -907,6 +928,43 @@ components:
         lineage: { type: array, items: { type: string } }
         cost: { type: object, properties: { scan_bytes: { type: number }, ms: { type: number } } }
         warnings: { type: array, items: { type: string } }
+    Member:
+      type: object
+      description: 成員目錄一列（登入審計 ∪ 本機帳號 ∪ 本地指派）
+      properties:
+        id: { type: string, description: provider:subject }
+        username: { type: string }
+        name: { type: string }
+        email: { type: string }
+        provider: { type: string }
+        source: { type: string, enum: [sso, local] }
+        roles: { type: array, items: { type: string }, description: 最近一次登入的角色 ∪ 本地指派（含到期前） }
+        status: { type: string, enum: [active, disabled, locked, expired, never_logged_in, no_role] }
+        mfa: { type: boolean }
+        last_login: { type: number, nullable: true }
+        login_failed_7d: { type: integer }
+        sessions: { type: integer }
+        assignments: { type: integer }
+        expires_at: { type: number, nullable: true, description: 本機帳號到期 }
+    AuditStats:
+      type: object
+      properties:
+        days: { type: integer }
+        scope: { type: string, enum: [all, mine] }
+        tiles: { type: object, additionalProperties: { type: integer } }
+        daily: { type: array, items: { type: object } }
+        by_module: { type: array, items: { type: object, properties: { module: { type: string }, n: { type: integer } } } }
+        by_role: { type: array, items: { type: object } }
+        top_sensitive: { type: array, items: { type: object } }
+        approvals: { type: object }
+        agent: { type: object }
+        anomalies: { type: array, items: { type: object, properties: { rule: { type: string }, cn: { type: string }, severity: { type: string }, user: { type: string }, bucket: { type: string }, n: { type: integer } } } }
+        rules: { type: array, items: { type: object } }
+    Settings:
+      type: object
+      properties:
+        sections: { type: array, items: { type: object, properties: { key: { type: string }, cn: { type: string }, source: { type: string }, items: { type: array, items: { type: object, properties: { key: { type: string }, cn: { type: string }, value: {}, note: { type: string } } } } } } }
+        edit: { type: object, properties: { enabled: { type: boolean }, stage: { type: string }, note: { type: string } } }
     Me:
       type: object
       required: [user, roles, grants, masking, scope, session]

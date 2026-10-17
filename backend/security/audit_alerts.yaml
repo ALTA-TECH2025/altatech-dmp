@@ -1,0 +1,13 @@
+# 日誌統計看板的告警規則（docs/10 §8）。每條規則：event 在 window（hour|day）內、依 per 分組（user|ip）計數（或 distinct 某欄位）超過 threshold 即為異常；
+# hours 限定只算上班時間之外（business_hours 之外的時段才計）。評估由 GET /v1/audit/stats 以審計尾端即時算；正式環境改由 dmp.audit_log 物化視圖供數（第二階段）。
+version: 1
+business_hours: { start: 9, end: 18, tz: Asia/Taipei, weekdays_only: true }
+notify: [admin, it_admin]                       # 觸發時通知的角色（第一階段只在看板顯示；通知管道第二階段）
+rules:
+  - { key: off_hours_profile, cn: 非上班時間細查, event: profile.viewed,       window: day,  per: user, threshold: 3,  off_hours_only: true, severity: high }
+  - { key: profile_burst,     cn: 單人 1 小時細查, event: profile.viewed,       window: hour, per: user, threshold: 10, severity: high }
+  - { key: reveal_daily,      cn: 單人單日揭露申請, event: mask.reveal_requested, window: day,  per: user, threshold: 3,  severity: medium }
+  - { key: export_rows,       cn: 單次匯出列數,   event: export.generated,     field: rows,  threshold: 50000, severity: medium }
+  - { key: denied_burst,      cn: 權限拒絕 1 小時, event: authz.denied,         window: hour, per: user, threshold: 10, severity: medium }
+  - { key: login_failed,      cn: 登入失敗 1 小時, event: auth.login.failed,    window: hour, per: user, threshold: 5,  severity: medium }
+  - { key: multi_ip,          cn: 同帳號多 IP,     event: auth.login.success,   window: day,  per: user, distinct: ip_masked, threshold: 2, severity: low }

@@ -110,11 +110,15 @@ Keycloak ──302 code──► 後端 /auth/callback ──換 token、驗 ID 
 
 | 分頁 | 內容 | API | 寫入權限 |
 |---|---|---|---|
-| 角色 | 內建五種 + 自訂；勾選矩陣（可見／可用／匯出／審批／設定，蘊含規則自動勾）；範圍；回溯天數；複製成草稿 | `GET/POST/PUT /v1/iam/roles` | iam.admin；內建角色唯讀（由 rbac.yaml 定義） |
-| 使用者指派 | 群組對應（唯讀，來自 IdP）+ 本地指派（自訂角色、範圍、到期、理由）；撤銷 | `GET/POST/DELETE /v1/iam/assignments` | iam.admin |
+| 角色 | 內建五種 + 自訂；勾選矩陣（可見／可用／匯出／審批／設定，蘊含規則自動勾）；範圍；回溯天數；複製成草稿。自訂角色的建立／修改／刪除成審批單（`role_change`，附前後快照），另一位系統管理員或數位經營核可後才生效（`rbac.yaml custom_roles.second_review`） | `GET/POST/PUT/DELETE /v1/iam/roles` | iam.admin；內建角色唯讀（由 rbac.yaml 定義） |
+| 成員 | 成員目錄（對應神策「成員管理」）：登入審計看到的 SSO 使用者 ∪ 本機帳號 ∪ 本地指派；狀態（啟用／停用／鎖定／到期／未登入／無角色）、最近登入、失敗登入、有效 session、指派；本機帳號可新增／停用／重設密碼／重設 TOTP／刪除（只能持白名單角色） | `GET/POST /v1/iam/users`、`GET/PATCH/DELETE /v1/iam/users/{id}`、`/reset-password`、`/reset-totp` | iam.view 看；iam.admin 改（只限本機帳號；SSO 帳號的啟停在 IdP） |
+| 使用者指派 | 群組對應（唯讀，來自 IdP）+ 本地指派（自訂角色、範圍、到期、理由）；撤銷；臨時提權（break-glass）成審批單 `break_glass`，核可後才建立 ≤ 4 小時的到期指派 | `GET/POST/DELETE /v1/iam/assignments` | iam.admin |
 | 數據權限 | 自己的行級條件；行級規則模擬（選角色看查詢編譯器會加的 WHERE 與遮罩欄位） | `POST /v1/iam/scope/simulate` | 唯讀 |
 | 欄位隱碼 | 此身分每個敏感欄位的策略（來自 masking.yaml） | `/v1/iam/me` | 唯讀；揭露走審批 |
-| 我的 session | 同帳號的 session 清單（建立、最近活動、IP 遮罩） | `GET /v1/iam/sessions` | 本人 |
+| session | 本人的 session 清單；iam.admin 可看全平台並強制登出任一 session | `GET /v1/iam/sessions?scope=me|all`、`DELETE /v1/iam/sessions/{sid}` | 本人／iam.admin |
+| 變更審核 | 待審／已決的 `role_change`、`break_glass` 審批單（不可自審） | `GET /v1/iam/changes`、`/v1/approvals/{id}/decide` | 系統管理員、數位經營 |
+
+與神策「權限管理」的對應：成員管理 → 成員；角色管理（功能權限）→ 角色 × 模組矩陣；數據權限（行級／敏感屬性脫敏）→ 數據權限 + 欄位隱碼（等級制，不是逐事件白名單）；專案 → 自訂角色的 `scope.projects`；登入設定／操作日誌 → 平台設定（唯讀）／日誌統計。神策逐事件／逐屬性可見白名單與專案註冊表列為第二階段（見 docs/27）。
 
 ## 4. 契約
 

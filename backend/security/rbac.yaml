@@ -14,6 +14,7 @@ roles:
 custom_roles:
   enabled: true
   key_prefix: custom_
+  second_review: { enabled: true, approvers: [admin, digital_ops], ttl_days: 7 }   # 自訂角色的建立／修改／刪除先成審批單（role_change），由另一位系統管理員或數位經營核可後才生效；不可自審
   example:
     custom_vendor_analyst: { cn: 外包分析（專案限定）, scope: project, lookback_days: 180, grants: { overview: [view], events: [view, use], funnel: [view, use], segments: [view], ai_ask: [use], audit: [view] } }
 combination:
@@ -22,5 +23,5 @@ combination:
   scope: union
 assignment:
   expiry_supported: true
-  break_glass: { approvers: [admin, digital_ops], max_hours: 4 }   # 雙人：系統管理員＋數位經營
+  break_glass: { approvers: [admin, digital_ops], max_hours: 4 }   # 雙人：申請者（系統管理員）之外的系統管理員或數位經營核可（審批單 break_glass），核可後才建立臨時指派，到期自動失效
 k_anonymity: { min_group_size: 20 }
