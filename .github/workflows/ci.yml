@@ -107,6 +107,57 @@ jobs:
           npx --yes playwright@1.48.2 install --with-deps chromium
           (cd prototype && python3 -m http.server 8765 >/dev/null 2>&1 &) ; sleep 1
           test -f tests/e2e/smoke.mjs && node tests/e2e/smoke.mjs || echo "tests/e2e/smoke.mjs 尚未加入（QA 工作流 S1）"
+  e2e-browser:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CH_VERSION: 25.8.33.6
+      DMP_WORK: /home/runner/dmp-local
+      DMP_LOCAL_ACCOUNTS: /home/runner/dmp-local/accounts.json
+      DMP_SEED_PASSWORD: 'Ci-Seed-Pass-2026-xyz!'          # CI 用的本機帳號初始密碼（只在 runner 內，不是密鑰）
+      DMP_COOKIE_SECURE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install -r backend/requirements.txt
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: actions/cache@v4
+        id: ch
+        with: { path: /home/runner/dmp-local/clickhouse, key: "clickhouse-${{ env.CH_VERSION }}-amd64" }
+      - name: 下載 ClickHouse 單一執行檔（與 e2e-clickhouse 同版本）
+        if: steps.ch.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$DMP_WORK" && cd "$DMP_WORK"
+          curl -sSL "https://packages.clickhouse.com/tgz/lts/clickhouse-common-static-${CH_VERSION}-amd64.tgz" | tar xz --strip-components=3 "clickhouse-common-static-${CH_VERSION}/usr/bin/clickhouse"
+      - name: 前端建置與瀏覽器
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund && npm run build
+          npx playwright install --with-deps chromium
+      - name: 起本機堆疊（ClickHouse → schema → API）＋ seed ＋ 示範資料 ＋ Webhook 接收端
+        run: |
+          mkdir -p "$DMP_WORK"
+          echo '{"kv/data/dmp/prod/crm#webhook_secret": "crm-local-secret", "kv/data/dmp/prod/ma#webhook_secret": "ma-local-secret"}' > "$DMP_WORK/secrets.json"
+          bash deploy/quickstart/run_local.sh up
+          bash deploy/quickstart/run_local.sh seed --no-migration < /dev/null
+          nohup python3 -m backend.tools.webhook_receiver 9099 crm-local-secret > "$DMP_WORK/receiver.out" 2>&1 &
+          sleep 1
+          DMP_API=http://127.0.0.1:8000 DMP_DEMO_WORK="$DMP_WORK/demo" python3 -m backend.tools.demo_fill
+          curl -sf http://127.0.0.1:8000/healthz
+      - name: Playwright 主線（登入 → 事件分析 → 書籤 → 看板 → 推送 → 交付）
+        working-directory: web
+        env: { E2E_BASE: 'http://127.0.0.1:8000', E2E_ACCOUNTS: /home/runner/dmp-local/accounts.json, E2E_PASSWORD: 'Ci-Seed-Pass-2026-xyz!', CI: 'true' }
+        run: npx playwright test
+      - name: 失敗時留下報告與 API／接收端日誌
+        if: failure()
+        run: |
+          mkdir -p web/playwright-report && cp "$DMP_WORK"/api.out "$DMP_WORK"/receiver.out web/playwright-report/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report, path: web/playwright-report, retention-days: 7 }
   deploy:
     needs: changes
     if: needs.changes.outputs.deploy == 'true'

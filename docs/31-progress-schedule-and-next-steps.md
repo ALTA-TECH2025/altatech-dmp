@@ -10,7 +10,7 @@
 | 後端 Python | 約 17,500 行（FastAPI、語意編譯器、政策引擎、分群／標籤／推送、整合、遷移、OneID、本機帳號） |
 | 正式前端 TypeScript | 約 6,200 行（React 19，28 個頁面，70 個單元測試） |
 | 契約 | OpenAPI 174 個路徑（另有 `/metrics`），其中 139 個已有實作（另有 7 個實作路徑尚未回寫契約；以路由宣告比對）；semantic／security／mcp YAML |
-| 自動化驗證 | 18 組 Python 自測（含真 ClickHouse 端到端、80 條黃金查詢 oracle 逐列比對、36 條必拒）、ruff、OpenAPI 驗證、yaml 載入、vitest、Playwright 截圖流程（本機真資料與示範站） |
+| 自動化驗證 | 18 組 Python 自測（含真 ClickHouse 端到端、80 條黃金查詢 oracle 逐列比對、36 條必拒）、ruff、OpenAPI 驗證、yaml 載入、vitest、CI 對真後端跑的 Playwright 斷言型主線（登入 → 事件分析 → 書籤 → 看板 → 推送 → 交付）、Playwright 截圖流程（本機真資料與示範站） |
 | 示範站 | https://altatech-dmp-demo.vercel.app（瀏覽器內固定資料，五種角色切換；手機版可用） |
 | 文件 | docs/01–32 共 32 份（含給客戶的開源元件來源／授權／付費清單 docs/32）；系統圖四張附實作狀態 |
 

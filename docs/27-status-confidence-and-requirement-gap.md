@@ -31,6 +31,7 @@
 | 資料流與效能 | 可演示 | `/v1/ops/pipeline`、`/v1/ops/query-perf`、`/v1/ops/batch-jobs`（＋`/rerun`）、`/v1/ops/alerts`、`/metrics`、`ops/sla.yaml`、`ops/alerts.yaml` | 資料流四段與資料品質、各模組查詢 P50/P95/P99 對 SLA、最慢查詢、批次作業（同步任務可重跑）與儲存、告警（11 條規則）＋通知（Email／LINE 官方帳號、政策、紀錄、Alertmanager webhook）；Prometheus 指標與 Helm 的 ServiceMonitor／PrometheusRule／AlertmanagerConfig／Grafana 看板；系統管理 › 系統監控頁（Grafana 同一組面板、附 PromQL、可跳 Grafana） | 值班分工、OTel 追蹤、日誌集中、Airflow 作業接入 |
 | 平台設定 | 可演示（唯讀） | `/v1/settings` | 身分與登入、權限、隱碼與揭露、Agent 預算、審計告警五區塊；密鑰只顯示 secret_ref；線上修改（雙人複核）標第二階段 | API 自測 |
 | 神策式逐事件／逐屬性可見白名單、專案註冊表 | 第二階段 | — | 目前以等級制隱碼 + 行級範圍 + 自訂角色 `scope.projects` 取代 | — |
+| 瀏覽器端到端（CI `e2e-browser`：起 ClickHouse＋API＋seed＋示範資料＋Webhook 接收端，Playwright 跑登入 → 事件分析 → 存書籤建看板 → 看板有卡 → 推送單執行 → 交付成功；行銷角色權限邊界） | 可演示 | `web/tests/e2e/mainline.spec.ts`、`web/playwright.config.ts`、`.github/workflows/ci.yml` | 斷言型、對真後端；失敗上傳 trace 與 API 日誌 | 更多主線（分群建立、標籤計算、治理） |
 | 示範站（Vercel） | 可演示 | 無（瀏覽器內固定資料，`web/src/demo/`） | 正式前端全部頁面；登入改選角色；未實作頁標示第二階段／待開發 | 示範建置 Playwright 走過全部路由 |
 | 數據整合（連線與密鑰參照、數據表登記、同步任務：建模、排程、執行器；GA4 BigQuery 匯出接入、神策格式檔匯入、MSSQL 抽取） | 可演示 | `integration/`、`api/integration.py` | 數據整合頁（數據源／數據表／同步任務／建立任務精靈） | API 自測（連線／數據表／任務乾跑）＋端到端 sensors／ga4／dbapi 段 |
 | 神策查詢 API 直連連接器 | 後端完成（待驗） | `integration/sensors_api.py` | — | 自測用假伺服器；對客戶測試環境因 API Secret 範圍不符尚未打通 |

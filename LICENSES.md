@@ -35,5 +35,6 @@
 | Eclipse Temurin JDK | 17/21 | GPLv2 + Classpath Exception | Java 執行環境 | 可自由使用 | Eclipse Foundation |
 | Red Hat UBI 9 | 9.4 | UBI EULA | 容器基底 | 免訂閱可再散布 | Red Hat（美） |
 | Syft / Trivy | — | Apache-2.0 | SBOM／弱點掃描 | CI | Anchore（美）／Aqua（以） |
+| Playwright（@playwright/test）+ Chromium | 1.48 | Apache-2.0 / BSD-3 | 瀏覽器端到端測試（CI 對真後端跑主線；不進產品） | devDependency | Microsoft（美）／Google（美） |
 
 CI 規則：SBOM 中任何不在白名單的授權 → 失敗；新增元件需更新本表。

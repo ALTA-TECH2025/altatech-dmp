@@ -40,7 +40,7 @@ function TagsInner() {
   const act = async (label: string, fn: () => Promise<unknown>) => { setBusy(true); setErr(null); setMsg(null); try { await fn(); await reload(); setMsg(`${label}完成`); } catch (e) { setErr(e instanceof ApiError ? e.message : `${label}失敗`); } finally { setBusy(false); } };
   return (
     <div className="page">
-      <div className="page-h"><div><h1>標籤</h1><p>標籤 = 每個用戶一個值，存成 Bitmap 版本（dmp.user_tags），可在推送名單時附帶、在分析時當維度。第一階段兩種建立方式：自定義標籤值（每個值一條用戶規則）與 SQL 標籤；行銷建立需數位經營審批；例行標籤到點自動計算。</p></div>
+      <div className="page-h"><div><h1>標籤</h1><p>標籤 = 每個用戶一個值，存成 Bitmap 版本（dmp.user_tags），可在推送名單時附帶、在分析時當維度。五種建立方式：自定義標籤值（每個值一條用戶規則）、SQL 標籤、基礎指標值、首末次特徵、RFM；行銷建立需數位經營審批；例行標籤到點自動計算。</p></div>
         {can('segments', 'use') && <div className="right"><Link className="btn-primary" to="/tags/new">＋ 新建標籤</Link></div>}</div>
       {err && <div className="alert" style={{ marginBottom: 12 }}>{err}</div>}{msg && <div className="note">{msg}</div>}
       {id === 'new' ? <TagForm cat={cat} cf={cf} segOpts={segOpts} onDone={async (t) => { await reload(); nav(`/tags/${t.id}`); }} onCancel={() => nav('/tags')} />
