@@ -88,6 +88,8 @@ def mount_web(app: FastAPI, dist: Path) -> None:
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str) -> Any:
+        if path.startswith(("v1/", "auth/", "healthz")):                     # API 路徑不存在要回 404 JSON，不要回 index.html
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
         f = (dist / path).resolve() if path else index
         if path and f.is_relative_to(dist) and f.is_file():
             hdr = {"Cache-Control": "public, max-age=31536000, immutable"} if path.startswith("assets/") else {"Cache-Control": "no-cache"}

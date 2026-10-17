@@ -216,7 +216,9 @@ def build_router(store: Store, get_subject: Any, sched: Scheduler, secret_writer
         conn = _conn(id)
         spec = conn_auth.BY_TYPE[conn.type]
         verified = bool(conn.last_test and conn.last_test.get("ok"))
-        items = [{"scope": k, "privilege": p, "checked": True if verified else None} for k, lst in (spec.get("least_privilege") or {}).items() for p in lst]
+        lp = spec.get("least_privilege") or {}
+        pairs = [(k, p) for k, lst in lp.items() for p in lst] if isinstance(lp, dict) else [("", p) for p in lp]      # bigquery 等是平面清單
+        items = [{"scope": k, "privilege": p, "checked": True if verified else None} for k, p in pairs]
         return {"conn_id": id, "verified_at": conn.last_test["at"] if verified else None, "items": items,
                 "note": "" if verified else "尚未通過連線測試；privilege 步驟由執行節點以最小權限清單逐項驗證"}
 

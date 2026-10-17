@@ -225,6 +225,7 @@ def main(store: Any | None = None) -> None:
     bq = c.post("/v1/integration/connections", json={"id": "ga_bq", "type": "bigquery", "auth_method": "workload_identity", "fields": {"project_id": "ga-export", "dataset": "analytics_1", "location": "asia-east1"}}).json()
     assert bq["rotation"]["kind"] == "short_lived" and c.post("/v1/integration/connections/ga_bq/test").json()["ok"] is True   # 無 host：dns／tcp 不適用
     assert c.post("/v1/integration/connections/ga_bq/rotate", json={"secret_ref": "kv/data/dmp/prod/x#k"}).status_code == 409
+    assert c.get("/v1/integration/connections/ga_bq/privileges").json()["items"]                                     # 平面清單型的最小權限
     login(c, sm, ["data_analyst"], "ana"); assert c.post("/v1/integration/connections", json=conn).status_code == 403 and len(c.get("/v1/integration/connections").json()) == 2
     login(c, sm, ["it_admin"], "it")
     tb = c.post("/v1/integration/tables", json={"connection": "dwh_trade", "table": "dbo.fact_order_hist", "pk": ["ORD_NO", "STATUS"], "incremental_field": "UPDATED_AT", "source": {"kind": "csv", "path": str(files["orders"])}}).json()
