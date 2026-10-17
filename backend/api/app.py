@@ -18,12 +18,14 @@ from ..integration.runner import LocalRunner
 from ..integration.scheduler import Scheduler
 from ..security.policy import Subject
 from ..segments import SegmentService
+from ..semantic.compiler import Catalog
 from . import analytics, dashboards, exports, iam, integration, meta, migration, segments, sysadmin, users
 from .store import Store
 
 
 def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_service: SegmentService | None = None, export_dir: Any | None = None, approval_service: ApprovalService | None = None,
-               scheduler: Scheduler | None = None, secret_writer: Any | None = None, migration_runner: Any | None = None) -> FastAPI:
+               scheduler: Scheduler | None = None, secret_writer: Any | None = None, migration_runner: Any | None = None, mailer: Any | None = None, mail_domains: list[str] | None = None,
+               render_key: str | None = None, base_url: str = "") -> FastAPI:
     app = FastAPI(title="AltaTech DMP API", version="0.1.0", docs_url="/v1/docs", openapi_url="/v1/openapi.json")
 
     approvals = approval_service or ApprovalService(store)
@@ -41,17 +43,25 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     # auth 的審計寫進同一個 store（SessionManager 建立時已綁 audit callable；這裡只補 store 的 audit 給 iam／analytics）
     auth.assignments = store.assignments
     app.include_router(auth_router(auth))
-    app.include_router(iam.build_router(store, get_subject, approvals))
     local_provider = auth.providers.get("local")
-    app.include_router(sysadmin.build_router(store, get_subject, getattr(local_provider, "accounts", None), auth.sessions.store, auth.cfg, approvals))
+    accounts = getattr(local_provider, "accounts", None)
+    app.include_router(iam.build_router(store, get_subject, approvals))
+    app.include_router(sysadmin.build_router(store, get_subject, accounts, auth.sessions.store, auth.cfg, approvals))
     app.include_router(analytics.build_router(store, get_subject, ch))
-    app.include_router(dashboards.build_router(store, get_subject, ch))
+    import tempfile
+
+    from .dashboard_share import DashboardShare
+    from .sysadmin import member_directory
+    share = DashboardShare(store, ch, Catalog(), Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports", approvals, mailer,
+                           recipients=lambda roles: [m["email"] for m in member_directory(store, accounts, auth.sessions.store) if m.get("email") and set(m.get("roles") or []) & set(roles)],
+                           mail_domains=mail_domains, render_key=render_key, base_url=base_url)
+    app.state.dashboard_share = share
+    app.include_router(dashboards.build_router(store, get_subject, ch, share=share))
     app.include_router(meta.build_router(store, get_subject, ch))
     app.include_router(migration.build_router(store, get_subject, ch, migration_runner))
     app.include_router(users.build_router(store, get_subject, ch))
     seg_svc = segment_service or SegmentService(store, ch)
     seg_svc.approvals = approvals
-    import tempfile
     exp = ExportService(store, ch, approvals, Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports", members_rule=seg_svc.members_rule)
     app.include_router(segments.build_router(store, get_subject, seg_svc))
     app.include_router(exports.build_router(store, get_subject, approvals, exp, reveals))

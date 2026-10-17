@@ -280,6 +280,42 @@ def main(store: Any | None = None) -> None:
     assert c.post(f"/v1/dashboards/{did}/cards/{cards[0]['id']}/data", json={"time": {"preset": "1y"}}).status_code == 400
     assert c.post(f"/v1/dashboards/{did}/cards/{cards[2]['id']}/data").json()["rows"][0]["cohort"]
     assert c.post(f"/v1/dashboards/{did}/cards/{cards[3]['id']}/data").json()["nodes"] and c.post(f"/v1/dashboards/{did}/cards/{cards[4]['id']}/data").json()["summary"]
+    # 5d. 看板進階（docs/30）：規則式解讀 → HTML 看板（inline SVG、無 script／外部資源、抑制列 <K、浮水印）→ 登入下載與簽章分享連結 → 到期 410 → 定時寄送（審批 → 核可 → 立即執行；無 SMTP 只產檔）
+    ex = c.post(f"/v1/dashboards/{did}/explain").json()
+    assert ex["method"] == "rules" and len(ex["summary"]) == 3 and len(ex["cards"]) == 5 and all(x["line"] for x in ex["cards"]) and any("抑制" in w for x in ex["cards"] for w in x["warnings"]), ex
+    assert next(x for x in ex["cards"] if x["kind"] == "funnel")["line"].startswith("整體轉換") and "路徑" in next(x for x in ex["cards"] if x["kind"] == "path")["line"]
+    rd = c.post(f"/v1/dashboards/{did}/render", json={"audience": "債券部週會", "expires_days": 7}); assert rd.status_code == 201, rd.text
+    art = rd.json(); assert art["cards_included"] == 5 and art["cards_skipped"] == [] and art["share_url"].endswith("?token=" + art["share_url"].split("token=")[1]) and art["bytes"] > 2000, art
+    page = c.get(art["url"]); assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
+    doc = page.text
+    assert "<svg" in doc and "<script" not in doc and "http://" not in doc and "https://" not in doc and "&lt; 20" in doc and "債券部週會" in doc and "本期重點" in doc and "SELECT" not in doc, doc[:300]
+    anon = TestClient(app, base_url="https://dmp.internal")                                                            # 分享連結：不登入
+    assert anon.get(art["url"]).status_code == 401 and anon.get(art["url"] + "?token=bad").status_code == 403 and anon.get(art["share_url"]).status_code == 200
+    assert c.get(f"/v1/dashboards/{did}/renders").json()[0]["downloads"] == 2
+    a_rec = next(x for x in store.items("dashboard_render") if x["id"] == art["artifact_id"]); a_rec["expires_at"] = "2020-01-01T00:00:00+08:00"; store.put_item("dashboard_render", a_rec)
+    assert anon.get(art["share_url"]).status_code == 403 and c.get(art["url"]).status_code == 410                      # 到期：token 失效（含 expires）、登入下載 410
+    from .dashboard_share import has_l3_group
+    assert has_l3_group("events", {"group_by": ["user.cust_code"]}) and has_l3_group("attribution", {"split": "one_id"}) and not has_l3_group("events", {"group_by": ["platform"]})
+    assert c.post(f"/v1/dashboards/{did}/schedules", json={"hour": 8, "audience": {"emails": ["x@evil.example"]}}).status_code == 400          # 非白名單網域
+    assert c.post(f"/v1/dashboards/{did}/schedules", json={"hour": 25, "audience": {"roles": ["marketing"]}}).status_code == 400
+    sc = c.post(f"/v1/dashboards/{did}/schedules", json={"weekday": 0, "hour": 8, "audience": {"roles": ["marketing", "nope"]}, "expires_days": 7}); assert sc.status_code == 202, sc.text
+    sch = sc.json(); assert sch["status"] == "pending_approval" and sch["audience"]["roles"] == ["marketing"] and sch["approval"]
+    assert c.post(f"/v1/dashboards/{did}/schedules/{sch['id']}/run").status_code == 409                                  # 未核可
+    login(c, sm, ["digital_ops"], "ops"); assert c.post(f"/v1/approvals/{sch['approval']}/decide", json={"approve": True}).status_code == 200; login(c, sm, ["data_analyst"], "ana")
+    assert c.get(f"/v1/dashboards/{did}/schedules").json()[0]["status"] == "active"
+    run = c.post(f"/v1/dashboards/{did}/schedules/{sch['id']}/run").json(); assert run["status"] == "rendered_no_transport" and run["artifact_id"] and run["trigger"] == "manual", run
+    from datetime import datetime as _dt2
+    from zoneinfo import ZoneInfo as _ZI2
+    share_svc = app.state.dashboard_share
+    assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 12, 8, 5, tzinfo=_ZI2("Asia/Taipei")))[0]["status"] == "rendered_no_transport"   # 週一 08:05 到點
+    assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 12, 8, 30, tzinfo=_ZI2("Asia/Taipei"))) == []                             # 同一天不重跑
+    assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 13, 8, 5, tzinfo=_ZI2("Asia/Taipei"))) == []                             # 週二不跑
+    sent: list[tuple[list[str], str]] = []
+    share_svc.mailer = lambda to, subj, html: sent.append((to, subj)); share_svc.recipients = lambda roles: ["mkt@corp.internal"] if "marketing" in roles else []
+    run2 = c.post(f"/v1/dashboards/{did}/schedules/{sch['id']}/run").json(); assert run2["status"] == "sent" and run2["recipients"] == 1 and sent[0][0] == ["mkt@corp.internal"], run2
+    share_svc.mailer = None
+    assert c.delete(f"/v1/dashboards/{did}/schedules/{sch['id']}").status_code == 204 and c.get(f"/v1/dashboards/{did}/schedules").json() == []
+    assert {x["event"] for x in store.audit_tail(80)} >= {"dashboard.explained", "dashboard.rendered", "dashboard.render.downloaded", "dashboard.schedule.created", "dashboard.schedule.approved", "dashboard.schedule.ran", "dashboard.schedule.deleted"}
     login(c, sm, ["marketing"], "mkt"); assert c.get(f"/v1/dashboards/{did}").status_code == 404 and c.get("/v1/dashboards").json() == []
     login(c, sm, ["data_analyst"], "ana"); assert c.put(f"/v1/dashboards/{did}", json={"shared": {"roles": ["marketing"]}, "cards": [{"id": cards[1]["id"], "title": "漏斗"}, {"id": cards[0]["id"], "width": 1}]}).json()["cards"][0]["title"] == "漏斗"
     login(c, sm, ["marketing"], "mkt")
@@ -436,7 +472,7 @@ def main(store: Any | None = None) -> None:
     assert {x["event"] for x in store.audit_tail(400)} >= {"role.change_requested", "role.changed", "role.deleted", "iam.break_glass.requested", "iam.user.created", "iam.user.changed", "iam.user.deleted", "auth.session.revoked", "audit.exported", "authz.denied"}
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)(fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":

@@ -15,6 +15,10 @@
   DMP_TICK              1 = 背景執行緒：每分鐘跑同步任務排程、每 10 分鐘跑分群例行計算與清理（單機環境用；正式環境交給排程系統）
   DMP_K_IDM / DMP_K_ACCT  代碼化（tokenization）金鑰（單機測試用明文；正式環境從密鑰庫以 secret_ref 掛載）
   DMP_COOKIE_SECURE     0 = session cookie 不加 Secure（只給沒有 TLS 的單機測試；正式環境一律 TLS）
+  DMP_SMTP_URL / DMP_SMTP_PASSWORD_REF / DMP_MAIL_FROM   看板定時寄送用的 SMTP relay（smtp://user@host:587 或 smtps://…；密碼 secret_ref）；沒設就只產檔不寄
+  DMP_MAIL_DOMAINS      定時寄送可直接填的信箱白名單網域（逗號分隔）；沒設就只能用角色當收件人
+  DMP_RENDER_KEY        HTML 看板分享連結的簽章金鑰（沒設就存在控制面；多實例請設同一把）
+  DMP_BASE_URL          對外網址（分享連結前綴，例：https://dmp.internal）
 """
 from __future__ import annotations
 
@@ -91,7 +95,12 @@ def build() -> Any:
         if os.environ.get(env):
             from ..integration import modeling
             modeling.set_key(ref, os.environ[env].encode())
-    app = create_app(auth, store, ch, export_dir=os.environ.get("DMP_EXPORT_DIR"), scheduler=sched)
+    mailer = None
+    if os.environ.get("DMP_SMTP_URL"):
+        from .dashboard_share import smtp_mailer
+        mailer = smtp_mailer(os.environ["DMP_SMTP_URL"], resolver(os.environ["DMP_SMTP_PASSWORD_REF"]) if os.environ.get("DMP_SMTP_PASSWORD_REF") else None, os.environ.get("DMP_MAIL_FROM", "dmp@localhost"))
+    app = create_app(auth, store, ch, export_dir=os.environ.get("DMP_EXPORT_DIR"), scheduler=sched, mailer=mailer, mail_domains=[x.strip() for x in os.environ.get("DMP_MAIL_DOMAINS", "").split(",") if x.strip()],
+                     render_key=os.environ.get("DMP_RENDER_KEY"), base_url=os.environ.get("DMP_BASE_URL", ""))
     if os.environ.get("DMP_WEB_DIST"):
         from .app import mount_web
         mount_web(app, Path(os.environ["DMP_WEB_DIST"]))
@@ -101,7 +110,7 @@ def build() -> Any:
 
 
 def start_ticker(app: Any, store: Any, ch: Any) -> None:
-    """單機環境的背景例行：每分鐘 scheduler.tick()（到點的同步任務）、每 10 分鐘分群例行計算＋到期清理。錯誤只記錄不中斷。"""
+    """單機環境的背景例行：每分鐘 scheduler.tick()（到點的同步任務）與看板定時寄送、每 10 分鐘分群例行計算＋到期清理。錯誤只記錄不中斷。"""
     import threading
 
     from ..security.policy import Subject, authorize
@@ -117,6 +126,11 @@ def start_ticker(app: Any, store: Any, ch: Any) -> None:
             try:
                 if sched is not None:
                     sched.tick()
+                share = getattr(app.state, "dashboard_share", None)
+                if share is not None and ch is not None:
+                    from ..security.policy import RBAC as _R
+                    from .dashboards import apply_time as _at
+                    share.tick(_at, int(_R["k_anonymity"]["min_group_size"]))
                 if seg is not None and n % 10 == 0:
                     seg.tick(system, lambda s: authorize(Subject(s["owner"], ["data_analyst"]), "use", "users"))
                     seg.purge_expired(system)

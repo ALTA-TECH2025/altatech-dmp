@@ -7,11 +7,12 @@ import time
 from datetime import date, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from ..security.policy import Subject, authorize
+from ..security.policy import RBAC, Subject, authorize
 from ..semantic.compiler import Catalog
 from .analytics import RUNNERS, Executor, compile_kind, execute_kind
+from .dashboard_share import DashboardShare
 from .store import Store
 
 KIND = "dashboard"
@@ -79,9 +80,10 @@ def _shared(raw: Any) -> dict[str, list[str]]:
     return {"roles": [str(x) for x in (sh.get("roles") or [])][:20], "users": [str(x) for x in (sh.get("users") or [])][:50]}
 
 
-def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catalog | None = None) -> APIRouter:
+def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catalog | None = None, share: DashboardShare | None = None) -> APIRouter:
     r = APIRouter()
     cat = cat or Catalog()
+    K = int(RBAC["k_anonymity"]["min_group_size"])
 
     def need(subject: Subject, action: str) -> None:
         d = authorize(subject, action, "overview")
@@ -200,5 +202,64 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
             raise HTTPException(400, str(e)) from None
         res = execute_kind(c["kind"], store, ch, cat, subject, q, module="dashboard", extra={"dashboard": id_, "card": card_id})
         return {**res, "card": {"id": c["id"], "kind": c["kind"], "chart": c["chart"], "title": c["title"]}, "time": q.get("time")}
+
+    # ---- 進階（docs/30）：解讀、HTML 看板、定時寄送；沒有注入 share（舊測試）就 501 ----
+    def svc() -> DashboardShare:
+        if share is None:
+            raise HTTPException(501, "此環境未啟用看板分享功能")
+        return share
+
+    @r.post("/v1/dashboards/{id_}/explain")
+    def explain(id_: str, body: dict[str, Any] | None = None, subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "view")
+        return svc().explain(load(id_, subject), subject, (body or {}).get("time"), apply_time)
+
+    @r.post("/v1/dashboards/{id_}/render", status_code=201)
+    def render(id_: str, body: dict[str, Any] | None = None, subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "use")
+        return svc().render(load(id_, subject), subject, body or {}, apply_time, K)
+
+    @r.get("/v1/dashboards/{id_}/renders")
+    def renders(id_: str, subject: Subject = Depends(get_subject)) -> list[dict[str, Any]]:
+        need(subject, "view"); load(id_, subject)
+        return svc().renders(id_)
+
+    @r.get("/v1/dashboards/{id_}/renders/{aid}")
+    def download(id_: str, aid: str, request: Request, token: str | None = None) -> Response:
+        """登入且可檢視看板，或帶簽章 token（分享連結）；到期 410。"""
+        s = svc(); a = s.get_render(id_, aid)
+        if token:
+            if token != s.token(aid, a["expires_at"]):
+                raise HTTPException(403, "分享連結無效")
+            who, via = "share:" + aid, "token"
+        else:
+            subject = get_subject(request); need(subject, "view"); load(id_, subject); who, via = subject.user_id, "login"
+        return Response(content=s.download(a, who, via), media_type="text/html; charset=utf-8", headers={"Content-Disposition": f'inline; filename="{aid}.html"', "X-Robots-Tag": "noindex"})
+
+    @r.get("/v1/dashboards/{id_}/schedules")
+    def schedules(id_: str, subject: Subject = Depends(get_subject)) -> list[dict[str, Any]]:
+        need(subject, "view"); load(id_, subject)
+        return svc().schedules(id_)
+
+    @r.post("/v1/dashboards/{id_}/schedules", status_code=202)
+    def create_schedule(id_: str, body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "use")
+        return svc().create_schedule(load(id_, subject), subject, body)
+
+    @r.delete("/v1/dashboards/{id_}/schedules/{sid}", status_code=204)
+    def delete_schedule(id_: str, sid: str, subject: Subject = Depends(get_subject)) -> Response:
+        need(subject, "use"); load(id_, subject, edit=True)
+        svc().delete_schedule(id_, sid, subject.user_id)
+        return Response(status_code=204)
+
+    @r.post("/v1/dashboards/{id_}/schedules/{sid}/run")
+    def run_schedule(id_: str, sid: str, subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "use"); load(id_, subject, edit=True)
+        sch = next((x for x in svc().schedules(id_) if x["id"] == sid), None)
+        if not sch:
+            raise HTTPException(404, "定時寄送不存在")
+        if sch["status"] != "active":
+            raise HTTPException(409, f"尚未核可（{sch['status']}）")
+        return svc().run_schedule(sch, apply_time, K, trigger="manual")
 
     return r
