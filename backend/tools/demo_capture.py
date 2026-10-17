@@ -17,7 +17,8 @@ T = {"from": "2026-10-01", "to": "2026-10-16", "grain": "day", "pinned": True}
 UQ = {"project": "golden", "filters": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}], "behaviors": [{"event": "bond_deal", "count": {"op": "gte", "value": 3}, "time": {"from": "2026-10-01", "to": "2026-10-16"}}]}
 GETS = ["/auth/providers", "/v1/dashboards", "/v1/exports", "/v1/reveals", "/v1/segments", "/v1/segments?status=recycled", "/v1/semantic/catalog", "/v1/audit?n=200", "/v1/audit?n=100", "/v1/audit?n=500", "/v1/audit?n=1000",
         "/v1/approvals?scope=to_me", "/v1/approvals?scope=mine", "/v1/approvals?scope=all",
-        "/v1/iam/roles", "/v1/iam/assignments", "/v1/iam/sessions", "/v1/iam/masking", "/v1/iam/modules",
+        "/v1/iam/roles", "/v1/iam/assignments", "/v1/iam/sessions", "/v1/iam/sessions?scope=all", "/v1/iam/users", "/v1/iam/changes", "/v1/iam/masking", "/v1/iam/modules",
+        "/v1/audit/stats?days=7", "/v1/audit/stats?days=14", "/v1/audit/stats?days=30", "/v1/audit/stats?days=90", "/v1/settings",
         "/v1/integration/connectors", "/v1/integration/connections", "/v1/integration/tables", "/v1/integration/sync-tasks",
         "/v1/meta/events", "/v1/meta/properties", "/v1/meta/virtual-events", "/v1/meta/quarantine", "/v1/meta/change-requests", "/v1/meta/user-properties", "/v1/meta/oneid/rules", "/v1/meta/dimension-tables", "/v1/meta/dictionaries", "/v1/meta/virtual-properties",
         "/v1/migration/inventory", "/v1/migration/bridge", "/v1/migration/exports", "/v1/migration/reconcile?days=28&project=migration_demo"]
@@ -81,6 +82,8 @@ def main() -> None:
     for j in fx["routes"].get("GET /v1/migration/exports", {}).get("items", []):
         r = adm.call("GET", f"/v1/migration/exports/{j['id']}"); put("GET", f"/v1/migration/exports/{j['id']}", r); put("GET", "/v1/migration/exports/*", r)
     put("GET", "/v1/migration/reconcile", fx["routes"]["GET /v1/migration/reconcile?days=28&project=migration_demo"])
+    for m in fx["routes"].get("GET /v1/iam/users", [])[:12]:
+        r = adm.call("GET", f"/v1/iam/users/{m['id']}"); put("GET", f"/v1/iam/users/{m['id']}", r); put("GET", "/v1/iam/users/*", r)
     rows = fx["routes"].get("POST /v1/users/list", {}).get("rows", [])
     if rows:
         oid = rows[0]["one_id"]; q = "reason=" + quote("示範：客訴單 C-1001")

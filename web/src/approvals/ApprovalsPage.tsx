@@ -35,7 +35,7 @@ function ApprovalsInner() {
     catch (e) { setErr(e instanceof ApiError ? e.message : '操作失敗'); } finally { setBusy(false); }
   };
   const run = async (e: Export) => { setBusy(true); setErr(null); try { await api.post(`/v1/exports/${e.id}/run`); await reload(); } catch (x) { setErr(x instanceof ApiError ? x.message : '產檔失敗'); } finally { setBusy(false); } };
-  const objectLink = (a: Approval) => (a.object.kind === 'segment' ? <Link to={`/segments/${a.object.id}`} className="pill blue">分群 {a.object.id}</Link> : a.object.kind === 'export' ? <button className="pill blue" onClick={() => setTab('exports')}>匯出單 {a.object.id}</button> : <span className="pill">{a.object.kind} {a.object.id}</span>);
+  const objectLink = (a: Approval) => (a.object.kind === 'segment' ? <Link to={`/segments/${a.object.id}`} className="pill blue">分群 {a.object.id}</Link> : a.object.kind === 'export' ? <button className="pill blue" onClick={() => setTab('exports')}>匯出單 {a.object.id}</button> : a.object.kind === 'role_change' || a.object.kind === 'break_glass' ? <Link to="/iam/changes" className="pill custom">權限變更 {a.object.id}</Link> : <span className="pill">{a.object.kind} {a.object.id}</span>);
   return (
     <div className="page">
       <div className="page-h"><div><h1>審批與匯出</h1><p>匯出、分群生效、推送、欄位揭露、agent 提議都走審批單；類型決定審批角色（匯出與分群 = 數位經營、L3 揭露 = 系統管理員），不能審自己的申請，7 天未審自動逾期。匯出核可後 7 天內由申請者本人產檔下載，檔案帶浮水印、欄位比畫面再嚴一級。</p></div></div>

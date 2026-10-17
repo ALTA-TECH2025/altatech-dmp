@@ -41,11 +41,39 @@ export interface Assignment {
   sso_group?: string;
   last_login?: string;
   temp?: boolean;
+  approved_by?: string;
 }
 
 export interface ScopeSimulation { where: string[]; masked_fields: string[]; k_anonymity: number }
 
-export interface SessionRow { sid: string; user: string; provider: string; roles: string[]; created_at: number; last_seen: number; ip_masked: string }
+export interface SessionRow { sid: string; user: string; username?: string; name?: string; provider: string; roles: string[]; amr?: string[]; created_at: number; last_seen: number; ip_masked: string; current?: boolean }
+
+// ---- 系統管理（backend/api/sysadmin.py、iam.py /changes）----
+export type MemberStatus = 'active' | 'disabled' | 'locked' | 'expired' | 'never_logged_in' | 'no_role';
+export interface Member {
+  id: string; username: string; name: string; email: string; provider: string; source: 'sso' | 'local'; roles: string[]; role_cn: string[]; status: MemberStatus; mfa: boolean;
+  last_login: number | null; login_failed_7d: number; sessions: number; assignments: number; expires_at: number | null;
+}
+export interface MemberDetail extends Member { assignment_rows: Assignment[]; session_rows: SessionRow[]; recent_audit: { event: string; at: number; [k: string]: unknown }[] }
+export interface ChangeRow {
+  kind: 'role_change' | 'break_glass'; id: string; status: 'pending' | 'approved' | 'rejected' | 'expired'; requested_by: string; created_at: number; approval?: string; decided_by?: string; decided_at?: number; note?: string;
+  op?: 'create' | 'update' | 'delete'; role?: string; before?: Role | null; after?: Role | null; reassign_to?: string | null;     // role_change
+  user_id?: string; hours?: number; reason?: string; assignment?: string;                                                          // break_glass
+}
+export interface PendingReview { status: 'pending_review'; approval: string; change?: string; request?: string; message: string }
+export interface AuditStats {
+  days: number; scope: 'all' | 'mine'; from: string; to: string; source: string;
+  tiles: Record<'events' | 'active_users' | 'logins' | 'login_failed' | 'denied' | 'profile_views' | 'reveals' | 'exports' | 'queries' | 'approvals_pending', number>;
+  daily: { date: string; logins: number; login_failed: number; denied: number; profile_views: number; exports: number; queries: number; events: number }[];
+  by_event: { event: string; n: number }[]; by_module: { module: string; n: number }[]; by_role: { role: string; profile_views: number; queries: number; exports: number }[];
+  top_sensitive: { user: string; n: number; reason: string; off_hours: number }[];
+  approvals: { pending: number; approved: number; rejected: number; expired: number; avg_hours: number | null; by_type: Record<string, Record<string, number>> };
+  agent: { tool_calls: number; proposals: number; stage: 'phase2' | 'live' };
+  anomalies: { rule: string; cn: string; severity: 'high' | 'medium' | 'low'; user: string; bucket: string; n: number; threshold: number }[];
+  rules: { key: string; cn: string; event: string; window?: 'hour' | 'day'; per?: string; threshold: number; severity?: string; field?: string; distinct?: string; off_hours_only?: boolean }[];
+  business_hours: { start: number; end: number; tz: string; weekdays_only: boolean }; notify: string[];
+}
+export interface SettingsView { sections: { key: string; cn: string; source: string; items: { key: string; cn: string; value: unknown; note: string }[] }[]; edit: { enabled: boolean; stage: string; note: string } }
 
 export const MODULES: { key: Module; cn: string }[] = [
   { key: 'overview', cn: '總覽' }, { key: 'events', cn: '事件分析' }, { key: 'funnel', cn: '漏斗' }, { key: 'path', cn: '路徑' }, { key: 'attribution', cn: '歸因' },

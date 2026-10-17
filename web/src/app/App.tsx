@@ -20,6 +20,7 @@ import { UserSchemaPage } from '@/governance/UserSchemaPage';
 import { ItemsPage } from '@/governance/ItemsPage';
 import { MigrationPage } from '@/migration/MigrationPage';
 import { AuditPage } from '@/audit/AuditPage';
+import { SettingsPage } from '@/settings/SettingsPage';
 import { ProfileEntryPage } from '@/users/ProfileEntryPage';
 import type { Module } from '@/api/types';
 
@@ -68,7 +69,7 @@ export function App() {
             <Route path="/governance/pipeline" element={<Placeholder title="資料流與效能" module="governance" stage="phase2" note="端到端資料流、查詢 P50／P95／P99、批次作業與儲存：由 Prometheus／Grafana 與 ClickHouse query_log 供數，第二階段接上。" instead={{ to: '/integration', cn: '數據整合（同步任務執行紀錄）' }} />} />
             <Route path="/migration" element={<MigrationPage />} />
             <Route path="/audit" element={<AuditPage />} />
-            <Route path="/settings" element={<Placeholder title="平台設定" module="iam" stage="todo" note="K 匿名門檻、session 逾時、匯出上限、IdP 模式等平台參數的檢視與修改（需雙人複核）；目前以設定檔管理。" instead={{ to: '/iam', cn: '權限中心' }} />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="/iam/*" element={<RequireGrant module="iam"><IamPage /></RequireGrant>} />
             <Route path="*" element={<div className="page"><div className="card"><h1>找不到頁面</h1></div></div>} />
           </Route>

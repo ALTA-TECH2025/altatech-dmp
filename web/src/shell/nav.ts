@@ -41,6 +41,6 @@ export const NAV: NavGroup[] = [
   { id: 'sys', cn: '系統管理', items: [
     { path: '/iam', cn: '權限中心', module: 'iam' },
     { path: '/audit', cn: '日誌統計', module: 'audit' },
-    { path: '/settings', cn: '平台設定', module: 'iam', stage: 'todo' },
+    { path: '/settings', cn: '平台設定', module: 'iam' },
   ] },
 ];

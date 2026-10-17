@@ -1,28 +1,32 @@
-// 權限中心：角色（勾選矩陣）、使用者指派、數據權限（行級模擬）、欄位隱碼、我的 session。資料全部來自 /v1/iam/*；寫入需 iam.admin（後端再驗一次）。
+// 權限中心：角色（勾選矩陣；變更走雙人複核）、成員、使用者指派（含臨時提權）、數據權限（行級模擬）、欄位隱碼、session（本人／全平台）、變更審核。資料全部來自 /v1/iam/*；寫入需 iam.admin（後端再驗一次）。
 import { useEffect, useState } from 'react';
 import { NavLink, Route, Routes } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
-import { ACTIONS, MODULES, type Action, type Assignment, type Module, type Role, type ScopeSimulation, type SessionRow } from '@/api/types';
+import { ACTIONS, MODULES, type Action, type Assignment, type Module, type PendingReview, type Role, type ScopeSimulation, type SessionRow } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import { toggleAction, unionGrants } from '@/lib/policy';
+import { ChangesTab } from './ChangesTab';
+import { MembersTab } from './MembersTab';
 
-const TABS = [['roles', '角色'], ['assign', '使用者指派'], ['data', '數據權限'], ['masking', '欄位隱碼'], ['sessions', '我的 session']] as const;
+const TABS = [['roles', '角色'], ['members', '成員'], ['assign', '使用者指派'], ['data', '數據權限'], ['masking', '欄位隱碼'], ['sessions', 'session'], ['changes', '變更審核']] as const;
 
 export function IamPage() {
   const { can } = useAuth();
   return (
     <div className="page">
       <div className="page-h">
-        <div><h1>權限中心</h1><p>角色（RBAC + 範圍）、模組權限矩陣、數據權限（行級）、欄位隱碼。UI、API 與 AI 工具閘道共用同一套 Policy Engine。</p></div>
+        <div><h1>權限中心</h1><p>成員、角色（RBAC + 範圍）、模組權限矩陣、數據權限（行級）、欄位隱碼、session。UI、API 與 AI 工具閘道共用同一套 Policy Engine；自訂角色變更與臨時提權需另一人複核。</p></div>
         <div className="right">{can('iam', 'admin') ? null : <span className="pill gray">唯讀</span>}</div>
       </div>
       <div className="seg">{TABS.map(([k, cn]) => <NavLink key={k} to={k === 'roles' ? '/iam' : `/iam/${k}`} end className={({ isActive }) => (isActive ? 'on' : '')}>{cn}</NavLink>)}</div>
       <Routes>
         <Route index element={<RolesTab />} />
+        <Route path="members" element={<MembersTab />} />
         <Route path="assign" element={<AssignmentsTab />} />
         <Route path="data" element={<ScopeTab />} />
         <Route path="masking" element={<MaskingTab />} />
         <Route path="sessions" element={<SessionsTab />} />
+        <Route path="changes" element={<ChangesTab />} />
       </Routes>
     </div>
   );
@@ -44,12 +48,18 @@ export function RolesTab() {
   const [edit, setEdit] = useState<Role | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const editable = can('iam', 'admin');
+  const done = (r: unknown, ok: string) => { const p = r as Partial<PendingReview> | null; setMsg(p && p.status === 'pending_review' ? `已送審（審批單 ${p.approval ?? '—'}）：需另一位系統管理員或數位經營在「變更審核」核可後生效` : ok); setEdit(null); void reload(); };
   const save = async () => {
     if (!edit) return;
     try {
-      if (edit.key && edit.builtin === false || edit.key) await api.put(`/v1/iam/roles/${edit.key}`, edit); else await api.post('/v1/iam/roles', edit);
-      setMsg('已儲存（審計 role.changed；正式環境需雙人複核）'); setEdit(null); void reload();
+      done(edit.key ? await api.put(`/v1/iam/roles/${edit.key}`, edit) : await api.post('/v1/iam/roles', edit), '已儲存（審計 role.changed）');
     } catch (e) { setMsg(e instanceof ApiError ? e.message : '儲存失敗'); }
+  };
+  const remove = async (r: Role) => {
+    const holders = (await api.get<Assignment[]>('/v1/iam/assignments')).filter((a) => a.roles.includes(r.key ?? '')).length;
+    let q = '';
+    if (holders) { q = prompt(`仍有 ${holders} 筆指派使用此角色，請輸入改派角色 key（例如 data_analyst）`) ?? ''; if (!q) return; } else if (!confirm(`刪除角色「${r.name}」？（需另一人複核）`)) return;
+    try { done(await api.del(`/v1/iam/roles/${r.key}${q ? `?reassign_to=${encodeURIComponent(q)}` : ''}`), '已刪除（審計 role.deleted）'); } catch (e) { setMsg(e instanceof ApiError ? e.message : '刪除失敗'); }
   };
   if (err) return <div className="alert">{err}</div>;
   if (!roles) return <div className="loading">載入中…</div>;
@@ -66,7 +76,8 @@ export function RolesTab() {
               <td>{r.description}</td>
               <td className="sub">{Object.keys(r.grants).length} 個模組 · 匯出 {Object.values(r.grants).filter((a) => a?.includes('export')).length} · 審批 {Object.values(r.grants).filter((a) => a?.includes('approve')).length}</td>
               <td className="num"><button className="btn-ghost sm" onClick={() => setEdit(structuredClone(r))}>{editable ? '編輯' : '檢視'}</button>
-                {editable && <button className="btn-ghost sm" onClick={() => setEdit({ ...structuredClone(r), key: undefined, name: r.name + '（副本）', builtin: false })}>複製</button>}</td>
+                {editable && <button className="btn-ghost sm" onClick={() => setEdit({ ...structuredClone(r), key: undefined, name: r.name + '（副本）', builtin: false })}>複製</button>}
+                {editable && r.builtin === false && <button className="btn-ghost sm danger" onClick={() => void remove(r)}>刪除</button>}</td>
             </tr>))}</tbody>
         </table>
       </div>
@@ -94,7 +105,7 @@ export function RoleEditor({ role, readOnly, onChange, onSave, onCancel }: { rol
             {ACTIONS.map((a) => <td key={a.key} className="num"><input type="checkbox" aria-label={`${m.cn} ${a.cn}`} disabled={readOnly} checked={(role.grants[m.key] ?? []).includes(a.key)} onChange={(e) => set(m.key, a.key, e.target.checked)} /></td>)}
           </tr>))}</tbody>
       </table>
-      <p className="note">勾選規則：可用蘊含可見、匯出蘊含可用；匯出一律走審批並加浮水印。欄位隱碼不在角色上設定（見「欄位隱碼」）。</p>
+      <p className="note">勾選規則：可用蘊含可見、匯出蘊含可用；匯出一律走審批並加浮水印。欄位隱碼不在角色上設定（見「欄位隱碼」）。儲存後成為變更申請，由另一位系統管理員或數位經營複核後生效。<span className="pill gray">逐事件／逐屬性可見白名單（神策式）：第二階段</span></p>
       <div className="row">{!readOnly && <button className="btn-primary" onClick={onSave}>儲存</button>}<button className="btn-ghost" onClick={onCancel}>關閉</button></div>
     </div>
   );
@@ -106,24 +117,29 @@ export function AssignmentsTab() {
   const { data, err, reload } = useLoad<Assignment[]>('/v1/iam/assignments');
   const { data: roles } = useLoad<Role[]>('/v1/iam/roles');
   const [draft, setDraft] = useState<Assignment | null>(null);
+  const [bg, setBg] = useState<{ user_id: string; hours: number; reason: string } | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
   const editable = can('iam', 'admin');
   const revoke = async (id: string) => { if (confirm('撤銷此指派？（審計 iam.assignment.revoked）')) { await api.del(`/v1/iam/assignments/${id}`); void reload(); } };
-  const save = async () => { if (draft) { await api.post('/v1/iam/assignments', draft); setDraft(null); void reload(); } };
+  const save = async () => { if (draft) { try { await api.post('/v1/iam/assignments', draft); setDraft(null); setMsg('已指派（審計 iam.assignment.created）'); void reload(); } catch (e) { setMsg(e instanceof ApiError ? e.message : '指派失敗'); } } };
+  const requestBg = async () => { if (bg) { try { const r = await api.post<PendingReview>('/v1/iam/assignments', { ...bg, roles: ['admin'], break_glass: true }); setBg(null); setMsg(`已送審（審批單 ${r.approval ?? '—'}）：另一位系統管理員或數位經營核可後才生效，到期自動撤銷`); } catch (e) { setMsg(e instanceof ApiError ? e.message : '申請失敗'); } } };
   if (err) return <div className="alert">{err}</div>;
   if (!data) return <div className="loading">載入中…</div>;
   const preview = draft && roles ? unionGrants(roles.filter((r) => draft.roles.includes(r.key ?? '')).map((r) => r.grants)) : null;
+  const expText = (x?: string | number) => (x == null ? '—' : typeof x === 'number' ? new Date(x * 1000).toLocaleString('zh-TW', { hour12: false }) : x);
   return (
     <>
+      {msg && <div className="note">{msg}</div>}
       <div className="card flush"><div className="tbl-wrap"><table className="tbl">
-        <thead><tr><th>使用者</th><th>角色</th><th>數據範圍</th><th>到期</th><th>身分來源</th><th>最近登入</th><th /></tr></thead>
+        <thead><tr><th>使用者</th><th>角色</th><th>數據範圍</th><th>到期</th><th>身分來源</th><th>理由</th><th /></tr></thead>
         <tbody>{data.map((u) => (
           <tr key={u.id ?? u.user_id} className={u.temp ? 'warnrow' : ''}>
             <td><b>{u.user_id}</b></td>
             <td>{u.roles.map((r) => <span key={r} className={`pill ${r === 'admin' ? 'red' : 'blue'}`}>{roles?.find((x) => x.key === r)?.name ?? r}</span>)}</td>
             <td>{scopeText(u.scope)}</td>
-            <td className="mono">{u.expires_at ?? '—'}</td>
-            <td className="mono sub">{u.sso_group ?? '本地指派'}</td>
-            <td className="mono">{u.last_login ?? '—'}</td>
+            <td className="mono">{expText(u.expires_at as string | number | undefined)}</td>
+            <td className="mono sub">{u.temp ? `臨時提權 · ${u.approved_by ?? ''}` : u.sso_group ?? '本地指派'}</td>
+            <td className="sub">{u.reason ?? ''}</td>
             <td className="num">{editable && u.id && <button className="btn-ghost sm danger" onClick={() => void revoke(u.id!)}>撤銷</button>}</td>
           </tr>))}</tbody>
       </table></div></div>
@@ -132,7 +148,16 @@ export function AssignmentsTab() {
           <li>角色由 IdP 群組自動對應（AD／Entra 群組 → 角色，設定在 backend/auth/idp.yaml），登入時套用，不可在此修改。</li>
           <li>本地指派只能「加自訂角色、限範圍、設到期」或「拒絕某角色」；內建角色改群組即可。</li>
           <li>多角色：功能聯集、隱碼最嚴、範圍聯集。臨時提權最長 4 小時，需系統管理員＋數位經營雙人核准，到期自動撤銷。</li></ul></div>
-        <div className="card"><div className="card-h"><h3>離職／調動</h3></div><p className="note">停用 AD／Entra 帳號即無法登入；既有 session 最長 30 分鐘閒置或 8 小時絕對逾時失效；可在「我的 session」或由管理員強制登出。</p></div>
+        <div className="card"><div className="card-h"><h3>臨時提權（break-glass）</h3></div>
+          {editable ? (bg ? (
+            <div className="stack">
+              <label>使用者<input value={bg.user_id} onChange={(e) => setBg({ ...bg, user_id: e.target.value })} /></label>
+              <label>小時（≤ 4）<input type="number" min={1} max={4} value={bg.hours} onChange={(e) => setBg({ ...bg, hours: Number(e.target.value) })} /></label>
+              <label>理由（事故單號等）<input value={bg.reason} onChange={(e) => setBg({ ...bg, reason: e.target.value })} /></label>
+              <div className="row"><button className="btn-primary" disabled={!bg.user_id || !bg.reason || !(bg.hours > 0 && bg.hours <= 4)} onClick={() => void requestBg()}>送審</button><button className="btn-ghost" onClick={() => setBg(null)}>取消</button></div>
+            </div>
+          ) : <><p className="note">臨時取得 admin 最長 4 小時；申請成審批單，由另一位系統管理員或數位經營核可後才生效，到期自動撤銷。離職／調動：停用 AD／Entra 帳號即無法登入；既有 session 可在「session」分頁強制登出。</p><button className="btn-ghost" onClick={() => setBg({ user_id: '', hours: 2, reason: '' })}>申請臨時提權</button></>) : <span className="pill gray">需 iam.admin</span>}
+        </div>
         <div className="card"><div className="card-h"><h3>新增本地指派</h3></div>
           {editable ? (draft ? (
             <div className="stack">
@@ -189,15 +214,28 @@ export function MaskingTab() {
   );
 }
 
-// ---- 我的 session ----
+// ---- session：本人；iam.admin 可切到全平台並強制登出 ----
 export function SessionsTab() {
-  const { data, err } = useLoad<SessionRow[]>('/v1/iam/sessions');
+  const { can, me } = useAuth();
+  const admin = can('iam', 'admin');
+  const [scope, setScope] = useState<'me' | 'all'>('me');
+  const [msg, setMsg] = useState<string | null>(null);
+  const { data, err, reload } = useLoad<SessionRow[]>(`/v1/iam/sessions${scope === 'all' ? '?scope=all' : ''}`, [scope]);
+  const revoke = async (s: SessionRow) => {
+    if (!confirm(`強制登出 ${s.user} 的 session ${s.sid}…？（審計 auth.session.revoked）`)) return;
+    try { await api.del(`/v1/iam/sessions/${s.sid}`); setMsg('已強制登出'); void reload(); } catch (e) { setMsg(e instanceof ApiError ? e.message : '操作失敗'); }
+  };
   if (err) return <div className="alert">{err}</div>;
   return (
-    <div className="card flush"><table className="tbl">
-      <thead><tr><th>session</th><th>身分來源</th><th>角色</th><th>建立</th><th>最近活動</th><th>IP</th></tr></thead>
-      <tbody>{(data ?? []).map((s) => <tr key={s.sid}><td className="mono">{s.sid}…</td><td>{s.provider}</td><td>{s.roles.join('、')}</td><td className="mono">{fmtTs(s.created_at)}</td><td className="mono">{fmtTs(s.last_seen)}</td><td className="mono">{s.ip_masked}</td></tr>)}</tbody>
-    </table><p className="note">同帳號最多 3 個同時 session；閒置 30 分鐘或 8 小時後自動登出。</p></div>
+    <>
+      {msg && <div className="note">{msg}</div>}
+      {admin && <div className="row" style={{ marginBottom: 12 }}><div className="seg"><a href="#" className={scope === 'me' ? 'on' : ''} onClick={(e) => { e.preventDefault(); setScope('me'); }}>我的 session</a><a href="#" className={scope === 'all' ? 'on' : ''} onClick={(e) => { e.preventDefault(); setScope('all'); }}>全平台</a></div><span className="sub">{(data ?? []).length} 個</span></div>}
+      <div className="card flush"><div className="tbl-wrap"><table className="tbl">
+        <thead><tr><th>session</th>{scope === 'all' && <th>使用者</th>}<th>身分來源</th><th>角色</th><th>MFA</th><th>建立</th><th>最近活動</th><th>IP</th><th /></tr></thead>
+        <tbody>{(data ?? []).map((s) => <tr key={s.sid} className={s.current ? 'warnrow' : ''}><td className="mono">{s.sid}…{s.current && <span className="pill blue">目前</span>}</td>{scope === 'all' && <td><b>{s.name || s.username || s.user}</b><span className="sub mono">{s.user}</span></td>}<td>{s.provider}</td><td>{s.roles.join('、')}</td><td>{s.amr?.includes('mfa') ? '✓' : '—'}</td><td className="mono">{fmtTs(s.created_at)}</td><td className="mono">{fmtTs(s.last_seen)}</td><td className="mono">{s.ip_masked}</td>
+          <td className="num">{(scope === 'all' || s.user === me?.user.id) && !s.current && <button className="btn-ghost sm danger" onClick={() => void revoke(s)}>強制登出</button>}</td></tr>)}</tbody>
+      </table></div><p className="note" style={{ padding: '0 12px 12px' }}>同帳號最多 3 個同時 session；閒置 30 分鐘或 8 小時後自動登出。強制登出會立即失效對方的 cookie session。</p></div>
+    </>
   );
 }
 const fmtTs = (t: number) => new Date(t * 1000).toLocaleString('zh-TW', { hour12: false });

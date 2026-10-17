@@ -122,10 +122,26 @@ def main() -> None:
     it.call("PUT", "/v1/meta/dictionaries/reason_code?mode=append", {"entries": {"E099": "系統維護", "SYS04": "委託閘道逾時"}})
     if not it.call("GET", "/v1/migration/exports")["items"]:
         it.call("POST", "/v1/migration/exports", {"dataset": "events", "date_from": "2026-10-01", "date_to": "2026-10-03", "method": "api", "note": "抽樣校驗（查詢 API）"})
-    if not [a for a in adm.call("GET", "/v1/iam/assignments") if a.get("user_id") == "local:vendor-a"]:
-        roles = {r["key"] for r in adm.call("GET", "/v1/iam/roles")}
-        if "custom_vendor_analyst" in roles:
-            adm.call("POST", "/v1/iam/assignments", {"user_id": "local:vendor-a", "roles": ["custom_vendor_analyst"], "scope": {"projects": ["golden"], "lookback_days": 180}, "expires_at": "2026-12-31", "reason": "外包分析專案"})
+    # 6. 權限中心：自訂角色（送審 → 數位經營核可）、本機帳號 vendor-a、本地指派；留一筆角色修改與一筆臨時提權待複核，示範「變更審核」
+    grants = {"overview": ["view"], "events": ["view", "use"], "funnel": ["view", "use"], "segments": ["view"], "ai_ask": ["use"], "audit": ["view"]}
+    if "custom_vendor_analyst" not in {r["key"] for r in adm.call("GET", "/v1/iam/roles")}:
+        r = adm.call("POST", "/v1/iam/roles", {"key": "custom_vendor_analyst", "name": "外包分析（專案限定）", "description": "外包廠商：只看 golden 專案、回溯 180 天、不可匯出", "scope": "project", "lookback_days": 180, "grants": grants})
+        if isinstance(r, dict) and r.get("approval"):
+            ops.call("POST", f"/v1/approvals/{r['approval']}/decide", {"approve": True, "note": "專案合約期內，範圍與回溯天數符合外包規範"})
+    members = {m["username"]: m for m in adm.call("GET", "/v1/iam/users")}
+    if "vendor-a" not in members:
+        adm.call("POST", "/v1/iam/users", {"username": "vendor-a", "password": pw, "roles": ["custom_vendor_analyst"], "name": "外包分析（廠商 A）", "email": "a@vendor.example"})
+        members = {m["username"]: m for m in adm.call("GET", "/v1/iam/users")}
+    vid = members["vendor-a"]["id"]
+    if not [a for a in adm.call("GET", "/v1/iam/assignments") if a.get("user_id") == vid]:
+        adm.call("POST", "/v1/iam/assignments", {"user_id": vid, "roles": ["custom_vendor_analyst"], "scope": {"projects": ["golden"], "lookback_days": 180}, "expires_at": "2026-12-31", "reason": "外包分析專案（合約至 2026-12-31）"})
+    changes = adm.call("GET", "/v1/iam/changes")
+    if not any(c["kind"] == "break_glass" for c in changes) and "it" in members:
+        adm.call("POST", "/v1/iam/assignments", {"user_id": members["it"]["id"], "roles": ["admin"], "break_glass": True, "hours": 2, "reason": "事故單 INC-2041：凌晨批次失敗，需調整排程與重跑"})
+    if not any(c["kind"] == "role_change" and c.get("op") == "update" for c in changes):
+        adm.call("PUT", "/v1/iam/roles/custom_vendor_analyst", {"grants": {**grants, "path": ["view", "use"]}})
+    with contextlib.suppress(RuntimeError):                                        # 幾筆權限拒絕，讓看板有「權限拒絕」
+        mkt.call("GET", "/v1/iam/roles"); mkt.call("GET", "/v1/settings"); ana.call("GET", "/v1/iam/users")
     print("demo fill ok")
 
 
