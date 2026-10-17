@@ -51,7 +51,9 @@ CLICKHOUSE_URL=http://127.0.0.1:8123 DMP_SECRETS_JSON=secrets.json uvicorn backe
 - `/metrics`：Bearer `DMP_METRICS_TOKEN`（或 `DMP_METRICS_TOKEN_REF` 指向密鑰庫）給叢集內 ServiceMonitor；沒帶 token 時退回 session（governance.view）。
 - 權限：檢視 governance.view（it_admin、admin、data_analyst／digital_ops 唯讀）；重跑同步任務 governance.admin，審計 `batch.rerun`。
 - 自測：`python3 -m backend.ops`（指標庫＋假排程器／store／ClickHouse 跑四視圖與全部規則）；`python3 -m backend.api` 的 6b 段走 HTTP。
-- Helm：`deploy/helm/altatech-dmp/templates/monitoring.yaml`（ServiceMonitor、PrometheusRule 同一組規則、Grafana 看板 ConfigMap），`observability.prometheus: true` 時渲染。
+- 系統監控頁：`/v1/ops/series` 依 `ops/panels.yaml`（與 Grafana 看板一份兩用，`python3 -m backend.ops.grafana` 產 JSON）回每分鐘快照的時間序列；`DMP_GRAFANA_URL` 設定後頁面可跳到 Grafana 同一面板。
+- 告警通知：`backend/ops/notify.py`，預設 `ops/notify.yaml`，線上修改存控制面 `config:ops_notify`。Email 用 `DMP_SMTP_URL` 的 mailer（與看板寄送共用）、收件人依角色從成員目錄取；LINE 官方帳號走 Messaging API（`channel_access_token_ref` 指向密鑰庫；多個收件 ID 用 multicast）。ticker 每分鐘 `dispatch(alerts().firing)`：最低嚴重度、冷卻、靜音時段只送緊急、消失時送「已恢復」。`POST /v1/ops/notify/alertmanager`（Bearer `DMP_METRICS_TOKEN`）接 Alertmanager webhook 走同一組管道。自測：`python3 -m backend.ops.notify`。
+- Helm：`deploy/helm/altatech-dmp/templates/monitoring.yaml`（ServiceMonitor、PrometheusRule 同一組規則、AlertmanagerConfig → API webhook、Grafana 看板 ConfigMap），`observability.prometheus: true` 時渲染。
 
 ## 單機啟動（main.py 的環境變數）
 

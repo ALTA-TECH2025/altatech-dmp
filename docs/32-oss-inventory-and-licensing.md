@@ -10,7 +10,7 @@
 | 有沒有必須付費的軟體授權？ | **沒有。** 第一階段所有元件都是 OSI 認可的開源授權（Apache-2.0、MIT、BSD、PostgreSQL、MPL-2.0、ISC）或免費再散布的基底映像（Red Hat UBI）。唯一的 copyleft 元件是 Grafana OSS（AGPL-3.0），只做內部看板、不修改、不對外提供，不觸發散布義務（法務已核可，見 docs/07 §3）。 |
 | 哪些是「可選付費」？ | 雲端託管或企業版：GCP（GKE、Cloud SQL、GCS、Managed Prometheus，依用量計費，機房部署不需要）、ClickHouse Cloud、Grafana Cloud／Enterprise、Confluent、Astronomer、Rancher Prime、Red Hat 訂閱（RHEL 節點 OS；用 Rocky Linux 則免費）。第一階段的設計都不依賴這些。 |
 | 有沒有中國大陸原產的元件？ | **沒有。** 曾評估的 Apache SeaTunnel、Flink CDC（阿里巴巴起源）、Apache ECharts（百度起源）、DolphinScheduler 都已排除或未採用（docs/25）。需要揭露的兩項：ClickHouse 起源於俄羅斯 Yandex（2021 起由美國公司 ClickHouse Inc. 治理，Apache-2.0）；Vite／Vitest（VoidZero Inc.，美國公司）與 SeaweedFS（SeaweedFS Inc.，美國公司）的主要作者為大陸出生。 |
-| 客戶要付的只有什麼？ | 基礎設施（機房硬體或 GCP 用量）、GA360（Google 商業產品，客戶既有）、LLM API（第一階段 AI 閘道關閉，不需要）、人力。 |
+| 客戶要付的只有什麼？ | 基礎設施（機房硬體或 GCP 用量）、GA360（Google 商業產品，客戶既有）、LLM API（第一階段 AI 閘道關閉，不需要）、人力。另有兩個外部服務依用量：告警通知若用 LINE 官方帳號，Messaging API 免費方案每月 200 則推送、超過要買訊息方案（Email 走客戶既有 SMTP，免費）；GA4 BigQuery 匯出的 BigQuery 儲存與查詢費。 |
 
 ## 1. 第一階段實際使用（已在程式碼或部署套件中）
 

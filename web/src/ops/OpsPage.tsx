@@ -5,8 +5,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
-import { alertText, countBySeverity, fmtBytes, fmtMs, fmtPct, fmtRows, fmtTs, JOB_STATUS_CN, lagText, overall, ruleThreshold, SEV_CN, SEV_PILL, slaStatus, STATUS_CN, STATUS_PILL } from './ops';
-import type { ActivationItem, Alerts, BatchJobs, OpsStatus, Pipeline, QueryPerf, ServingItem, SourceItem, TableItem } from './types';
+import { alertText, checkNotify, countBySeverity, fmtBytes, fmtMs, fmtPct, fmtRows, fmtTs, JOB_STATUS_CN, lagText, NTF_KIND_CN, NTF_STATUS_PILL, overall, ruleThreshold, SEV_CN, SEV_PILL, slaStatus, splitList, STATUS_CN, STATUS_PILL } from './ops';
+import type { ActivationItem, Alerts, BatchJobs, Notification, NotifyConfig, OpsStatus, Pipeline, QueryPerf, Severity, ServingItem, SourceItem, TableItem } from './types';
 
 export function OpsPage() {
   return <RequireGrant module="governance"><OpsInner /></RequireGrant>;
@@ -54,7 +54,7 @@ function OpsInner() {
       {tab === 'flow' && (pl ? <FlowTab pl={pl} /> : <p className="note">讀取中…</p>)}
       {tab === 'query' && <QueryTab qp={qp} win={win} setWin={setWin} />}
       {tab === 'batch' && (bj ? <BatchTab bj={bj} canAdmin={canAdmin} busy={busy} rerun={rerun} /> : <p className="note">讀取中…</p>)}
-      {tab === 'alerts' && (al ? <AlertsTab al={al} sev={sev} /> : <p className="note">讀取中…</p>)}
+      {tab === 'alerts' && (al ? <><AlertsTab al={al} sev={sev} /><NotifyCard canAdmin={canAdmin} /></> : <p className="note">讀取中…</p>)}
     </div>
   );
 }
@@ -127,10 +127,82 @@ function BatchTab({ bj, canAdmin, busy, rerun }: { bj: BatchJobs; canAdmin: bool
 function AlertsTab({ al, sev }: { al: Alerts; sev: ReturnType<typeof countBySeverity> }) {
   return (
     <>
-      <div className="card"><div className="card-h"><h3>觸發中</h3><span className="sub">{al.firing.length ? (Object.keys(sev) as (keyof typeof sev)[]).map((k) => `${SEV_CN[k]} ${sev[k]}`).join(' · ') : '沒有觸發中的告警'} · 通知角色：{al.notify.join('、')}（第一階段只在此頁顯示；Email／LINE 管道與值班分工第二階段）</span></div>
+      <div className="card"><div className="card-h"><h3>觸發中</h3><span className="sub">{al.firing.length ? (Object.keys(sev) as (keyof typeof sev)[]).map((k) => `${SEV_CN[k]} ${sev[k]}`).join(' · ') : '沒有觸發中的告警'} · 通知：依下方「告警通知設定」送 Email／LINE（規則的通知角色：{al.notify.join('、')}）</span></div>
         {al.firing.length ? <div className="tbl-wrap"><table className="tbl"><tbody>{al.firing.map((a, i) => <tr key={i} className={a.severity === 'critical' || a.severity === 'high' ? 'warnrow' : ''}><td style={{ width: 70 }}><span className={`pill ${SEV_PILL[a.severity]}`}>{SEV_CN[a.severity]}</span></td><td>{alertText(a)}<span className="sub">{a.text}</span></td></tr>)}</tbody></table></div> : <p className="note">全部規則都在門檻內。</p>}</div>
       <div className="card flush" style={{ marginTop: 16 }}><div className="card-h" style={{ padding: '14px 16px 0' }}><h3>告警規則</h3><span className="sub">backend/ops/alerts.yaml；叢集內由 PrometheusRule 以同名規則送 Alertmanager</span></div>
         <div className="tbl-wrap"><table className="tbl"><thead><tr><th>規則</th><th>指標</th><th>門檻</th><th>對象</th><th>窗口</th><th>嚴重度</th><th>說明</th></tr></thead><tbody>{al.rules.map((r) => <tr key={r.key}><td><b>{r.cn}</b><span className="sub mono">{r.key}</span></td><td className="mono" style={{ fontSize: 12 }}>{r.metric}</td><td className="mono">{ruleThreshold(r)}</td><td>{r.per ?? '全域'}</td><td>{r.window}</td><td><span className={`pill ${SEV_PILL[r.severity]}`}>{SEV_CN[r.severity]}</span></td><td style={{ fontSize: 12.5 }}>{r.text}</td></tr>)}</tbody></table></div></div>
     </>
+  );
+}
+
+const ROLE_OPTIONS = [['admin', '系統管理員'], ['it_admin', '資訊管理'], ['digital_ops', '數位經營'], ['data_analyst', '數據分析'], ['marketing', '行銷']] as const;
+function NotifyCard({ canAdmin }: { canAdmin: boolean }) {
+  const [cfg, setCfg] = useState<NotifyConfig | null>(null);
+  const [hist, setHist] = useState<Notification[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [extraTo, setExtraTo] = useState(''); const [lineTo, setLineTo] = useState('');
+  const load = async () => {
+    try { const [c, h] = await Promise.all([api.get<NotifyConfig>('/v1/ops/notify'), api.get<Notification[]>('/v1/ops/notify/history?limit=50')]); setCfg(c); setHist(h); setExtraTo(c.email.extra_to.join('\n')); setLineTo(c.line.to.join('\n')); setErr(null); }
+    catch (e) { setErr(e instanceof ApiError ? (e.status === 403 ? null : e.message) : '讀取失敗'); }
+  };
+  useEffect(() => { void load(); }, []);
+  if (!canAdmin) return <div className="card" style={{ marginTop: 16 }}><div className="card-h"><h3>告警通知設定</h3></div><p className="note">Email／LINE 官方帳號通知由系統管理員或資訊管理設定；通知紀錄見審計 ops.notify.sent。</p></div>;
+  if (!cfg) return <div className="card" style={{ marginTop: 16 }}><div className="card-h"><h3>告警通知設定</h3></div>{err ? <div className="alert">{err}</div> : <p className="note">讀取中…</p>}</div>;
+  const draft = { ...cfg, email: { ...cfg.email, extra_to: splitList(extraTo) }, line: { ...cfg.line, to: splitList(lineTo) } };
+  const errs = checkNotify(draft);
+  const set = (patch: Partial<NotifyConfig>) => setCfg({ ...cfg, ...patch });
+  const save = async () => {
+    setBusy(true); setMsg(null);
+    try { const c = await api.put<NotifyConfig>('/v1/ops/notify', { email: draft.email, line: draft.line, policy: draft.policy }); setCfg(c); setExtraTo(c.email.extra_to.join('\n')); setLineTo(c.line.to.join('\n')); setMsg('通知設定已儲存（審計 ops.notify.changed）'); setErr(null); }
+    catch (e) { setErr(e instanceof ApiError ? e.message : '儲存失敗'); }
+    finally { setBusy(false); }
+  };
+  const test = async (channel: 'email' | 'line') => {
+    setBusy(true); setMsg(null);
+    try { const r = await api.post<Notification>('/v1/ops/notify/test', { channel }); setMsg(`${channel === 'email' ? 'Email' : 'LINE'} 測試：${r.status === 'ok' ? `已送 ${r.recipients} 個收件對象` : `${r.status}：${r.response ?? ''}`}`); await load(); }
+    catch (e) { setErr(e instanceof ApiError ? e.message : '測試失敗'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="card-h"><h3>告警通知設定</h3><span className="sub">{cfg.updated_at ? `上次修改 ${fmtTs(cfg.updated_at)} · ${cfg.updated_by}` : '使用預設值（backend/ops/notify.yaml）'}</span></div>
+      {err && <div className="alert">{err}</div>}
+      {msg && <div className="note ok-note">{msg}</div>}
+      <div className="grid c3 notify-form">
+        <div>
+          <h4 style={{ fontSize: 13, margin: '0 0 6px' }}>Email（SMTP）{cfg.available.email ? <span className="pill blue">可用</span> : <span className="pill gray" title="API 需設定 DMP_SMTP_URL">未設定 SMTP</span>}</h4>
+          <label className="chk-row"><input type="checkbox" checked={cfg.email.enabled} onChange={(e) => set({ email: { ...cfg.email, enabled: e.target.checked } })} /> 啟用</label>
+          <label>收件角色（從成員目錄取 email）</label>
+          <div className="chk-wrap">{ROLE_OPTIONS.map(([k, cn]) => <label key={k} className="chk-row"><input type="checkbox" checked={cfg.email.to_roles.includes(k)} onChange={(e) => set({ email: { ...cfg.email, to_roles: e.target.checked ? [...cfg.email.to_roles, k] : cfg.email.to_roles.filter((r) => r !== k) } })} /> {cn}</label>)}</div>
+          <label>額外收件人（值班／群組信箱，一行一個）</label><textarea rows={2} value={extraTo} onChange={(e) => setExtraTo(e.target.value)} placeholder="oncall@example.com" />
+          <label>主旨前綴</label><input value={cfg.email.subject_prefix} onChange={(e) => set({ email: { ...cfg.email, subject_prefix: e.target.value } })} />
+          <div className="row"><button className="btn-ghost sm" disabled={busy || !cfg.email.enabled || !cfg.available.email} onClick={() => void test('email')}>送測試 Email</button></div>
+        </div>
+        <div>
+          <h4 style={{ fontSize: 13, margin: '0 0 6px' }}>LINE 官方帳號（Messaging API）{cfg.available.line ? <span className="pill blue">token 可解析</span> : <span className="pill gray">未設定</span>}</h4>
+          <label className="chk-row"><input type="checkbox" checked={cfg.line.enabled} onChange={(e) => set({ line: { ...cfg.line, enabled: e.target.checked } })} /> 啟用</label>
+          <label>Channel access token 的密鑰庫參照（不貼明文）</label><input className="mono" value={cfg.line.channel_access_token_ref} onChange={(e) => set({ line: { ...cfg.line, channel_access_token_ref: e.target.value.trim() } })} placeholder="kv/data/dmp/prod/line#channel_access_token" />
+          <label>收件 userId／groupId（一行一個；把官方帳號加進值班群組後由 webhook 事件取得 groupId）</label><textarea rows={2} className="mono" value={lineTo} onChange={(e) => setLineTo(e.target.value)} placeholder="Cxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+          <p className="note" style={{ marginTop: 6 }}>免費方案每月 200 則推送；LINE Notify 已停止服務，不用。多個收件對象用 multicast 一次送。</p>
+          <div className="row"><button className="btn-ghost sm" disabled={busy || !cfg.line.enabled || !cfg.available.line} onClick={() => void test('line')}>送測試 LINE</button></div>
+        </div>
+        <div>
+          <h4 style={{ fontSize: 13, margin: '0 0 6px' }}>政策</h4>
+          <label>最低嚴重度（以下只在頁面顯示）</label><select value={cfg.policy.min_severity} onChange={(e) => set({ policy: { ...cfg.policy, min_severity: e.target.value as Severity } })}>{(['low', 'medium', 'high', 'critical'] as const).map((s) => <option key={s} value={s}>{SEV_CN[s]}</option>)}</select>
+          <label>同一告警冷卻（分鐘）</label><input type="number" min={0} max={1440} value={cfg.policy.cooldown_min} onChange={(e) => set({ policy: { ...cfg.policy, cooldown_min: Number(e.target.value) } })} />
+          <label className="chk-row"><input type="checkbox" checked={cfg.policy.notify_resolved} onChange={(e) => set({ policy: { ...cfg.policy, notify_resolved: e.target.checked } })} /> 告警消失時送「已恢復」</label>
+          <label className="chk-row"><input type="checkbox" checked={!!cfg.policy.quiet_hours} onChange={(e) => set({ policy: { ...cfg.policy, quiet_hours: e.target.checked ? { start: 0, end: 7, tz: 'Asia/Taipei' } : null } })} /> 靜音時段只送「緊急」</label>
+          {cfg.policy.quiet_hours && <div className="row"><input type="number" min={0} max={23} value={cfg.policy.quiet_hours.start} onChange={(e) => set({ policy: { ...cfg.policy, quiet_hours: { ...cfg.policy.quiet_hours!, start: Number(e.target.value) } } })} style={{ width: 70 }} /> 時 ～ <input type="number" min={0} max={23} value={cfg.policy.quiet_hours.end} onChange={(e) => set({ policy: { ...cfg.policy, quiet_hours: { ...cfg.policy.quiet_hours!, end: Number(e.target.value) } } })} style={{ width: 70 }} /> 時（Asia/Taipei）</div>}
+          <p className="note" style={{ marginTop: 6 }}>叢集內 Prometheus／Alertmanager 的告警經 webhook 走同一組管道與政策（Helm AlertmanagerConfig）。</p>
+        </div>
+      </div>
+      {errs.length > 0 && <div className="alert" style={{ marginTop: 10 }}>{errs.join('；')}</div>}
+      <div className="row"><button className="btn-primary" disabled={busy || errs.length > 0} onClick={() => void save()}>儲存設定</button><button className="btn-ghost" disabled={busy} onClick={() => void load()}>還原</button></div>
+      <div className="card-h" style={{ marginTop: 16 }}><h3>通知紀錄</h3><span className="sub">最近 50 筆</span></div>
+      {hist.length ? <div className="tbl-wrap"><table className="tbl"><thead><tr><th>時間</th><th>管道</th><th>類型</th><th>告警</th><th className="num">收件</th><th>狀態</th><th>回應</th></tr></thead>
+        <tbody>{hist.map((n) => <tr key={n.id} className={n.status === 'failed' ? 'warnrow' : ''}><td className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtTs(n.at)}</td><td>{n.channel === 'email' ? 'Email' : 'LINE'}</td><td>{NTF_KIND_CN[n.kind] ?? n.kind}</td><td style={{ fontSize: 12 }} title={n.text}>{n.alerts.slice(0, 3).join('、')}{n.alerts.length > 3 ? ` 等 ${n.alerts.length} 項` : ''}</td><td className="num mono">{n.recipients}</td><td><span className={`pill ${NTF_STATUS_PILL[n.status] ?? 'gray'}`}>{n.status}</span></td><td className="sub" style={{ maxWidth: 260, overflowWrap: 'anywhere' }}>{n.response ?? ''}</td></tr>)}</tbody></table></div> : <p className="note">還沒有通知。</p>}
+    </div>
   );
 }

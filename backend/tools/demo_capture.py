@@ -23,7 +23,7 @@ GETS = ["/auth/providers", "/v1/dashboards", "/v1/bookmarks", "/v1/exports", "/v
         "/v1/integration/connectors", "/v1/integration/connections", "/v1/integration/tables", "/v1/integration/sync-tasks",
         "/v1/meta/events", "/v1/meta/properties", "/v1/meta/virtual-events", "/v1/meta/quarantine", "/v1/meta/change-requests", "/v1/meta/user-properties", "/v1/meta/oneid/rules", "/v1/meta/dimension-tables", "/v1/meta/dictionaries", "/v1/meta/virtual-properties",
         "/v1/migration/inventory", "/v1/migration/bridge", "/v1/migration/exports", "/v1/migration/reconcile?days=28&project=migration_demo",
-        "/v1/ops/pipeline", "/v1/ops/query-perf?window=1h", "/v1/ops/query-perf?window=24h", "/v1/ops/query-perf?window=7d", "/v1/ops/batch-jobs", "/v1/ops/alerts", "/v1/ops/series?hours=1", "/v1/ops/series?hours=6", "/v1/ops/series?hours=24"]
+        "/v1/ops/pipeline", "/v1/ops/query-perf?window=1h", "/v1/ops/query-perf?window=24h", "/v1/ops/query-perf?window=7d", "/v1/ops/batch-jobs", "/v1/ops/alerts", "/v1/ops/series?hours=1", "/v1/ops/series?hours=6", "/v1/ops/series?hours=24", "/v1/ops/notify", "/v1/ops/notify/history?limit=50"]
 POSTS: list[tuple[str, dict[str, Any]]] = [
     ("/v1/analytics/events", {"project": "golden", "metrics": [{"event": "bond_deal", "agg": "total", "alias": "deals"}, {"event": "bond_deal", "agg": "users", "alias": "deal_users"}], "group_by": ["platform"], "time": T}),
     ("/v1/analytics/funnel", {"project": "golden", "steps": [{"event": "hq_stockdetail_view", "alias": "看盤"}, {"event": "bond_order", "alias": "委託"}, {"event": "bond_deal", "alias": "成交"}], "window": {"value": 7, "unit": "day"}, "time": T}),

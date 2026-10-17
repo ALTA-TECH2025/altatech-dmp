@@ -28,7 +28,7 @@
 | 問數建卡片（AI 生成卡片） | 可演示（規則解析）；模型解析需 LLM 金鑰 | `/v1/analytics/ask*`、`/v1/dashboards/{id}/ask`、`insight_agent/configure.py`（rules／llm 兩個解析器、乾跑驗證、golden 20 題） | 儀表板「AI 生成卡片」：問題 → 卡片草稿（信心度、說明、查詢／SQL）→ 勾選加入看板或存成書籤；看板解讀「敘述版」 | configure 自測（model 20/20、params 20/20）、API 自測 |
 | 總覽／儀表板（含四個對齊需求表情境的範例看板：數位開戶轉換 A5／C2／C5、推播與活動成效追到交易 A4／D4／E3、客戶活躍與流失預警 C3／C8、交易與搜尋體驗 C1／C4；手機版依容器寬度重排圖表） | 可演示 | `/v1/bookmarks*`（書籤：分析查詢存成可重用、可分享的物件，可放進多個看板，改書籤看板同步）、`/v1/dashboards*`：卡片存查詢或引用書籤、以檢視者身分重算、分享角色／使用者；解讀、HTML 看板產物與分享連結、定時寄送（`dashboard_share.py`、`render/svg.py`） | 列表、卡片網格（五種分析）、存為看板卡片、分享、拖曳排版與寬度、看板解讀、產生 HTML 看板（分享連結）、定時寄送（審批） | API 自測（含解讀／渲染／token／到期／排程）；單機環境真 ClickHouse 產出 HTML 看板 |
 | 日誌統計 | 可演示 | `/v1/audit`、`/v1/audit/stats`、`/v1/audit/export`、`security/audit_alerts.yaml` | docs/10 §8 看板：指標卡、每日趨勢、模組／角色、敏感存取 Top、審批、告警規則評估、agent 活動（二期）、審計報表匯出；明細列表（效能／query_log 彙總第二階段） | API 自測（含規則評估） |
-| 資料流與效能 | 可演示 | `/v1/ops/pipeline`、`/v1/ops/query-perf`、`/v1/ops/batch-jobs`（＋`/rerun`）、`/v1/ops/alerts`、`/metrics`、`ops/sla.yaml`、`ops/alerts.yaml` | 資料流四段與資料品質、各模組查詢 P50/P95/P99 對 SLA、最慢查詢、批次作業（同步任務可重跑）與儲存、告警（11 條規則）；Prometheus 指標與 Helm 的 ServiceMonitor／PrometheusRule／Grafana 看板；系統管理 › 系統監控頁（Grafana 同一組面板、附 PromQL、可跳 Grafana） | 通知管道、OTel 追蹤、日誌集中、Airflow 作業接入 |
+| 資料流與效能 | 可演示 | `/v1/ops/pipeline`、`/v1/ops/query-perf`、`/v1/ops/batch-jobs`（＋`/rerun`）、`/v1/ops/alerts`、`/metrics`、`ops/sla.yaml`、`ops/alerts.yaml` | 資料流四段與資料品質、各模組查詢 P50/P95/P99 對 SLA、最慢查詢、批次作業（同步任務可重跑）與儲存、告警（11 條規則）＋通知（Email／LINE 官方帳號、政策、紀錄、Alertmanager webhook）；Prometheus 指標與 Helm 的 ServiceMonitor／PrometheusRule／AlertmanagerConfig／Grafana 看板；系統管理 › 系統監控頁（Grafana 同一組面板、附 PromQL、可跳 Grafana） | 值班分工、OTel 追蹤、日誌集中、Airflow 作業接入 |
 | 平台設定 | 可演示（唯讀） | `/v1/settings` | 身分與登入、權限、隱碼與揭露、Agent 預算、審計告警五區塊；密鑰只顯示 secret_ref；線上修改（雙人複核）標第二階段 | API 自測 |
 | 神策式逐事件／逐屬性可見白名單、專案註冊表 | 第二階段 | — | 目前以等級制隱碼 + 行級範圍 + 自訂角色 `scope.projects` 取代 | — |
 | 示範站（Vercel） | 可演示 | 無（瀏覽器內固定資料，`web/src/demo/`） | 正式前端全部頁面；登入改選角色；未實作頁標示第二階段／待開發 | 示範建置 Playwright 走過全部路由 |
@@ -112,7 +112,7 @@
 | F3 | Cookie 同意與隱私政策 | 非本方 | 同意管理與 Cookie-less 屬 GA（Consent Mode）與前端，由 Merkle 回覆；DMP 端只收已同意的事件。 |
 | F4 | 軟體來源聲明 | 符合（docs/25） | 核心元件：ClickHouse、PostgreSQL、Keycloak、React、D3 等皆非中國大陸原產，已盤點並移除 SeaTunnel／Flink CDC；清單與授權見 LICENSES.md，可出具聲明。 |
 | G1 | 與現行數軌工具平行運行及切換 | 符合（設計） | docs/22：神策與 GA 雙埋點平行期、按日三方對帳（神策／GA／DMP）、切換以對帳誤差門檻決定、回退為繼續讀神策。時程：UAT 2027-06-30、正式 2027-09-30。 |
-| G2 | SLA 與監控告警 | 部分符合 | 告警規則 11 條（來源延遲、同步失敗、隔離率、查詢 P95 超 SLA、查詢錯誤率、API 5xx、交付死信、目的地自動暫停、例行失敗、行為事件停滯、熱層用量）已在 `backend/ops/alerts.yaml` 與 Helm PrometheusRule；SLA 門檻在 `backend/ops/sla.yaml`；資料流與效能頁可看。待補：通報流程（Email／LINE／值班分工，M3）、真環境 SLA 實測（M2）。 |
+| G2 | SLA 與監控告警 | 符合（設計與工具） | 告警規則 11 條（來源延遲、同步失敗、隔離率、查詢 P95 超 SLA、查詢錯誤率、API 5xx、交付死信、目的地自動暫停、例行失敗、行為事件停滯、熱層用量）已在 `backend/ops/alerts.yaml` 與 Helm PrometheusRule；SLA 門檻在 `backend/ops/sla.yaml`；資料流與效能頁可看；通報：Email 與 LINE 官方帳號兩種管道可線上設定、測試、看紀錄，冷卻／最低嚴重度／靜音／恢復通知，Alertmanager 告警同一條路。待補：值班分工與升級規則（人的流程，M3 定）、真環境 SLA 實測（M2）。 |
 | G3 | 教育訓練與自助使用 | 規劃中 | 分析頁面與分群為自助設計，儀表板 M4 後可自建；訓練分層（業務／分析／管理員）待排。 |
 | G4 | 金融業導入案例 | 公司層填 | 由 Data-DI 業務補案例。 |
 | H1–H3 | 費用 | 公司層填 | DMP 為買斷＋維運，不按事件量或 MAU 計價；地端硬體規格依 A7 基準後給。 |

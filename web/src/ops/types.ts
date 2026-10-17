@@ -24,3 +24,11 @@ export interface BatchJobs { at: string; jobs: Job[]; storage: StorageItem[] }
 export interface AlertRule { key: string; cn: string; severity: Severity; threshold: number; op: string; unit: string; text: string; metric?: string; window?: string; per?: string | null }
 export interface Alert extends AlertRule { value: number | null; subject: string; firing: boolean }
 export interface Alerts { at: string; firing: Alert[]; rules: AlertRule[]; notify: string[] }
+
+export interface NotifyConfig {
+  email: { enabled: boolean; to_roles: string[]; extra_to: string[]; subject_prefix: string };
+  line: { enabled: boolean; channel_access_token_ref: string; to: string[]; api_base: string };
+  policy: { min_severity: Severity; cooldown_min: number; notify_resolved: boolean; quiet_hours: { start: number; end: number; tz: string } | null };
+  updated_at: string | null; updated_by: string | null; available: { email: boolean; line: boolean };
+}
+export interface Notification { id: string; at: string; channel: 'email' | 'line'; kind: 'alert' | 'resolved' | 'test' | 'alertmanager'; alerts: string[]; recipients: number; status: 'ok' | 'failed' | 'skipped'; response: string | null; text: string }

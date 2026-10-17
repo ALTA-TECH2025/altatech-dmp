@@ -89,6 +89,23 @@ spec:
           labels: { severity: medium, key: destination_paused }
           annotations: { summary: "目的地 {{ "{{" }} $labels.destination {{ "}}" }} 連續失敗自動暫停", runbook: "接收端驗章／網路；修好後在目的地頁恢復" }
 ---
+{{- if .Values.observability.alertmanagerToDmp }}
+# Alertmanager → DMP API 的 webhook：叢集內 PrometheusRule 的告警經 /v1/ops/notify/alertmanager 走平台內設定的 Email／LINE 管道與冷卻政策（通知設定在「資料流與效能 › 告警」）
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: dmp-to-api
+  labels: { app.kubernetes.io/name: dmp-core, release: {{ .Values.observability.prometheusRelease | default "kube-prometheus-stack" }} }
+spec:
+  route: { receiver: dmp-api, groupBy: [alertname, key], groupWait: 30s, groupInterval: 5m, repeatInterval: 4h, matchers: [{ name: key, matchType: "=~", value: ".+" }] }
+  receivers:
+    - name: dmp-api
+      webhookConfigs:
+        - url: http://dmp-core-api.{{ .Release.Namespace }}.svc:8000/v1/ops/notify/alertmanager
+          sendResolved: true
+          httpConfig: { authorization: { type: Bearer, credentials: { name: dmp-metrics-token, key: token } } }
+---
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

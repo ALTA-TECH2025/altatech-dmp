@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alertText, countBySeverity, fmtBytes, fmtMs, fmtRows, lagText, overall, ruleThreshold, slaStatus } from './ops';
+import { alertText, checkNotify, countBySeverity, fmtBytes, fmtMs, fmtRows, lagText, overall, ruleThreshold, slaStatus, splitList } from './ops';
 import type { Alert } from './types';
 
 const a = (p: Partial<Alert>): Alert => ({ key: 'k', cn: '來源延遲', severity: 'high', threshold: 120, op: '>', unit: 'min', text: '', value: 240, subject: '交易委託', firing: true, ...p });
@@ -20,6 +20,15 @@ describe('ops helpers', () => {
     expect(alertText(a({ cn: '查詢 P95 超標', unit: '倍 SLA', value: 1.2, threshold: 1, subject: '漏斗分析' }))).toBe('查詢 P95 超標 · 漏斗分析：1.20 倍（門檻 > 1 倍）');
     expect(ruleThreshold({ key: 'x', cn: 'x', severity: 'low', threshold: 0.02, op: '>', unit: '比例', text: '' })).toBe('> 2%');
     expect(ruleThreshold({ key: 'x', cn: 'x', severity: 'low', threshold: 1, op: '>=', unit: '筆', text: '' })).toBe('>= 1 筆');
+  });
+  it('checkNotify / splitList', () => {
+    const ok = { email: { extra_to: ['oncall@corp.internal'] }, line: { enabled: true, channel_access_token_ref: 'kv/data/dmp/prod/line#channel_access_token', to: ['U' + 'a'.repeat(32)] } };
+    expect(checkNotify(ok)).toEqual([]);
+    expect(checkNotify({ ...ok, email: { extra_to: ['nope'] } })[0]).toContain('Email');
+    expect(checkNotify({ ...ok, line: { ...ok.line, channel_access_token_ref: 'plain-token' } })[0]).toContain('明文');
+    expect(checkNotify({ ...ok, line: { ...ok.line, to: ['X123'] } })[0]).toContain('LINE 收件 ID');
+    expect(checkNotify({ ...ok, line: { enabled: true, channel_access_token_ref: '', to: [] } })).toHaveLength(1);
+    expect(splitList(' a@x.io, b@x.io\nb@x.io ；c@x.io ')).toEqual(['a@x.io', 'b@x.io', 'c@x.io']);
   });
   it('overall / countBySeverity', () => {
     expect(overall(['ok', 'warn'])).toBe('warn'); expect(overall(['ok', 'error', 'warn'])).toBe('error'); expect(overall(['unknown', 'unknown'])).toBe('unknown'); expect(overall(['ok', 'unknown'])).toBe('ok'); expect(overall([])).toBe('ok');

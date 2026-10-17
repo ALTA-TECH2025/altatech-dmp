@@ -21,5 +21,5 @@ apps:   # v0.6：6 個自建映像 ingest / core / agent / batch / flink-jobs / 
   batch: { airflow: { executor: LocalExecutor, replicas: 1, cpu: 2, memoryGi: 6 }, dbt: { parallelism: 6, schedule: "0 2 * * *", versionsKept: 7 } }
   web: { replicas: 2 }
 airflow: { enabled: true, workers: 3 }
-observability: { prometheus: true, otel: true, dashboards: grafana-oss, logs: opensearch, prometheusRelease: kube-prometheus-stack, scrapeInterval: 30s }   # templates/monitoring.yaml：ServiceMonitor、PrometheusRule（同 backend/ops/alerts.yaml）、Grafana 看板 ConfigMap；/metrics 的 token 放 Secret dmp-metrics-token
+observability: { prometheus: true, otel: true, dashboards: grafana-oss, logs: opensearch, prometheusRelease: kube-prometheus-stack, scrapeInterval: 30s, alertmanagerToDmp: true }   # templates/monitoring.yaml：ServiceMonitor、PrometheusRule（同 backend/ops/alerts.yaml）、Grafana 看板 ConfigMap；/metrics 的 token 放 Secret dmp-metrics-token
 security: { podSecurityStandard: restricted, readOnlyRootFs: true, runAsNonRoot: true, networkPolicies: true }

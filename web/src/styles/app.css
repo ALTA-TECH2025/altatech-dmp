@@ -208,6 +208,14 @@ label.chk input { width: auto; }
 .mon-expr code { display: block; margin-top: 4px; padding: 6px 8px; background: var(--soft); border-radius: 6px; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tile.st-warn { border-color: #F0D3A8; background: #FDF6EA; } .tile.st-error { border-color: #F0C0C0; background: #FBE9E9; }
 
+.notify-form > div { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.notify-form label { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.notify-form input:not([type=checkbox]), .notify-form textarea, .notify-form select { width: 100%; }
+.notify-form .row { margin-top: 8px; }
+.chk-row { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); margin-top: 4px; cursor: pointer; }
+.chk-row input[type=checkbox] { width: auto; flex: 0 0 auto; margin: 0; }
+.chk-wrap { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+
 @media (max-width: 600px) {
   .pipe-wrap { flex-basis: 100%; } .pipe-arrow { display: none; } .pipe-stage { margin-bottom: 8px; }
   .card-h { flex-wrap: wrap; row-gap: 6px; }

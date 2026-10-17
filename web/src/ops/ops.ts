@@ -61,6 +61,22 @@ export function overall(statuses: OpsStatus[]): OpsStatus {
   return 'ok';
 }
 
+export const SECRET_REF_RE = /^(kv\/data\/dmp\/[a-z]+\/[a-z0-9_]+#[a-z_]+|projects\/[^/]+\/secrets\/[^/]+\/versions\/(\d+|latest)|secret:\/\/[a-z0-9-]+\/[a-z0-9-]+\/[a-zA-Z0-9_.-]+)$/;
+export const LINE_ID_RE = /^[UCR][0-9a-f]{32}$/;
+/** 通知設定的表單檢查（與後端同規則，先在表單提示） */
+export function checkNotify(c: { email: { extra_to: string[] }; line: { enabled: boolean; channel_access_token_ref: string; to: string[] } }): string[] {
+  const errs: string[] = [];
+  for (const e of c.email.extra_to) if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) errs.push(`Email 格式錯誤：${e}`);
+  if (c.line.channel_access_token_ref && !SECRET_REF_RE.test(c.line.channel_access_token_ref)) errs.push('LINE token 只能填密鑰庫參照（kv/data/dmp/…#…、projects/…/secrets/…、secret://…），不能貼明文');
+  for (const id of c.line.to) if (!LINE_ID_RE.test(id)) errs.push(`LINE 收件 ID 格式錯誤（U／C／R 開頭 33 字元）：${id}`);
+  if (c.line.enabled && (!c.line.channel_access_token_ref || c.line.to.length === 0)) errs.push('啟用 LINE 需要 token 參照與至少一個收件 ID');
+  return errs;
+}
+/** 逗號／換行分隔的清單 → 去空白去重 */
+export function splitList(s: string): string[] { return Array.from(new Set(s.split(/[\n,，;；\s]+/).map((x) => x.trim()).filter(Boolean))); }
+export const NTF_KIND_CN: Record<string, string> = { alert: '告警', resolved: '已恢復', test: '測試', alertmanager: 'Alertmanager' };
+export const NTF_STATUS_PILL: Record<string, string> = { ok: 'blue', failed: 'red', skipped: 'gray' };
+
 /** 告警依嚴重度排序後分組計數 */
 export function countBySeverity(alerts: Alert[]): Partial<Record<Severity, number>> {
   const out: Partial<Record<Severity, number>> = {};

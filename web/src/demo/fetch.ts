@@ -47,7 +47,7 @@ export const demoFetch: typeof fetch = async (input, init) => {
 // ---- 記憶體覆蓋層：示範站建立的看板／書籤 ----
 type Obj = Record<string, unknown>;
 let curQs = '';                                            // 目前請求的 query string（覆蓋層需要 ?status=recycled 之類的篩選）
-const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj>(), sqlSaved: new Map<string, Obj>(), sqlRuns: [] as Obj[], mids: new Map<string, Obj>(), midGone: new Set<string>(), tags: new Map<string, Obj>(), dests: new Map<string, Obj>(), pushes: new Map<string, Obj>(), dl: [] as Obj[] };
+const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj>(), sqlSaved: new Map<string, Obj>(), sqlRuns: [] as Obj[], mids: new Map<string, Obj>(), midGone: new Set<string>(), tags: new Map<string, Obj>(), dests: new Map<string, Obj>(), pushes: new Map<string, Obj>(), dl: [] as Obj[], notify: null as Obj | null, ntf: [] as Obj[] };
 const now = () => new Date().toISOString().slice(0, 19) + 'Z';
 const me = (fx: Fixtures): string => String(((fx.roles[demoRole()] ?? fx.roles.admin) as { user: { id: string } }).user.id);
 const nid = (p: string) => `${p}_demo${Math.random().toString(36).slice(2, 7)}`;
@@ -82,6 +82,13 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
   const who = me(fx);
   if (seg[0] !== 'v1') return null;
   if (seg[1] === 'ops' && seg[2] === 'batch-jobs' && seg[4] === 'rerun' && method === 'POST') return { body: { job: seg[3], status: 'success', demo: true }, status: 202 };   // 示範：重跑同步任務
+  if (seg[1] === 'ops' && seg[2] === 'notify') {                                                    // 示範：通知設定／測試／紀錄（記憶體覆蓋層）
+    const base = (mem.notify ?? (fx.routes['GET /v1/ops/notify'] as Obj | undefined)) as Obj | undefined;
+    if (!seg[3] && method === 'GET' && base) return { body: base };
+    if (!seg[3] && method === 'PUT' && base) { const merged = { ...base, email: { ...(base.email as Obj), ...((b.email as Obj) ?? {}) }, line: { ...(base.line as Obj), ...((b.line as Obj) ?? {}) }, policy: { ...(base.policy as Obj), ...((b.policy as Obj) ?? {}) }, updated_at: now(), updated_by: who, available: { email: true, line: Boolean(((b.line as Obj) ?? (base.line as Obj)).channel_access_token_ref) } }; mem.notify = merged; return { body: merged }; }
+    if (seg[3] === 'test' && method === 'POST') { const ch = String(b.channel ?? 'email'); const rec = { id: nid('ntf'), at: now(), channel: ch, kind: 'test', alerts: ['test'], recipients: ch === 'line' ? ((base?.line as Obj)?.to as string[] | undefined)?.length ?? 1 : 2, status: 'ok', response: ch === 'line' ? '200 31ms {}' : null, text: `DMP 測試通知（${who} 送出）`, demo: true }; mem.ntf.unshift(rec); return { body: rec }; }
+    if (seg[3] === 'history' && method === 'GET') return { body: [...mem.ntf, ...((fx.routes['GET /v1/ops/notify/history?limit=50'] as Obj[] | undefined) ?? [])] };
+  }
   if (seg[1] === 'ops' && seg[2] === 'series' && method === 'GET') { const h = Number(new URLSearchParams(curQs).get('hours') || 6); const base = fx.routes[`GET /v1/ops/series?hours=${h}`] ?? fx.routes['GET /v1/ops/series?hours=6']; if (base) return { body: synthSeries(base as Obj, h) }; }
   if (seg[1] === 'analytics' && seg[2] === 'ask') {
     if (seg[3] === 'status') return { body: { allowed: true, parsers: ['rules'], default: 'rules', model: null, examples: ['上週各平台成交金額、看盤到委託到成交的漏斗、登入後 4 週留存', '近 7 天各渠道開戶申請人數', '成交之前做什麼', '推播點擊對成交的貢獻'], note: '示範模式：瀏覽器內規則解析（與後端 rules 解析器同構）；正式環境設定 LLM 金鑰後改用模型解析，草稿會再乾跑編譯。' } };
