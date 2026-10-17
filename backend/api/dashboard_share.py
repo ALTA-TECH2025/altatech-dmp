@@ -25,6 +25,17 @@ from ..semantic.compiler import Catalog
 from .analytics import Executor, execute_kind
 from .store import Store
 
+
+def resolve_card(store: Store, c: dict[str, Any]) -> tuple[str, dict[str, Any], str | None]:
+    """卡片 → (kind, query, 警告)。引用書籤的卡片取書籤當下的查詢；書籤已刪除就用卡片快照並警告。"""
+    bid = c.get("bookmark")
+    if bid:
+        b = next((x for x in store.items("bookmark") if x["id"] == bid), None)
+        if b:
+            return b["kind"], b["query"], None
+        return c["kind"], c["query"], "書籤已刪除，顯示的是刪除前的查詢快照"
+    return c["kind"], c["query"], None
+
 TZ = ZoneInfo("Asia/Taipei")
 RENDER_KIND, SCHED_KIND = "dashboard_render", "dashboard_schedule"
 L3_FIELDS = {f["name"] for f in MASK.get("fields", []) if f.get("level") in ("L3", "L4")} | {"one_id", "cust_code", "account_no", "customer_code"}
@@ -187,11 +198,12 @@ class DashboardShare:
     def run_cards(self, d: dict[str, Any], subject: Subject, override: dict[str, Any] | None, apply_time: Callable[..., dict[str, Any]], module: str) -> list[tuple[dict[str, Any], dict[str, Any] | None, str | None]]:
         """每張卡 → (card, data|None, error)。"""
         out = []
-        for c in d.get("cards") or []:
-            ov = override or ({"preset": d["time"]["preset"]} if (d.get("time") or {}).get("preset") and not (c["query"].get("time") or {}).get("pinned") else None)
+        for c0 in d.get("cards") or []:
+            kind, query, _warn = resolve_card(self.store, c0); c = {**c0, "kind": kind, "query": query}
+            ov = override or ({"preset": d["time"]["preset"]} if (d.get("time") or {}).get("preset") and not (query.get("time") or {}).get("pinned") else None)
             try:
-                q = apply_time(c["query"], ov)
-                data = execute_kind(c["kind"], self.store, self.ch, self.cat, subject, q, module=module, extra={"dashboard": d["id"], "card": c["id"]})
+                q = apply_time(query, ov)
+                data = execute_kind(kind, self.store, self.ch, self.cat, subject, q, module=module, extra={"dashboard": d["id"], "card": c["id"]})
                 data["time"] = q.get("time"); out.append((c, data, None))
             except HTTPException as e:
                 out.append((c, None, str(e.detail)))

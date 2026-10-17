@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from ..security.policy import RBAC, Subject, authorize
 from ..semantic.compiler import Catalog
 from .analytics import RUNNERS, Executor, compile_kind, execute_kind
-from .dashboard_share import DashboardShare
+from .dashboard_share import DashboardShare, resolve_card
 from .store import Store
 
 KIND = "dashboard"
@@ -57,7 +57,12 @@ def apply_time(query: dict[str, Any], override: dict[str, Any] | None) -> dict[s
     return {**query, "time": tm}
 
 
-def _card(raw: dict[str, Any], subject: Subject, cat: Catalog) -> dict[str, Any]:
+def _card(raw: dict[str, Any], subject: Subject, cat: Catalog, store: Store | None = None) -> dict[str, Any]:
+    if raw.get("bookmark"):
+        b = next((x for x in (store.items("bookmark") if store else []) if x["id"] == raw["bookmark"]), None)
+        if not b or not visible(b, subject):
+            raise HTTPException(404, "書籤不存在或你沒有檢視權")
+        raw = {**raw, "kind": b["kind"], "query": b["query"], "title": raw.get("title") or b["name"], "chart": raw.get("chart") or b.get("chart", "auto")}
     kind = str(raw.get("kind") or "")
     if kind not in RUNNERS:
         raise HTTPException(400, f"kind 只能是 {sorted(RUNNERS)}")
@@ -72,7 +77,7 @@ def _card(raw: dict[str, Any], subject: Subject, cat: Catalog) -> dict[str, Any]
         raise HTTPException(400, "width 只能是 1 或 2")
     compile_kind(kind, subject, q, cat)                       # 存之前先以建立者身分編譯一次：查詢格式錯就 400、沒權限就 403
     return {"id": raw.get("id") or "c_" + secrets.token_hex(4), "title": str(raw.get("title") or "")[:80] or "未命名卡片", "kind": kind, "query": q, "chart": chart, "width": width,
-            "note": str(raw.get("note") or "")[:400], "created_by": subject.user_id, "created_at": _now()}
+            "note": str(raw.get("note") or "")[:400], "created_by": subject.user_id, "created_at": _now(), **({"bookmark": str(raw["bookmark"])} if raw.get("bookmark") else {})}
 
 
 def _shared(raw: Any) -> dict[str, list[str]]:
@@ -116,7 +121,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
         if preset not in PRESETS:
             raise HTTPException(400, f"time.preset 只能是 {sorted(PRESETS)}")
         d = {"id": "d_" + secrets.token_hex(5), "name": name, "description": str(body.get("description") or "")[:400], "owner": subject.user_id, "shared": _shared(body.get("shared")),
-             "time": {"preset": preset}, "cards": [_card(c, subject, cat) for c in (body.get("cards") or [])[:24]], "created_at": _now(), "updated_at": _now()}
+             "time": {"preset": preset}, "cards": [_card(c, subject, cat, store) for c in (body.get("cards") or [])[:24]], "created_at": _now(), "updated_at": _now()}
         store.put_item(KIND, d)
         store.audit("dashboard.created", {"user": subject.user_id, "dashboard": d["id"], "name": name, "cards": len(d["cards"])})
         return out(d, subject)
@@ -169,10 +174,10 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
         d = load(id_, subject, edit=True)
         if len(d.get("cards") or []) >= 24:
             raise HTTPException(400, "一個儀表板最多 24 張卡片")
-        c = _card(body, subject, cat)
+        c = _card(body, subject, cat, store)
         d["cards"] = [*(d.get("cards") or []), c]; d["updated_at"] = _now()
         store.put_item(KIND, d)
-        store.audit("dashboard.card.added", {"user": subject.user_id, "dashboard": id_, "card": c["id"], "kind": c["kind"]})
+        store.audit("dashboard.card.added", {"user": subject.user_id, "dashboard": id_, "card": c["id"], "kind": c["kind"], "bookmark": c.get("bookmark")})
         return c
 
     @r.delete("/v1/dashboards/{id_}/cards/{card_id}")
@@ -195,13 +200,15 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
         c = next((x for x in d.get("cards") or [] if x["id"] == card_id), None)
         if not c:
             raise HTTPException(404, "卡片不存在")
-        override = (body or {}).get("time") or ({"preset": d["time"]["preset"]} if (d.get("time") or {}).get("preset") and not (c["query"].get("time") or {}).get("pinned") else None)
+        kind, query, warn = resolve_card(store, c)
+        override = (body or {}).get("time") or ({"preset": d["time"]["preset"]} if (d.get("time") or {}).get("preset") and not (query.get("time") or {}).get("pinned") else None)
         try:
-            q = apply_time(c["query"], override)
+            q = apply_time(query, override)
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
-        res = execute_kind(c["kind"], store, ch, cat, subject, q, module="dashboard", extra={"dashboard": id_, "card": card_id})
-        return {**res, "card": {"id": c["id"], "kind": c["kind"], "chart": c["chart"], "title": c["title"]}, "time": q.get("time")}
+        res = execute_kind(kind, store, ch, cat, subject, q, module="dashboard", extra={"dashboard": id_, "card": card_id, "bookmark": c.get("bookmark")})
+        if warn: res["warnings"] = [*res.get("warnings", []), warn]
+        return {**res, "card": {"id": c["id"], "kind": kind, "chart": c["chart"], "title": c["title"], "bookmark": c.get("bookmark")}, "time": q.get("time")}
 
     # ---- 進階（docs/30）：解讀、HTML 看板、定時寄送；沒有注入 share（舊測試）就 501 ----
     def svc() -> DashboardShare:

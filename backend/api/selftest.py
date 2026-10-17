@@ -280,6 +280,30 @@ def main(store: Any | None = None) -> None:
     assert c.post(f"/v1/dashboards/{did}/cards/{cards[0]['id']}/data", json={"time": {"preset": "1y"}}).status_code == 400
     assert c.post(f"/v1/dashboards/{did}/cards/{cards[2]['id']}/data").json()["rows"][0]["cohort"]
     assert c.post(f"/v1/dashboards/{did}/cards/{cards[3]['id']}/data").json()["nodes"] and c.post(f"/v1/dashboards/{did}/cards/{cards[4]['id']}/data").json()["summary"]
+    # 5c2. 書籤：分析師存書籤（順手加進看板 + 新建看板）→ 卡片引用書籤 → 改書籤查詢，卡片跟著變 → 行銷看得到分享的書籤並執行（以行銷身分遮罩）→ 刪書籤，卡片保留快照並警告
+    bm = c.post("/v1/bookmarks", json={"name": "成交金額（平台）", "kind": "events", "query": q, "chart": "bar", "shared": {"roles": ["marketing"]}, "add_to": [did], "new_dashboard": "行銷週報"})
+    assert bm.status_code == 201, bm.text
+    bmj = bm.json(); assert bmj["id"].startswith("bm_") and len(bmj["added_to"]) == 2 and bmj["used_in"] and bmj["mine"], bmj
+    wk = next(x for x in c.get("/v1/dashboards").json() if x["name"] == "行銷週報"); wid = wk["id"]
+    assert c.post("/v1/bookmarks", json={"name": "x", "kind": "events", "query": {"metrics": [{"event": "nope", "agg": "total"}], "time": q["time"]}}).status_code == 400
+    assert c.post("/v1/bookmarks", json={"name": "", "kind": "events", "query": q}).status_code == 400
+    bcard = c.post(f"/v1/dashboards/{did}/cards", json={"bookmark": bmj["id"], "width": 2}); assert bcard.status_code == 201 and bcard.json()["bookmark"] == bmj["id"] and bcard.json()["title"] == "成交金額（平台）" and bcard.json()["chart"] == "bar"
+    assert c.post(f"/v1/dashboards/{did}/cards", json={"bookmark": "bm_nope"}).status_code == 404
+    cd2 = c.post(f"/v1/dashboards/{did}/cards/{bcard.json()['id']}/data").json(); assert cd2["card"]["bookmark"] == bmj["id"] and cd2["rows"]
+    up = c.put(f"/v1/bookmarks/{bmj['id']}", json={"name": "成交金額（平台別）", "query": {**q, "group_by": ["channel"]}}).json(); assert up["name"] == "成交金額（平台別）"
+    cards_now = c.get(f"/v1/dashboards/{did}").json()["cards"]; bc = next(x for x in cards_now if x.get("bookmark") == bmj["id"]); assert bc["title"] == "成交金額（平台別）" and bc["query"]["group_by"] == ["channel"]
+    assert c.post(f"/v1/dashboards/{wid}/cards/{c.get(f'/v1/dashboards/{wid}').json()['cards'][0]['id']}/data").json()["rows"]
+    login(c, sm, ["marketing"], "mkt")
+    assert [b["id"] for b in c.get("/v1/bookmarks").json()] == [bmj["id"]] and c.get("/v1/bookmarks?kind=funnel").json() == [] and c.get(f"/v1/bookmarks/{bmj['id']}").json()["editable"] is False
+    assert c.post(f"/v1/bookmarks/{bmj['id']}/data").json()["masked"] and c.put(f"/v1/bookmarks/{bmj['id']}", json={"name": "x"}).status_code == 403
+    assert c.post("/v1/bookmarks", json={"name": "行銷的", "kind": "events", "query": q, "new_dashboard": "行銷看板"}).status_code == 403   # 行銷 overview 只有 view：可存書籤、不能建看板
+    mb = c.post("/v1/bookmarks", json={"name": "行銷的", "kind": "events", "query": q}); assert mb.status_code == 201 and mb.json()["added_to"] == []
+    login(c, sm, ["data_analyst"], "ana")
+    assert c.delete(f"/v1/bookmarks/{bmj['id']}").status_code == 204
+    cd3 = c.post(f"/v1/dashboards/{did}/cards/{bc['id']}/data").json(); assert any("書籤已刪除" in w for w in cd3["warnings"]) and cd3["rows"]
+    assert next(x for x in c.get(f"/v1/dashboards/{did}").json()["cards"] if x["id"] == bc["id"])["bookmark_deleted"] is True
+    assert c.delete(f"/v1/dashboards/{did}/cards/{bc['id']}").json()["ok"] and c.delete(f"/v1/dashboards/{wid}").json()["ok"]
+    assert {x["event"] for x in store.audit_tail(60)} >= {"bookmark.created", "bookmark.updated", "bookmark.deleted"}
     # 5d. 看板進階（docs/30）：規則式解讀 → HTML 看板（inline SVG、無 script／外部資源、抑制列 <K、浮水印）→ 登入下載與簽章分享連結 → 到期 410 → 定時寄送（審批 → 核可 → 立即執行；無 SMTP 只產檔）
     ex = c.post(f"/v1/dashboards/{did}/explain").json()
     assert ex["method"] == "rules" and len(ex["summary"]) == 3 and len(ex["cards"]) == 5 and all(x["line"] for x in ex["cards"]) and any("抑制" in w for x in ex["cards"] for w in x["warnings"]), ex
@@ -472,7 +496,7 @@ def main(store: Any | None = None) -> None:
     assert {x["event"] for x in store.audit_tail(400)} >= {"role.change_requested", "role.changed", "role.deleted", "iam.break_glass.requested", "iam.user.created", "iam.user.changed", "iam.user.deleted", "auth.session.revoked", "audit.exported", "authz.denied"}
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+bookmarks+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":
