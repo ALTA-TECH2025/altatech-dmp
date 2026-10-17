@@ -187,4 +187,19 @@ label.chk input { width: auto; }
 .dash-card.dropzone { outline: 2px dashed var(--brand); outline-offset: 2px; }
 .signal { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--muted); }
 .signal.up { background: #2E9E6B; } .signal.down { background: var(--red); } .signal.flat { background: #C9A227; }
-@media (max-width: 900px) { .dash-grid { grid-template-columns: minmax(0, 1fr); } .dash-card.w2 { grid-column: auto; } }
+@media (max-width: 900px) { .dash-grid { grid-template-columns: minmax(0, 1fr); } .dash-card.w2 { grid-column: auto; } .w-toggle { display: none; } }
+/* 手機：標題列與分段切換可換行、卡片工具列靠左、指標卡兩欄、範例按鈕可折行 */
+@media (max-width: 600px) {
+  .card-h { flex-wrap: wrap; row-gap: 6px; }
+  .card-h .right { margin-left: 0; width: 100%; justify-content: flex-start; }
+  .dash-card .card-h .right.row { width: auto; }
+  .seg { margin-bottom: 8px; }
+  .seg a { padding: 5px 9px; font-size: 12.5px; }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .tile b { font-size: 20px; }
+  .tile { padding: 10px 12px; }
+  .btn-ghost.sm { white-space: normal; max-width: 100%; text-align: left; }
+  .page-h h1 { font-size: 20px; }
+  .legend { gap: 4px 10px; font-size: 11.5px; }
+  .tooltip { min-width: 0; width: 100%; }
+}

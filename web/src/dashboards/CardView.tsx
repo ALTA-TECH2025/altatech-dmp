@@ -11,6 +11,12 @@ import type { AttributionResult, EventsResult, FunnelRow, RetentionRow } from '@
 import { firstGroup, metricLabels, tableColumns, timeText } from './dashboards';
 import type { CardData, Dashboard, DashboardCard } from './types';
 
+/** 指標卡的值：數字加千分位；區間字串（≥5000000、100000–500000）裡的數字也加千分位。 */
+function fmtStat(v: unknown): string {
+  if (typeof v === 'number') return fmtNum(v);
+  return String(v ?? '—').replace(/\d{5,}/g, (m) => Number(m).toLocaleString());
+}
+
 export function CardView({ dash, card, k, labelOf, reloadKey, onRemove, onRename, onWidth, rootProps }: { dash: Dashboard; card: DashboardCard; k: number; labelOf: (n: string) => string; reloadKey: number; onRemove?: () => void; onRename?: () => void; onWidth?: () => void; rootProps?: HTMLAttributes<HTMLDivElement> }) {
   const [data, setData] = useState<CardData | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -29,12 +35,12 @@ export function CardView({ dash, card, k, labelOf, reloadKey, onRemove, onRename
         <div className="right row" style={{ marginTop: 0, gap: 4 }}>
           {data && <button className="btn-ghost sm" onClick={() => setShowSql((v) => !v)} title="SQL 與血緣">SQL</button>}
           {onRename && <button className="btn-ghost sm" onClick={onRename}>改名</button>}
-          {onWidth && <button className="btn-ghost sm" onClick={onWidth} title="切換寬度">{card.width === 2 ? '½ 寬' : '全寬'}</button>}
+          {onWidth && <button className="btn-ghost sm w-toggle" onClick={onWidth} title="切換寬度">{card.width === 2 ? '½ 寬' : '全寬'}</button>}
           {onRemove && <button className="btn-ghost sm danger" onClick={onRemove}>移除</button>}
         </div>
       </div>
       {err && <div className="alert">{err}</div>}
-      {data && data.warnings.length > 0 && <div className="note">{data.warnings.join('；')}</div>}
+      {data && data.warnings.filter((w) => !w.startsWith('plan ')).length > 0 && <div className="note">{data.warnings.filter((w) => !w.startsWith('plan ')).join('；')}</div>}
       {data && <CardBody card={card} data={data} k={k} labelOf={labelOf} />}
       {card.note && <p className="note">{card.note}</p>}
       {showSql && data && <pre className="code" style={{ marginTop: 10 }}>{data.lineage.join(' · ')}{'\n'}{data.sql}</pre>}
@@ -52,7 +58,7 @@ function CardBody({ card, data, k, labelOf }: { card: DashboardCard; data: CardD
     if (chart === 'table') return <DataTable data={data} labels={labels} />;
     if (chart === 'stat') {
       const r = data.rows[0] as Record<string, unknown> | undefined;
-      return <div className="tiles">{aliases.map((a) => <div className="tile" key={a}><span className="sub">{labels[a]}</span><b>{r?.suppressed ? `< ${k}` : fmtNum(r?.[a] as number)}</b></div>)}</div>;
+      return <div className="tiles">{aliases.map((a) => <div className="tile" key={a}><span className="sub">{labels[a]}</span><b>{r?.suppressed ? `< ${k}` : fmtStat(r?.[a])}</b></div>)}</div>;
     }
     return <LineChart series={toSeries(res, aliases, labels)} kind={chart === 'bar' || spec === 'bar' ? 'bar' : 'line'} height={220} />;
   }

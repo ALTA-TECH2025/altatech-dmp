@@ -50,7 +50,7 @@ def line_chart(series: list[dict[str, Any]], kind: str = "line") -> str:
     top = _nice(mx); pw = W - L - R; ph = H - T - B
     def X(i: int) -> float: return L + (pw * (i + 0.5) / len(xs) if kind == "bar" else (pw * i / max(1, len(xs) - 1)))
     def Y(v: float) -> float: return T + ph - ph * v / top
-    out = [f'<svg viewBox="0 0 {W} {H}" width="100%" role="img" aria-label="chart">']
+    out = [f'<div class="ch"><svg viewBox="0 0 {W} {H}" width="100%" role="img" aria-label="chart">']
     for g in range(5):
         y = T + ph * g / 4; out.append(f'<line x1="{L}" y1="{y:.1f}" x2="{W - R}" y2="{y:.1f}" stroke="#E6E9EF"/><text x="{L - 6}" y="{y + 4:.1f}" font-size="10" fill="#6B7280" text-anchor="end">{esc(fmt(top * (4 - g) / 4))}</text>')
     step = max(1, math.ceil(len(xs) / 8))
@@ -78,7 +78,7 @@ def line_chart(series: list[dict[str, Any]], kind: str = "line") -> str:
                 p = by.get(x)
                 if p and p.get("suppressed") and _num(p["y"]) is None and x not in marked:
                     marked.add(x); out.append(f'<text x="{X(i):.1f}" y="{T + ph - 4}" font-size="9" fill="#9CA3AF" text-anchor="middle">&lt;K</text>')
-    out.append("</svg>")
+    out.append("</svg></div>")
     leg = "".join(f'<span class="lg"><i style="background:{PALETTE[i % len(PALETTE)]}"></i>{esc(s["label"])}</span>' for i, s in enumerate(series))
     return "".join(out) + f'<div class="legend">{leg}</div>'
 
@@ -158,17 +158,19 @@ def attribution_share(rows: list[dict[str, Any]], models: list[str], summary: di
     return tiles + line_chart(series, "bar") + '<p class="note">縱軸：各模型轉化份額（%）</p>'
 
 
-CSS = """body{margin:0;background:#F4F6FA;font-family:-apple-system,'Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif;color:#111827;font-size:13px}
+CSS = """html{overflow-x:hidden;-webkit-text-size-adjust:100%}body{margin:0;max-width:100vw;overflow-x:hidden;background:#F4F6FA;font-family:-apple-system,'Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif;color:#111827;font-size:13px}
 .wrap{max-width:1180px;margin:0 auto;padding:24px 16px 60px}h1{font-size:20px;margin:0 0 4px}.sub{color:#6B7280;font-size:12px}
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px}.w2{grid-column:span 2}
-.card{background:#fff;border:1px solid #E6E9EF;border-radius:10px;padding:14px 16px;min-width:0}.card h3{font-size:14px;margin:0 0 8px}
+.card{background:#fff;border:1px solid #E6E9EF;border-radius:10px;padding:14px 16px;min-width:0;overflow-x:auto}.card h3{font-size:14px;margin:0 0 8px}
 .note{color:#6B7280;font-size:12px;margin:6px 0 0}.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:#374151;margin-top:4px}.lg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;font-size:11px;color:#6B7280;border-bottom:1px solid #E6E9EF;padding:6px 8px}td{padding:6px 8px;border-bottom:1px solid #F0F2F5}td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}td.muted{color:#9CA3AF}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:8px}.tile{background:#F7F8FB;border:1px solid #E6E9EF;border-radius:8px;padding:10px 12px}.tile span{display:block;font-size:11px;color:#6B7280}.tile b{font-size:22px;font-variant-numeric:tabular-nums}
 .funnel .fr{display:grid;grid-template-columns:110px minmax(0,1fr) 70px 150px;gap:8px;align-items:center;margin:4px 0}.fb{background:#EEF1F6;border-radius:4px;height:14px}.fb i{display:block;height:14px;background:#2C73EA;border-radius:4px}.fv{text-align:right;font-variant-numeric:tabular-nums}.fp{color:#6B7280;font-size:11px}
 .explain{background:#fff;border:1px solid #E6E9EF;border-left:4px solid #2C73EA;border-radius:10px;padding:12px 16px;margin-top:16px}.explain ul{margin:6px 0 0 18px;padding:0}
 .wm{position:fixed;right:12px;bottom:10px;font-size:10px;color:#9CA3AF;background:rgba(255,255,255,.7);padding:3px 8px;border-radius:6px;pointer-events:none}
-@media(max-width:800px){.grid{grid-template-columns:minmax(0,1fr)}.w2{grid-column:auto}}@media print{.wm{position:static}}"""
+@media(max-width:800px){.grid{grid-template-columns:minmax(0,1fr)}.w2{grid-column:auto}}
+.ch{overflow-x:auto;-webkit-overflow-scrolling:touch}@media(max-width:600px){.ch svg{min-width:560px}.funnel .fr{grid-template-columns:84px minmax(0,1fr) 56px;font-size:11px}.funnel .fr>:nth-child(4){display:none}.wrap{padding:14px 12px 48px}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media print{.wm{position:static}}"""
 
 
 def html_document(title: str, meta: dict[str, Any], cards: list[dict[str, Any]], explain: dict[str, Any] | None, skipped: list[dict[str, Any]], watermark: str) -> str:

@@ -11,7 +11,7 @@ describe('事件分析序列', () => {
       { bucket: '2026-10-01', g1: '', m1: null, _k: 4, suppressed: true },
     ], ['bucket', 'g1', 'm1', '_k', 'suppressed']);
     const s = toSeries(r, ['m1'], { m1: '次數' });
-    expect(s.map((x) => x.label)).toEqual(['次數 · iOS', '次數 · （空）']);
+    expect(s.map((x) => x.label)).toEqual(['次數 · iOS', '次數 · （未填）']);
     expect(s[0].points.map((p) => p.x)).toEqual(['2026-10-01', '2026-10-02']);
     expect(s[1].points[0]).toEqual({ x: '2026-10-01', y: null, suppressed: true });
   });

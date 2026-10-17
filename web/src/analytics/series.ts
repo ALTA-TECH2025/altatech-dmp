@@ -6,7 +6,7 @@ export interface Series { key: string; label: string; metric: string; group: str
 export const GROUP_COLS = ['g1', 'g2', 'g3'];
 
 export function groupLabel(r: EventsRow): string {
-  return GROUP_COLS.filter((g) => g in r).map((g) => (r[g] === null || r[g] === undefined || r[g] === '' ? '（空）' : String(r[g]))).join(' · ');
+  return GROUP_COLS.filter((g) => g in r).map((g) => (r[g] === null || r[g] === undefined || r[g] === '' ? '（未填）' : String(r[g]))).join(' · ');
 }
 
 /** 指標別名 × 分組值 → 一條序列；x = bucket（total 粒度時 x = 分組值，一個點）。 */

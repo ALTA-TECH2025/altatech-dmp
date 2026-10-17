@@ -13,8 +13,8 @@ export function PathChart({ nodes, links, labelOf, onNode }: { nodes: SkNode[]; 
   const touches = (k: { level: number; from: string; to: string }) => hover !== null && (key({ level: k.level, node: k.from }) === hover || key({ level: k.level + 1, node: k.to }) === hover);
   const hn = l.nodes.find((n) => key(n) === hover);
   return (
-    <div>
-      <svg viewBox={`0 0 ${W} ${H + 28}`} width="100%" role="img" aria-label="路徑桑基圖" style={{ display: 'block' }}>
+    <div style={{ overflowX: 'auto' }}>
+      <svg viewBox={`0 0 ${W} ${H + 28}`} width="100%" role="img" aria-label="路徑桑基圖" style={{ display: 'block', minWidth: 640 }}>
         {Array.from({ length: l.levels }, (_, lv) => <text key={lv} x={(l.nodes.find((n) => n.level === lv)?.x ?? 0) + (lv === l.levels - 1 ? NW : 0)} y={H + 22} fontSize="11" fill="var(--muted)" textAnchor={lv === l.levels - 1 ? 'end' : 'start'}>第 {lv} 步</text>)}
         {l.links.map((k, i) => <path key={i} d={k.d} fill="none" stroke={k.color} strokeWidth={k.w} opacity={hover === null ? 0.35 : touches(k) ? 0.7 : 0.08} />)}
         {l.nodes.map((n) => (
