@@ -35,6 +35,7 @@ export const demoFetch: typeof fetch = async (input, init) => {
   if (path === '/auth/ldap') { const b = parseBody(init?.body); const u = String(b.username ?? ''); if (fx.roles[u]) setDemoRole(u); return json({ ok: true, roles: [], return_to: '/' }); }
   if (path === '/auth/logout') return json({ ok: true, idp_logout: null });
   if (path === '/auth/step-up') return json({ ok: true, roles: [] });
+  curQs = url.search;
   const local = overlay(method, path, init, fx);
   if (local) return json(local.body, local.status);
   for (const k of candidates(method, path, url.search)) if (k in fx.routes) return json(fx.routes[k]);
@@ -45,6 +46,7 @@ export const demoFetch: typeof fetch = async (input, init) => {
 
 // ---- 記憶體覆蓋層：示範站建立的看板／書籤 ----
 type Obj = Record<string, unknown>;
+let curQs = '';                                            // 目前請求的 query string（覆蓋層需要 ?status=recycled 之類的篩選）
 const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj>(), sqlSaved: new Map<string, Obj>(), sqlRuns: [] as Obj[], mids: new Map<string, Obj>(), midGone: new Set<string>(), tags: new Map<string, Obj>(), dests: new Map<string, Obj>(), pushes: new Map<string, Obj>(), dl: [] as Obj[] };
 const now = () => new Date().toISOString().slice(0, 19) + 'Z';
 const me = (fx: Fixtures): string => String(((fx.roles[demoRole()] ?? fx.roles.admin) as { user: { id: string } }).user.id);
@@ -258,7 +260,7 @@ function actOverlay(method: string, seg: string[], b: Obj, fx: Fixtures, who: st
   const role = demoRole(); const approver = role === 'admin' || role === 'ops';
   if (kind === 'tags') {
     if (id === 'custom-fields' || id === 'tick') return null;
-    if (method === 'GET' && !id) return { body: listOf(fx, 'GET /v1/tags', mem.tags).filter((t) => t.status !== 'recycled') };
+    if (method === 'GET' && !id) { const rec = curQs.includes('status=recycled'); return { body: listOf(fx, rec ? 'GET /v1/tags?status=recycled' : 'GET /v1/tags', mem.tags).filter((t) => (rec ? t.status === 'recycled' : t.status !== 'recycled')) }; }
     if (method === 'POST' && !id) {
       const key = String(b.key || `tag_${Math.random().toString(36).slice(2, 7)}`);
       if (findIn(fx, 'GET /v1/tags', mem.tags, key)) return { body: { detail: `標籤 ${key} 已存在` }, status: 409 };
