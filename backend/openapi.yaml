@@ -164,6 +164,59 @@ paths:
       responses:
         '200': { description: 'events／funnel／retention／path／attribution 的結果物件（與 /v1/analytics/* 相同）', content: { application/json: { schema: { type: object, additionalProperties: true } } } }
         '403': { description: 查看者沒有該分析模組的 use 權限 }
+  /v1/dashboards/{id}/explain:
+    post:
+      tags: [Dashboards]
+      summary: 看板解讀（規則式，不用 LLM）：以檢視者身分重算每張卡，做趨勢／上期對比／最大跌幅步驟／最新同期群等摘要 → 三句總結 + 每卡一行 + warnings；只讀；審計 dashboard.explained。AI 閘道啟用後改由 MCP dashboard.explain 產生自然語言版本
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: false, content: { application/json: { schema: { type: object, properties: { time: { type: object } } } } } }
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/DashboardExplain' } } } }
+  /v1/dashboards/{id}/render:
+    post:
+      tags: [Dashboards]
+      summary: 產生單檔 HTML 看板（伺服器以「產生者」身分重算每張卡、inline SVG、無外部資源、無明細／SQL；套遮罩與 K 匿名；浮水印：產生者、時間、到期、受眾；含 L3 分組的卡片不納入）。需 overview.use；審計 dashboard.rendered
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { content: { application/json: { schema: { type: object, properties: { audience: { type: string, description: 受眾說明（例：債券部週會） }, expires_days: { type: integer, minimum: 1, maximum: 30, default: 14 }, include_explain: { type: boolean, default: true }, time: { type: object } } } } } }
+      responses:
+        '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/DashboardRender' } } } }
+  /v1/dashboards/{id}/renders:
+    get:
+      tags: [Dashboards]
+      summary: 歷次 HTML 看板產物（到期後只剩紀錄；下載次數）
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/DashboardRender' } } } } }
+  /v1/dashboards/{id}/renders/{artifact_id}:
+    get:
+      tags: [Dashboards]
+      summary: 下載 HTML（登入且可檢視看板，或帶簽章 token 的分享連結；到期 410）；審計 dashboard.render.downloaded
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: artifact_id, in: path, required: true, schema: { type: string } }, { name: token, in: query, schema: { type: string } }]
+      responses: { '200': { description: 'text/html' }, '410': { description: 已到期 } }
+  /v1/dashboards/{id}/schedules:
+    get:
+      tags: [Dashboards]
+      summary: 定時寄送設定清單（狀態 pending_approval／active／paused；最近執行）
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/DashboardSchedule' } } } } } }
+    post:
+      tags: [Dashboards]
+      summary: 建立定時寄送（每日或每週某日某時，台北時間；收件人 = 角色或白名單網域信箱）→ 審批單 type=dashboard_schedule（數位經營），核可後生效；每次執行 = render + 寄信（有 SMTP 才寄，否則只產檔並記錄）；需 overview.use；審計 dashboard.schedule.created
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/DashboardSchedule' } } } }
+      responses: { '202': { description: pending approval } }
+  /v1/dashboards/{id}/schedules/{schedule_id}:
+    delete:
+      tags: [Dashboards]
+      summary: 刪除定時寄送（擁有者或 admin）；審計 dashboard.schedule.deleted
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: schedule_id, in: path, required: true, schema: { type: string } }]
+      responses: { '204': { description: deleted } }
+  /v1/dashboards/{id}/schedules/{schedule_id}/run:
+    post:
+      tags: [Dashboards]
+      summary: 立即執行一次（擁有者或 admin；須已核可）；回產物與寄送結果
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: schedule_id, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: ok } }
   /v1/segments:
     get: { tags: [Segments], summary: '列出分群（q 搜尋、status、kind；回收站用 status=recycled）', parameters: [{ name: q, in: query, schema: { type: string } }, { name: status, in: query, schema: { type: string } }, { name: kind, in: query, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Segment' } } } } } } }
     post: { tags: [Segments], summary: '建立分群（規則 = UsersQuery；行銷與 agent 提議者為 pending_approval，數據分析／數位經營／admin 直接 active；每專案 ≤ 500）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SegmentCreate' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Segment' } } } }, '400': { description: 規則不合法 }, '409': { description: 名稱重複或超過上限 } } }
@@ -798,7 +851,7 @@ components:
       type: object
       properties:
         id: { type: string }
-        type: { type: string, enum: [export, segment, push, reveal_l2, reveal_l3, agent_proposal, role_change, break_glass], description: 類型決定審批角色（docs/10 §6）；role_change／break_glass 一律不可自審 }
+        type: { type: string, enum: [export, segment, push, reveal_l2, reveal_l3, agent_proposal, role_change, break_glass, dashboard_schedule], description: 類型決定審批角色（docs/10 §6）；role_change／break_glass 一律不可自審；dashboard_schedule = 看板定時寄送（數位經營） }
         requester: { type: string }
         approver_roles: { type: array, items: { type: string } }
         summary: { type: string, description: 一行說明（給審批者看） }
@@ -928,6 +981,43 @@ components:
         lineage: { type: array, items: { type: string } }
         cost: { type: object, properties: { scan_bytes: { type: number }, ms: { type: number } } }
         warnings: { type: array, items: { type: string } }
+    DashboardExplain:
+      type: object
+      properties:
+        method: { type: string, enum: [rules], description: 規則式；AI 閘道啟用後加 llm }
+        summary: { type: array, items: { type: string }, description: 三句總結 }
+        cards: { type: array, items: { type: object, properties: { card: { type: string }, title: { type: string }, kind: { type: string }, line: { type: string }, signal: { type: string, enum: [up, down, flat, none] }, warnings: { type: array, items: { type: string } } } } }
+        generated_at: { type: string }
+    DashboardRender:
+      type: object
+      properties:
+        artifact_id: { type: string }
+        dashboard: { type: string }
+        url: { type: string, description: 登入下載 }
+        share_url: { type: string, description: 帶簽章 token 的分享連結（到期即失效） }
+        audience: { type: string }
+        created_by: { type: string }
+        created_at: { type: string }
+        expires_at: { type: string }
+        bytes: { type: integer }
+        cards_included: { type: integer }
+        cards_skipped: { type: array, items: { type: object, properties: { card: { type: string }, title: { type: string }, why: { type: string } } } }
+        downloads: { type: integer }
+        expired: { type: boolean }
+    DashboardSchedule:
+      type: object
+      required: [hour, audience]
+      properties:
+        id: { type: string }
+        weekday: { type: integer, nullable: true, minimum: 0, maximum: 6, description: 0=週一…6=週日；null = 每天 }
+        hour: { type: integer, minimum: 0, maximum: 23, description: 台北時間 }
+        audience: { type: object, properties: { roles: { type: array, items: { type: string } }, emails: { type: array, items: { type: string }, description: 只能是白名單網域（deploy 設定 mail.allowed_domains） } } }
+        expires_days: { type: integer, default: 14 }
+        include_explain: { type: boolean, default: true }
+        status: { type: string, enum: [pending_approval, active, paused, rejected] }
+        approval: { type: string }
+        created_by: { type: string }
+        last_run: { type: object, nullable: true, properties: { at: { type: string }, artifact_id: { type: string }, status: { type: string, enum: [sent, rendered_no_transport, failed] }, recipients: { type: integer }, error: { type: string } } }
     Member:
       type: object
       description: 成員目錄一列（登入審計 ∪ 本機帳號 ∪ 本地指派）

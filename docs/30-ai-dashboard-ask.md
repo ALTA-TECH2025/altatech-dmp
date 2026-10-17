@@ -1,15 +1,15 @@
 # 30. 儀表板進階：MCP／AI 問數生成卡片與 HTML 看板（第二階段規劃）
 
-狀態：**規劃**（第二階段）。第一階段的儀表板（docs/27 C9）已可用：任何分析頁的查詢存成卡片、以檢視者權限重算、分享給角色或使用者。本文規劃在此之上加「問數」與「HTML 看板」兩個進階選項，全部沿用既有查詢編譯器、Policy Engine、審計與 MCP 工具閘道（docs/03、`backend/mcp/tools.yaml`）。
+狀態：**B（規則式）、C、D 與拖曳排版已實作**（契約見 `backend/openapi.yaml` Dashboards；實作 `backend/api/dashboards.py`、`backend/render/`）；**A 問數建卡片**與 B 的自然語言版本等 AI 閘道啟用（第二階段）。第一階段的儀表板（docs/27 C9）已可用：任何分析頁的查詢存成卡片、以檢視者權限重算、分享給角色或使用者。本文規劃在此之上加「問數」與「HTML 看板」兩個進階選項，全部沿用既有查詢編譯器、Policy Engine、審計與 MCP 工具閘道（docs/03、`backend/mcp/tools.yaml`）。
 
 ## 0. 結論先講
 
 | 選項 | 做什麼 | 怎麼做（不新發明） | 風險控制 |
 |---|---|---|---|
 | A. 問數建卡片 | 「上週各平台成交金額、看盤到成交漏斗、登入後 4 週留存」一句話 → 三張卡片進儀表板 | `analysis.configure`（選擇題式：在既有分析模型與語意層指標上做選擇）→ 使用者確認配置卡 → `POST /v1/dashboards/{id}/cards` | 不生成任意 SQL；卡片存的是查詢條件，檢視者各自重算；信心度低於門檻時只給候選不自動存 |
-| B. 看板解讀 | 對看板每張卡做趨勢、異常、對比摘要 → 診斷報告草稿 | `dashboard.explain`（既有契約）+ `anomaly.scan` | 摘要帶 `warnings`（樣本小、抑制列、串流缺欄位）；只讀 |
+| B. 看板解讀 | 對看板每張卡做趨勢、異常、對比摘要 → 診斷報告草稿 | 第一版規則式（`POST /v1/dashboards/{id}/explain`：上期對比、最大跌幅步驟、最新同期群、Top 路徑／觸點）；AI 閘道啟用後 `dashboard.explain` + `anomaly.scan` 產自然語言版 | 摘要帶 `warnings`（樣本小、抑制列、串流缺欄位）；只讀 |
 | C. HTML 看板 | 看板 → 單檔 HTML（inline SVG），寄給主管／貼 Teams／MA 內部週報 | 伺服器端以檢視者身分重算卡片 → 渲染既有圖表元件的 SVG → 產物存物件儲存 + 到期 | 不帶明細與 SQL；套遮罩、K 匿名、浮水印（產生者、時間、到期）；下載走審計 |
-| D. 定時寄送 | 每週一 08:00 寄 HTML 看板給角色或名單 | 排程器（`backend/integration/scheduler.py` 同一個）+ C | 收件名單只能是本系統使用者或已核可的信箱網域；寄送走審批（digital_ops） |
+| D. 定時寄送 | 每週一 08:00 寄 HTML 看板給角色或名單 | 背景 tick（`main.py start_ticker`，與同步任務同一條）+ C；SMTP relay 以 `DMP_SMTP_URL` + `DMP_SMTP_PASSWORD_REF` 接，沒有就只產檔並記錄 | 收件名單只能是本系統使用者（角色）或白名單網域（`DMP_MAIL_DOMAINS`）；建立走審批（digital_ops，type=dashboard_schedule） |
 
 拖曳排版、PDF 匯出、嵌入 token 屬 UI 便利功能，排在 A–D 之後。
 
