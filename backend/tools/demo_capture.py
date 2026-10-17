@@ -18,7 +18,7 @@ UQ = {"project": "golden", "filters": [{"field": "user.tier", "op": "in", "value
 GETS = ["/auth/providers", "/v1/dashboards", "/v1/exports", "/v1/reveals", "/v1/segments", "/v1/segments?status=recycled", "/v1/semantic/catalog", "/v1/audit?n=200", "/v1/audit?n=100", "/v1/audit?n=500", "/v1/audit?n=1000",
         "/v1/approvals?scope=to_me", "/v1/approvals?scope=mine", "/v1/approvals?scope=all",
         "/v1/iam/roles", "/v1/iam/assignments", "/v1/iam/sessions", "/v1/iam/sessions?scope=all", "/v1/iam/users", "/v1/iam/changes", "/v1/iam/masking", "/v1/iam/modules",
-        "/v1/audit/stats?days=7", "/v1/audit/stats?days=14", "/v1/audit/stats?days=30", "/v1/audit/stats?days=90", "/v1/settings",
+        "/v1/settings",
         "/v1/integration/connectors", "/v1/integration/connections", "/v1/integration/tables", "/v1/integration/sync-tasks",
         "/v1/meta/events", "/v1/meta/properties", "/v1/meta/virtual-events", "/v1/meta/quarantine", "/v1/meta/change-requests", "/v1/meta/user-properties", "/v1/meta/oneid/rules", "/v1/meta/dimension-tables", "/v1/meta/dictionaries", "/v1/meta/virtual-properties",
         "/v1/migration/inventory", "/v1/migration/bridge", "/v1/migration/exports", "/v1/migration/reconcile?days=28&project=migration_demo"]
@@ -90,6 +90,8 @@ def main() -> None:
         put("GET", "/v1/profiles/*", adm.call("GET", f"/v1/profiles/{oid}?{q}&project=golden"))
         put("GET", "/v1/profiles/*/timeline", adm.call("GET", f"/v1/profiles/{oid}/timeline?{q}&project=golden&limit=50"))
         put("GET", "/v1/profiles/*/identities", adm.call("GET", f"/v1/profiles/{oid}/identities?{q}&project=golden"))
+    for p in ("/v1/audit/stats?days=7", "/v1/audit/stats?days=14", "/v1/audit/stats?days=30", "/v1/audit/stats?days=90", "/v1/audit?n=200", "/v1/audit?n=100", "/v1/audit?n=500", "/v1/audit?n=1000", "/v1/iam/users"):
+        put("GET", p, adm.call("GET", p))                                       # 統計與明細最後擷取，才含上面查詢／細查產生的審計
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(fx, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"fixtures: {len(fx['routes'])} routes, {OUT.stat().st_size // 1024} KB → {OUT}")

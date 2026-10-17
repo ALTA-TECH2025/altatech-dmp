@@ -22,7 +22,7 @@ function Inner() {
         <div className="right"><span className="pill amber">線上修改（雙人複核）：第二階段</span></div></div>
       <div className="seg" style={{ marginBottom: 12 }}>{st.sections.map((s) => <a key={s.key} href="#" className={s.key === cur.key ? 'on' : ''} onClick={(e) => { e.preventDefault(); setSec(s.key); }}>{s.cn}</a>)}</div>
       <div className="card"><div className="card-h"><h3>{cur.cn}</h3><span className="sub mono">{cur.source}</span></div>
-        <table className="tbl"><thead><tr><th style={{ width: 180 }}>項目</th><th>值</th><th style={{ width: 260 }}>說明</th></tr></thead>
+        <table className="tbl" style={{ tableLayout: 'fixed' }}><thead><tr><th style={{ width: 180 }}>項目</th><th>值</th><th style={{ width: 260 }}>說明</th></tr></thead>
           <tbody>{cur.items.map((it) => <tr key={it.key}><td><b>{it.cn}</b><span className="sub mono">{it.key}</span></td><td><Value v={it.value} /></td><td className="sub">{it.note}</td></tr>)}</tbody></table>
       </div>
       <p className="note">{st.edit.note}</p>

@@ -140,8 +140,9 @@ def main() -> None:
         adm.call("POST", "/v1/iam/assignments", {"user_id": members["it"]["id"], "roles": ["admin"], "break_glass": True, "hours": 2, "reason": "事故單 INC-2041：凌晨批次失敗，需調整排程與重跑"})
     if not any(c["kind"] == "role_change" and c.get("op") == "update" for c in changes):
         adm.call("PUT", "/v1/iam/roles/custom_vendor_analyst", {"grants": {**grants, "path": ["view", "use"]}})
-    with contextlib.suppress(RuntimeError):                                        # 幾筆權限拒絕，讓看板有「權限拒絕」
-        mkt.call("GET", "/v1/iam/roles"); mkt.call("GET", "/v1/settings"); ana.call("GET", "/v1/iam/users")
+    for sess, path in ((mkt, "/v1/iam/roles"), (mkt, "/v1/settings"), (ana, "/v1/iam/users"), (mkt, "/v1/audit/export")):   # 幾筆權限拒絕，讓看板有「權限拒絕」
+        with contextlib.suppress(RuntimeError):
+            sess.call("GET", path)
     print("demo fill ok")
 
 

@@ -63,6 +63,9 @@ def build() -> Any:
     providers: dict[str, Any] = {}
     for key, p in cfg["providers"].items():
         try:
+            for k, v in p.items():                                   # 所有 *_ref 都要解析得到，否則整個提供者不啟用（避免登入頁按下去才 500）
+                if k.endswith("_ref"):
+                    resolver(v)
             if p["kind"] == "oidc":
                 providers[key] = OIDCProvider(key, p, _http, resolver)
             elif p["kind"] == "ldap" and cfg["mode"] == "direct":

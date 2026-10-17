@@ -41,7 +41,7 @@ export function MembersTab() {
         <thead><tr><th>成員</th><th>來源</th><th>角色</th><th>狀態</th><th>MFA</th><th>最近登入</th><th className="num">失敗登入 7 天</th><th className="num">session</th><th className="num">指派</th><th /></tr></thead>
         <tbody>{list.map((m) => (
           <tr key={m.id} className={m.status === 'locked' || m.login_failed_7d >= 3 ? 'warnrow' : ''}>
-            <td><b>{m.name || m.username}</b><span className="sub mono">{m.id}{m.email ? ` · ${m.email}` : ''}</span></td>
+            <td><b>{m.name || m.username}</b><span className="sub mono">{m.username} · {m.id}{m.email ? ` · ${m.email}` : ''}</span></td>
             <td><span className={`pill ${m.source === 'local' ? 'custom' : 'blue'}`}>{m.source === 'local' ? '本機' : m.provider || 'SSO'}</span></td>
             <td>{m.role_cn.length ? m.role_cn.map((r, i) => <span key={m.roles[i]} className={`pill ${m.roles[i] === 'admin' ? 'red' : 'blue'}`}>{r}</span>) : <span className="sub">—</span>}</td>
             <td><span className={`pill ${STATUS[m.status][1]}`}>{STATUS[m.status][0]}</span></td>
