@@ -126,6 +126,18 @@ tools:
     description: 看板解讀：對看板每張卡片做趨勢、異常、對比摘要，產出診斷報告草稿。
     input: { dashboard_id: string, time: object }
     scope: read
+  - name: dashboard.compose
+    description: 問數建看板（第二階段）：自然語言 → analysis.configure 的配置卡 → 存成儀表板卡片（走 /v1/dashboards，卡片仍以檢視者身分重算；不生成任意 SQL）。
+    input: { question: string, dashboard_id: string, time: object }
+    output: { cards: [{ title: string, kind: string, query: object, confidence: number, explanation: string }], dashboard_id: string }
+    scope: write_draft           # 建卡片 = 草稿；分享給角色仍由擁有者決定
+    phase: 2
+  - name: dashboard.render_html
+    description: 看板 → 單檔 HTML（inline SVG，不帶明細、套檢視者遮罩與 K 匿名、含浮水印與到期）；供郵寄／Teams／主管簡報；伺服器端渲染，不呼叫外部服務。
+    input: { dashboard_id: string, time: object, audience: string, expires_days: number }
+    output: { artifact_id: string, url: string, expires_at: string }
+    scope: read
+    phase: 2
   - name: knowledge.relations
     description: 取指標關聯圖（證券行業知識庫：指標 ↔ 關聯指標 ↔ 關聯維度 ↔ 常見原因）。
     input: { metric: string }
