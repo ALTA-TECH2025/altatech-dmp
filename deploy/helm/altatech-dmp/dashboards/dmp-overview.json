@@ -585,7 +585,7 @@
   {
    "id": 10,
    "type": "timeseries",
-   "title": "背景例行失敗（24h）",
+   "title": "背景例行失敗（累計）",
    "gridPos": {
     "x": 16,
     "y": 16,
@@ -765,7 +765,7 @@
   {
    "id": 13,
    "type": "timeseries",
-   "title": "查詢錯誤率（24h）",
+   "title": "查詢錯誤率（累計）",
    "gridPos": {
     "x": 18,
     "y": 24,
@@ -919,7 +919,7 @@
         "value": null
        },
        {
-        "color": "orange",
+        "color": "red",
         "value": 1
        }
       ]

@@ -485,6 +485,8 @@ paths:
     get: { tags: [Ops], summary: '批次作業狀態（排程器同步任務＋例行：分群／標籤例行計算、推送重試與增量、看板定時寄送）與儲存用量（ClickHouse 表、控制面）；Airflow／dbt 作業第二階段；需 governance.view', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/OpsBatchJobs' } } } } } }
   /v1/ops/batch-jobs/{name}/rerun:
     post: { tags: [Ops], summary: '立即重跑同步任務（name = 同步任務 id）；需 governance.admin；審計 batch.rerun', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted }, '404': { description: 無此作業 }, '409': { description: 作業正在執行或已停用 } } }
+  /v1/ops/series:
+    get: { tags: [Ops], summary: '系統監控頁的時間序列：與 Grafana 看板同一組面板（backend/ops/panels.yaml；每個面板附 PromQL），由 API 每分鐘快照程序內指標與 collector 存成環形緩衝（最多 24 小時；程序重啟即清空，長期保存看 Prometheus／Grafana）；回傳 Grafana 連結設定（DMP_GRAFANA_URL）供頁面嵌入；需 governance.admin（系統管理員、資訊管理）', parameters: [{ name: hours, in: query, schema: { type: integer, enum: [1, 6, 24], default: 6 } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/OpsSeries' } } } } } }
   /v1/ops/alerts:
     get: { tags: [Ops], summary: '告警：依 backend/ops/alerts.yaml 的規則對當前指標評估（來源延遲、同步失敗、查詢 P95 超 SLA、交付進死信、目的地自動暫停、例行作業連續失敗、ClickHouse 表用量、隔離率）；回傳觸發中的告警與全部規則；通知管道（Email／LINE）第二階段，叢集內由 PrometheusRule 同規則送 Alertmanager；需 governance.view', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/OpsAlerts' } } } } } }
   /v1/migration/inventory:
@@ -1342,6 +1344,28 @@ components:
         subject: { type: string, description: 觸發的對象（任務／模組／目的地） }
         text: { type: string }
         firing: { type: boolean }
+    OpsPanel:
+      type: object
+      properties:
+        id: { type: integer, description: 與 Grafana 看板 panel id 相同 }
+        key: { type: string }
+        cn: { type: string }
+        section: { type: string, enum: [platform, pipeline, query, activation] }
+        kind: { type: string, enum: [timeseries, stat] }
+        unit: { type: string, description: 'reqps|s|ms|percentunit|m|bytes|short|none' }
+        expr: { type: string, description: 'Grafana 面板的 PromQL（嵌入查詢）' }
+        thresholds: { type: array, items: { type: number } }
+        series: { type: array, items: { type: object, properties: { name: { type: string }, points: { type: array, items: { type: object, properties: { t: { type: string, format: date-time }, v: { type: number, nullable: true } } } } } } }
+    OpsSeries:
+      type: object
+      properties:
+        hours: { type: integer }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        interval_s: { type: integer, description: 快照間隔（秒） }
+        points: { type: integer, description: 緩衝內的快照數 }
+        grafana: { type: object, properties: { url: { type: string, nullable: true, description: 'DMP_GRAFANA_URL；null = 未設定，頁面只顯示 API 快照' }, dashboard_uid: { type: string } } }
+        panels: { type: array, items: { $ref: '#/components/schemas/OpsPanel' } }
     OpsAlerts:
       type: object
       properties:

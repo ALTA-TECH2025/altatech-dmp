@@ -1,0 +1,46 @@
+# 系統監控面板（一份兩用）：
+# - Grafana 看板 JSON 由 python3 -m backend.ops.grafana 產到 deploy/helm/altatech-dmp/dashboards/dmp-overview.json（PromQL 直接用 expr）
+# - API 的 /v1/ops/series 每分鐘快照程序內指標，依 source 算出同一面板的值（系統監控頁；程序重啟即清空）
+# unit：reqps 每秒請求、s 秒、ms 毫秒、percentunit 比例、m 分鐘、bytes、short 數量、none
+version: 1
+dashboard: { uid: dmp-overview, title: "AltaTech DMP · 平台／資料流／查詢／推送", refresh: 1m, range: now-24h }
+sections:
+  - { key: platform, cn: 平台 }
+  - { key: pipeline, cn: 資料流 }
+  - { key: query, cn: 查詢 }
+  - { key: activation, cn: 推送與儲存 }
+panels:
+  - { id: 1,  key: http_rate,        section: platform,   kind: timeseries, cn: "API 請求率（/s）",             unit: reqps,       source: http_rate,
+      expr: 'sum(rate(dmp_http_requests_total[5m]))', legend: all, extra: [{ expr: 'sum(rate(dmp_http_requests_total{status=~"5.."}[5m]))', legend: 5xx }] }
+  - { id: 2,  key: http_p95,         section: platform,   kind: timeseries, cn: "API P95（秒）",                unit: s,           source: http_quantiles, thresholds: [2],
+      expr: 'histogram_quantile(0.95, sum by (le) (rate(dmp_http_request_seconds_bucket[5m])))', legend: p95, extra: [{ expr: 'histogram_quantile(0.50, sum by (le) (rate(dmp_http_request_seconds_bucket[5m])))', legend: p50 }] }
+  - { id: 3,  key: http_5xx_ratio,   section: platform,   kind: stat,       cn: "5xx 比例",                    unit: percentunit, source: http_error_ratio, thresholds: [0.02],
+      expr: 'sum(rate(dmp_http_requests_total{status=~"5.."}[5m])) / sum(rate(dmp_http_requests_total[5m]))', legend: 5xx }
+  - { id: 4,  key: uptime,           section: platform,   kind: stat,       cn: "程序啟動至今",                unit: s,           source: uptime,
+      expr: 'dmp_process_uptime_seconds', legend: uptime }
+  - { id: 5,  key: source_lag,       section: pipeline,   kind: timeseries, cn: "來源水位落後（分鐘）",        unit: m,           source: gauge:dmp_source_lag_seconds:/60, thresholds: [120, 720],
+      expr: 'dmp_source_lag_seconds / 60', legend: "{{task}}" }
+  - { id: 6,  key: sync_ok,          section: pipeline,   kind: stat,       cn: "同步任務最近一次成功（1=成功）", unit: none,      source: gauge:dmp_sync_last_ok, thresholds: [0, 1],
+      expr: 'dmp_sync_last_ok', legend: "{{task}}" }
+  - { id: 7,  key: quarantine_ratio, section: pipeline,   kind: timeseries, cn: "隔離＋拒絕比例",              unit: percentunit, source: gauge:dmp_sync_quarantine_ratio, thresholds: [0.01, 0.05],
+      expr: 'dmp_sync_quarantine_ratio', legend: "{{task}}" }
+  - { id: 8,  key: events_stale,     section: pipeline,   kind: stat,       cn: "行為事件落後（分鐘；SLA 15）", unit: m,          source: gauge:dmp_events_stale_seconds:/60, thresholds: [15, 60],
+      expr: 'dmp_events_stale_seconds / 60', legend: dmp.events }
+  - { id: 9,  key: routine_p95,      section: pipeline,   kind: timeseries, cn: "背景例行耗時 P95（秒）",      unit: s,           source: routine_p95,
+      expr: 'histogram_quantile(0.95, sum by (le, job) (rate(dmp_routine_seconds_bucket[30m])))', legend: "{{job}}" }
+  - { id: 10, key: routine_failed,   section: pipeline,   kind: timeseries, cn: "背景例行失敗（累計）",        unit: short,       source: counter:dmp_routine_runs_total:status=error:job, thresholds: [3],
+      expr: 'increase(dmp_routine_runs_total{status="error"}[24h])', legend: "{{job}}" }
+  - { id: 11, key: query_p95,        section: query,      kind: timeseries, cn: "分析查詢 P95（秒）依模組",    unit: s,           source: query_p95, thresholds: [3, 10],
+      expr: 'histogram_quantile(0.95, sum by (le, module) (rate(dmp_query_seconds_bucket[1h])))', legend: "{{module}}" }
+  - { id: 12, key: query_rate,       section: query,      kind: timeseries, cn: "查詢次數（/min）依模組",      unit: short,       source: query_rate,
+      expr: 'sum by (module) (rate(dmp_query_total[5m])) * 60', legend: "{{module}}" }
+  - { id: 13, key: query_error_rate, section: query,      kind: timeseries, cn: "查詢錯誤率（累計）",          unit: percentunit, source: query_error_ratio, thresholds: [0.05],
+      expr: 'sum by (module) (rate(dmp_query_total{status="error"}[24h])) / sum by (module) (rate(dmp_query_total[24h]))', legend: "{{module}}" }
+  - { id: 14, key: delivery_24h,     section: activation, kind: stat,       cn: "推送交付（24h）",             unit: short,       source: gauge:dmp_delivery_24h,
+      expr: 'dmp_delivery_24h', legend: "{{status}}" }
+  - { id: 15, key: destination_paused, section: activation, kind: stat,     cn: "自動暫停的目的地",            unit: short,       source: gauge:dmp_destination_paused, thresholds: [1],
+      expr: 'dmp_destination_paused', legend: "{{destination}}" }
+  - { id: 16, key: table_bytes,      section: activation, kind: timeseries, cn: "ClickHouse 表用量",           unit: bytes,       source: gauge:dmp_clickhouse_table_bytes,
+      expr: 'dmp_clickhouse_table_bytes', legend: "{{table}}" }
+  - { id: 17, key: hot_ratio,        section: activation, kind: stat,       cn: "熱層用量 / 規劃值",            unit: percentunit, source: gauge:dmp_clickhouse_hot_ratio, thresholds: [0.8, 0.9],
+      expr: 'dmp_clickhouse_hot_ratio', legend: hot }
