@@ -193,6 +193,14 @@ def main(store: Any | None = None) -> None:
     assert c.post("/v1/users/list", json={**uq, "page_size": 1000}).status_code == 400
     assert c.post("/v1/users/list", json={**uq, "columns": ["customer_code"]}).status_code == 400
     assert c.post("/v1/users/estimate", json={"filters": [{"field": "platform", "op": "eq", "value": "iOS"}]}).status_code == 400
+    # 神策式規則：巢狀且／或屬性樹、行為指標（金額合計、活躍天數）與比較、近 N 天、屬性塊「或」行為塊
+    sc = {"combine": "or", "filters": {"op": "or", "items": [{"field": "user.tier", "op": "eq", "value": "P1"}, {"op": "and", "items": [{"field": "user.churn_score", "op": "gte", "value": 70}, {"field": "user.has_margin", "op": "false"}]}]},
+          "behaviors": [{"event": "bond_deal", "measure": {"agg": "sum", "field": "amount"}, "cmp": {"op": "gt", "value": 500000}, "time": {"last_days": 16}}, {"event": "app_login_success", "measure": {"agg": "days"}, "cmp": {"op": "between", "value": [2, 5]}, "time": {"last_days": 7}}], "time": {"now": "2026-10-16"}}
+    sq = c.post("/v1/users/estimate", json=sc); assert sq.status_code == 200, sq.text
+    ssql = sq.json()["sql"]; assert "sum(" in ssql and "> 500000.0" in ssql and "uniqExact(e.event_date) BETWEEN 2 AND 5" in ssql and "bitmapOr(bm_u" in ssql and "2026-10-01" in ssql and "2026-10-10" in ssql, ssql
+    assert c.post("/v1/users/estimate", json={**sc, "behaviors": [{"event": "bond_deal", "measure": {"agg": "sum"}, "time": {"last_days": 16}}]}).status_code == 400          # sum 沒給欄位
+    assert c.post("/v1/users/estimate", json={**sc, "behaviors": [{"event": "bond_deal", "time": {"last_days": 0}}]}).status_code == 400                                       # 近 N 天範圍
+    assert c.post("/v1/users/estimate", json={**sc, "combine": "xor"}).status_code == 400
     from ..semantic.compiler.users import encode_cursor
     assert c.post("/v1/users/list", json={**uq, "cursor": encode_cursor({"v": 0, "u": 1, "n": 100000, "t": 123})}).status_code == 400
     assert c.get("/v1/profiles/v1_abcdef1234?reason=客訴調查").status_code == 403          # 行銷不可細查

@@ -42,6 +42,13 @@ class Conflict(Exception):
     """409：狀態不允許或不可變更的欄位。"""
 
 
+def _at(rule: dict[str, Any], basetime: str) -> dict[str, Any]:
+    """規則加上基準日（time.now = basetime）：「近 N 天」以該日為準，回算歷史版本口徑一致；規則本身已有 now 則尊重。"""
+    t = dict(rule.get("time") or {})
+    t.setdefault("now", basetime)
+    return {**rule, "time": t}
+
+
 class SegmentService:
     def __init__(self, store: Any, ch: Any | None, cat: Catalog | None = None, now: Callable[[], datetime] | None = None, approvals: Any = None):
         self.store, self.ch, self.cat = store, ch, cat or Catalog()
@@ -112,7 +119,7 @@ class SegmentService:
             if existing is not None and existing["id"] in self._refs(rule):
                 raise ValueError("分群不能引用自己")
         comp = compile_estimate(uq, self.cat, decision)
-        upd = {**{"mode": "manual", "freq": "daily", "earliest": "06:00", "keep": 7}, **((existing or {}).get("update") or {}), **(body.get("update") or {})}
+        upd = {**{"mode": "routine", "freq": "daily", "earliest": "02:00", "keep": 7}, **((existing or {}).get("update") or {}), **(body.get("update") or {})}
         if upd["mode"] not in ("manual", "routine"): raise ValueError("update.mode 只能是 manual／routine")
         if upd["freq"] not in FREQS: raise ValueError(f"update.freq 只能是 {FREQS}")
         if not re.fullmatch(r"[0-2]\d:[0-5]\d", str(upd["earliest"])) or int(str(upd["earliest"])[:2]) > 23: raise ValueError("update.earliest 需為 HH:MM")
@@ -271,7 +278,7 @@ class SegmentService:
         bt = str(basetime)[:10] if basetime else self.now().date().isoformat()
         date.fromisoformat(bt)
         version = int((seg.get("latest") or {}).get("version", 0)) + 1
-        uq = parse_users(seg["rule"], self.cat); ctes, bm, _, warnings, _ = _bitmaps(uq, self.cat, decision)
+        uq = parse_users(_at(seg["rule"], bt), self.cat); ctes, bm, _, warnings, _ = _bitmaps(uq, self.cat, decision)   # 「近 N 天」以 basetime 為基準
         ts = self._ts(); t0 = time.perf_counter()
         rec: dict[str, Any] = {"version": version, "basetime": bt, "users": None, "status": "running", "computed_at": ts, "ms": 0, "trigger": trigger, "error": None}
         try:

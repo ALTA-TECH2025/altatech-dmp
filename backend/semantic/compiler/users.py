@@ -30,7 +30,8 @@ from .policy import budget, inject, mask_sql
 MAX_PAGE = 500
 MAX_BROWSE = 100_000
 DEFAULT_COLUMNS = ["branch_id", "lifecycle", "tier", "aum_bucket", "churn_score", "last_active_at"]
-COUNT_OPS = ("gte", "lte", "eq", "between")
+MEASURE_AGGS = ("count", "sum", "avg", "max", "min", "days")
+COUNT_OPS = ("gte", "lte", "eq", "gt", "lt", "between")
 PROFILE_SUMMARY_DAYS = 30
 TIMELINE_COLS = ["time", "event", "platform", "channel", "symbol", "side", "amount", "entity_type", "entity_id", "session_id", "event_id", "props"]
 IDENTITY_COLS = ["id_type_a", "id_a", "id_type_b", "id_b", "source", "evidence_event_id", "first_seen", "last_seen", "seen_count", "confidence", "status"]
@@ -42,9 +43,12 @@ class Behavior:
     event: str
     filters: Group | None
     done: bool
-    count_op: str
-    count: float | list[float]
+    count_op: str                 # 比較運算：gte | lte | eq | gt | lt | between
+    count: float | list[float]    # 比較值
     time: TimeRange
+    agg: str = "count"            # 指標：count | sum | avg | max | min | days
+    field: Any = None             # sum／avg／max／min 的數值欄位（FieldRef）
+    last_days: int | None = None  # 原始「近 N 天」（摘要與重算用；TimeRange 已依 now 展開）
 
 
 @dataclass
@@ -70,6 +74,7 @@ class UsersQuery:
     source: Source | None
     now: date | None
     raw: dict[str, Any] = field(default_factory=dict)
+    combine: str = "and"          # 用戶屬性塊與行為塊之間：and | or
 
     def as_query(self) -> Query:
         d = self.now or date.today()
@@ -98,6 +103,12 @@ def _time(raw: dict[str, Any] | None, now: date | None, what: str) -> TimeRange 
     raw = raw or {}
     if raw.get("now"):
         now = date.fromisoformat(str(raw["now"])[:10])
+    if raw.get("last_days") is not None:                                   # 近 N 天：以基準日（now；例行計算時為 basetime）往前，含基準日
+        n = int(raw["last_days"])
+        if not 1 <= n <= 730:
+            raise ValueError(f"{what}.time.last_days 需在 1–730")
+        base = now or date.today()
+        return TimeRange(base - timedelta(days=n - 1), base, "day", base)
     if not raw.get("from") or not raw.get("to"):
         return None
     try:
@@ -129,30 +140,43 @@ def parse_users(raw: dict[str, Any], cat: Catalog | None = None) -> UsersQuery:
         name = cat.canonical_event(str(b.get("event") or ""))
         if not name:
             raise ValueError(f"事件 {b.get('event')} 不在事件字典")
-        cnt = b.get("count") or {}
-        op = str(cnt.get("op") or "gte")
+        meas = b.get("measure") or {}; cmp_ = b.get("cmp") or b.get("count") or {}
+        agg = str(meas.get("agg") or "count")
+        if agg not in MEASURE_AGGS:
+            raise ValueError(f"measure.agg 只能是 {MEASURE_AGGS}")
+        fref = None
+        if agg in ("sum", "avg", "max", "min"):
+            if not meas.get("field"):
+                raise ValueError(f"behaviors[{i}] measure.{agg} 需要 field（數值事件屬性）")
+            fref = cat.resolve(str(meas["field"]), "number")
+            if fref.type != "number":
+                raise ValueError(f"behaviors[{i}] measure.field {meas['field']} 不是數值欄位")
+        op = str(cmp_.get("op") or "gte")
         if op not in COUNT_OPS:
-            raise ValueError(f"count.op 只能是 {COUNT_OPS}")
-        v = cnt.get("value", 1)
+            raise ValueError(f"cmp.op 只能是 {COUNT_OPS}")
+        v = cmp_.get("value", 1)
         if op == "between":
             if not (isinstance(v, list | tuple) and len(v) == 2):
-                raise ValueError("count.between 需要 [a, b]")
+                raise ValueError("cmp.between 需要 [a, b]")
             val: float | list[float] = [float(v[0]), float(v[1])]
         else:
             val = float(v)
-            if val < 1 and op != "lte":
+            if agg in ("count", "days") and val < 1 and op not in ("lte", "lt"):
                 raise ValueError("做過的次數至少 1；未做過請用 done: false")
         t = _time(b.get("time"), now, f"behaviors[{i}]") or default_time
         if t is None:
-            raise ValueError(f"behaviors[{i}] 需要 time（或在頂層 time 給預設）")
-        behaviors.append(Behavior(name, parse_filters(cat, b.get("filters")), bool(b.get("done", True)), op, val, t))
+            raise ValueError(f"behaviors[{i}] 需要 time（近 N 天或自訂期間；或在頂層 time 給預設）")
+        behaviors.append(Behavior(name, parse_filters(cat, b.get("filters")), bool(b.get("done", True)), op, val, t, agg, fref, (b.get("time") or {}).get("last_days")))
     bop = str(raw.get("behaviors_op") or "and")
     if bop not in ("and", "or"):
         raise ValueError("behaviors_op 只能是 and／or")
+    combine = str(raw.get("combine") or "and")
+    if combine not in ("and", "or"):
+        raise ValueError("combine 只能是 and／or")
     source = _parse_source(raw.get("source"), project, cat) if raw.get("source") else None
     if not (filters or behaviors or source):
         raise ValueError("至少要有一個條件（filters／segment／behaviors／source）")
-    return UsersQuery(project, filters, behaviors, bop, source, now, raw)
+    return UsersQuery(project, filters, behaviors, bop, source, now, raw, combine)
 
 
 def _parse_source(raw: dict[str, Any], project: str, cat: Catalog) -> Source:
@@ -313,6 +337,10 @@ def _eq(expr: str, v: Any, t: str) -> str:
     return f"{expr} IS NULL" if v is None else f"{expr} = {_lit(v, t)}"
 
 
+def _int_lit(x: Any) -> str: return str(int(x))
+def _float_lit(x: Any) -> str: return repr(float(x))
+
+
 def _bitmaps(uq: UsersQuery, cat: Catalog, decision: Any) -> tuple[list[str], str, list[str], list[str], list[str]]:
     """回 (WITH 子句清單, 最終 bitmap 表達式名, lineage, warnings, row_filters)。"""
     if decision is not None and not getattr(decision, "allowed", True):
@@ -324,6 +352,8 @@ def _bitmaps(uq: UsersQuery, cat: Catalog, decision: Any) -> tuple[list[str], st
     uctx = UserCtx(cat, uq.now)
     uwhere = ["1"] + ([group_sql(uq.filters, uctx)] if uq.filters else []) + user_row_filters(decision)
     ctes = [f"(SELECT groupBitmapState(one_id_uint) FROM dmp.users AS e FINAL WHERE {' AND '.join(uwhere)}) AS bm_u"]
+    if uq.combine == "or" and uq.filters and uq.behaviors:                 # 「屬性 或 行為」：行為那邊要對全體（含行級範圍）算，不能先被屬性框住
+        ctes.append(f"(SELECT groupBitmapState(one_id_uint) FROM dmp.users AS e FINAL WHERE {' AND '.join(['1'] + user_row_filters(decision))}) AS bm_all")
     lineage = ["dmp.users"] + (["dmp.segment_members"] if any(c.field.kind == "segment" for c in _walk(uq.filters)) else [])
     warnings: list[str] = []; row_filters: list[str] = []
     parts: list[tuple[str, bool]] = []
@@ -337,26 +367,33 @@ def _bitmaps(uq: UsersQuery, cat: Catalog, decision: Any) -> tuple[list[str], st
             rf, _, _, w = inject(decision, qr, cat, ctx, [])
             where += rf; warnings += w; row_filters = rf
         cold = f" LEFT JOIN (SELECT one_id, {', '.join('`' + n + '`' for n in ctx.cold)} FROM dmp.users FINAL) AS u ON u.one_id = e.one_id" if ctx.cold else ""
+        mexpr = {"count": "count()", "days": "uniqExact(e.event_date)"}.get(b.agg) or f"{b.agg}({ctx.expr(b.field)})"
+        lit = _int_lit if b.agg in ("count", "days") else _float_lit
         if not b.done:
             having = "count() >= 1"
         elif b.count_op == "between":
-            having = f"count() BETWEEN {int(b.count[0])} AND {int(b.count[1])}"       # type: ignore[index]
+            having = f"{mexpr} BETWEEN {lit(b.count[0])} AND {lit(b.count[1])}"       # type: ignore[index]
         else:
-            having = f"count() {dict(gte='>=', lte='<=', eq='=')[b.count_op]} {int(b.count)}"   # type: ignore[arg-type]
+            having = f"{mexpr} {dict(gte='>=', lte='<=', eq='=', gt='>', lt='<')[b.count_op]} {lit(b.count)}"   # type: ignore[arg-type]
+        if b.field is not None and b.field.kind == "user_cold":
+            ctx.cold[b.field.name] = b.field
         ctes.append(f"(SELECT groupBitmapState(one_id_uint) FROM (SELECT e.one_id_uint AS one_id_uint FROM dmp.events AS e{cold} WHERE {' AND '.join(where)} GROUP BY e.one_id_uint HAVING {having})) AS bm_b{i}")
         parts.append((f"bm_b{i}", b.done))
         lineage += ["dmp.events", f"event:{b.event}"] + (["dmp.users_dict"] if any(c.field.kind == "user_hot" for c in _walk(b.filters)) else [])
-    acc = "bm_u"
+    base = "bm_all" if (uq.combine == "or" and uq.filters and uq.behaviors) else "bm_u"
+    acc = base
     if parts:
         if uq.behaviors_op == "and":
             for name, done in parts:
                 acc = f"{'bitmapAnd' if done else 'bitmapAndnot'}({acc}, {name})"
         else:
-            terms = [name if done else f"bitmapAndnot(bm_u, {name})" for name, done in parts]
+            terms = [name if done else f"bitmapAndnot({base}, {name})" for name, done in parts]
             u = terms[0]
             for t in terms[1:]:
                 u = f"bitmapOr({u}, {t})"
-            acc = f"bitmapAnd(bm_u, {u})"
+            acc = f"bitmapAnd({base}, {u})"
+        if base == "bm_all":
+            acc = f"bitmapOr(bm_u, {acc})"                                   # 屬性 或 行為
     if uq.source:
         sub, lin, w, rf = _source_sql(uq.source, cat, decision)
         ctes.append(f"(SELECT groupBitmapState(cityHash64(one_id)) FROM ({sub})) AS bm_s")

@@ -17,7 +17,9 @@ from urllib import request as _rq
 from ..auth.local import LocalAccounts, totp_code
 
 API = os.environ.get("DMP_API", "http://127.0.0.1:8000")
-UQ = {"project": "golden", "filters": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}], "behaviors": [{"event": "bond_deal", "count": {"op": "gte", "value": 3}, "time": {"from": "2026-10-01", "to": "2026-10-16"}}]}
+# 神策式規則：用戶屬性樹（且）× 行為（近 N 天以計算日回推、指標比較、事件屬性）
+UQ = {"project": "golden", "filters": {"op": "and", "items": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}]},
+      "behaviors": [{"event": "bond_deal", "measure": {"agg": "count"}, "cmp": {"op": "gte", "value": 3}, "time": {"last_days": 30}}]}
 
 
 class Session:
@@ -184,7 +186,8 @@ def main() -> None:
         ana.call("POST", "/v1/tags", {"name": "RFM 客群（近 90 天成交）", "key": "rfm_90d", "directory": "客戶價值", "kind": "rfm", "project": "golden", "description": "R 最近成交距今、F 成交次數、M 成交金額各分 5 級，輸出八類客群",
                                      "spec": {"event": "bond_deal", "amount_field": "amount", "window_days": 90, "bins": 5, "output": "segment"}, "update": {"mode": "routine", "freq": "weekly", "earliest": "07:00", "keep": 8}, "fields": {"department": "財富管理", "category": "分析分群"}})
         ana.call("POST", "/v1/tags/rfm_90d/compute", {})
-        mkt.call("POST", "/v1/tags", {"name": "Q4 活動名單（待審）", "key": "campaign_q4", "directory": "行銷", "kind": "values", "values": [{"value": "A 組", "rule": {"project": "golden", "filters": [{"field": "user.lifecycle", "op": "in", "value": ["沉睡"]}]}}]})
+        mkt.call("POST", "/v1/tags", {"name": "Q4 活動名單（待審）", "key": "campaign_q4", "directory": "行銷", "kind": "values", "values": [{"value": "A 組", "rule": {"project": "golden", "combine": "or", "filters": {"op": "or", "items": [{"field": "user.lifecycle", "op": "in", "value": ["沉睡"]}, {"op": "and", "items": [{"field": "user.churn_score", "op": "gte", "value": 70}, {"field": "user.has_margin", "op": "false"}]}]},
+                                                                           "behaviors": [{"event": "bond_deal", "measure": {"agg": "sum", "field": "amount"}, "cmp": {"op": "lt", "value": 100000}, "time": {"last_days": 30}}]}}]})
     dests = {d["name"]: d for d in ops.call("GET", "/v1/destinations")}
     if "CRM 客戶系統" not in dests:
         dests["CRM 客戶系統"] = ops.call("POST", "/v1/destinations", {"name": "CRM 客戶系統", "url": os.environ.get("DMP_DEMO_WEBHOOK", "http://127.0.0.1:9099/dmp/webhook"), "secret_ref": "kv/data/dmp/prod/crm#webhook_secret", "allowed_tags": ["tier_grade", "deals_30d"], "note": "HMAC 簽章、IP 白名單"})

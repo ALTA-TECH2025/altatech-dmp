@@ -76,7 +76,7 @@ def main() -> None:
     assert {(x["segment"], x["basetime"]) for x in t} == {(sid, "2026-10-21"), (wk["id"], "2026-10-19"), (mo["id"], "2026-10-01")}, t
     # 4. 行銷建立 → pending_approval；計算 409；自己不能審；數位經營核可 → active；退回 → draft → 送審
     login(c, sm, ["marketing"], "mkt")
-    m = c.post("/v1/segments", json={"name": "行銷圈人", "rule": {**rule, "segment": sid}}).json(); assert m["status"] == "pending_approval" and f"segment:{sid}" in m["lineage"]["up"], m
+    m = c.post("/v1/segments", json={"name": "行銷圈人", "rule": {**rule, "segment": sid}, "update": {"mode": "manual"}}).json(); assert m["status"] == "pending_approval" and f"segment:{sid}" in m["lineage"]["up"], m
     assert c.post(f"/v1/segments/{m['id']}/compute").status_code == 409 and c.post(f"/v1/segments/{m['id']}/approve").status_code == 403
     login(c, sm, ["digital_ops"], "ops")
     assert c.post(f"/v1/segments/{m['id']}/approve", json={"approve": False, "note": "條件太寬"}).json()["status"] == "draft"

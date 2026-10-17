@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import operator
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -432,17 +433,20 @@ class Oracle:
             self.hot_defaults = saved
         if uq.behaviors:
             sets: list[tuple[set[str], bool]] = []
+            if uq.combine == "or" and uq.filters:                      # 「屬性 或 行為」：行為那邊對全體（只受行級範圍限制）算
+                attr_base = base; base = {oid for oid, u in self.users.items() if self._user_ok(decision, u)}
             for b in uq.behaviors:
-                counts: dict[str, int] = defaultdict(int)
+                rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
                 for r in self.events:
                     if r["project"] == uq.project and b.time.start <= r["event_date"] <= b.time.end and r["event"] == b.event and self.group(b.filters, r, now) and self._row_filters_ok(decision, r, b.time.now or now):   # 回溯窗口以行為自己的 now 為準（與 SQL 的 now_sql 一致）
-                        counts[r["one_id"]] += 1
+                        rows[r["one_id"]].append(r)
                 if not b.done:
-                    sets.append((set(counts), False)); continue
-                if b.count_op == "between": ok = {o for o, n in counts.items() if b.count[0] <= n <= b.count[1]}      # type: ignore[index]
-                elif b.count_op == "gte": ok = {o for o, n in counts.items() if n >= b.count}                        # type: ignore[operator]
-                elif b.count_op == "lte": ok = {o for o, n in counts.items() if n <= b.count}                        # type: ignore[operator]
-                else: ok = {o for o, n in counts.items() if n == b.count}
+                    sets.append((set(rows), False)); continue
+                ms = {o: m for o, m in ((o, self._measure(b, rs)) for o, rs in rows.items()) if m is not None}
+                if b.count_op == "between": ok = {o for o, n in ms.items() if b.count[0] <= n <= b.count[1]}      # type: ignore[index]
+                else:
+                    cmp = {"gte": operator.ge, "lte": operator.le, "eq": operator.eq, "gt": operator.gt, "lt": operator.lt}[b.count_op]
+                    ok = {o for o, n in ms.items() if cmp(n, b.count)}
                 sets.append((ok, True))
             if uq.behaviors_op == "and":
                 for s_, done in sets:
@@ -452,9 +456,19 @@ class Oracle:
                 for s_, done in sets:
                     u |= s_ if done else (base - s_)
                 base &= u
+            if uq.combine == "or" and uq.filters:
+                base |= attr_base
         if uq.source:
             base &= self._source_users(uq.source, decision)
         return base
+
+    def _measure(self, b: Any, rs: list[dict[str, Any]]) -> float | None:
+        """行為指標：次數／天數／數值屬性的 sum、avg、max、min（NULL 不計；全 NULL → 不符合）。"""
+        if b.agg == "count": return float(len(rs))
+        if b.agg == "days": return float(len({x["event_date"] for x in rs}))
+        vals = [float(v) for v in (self.value(b.field, x) for x in rs) if v is not None]
+        if not vals: return None
+        return {"sum": sum(vals), "avg": sum(vals) / len(vals), "max": max(vals), "min": min(vals)}[b.agg]
 
     def _source_users(self, s: Any, decision: Any) -> set[str]:
         if s.type == "funnel":

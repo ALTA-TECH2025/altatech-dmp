@@ -44,6 +44,13 @@ class Conflict(Exception):
     pass
 
 
+def _at(rule: dict[str, Any], basetime: str) -> dict[str, Any]:
+    """規則加上基準日（time.now = basetime）：行為的「近 N 天」與用戶屬性的「最近 N 天內」都以該日為準；規則本身已有 now 則尊重。"""
+    t = dict(rule.get("time") or {})
+    t.setdefault("now", basetime)
+    return {**rule, "time": t}
+
+
 class TagService:
     def __init__(self, store: Any, ch: Any | None, approvals: Any | None = None, cat: Catalog | None = None, now: Callable[[], datetime] | None = None):
         self.store, self.ch, self.cat = store, ch, cat or Catalog()
@@ -78,10 +85,17 @@ class TagService:
 
     @staticmethod
     def _refs(rule: dict[str, Any]) -> set[str]:
+        """規則引用的分群 id（segment 捷徑、條件樹任一層的 seg.<id>）。"""
         refs = {str(rule["segment"])} if rule.get("segment") else set()
-        for c in rule.get("filters") or []:
-            f = str(c.get("field") or "")
-            if f.startswith("seg."): refs.add(f[4:].split("@")[0])
+        def walk(node: Any) -> None:
+            if isinstance(node, list):
+                for it in node: walk(it)
+            elif isinstance(node, dict):
+                if "items" in node: walk(node["items"])
+                else:
+                    f = str(node.get("field") or "")
+                    if f.startswith("seg."): refs.add(f[4:].split("@")[0])
+        walk(rule.get("filters"))
         return refs
 
     # ---------------------------------------------------------------- 驗證
@@ -126,7 +140,7 @@ class TagService:
             x["project"] = str(body.get("project") or x.get("project") or "altatech_dmp")
             self._spec_sql({"kind": kind, "spec": spec, "project": x["project"]}, decision, self.now().date().isoformat())   # 行級條件與欄位現在就編一次，壞的設定不要等到計算才爆
         if kind in ("values", "sql"): spec = {}
-        upd = {**{"mode": "manual", "freq": "daily", "earliest": "06:00", "keep": 7}, **(x.get("update") or {}), **(body.get("update") or {})}
+        upd = {**{"mode": "routine", "freq": "daily", "earliest": "02:00", "keep": 7}, **(x.get("update") or {}), **(body.get("update") or {})}
         if upd["mode"] not in ("manual", "routine"): raise ValueError("update.mode 只能是 manual／routine")
         if upd["freq"] not in FREQS: raise ValueError(f"update.freq 只能是 {FREQS}")
         if not re.fullmatch(r"[0-2]\d:[0-5]\d", str(upd["earliest"])) or int(str(upd["earliest"])[:2]) > 23: raise ValueError("update.earliest 需為 HH:MM")
@@ -306,7 +320,7 @@ class TagService:
         try:
             if t["kind"] == "values":
                 for v in t["values"]:
-                    uq = parse_users(v["rule"], self.cat); ctes, bm, _, _, _ = _bitmaps(uq, self.cat, decision)
+                    uq = parse_users(_at(v["rule"], bt), self.cat); ctes, bm, _, _, _ = _bitmaps(uq, self.cat, decision)   # 「近 N 天」以 basetime 為基準，回算歷史版本口徑一致
                     self.ch.query(f"INSERT INTO dmp.user_tags (tag_id, tag_value, version, users) WITH {', '.join(ctes)} "
                                   f"SELECT {q(id_)}, {q(v['value'])}, {version}, groupBitmapState(e.one_id_uint) FROM dmp.users AS e FINAL WHERE bitmapContains({bm}, e.one_id_uint)",
                                   settings={"max_execution_time": 600})
