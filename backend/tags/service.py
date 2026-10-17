@@ -1,7 +1,11 @@
-"""標籤最小版（docs/21 §2）：第一階段兩種建立方式，其餘八種第二階段。
+"""標籤（docs/21 §2）：五種建立方式，其餘第二階段。
 
 - values（自定義標籤值）：每個值一條用戶規則（UsersQuery，與分群／用戶列表同一套編譯），最多 24 值；同一人可同時命中多值（分布為各值人數）。
 - sql（SQL 標籤）：唯讀沙盒驗過的 SELECT one_id_uint, tag_value …；寫入時 GROUP BY tag_value 聚成 Bitmap。
+- metric（基礎指標值）：某事件在回溯窗口內每人的次數／總和／均值／最大／最小／有行為天數，可分桶成標籤值。
+- firstlast（首末次特徵）：首次或末次某事件的日期、距基準日天數（可分桶）、或當時的屬性值（argMin／argMax）。
+- rfm：最近一次距今 R、次數 F、金額 M 各以 ntile 分 n 級，輸出 R5F4M3 分數或八類客群（各維度高於中位為高）。
+  三種都由 _spec_sql 編成同一形狀的 SELECT one_id_uint, tag_value，與 SQL 標籤共用寫入路徑；欄位用語意層目錄解析、行級條件照套。
 - 儲存：dmp.user_tags (tag_id, tag_value, version, users Bitmap)，每次計算一版，保留 keep 版；查詢端以 bitmapAnd／dictGet 使用。
 - 狀態機與審批同分群：行銷建立 → pending_approval（審批單 tag，數位經營）；數據分析／數位經營／admin 直接 active。
 - tick：例行標籤到點計算（每天／每週一／每月 1 日的最早計算時間）。
@@ -23,7 +27,10 @@ from ..semantic.compiler.events import q
 from ..semantic.compiler.users import _bitmaps, compile_estimate, parse_users
 from ..sql import sandbox
 
-KINDS = ("values", "sql")
+KINDS = ("values", "sql", "metric", "firstlast", "rfm")
+SPEC_KINDS = ("metric", "firstlast", "rfm")
+METRIC_AGGS = ("count", "sum", "avg", "max", "min", "days")
+RFM_SEGMENTS = ("重要價值", "重要發展", "重要保持", "重要挽留", "一般價值", "一般發展", "一般保持", "一般挽留")
 DTYPES = ("string", "number", "bool")
 FREQS = ("daily", "weekly", "monthly")
 NO_APPROVAL_ROLES = {"data_analyst", "digital_ops", "admin"}
@@ -89,7 +96,7 @@ class TagService:
         if not re.fullmatch(r"[a-z][a-z0-9_]{1,40}", key): raise ValueError("key 只能是小寫英數與底線（2–41 字）")
         if existing is None and any(t["id"] == key for t in self.store.items("tag")): raise Conflict(f"標籤 {key} 已存在")
         kind = str(body.get("kind") or x.get("kind") or "values")
-        if kind not in KINDS: raise ValueError(f"kind 第一階段只支援 {KINDS}（其餘建立方式第二階段）")
+        if kind not in KINDS: raise ValueError(f"kind 只支援 {KINDS}（其餘建立方式第二階段）")
         dtype = str(body.get("dtype") or x.get("dtype") or "string")
         if dtype not in DTYPES: raise ValueError(f"dtype 只能是 {DTYPES}")
         ups: set[str] = set(); warnings: list[str] = []
@@ -108,11 +115,17 @@ class TagService:
                 ups |= set(comp.lineage) | {f"segment:{r}" for r in self._refs(rule)}; warnings += comp.warnings; seen.add(val)
                 norm.append({"value": val, "rule": rule})
             values = norm; sql = ""
-        else:
+        elif kind == "sql":
             if not sql.strip(): raise ValueError("SQL 標籤需 sql")
             if not re.search(r"\bone_id_uint\b", sql) or not re.search(r"\btag_value\b", sql): raise ValueError("SQL 需輸出 one_id_uint 與 tag_value 兩欄（可用 AS 別名）")
             c = sandbox.compile_sql(sql, None, decision, self.cat, subject.roles, 10, sandbox.MID_TABLES)
-            ups |= set(c.lineage); values = []
+            ups |= set(c.lineage); values = []; spec = {}
+        else:
+            spec, s_ups = self._check_spec(kind, body.get("spec") if body.get("spec") is not None else x.get("spec"))
+            ups |= s_ups; values = []; sql = ""
+            x["project"] = str(body.get("project") or x.get("project") or "altatech_dmp")
+            self._spec_sql({"kind": kind, "spec": spec, "project": x["project"]}, decision, self.now().date().isoformat())   # 行級條件與欄位現在就編一次，壞的設定不要等到計算才爆
+        if kind in ("values", "sql"): spec = {}
         upd = {**{"mode": "manual", "freq": "daily", "earliest": "06:00", "keep": 7}, **(x.get("update") or {}), **(body.get("update") or {})}
         if upd["mode"] not in ("manual", "routine"): raise ValueError("update.mode 只能是 manual／routine")
         if upd["freq"] not in FREQS: raise ValueError(f"update.freq 只能是 {FREQS}")
@@ -123,9 +136,83 @@ class TagService:
         for cf in CUSTOM_FIELDS:
             if cf["type"] == "select" and fields.get(cf["key"]) and fields[cf["key"]] not in cf["options"]: raise ValueError(f"{cf['cn']} 只能是 {cf['options']}")
         x.update({"name": name, "key": key, "directory": str(body.get("directory") or x.get("directory") or "其他")[:20], "description": str(body.get("description") or x.get("description") or "")[:300],
-                  "dtype": dtype, "kind": kind, "values": values, "sql": sql, "update": upd, "fields": fields, "project": str(x.get("project") or "altatech_dmp"),
+                  "dtype": dtype, "kind": kind, "values": values, "sql": sql, "spec": spec, "update": upd, "fields": fields, "project": str(x.get("project") or "altatech_dmp"),
                   "lineage": {"up": sorted(ups), "down": []}, "_warnings": warnings})
         return x
+
+    # ---------------- metric／firstlast／rfm ----------------
+    def _check_spec(self, kind: str, spec: Any) -> tuple[dict[str, Any], set[str]]:
+        if not isinstance(spec, dict): raise ValueError(f"{kind} 需要 spec")
+        ev = str(spec.get("event") or "").strip()
+        if ev not in self.cat.events: raise ValueError(f"事件不在語意層目錄：{ev or '（未填）'}")
+        w = int(spec.get("window_days") if spec.get("window_days") is not None else (0 if kind == "firstlast" else 90))
+        if not 0 <= w <= 730 or (w == 0 and kind != "firstlast"): raise ValueError("window_days 需在 1–730（首末次可為 0＝不限）")
+        buckets = spec.get("buckets")
+        if buckets is not None:
+            if not isinstance(buckets, list) or not 1 <= len(buckets) <= 10: raise ValueError("buckets 需 1–10 個遞增數字")
+            try: buckets = [float(b) for b in buckets]
+            except (TypeError, ValueError): raise ValueError("buckets 需為數字") from None
+            if any(buckets[i] >= buckets[i + 1] for i in range(len(buckets) - 1)): raise ValueError("buckets 需嚴格遞增")
+        out: dict[str, Any] = {"event": ev, "window_days": w}; ups = {f"event:{ev}"}
+        if kind == "metric":
+            agg = str(spec.get("agg") or "count")
+            if agg not in METRIC_AGGS: raise ValueError(f"agg 只能是 {METRIC_AGGS}")
+            field = str(spec.get("field") or "").strip()
+            if agg in ("sum", "avg", "max", "min"):
+                if not field: raise ValueError(f"{agg} 需要 field（數值欄位）")
+                ref = self.cat.resolve(field, "number")
+                if ref.type != "number": raise ValueError(f"field {field} 不是數值欄位")
+                ups.add(ref.name or field)
+            else: field = ""
+            out.update({"agg": agg, "field": field, "buckets": buckets})
+        elif kind == "firstlast":
+            which = str(spec.get("which") or "first"); feature = str(spec.get("feature") or "date")
+            if which not in ("first", "last") or feature not in ("date", "days_since", "field"): raise ValueError("which 只能是 first／last；feature 只能是 date／days_since／field")
+            field = str(spec.get("field") or "").strip()
+            if feature == "field":
+                if not field: raise ValueError("feature=field 需要 field")
+                ref = self.cat.resolve(field); ups.add(ref.name or field)
+            else: field = ""
+            out.update({"which": which, "feature": feature, "field": field, "buckets": buckets if feature == "days_since" else None})
+        else:
+            af = str(spec.get("amount_field") or "amount").strip(); ref = self.cat.resolve(af, "number")
+            if ref.type != "number": raise ValueError(f"amount_field {af} 不是數值欄位")
+            bins = int(spec.get("bins") or 5)
+            if not 2 <= bins <= 10: raise ValueError("bins 需在 2–10")
+            output = str(spec.get("output") or "score")
+            if output not in ("score", "segment"): raise ValueError("output 只能是 score／segment")
+            ups.add(ref.name or af); out.update({"amount_field": af, "bins": bins, "output": output})
+        return out, ups
+
+    def _spec_sql(self, t: dict[str, Any], decision: Any, bt: str) -> str:
+        """metric／firstlast／rfm → SELECT one_id_uint, tag_value（字串）。"""
+        sp = t["spec"]; kind = t["kind"]; proj = str(t.get("project") or "altatech_dmp"); w = int(sp.get("window_days") or 0)
+        conds = [f"e.project = {q(proj)}", f"e.event = {q(sp['event'])}", f"e.event_date <= toDate({q(bt)})"]
+        if w > 0: conds.append(f"e.event_date > toDate({q(bt)}) - {w}")
+        for f in (getattr(decision, "row_filters", []) or []) if decision is not None else []:
+            if "agent_id" in f: raise PermissionError("營業員範圍的身分不能建立標籤（事件表沒有 agent_id 行級條件的對應）")
+            conds.append(re.sub(r"\b(branch_id|event_date)\b", r"e.\1", f))
+        where = " AND ".join(conds); base = f"FROM dmp.events AS e WHERE {where} GROUP BY e.one_id_uint"
+        if kind == "metric":
+            fx = self.cat.resolve(sp["field"], "number").sql if sp.get("field") else None
+            expr = {"count": "count()", "days": "uniqExact(e.event_date)", "sum": f"sum({fx})", "avg": f"avg({fx})", "max": f"max({fx})", "min": f"min({fx})"}[sp["agg"]]
+            val = _bucket_expr("v", sp["buckets"]) if sp.get("buckets") else "toString(round(v, 2))"
+            return f"SELECT one_id_uint, {val} AS tag_value FROM (SELECT e.one_id_uint AS one_id_uint, {expr} AS v {base}) AS _m"
+        if kind == "firstlast":
+            first = sp["which"] == "first"; agf = "min" if first else "max"
+            if sp["feature"] == "date": inner, val = f"toString({agf}(e.event_date))", "v"
+            elif sp["feature"] == "days_since": inner, val = f"dateDiff('day', {agf}(e.event_date), toDate({q(bt)}))", (_bucket_expr("v", sp["buckets"]) if sp.get("buckets") else "toString(v)")
+            else: inner, val = f"toString(arg{'Min' if first else 'Max'}({self.cat.resolve(sp['field']).sql}, e.time))", "if(v = '', '（未填）', v)"
+            return f"SELECT one_id_uint, {val} AS tag_value FROM (SELECT e.one_id_uint AS one_id_uint, {inner} AS v {base}) AS _f"
+        fx = self.cat.resolve(sp.get("amount_field") or "amount", "number").sql; bins = int(sp.get("bins") or 5); hi = bins // 2 + 1
+        scored = (f"SELECT one_id_uint, {bins} + 1 - ntile({bins}) OVER (ORDER BY r_days) AS rs, ntile({bins}) OVER (ORDER BY f) AS fs, ntile({bins}) OVER (ORDER BY m) AS ms "
+                  f"FROM (SELECT e.one_id_uint AS one_id_uint, dateDiff('day', max(e.event_date), toDate({q(bt)})) AS r_days, count() AS f, sum(coalesce({fx}, 0)) AS m {base}) AS _b")
+        if sp.get("output") == "segment":
+            val = (f"multiIf(rs >= {hi} AND fs >= {hi} AND ms >= {hi}, '重要價值', rs >= {hi} AND fs < {hi} AND ms >= {hi}, '重要發展', rs < {hi} AND fs >= {hi} AND ms >= {hi}, '重要保持', ms >= {hi}, '重要挽留', "
+                   f"rs >= {hi} AND fs >= {hi}, '一般價值', rs >= {hi}, '一般發展', fs >= {hi}, '一般保持', '一般挽留')")
+        else:
+            val = "concat('R', toString(rs), 'F', toString(fs), 'M', toString(ms))"
+        return f"SELECT one_id_uint, {val} AS tag_value FROM ({scored}) AS _s"
 
     def _needs_approval(self, subject: Subject) -> bool:
         return not any(r in NO_APPROVAL_ROLES for r in subject.roles)
@@ -136,7 +223,7 @@ class TagService:
         t.update({"id": t["key"], "status": "pending_approval" if self._needs_approval(subject) else "active", "owner": subject.user_id, "created_at": self._ts(), "updated_at": self._ts(),
                   "approval": {"status": "none", "by": None, "at": None, "note": ""}, "latest": None, "versions": [], "recycled_at": None, "changes": []})
         if t["status"] == "pending_approval" and self.approvals is not None:
-            a = self.approvals.create("tag", subject, f"標籤「{t['name']}」（{t['kind']}，{len(t['values']) or 'SQL'} 值）", {"tag": t["id"], "kind": t["kind"]}, {"kind": "tag", "id": t["id"]})
+            a = self.approvals.create("tag", subject, f"標籤「{t['name']}」（{t['kind']}，{len(t['values']) or ('SQL' if t['kind'] == 'sql' else t['kind'])} 值）", {"tag": t["id"], "kind": t["kind"]}, {"kind": "tag", "id": t["id"]})
             t["approval"] = {"status": "pending", "by": None, "at": None, "note": "", "id": a["id"]}
         self.store.put_item("tag", t)
         self.store.audit("tag.created", {"user": subject.user_id, "tag": t["id"], "kind": t["kind"], "status": t["status"], "warnings": warnings})
@@ -146,7 +233,7 @@ class TagService:
         cur = self.get(id_)
         if cur["status"] == "recycled": raise Conflict("回收站中的標籤不能編輯")
         t = self._validate(body, subject, decision, cur); t.pop("_warnings")
-        changed = sorted(k for k in ("name", "directory", "description", "dtype", "values", "sql", "update", "fields") if t.get(k) != cur.get(k))
+        changed = sorted(k for k in ("name", "directory", "description", "dtype", "values", "sql", "spec", "update", "fields") if t.get(k) != cur.get(k))
         t["updated_at"] = self._ts(); t.setdefault("changes", []).append({"at": t["updated_at"], "by": subject.user_id, "changed": changed})
         t["changes"] = t["changes"][-50:]
         self.store.put_item("tag", t)
@@ -224,8 +311,11 @@ class TagService:
                                   f"SELECT {q(id_)}, {q(v['value'])}, {version}, groupBitmapState(e.one_id_uint) FROM dmp.users AS e FINAL WHERE bitmapContains({bm}, e.one_id_uint)",
                                   settings={"max_execution_time": 600})
             else:
-                c = sandbox.compile_sql(t["sql"], None, decision, self.cat, subject.roles, sandbox.MAX_LIMIT, sandbox.MID_TABLES)
-                inner = c.sql[len("SELECT * FROM ("):c.sql.rindex(") AS _q LIMIT")]
+                if t["kind"] == "sql":
+                    c = sandbox.compile_sql(t["sql"], None, decision, self.cat, subject.roles, sandbox.MAX_LIMIT, sandbox.MID_TABLES)
+                    inner = c.sql[len("SELECT * FROM ("):c.sql.rindex(") AS _q LIMIT")]
+                else:
+                    inner = self._spec_sql(t, decision, bt)
                 self.ch.query(f"INSERT INTO dmp.user_tags (tag_id, tag_value, version, users) SELECT {q(id_)}, toString(tag_value), {version}, groupBitmapState(toUInt64(one_id_uint)) "
                               f"FROM ({inner}) AS _t GROUP BY tag_value", settings={"max_execution_time": 600})
             rec["distribution"] = self.distribution_of(id_, version)
@@ -282,3 +372,14 @@ class TagService:
             if slot is None or slot in {v["basetime"] for v in t.get("versions", []) if v["status"] == "success"}: continue
             out.append({"tag": t["id"], **self.compute(t["id"], subject, decision_of(t), basetime=slot, trigger="routine")})
         return out
+
+
+def _num(b: float) -> str:
+    return str(int(b)) if float(b).is_integer() else f"{b:g}"
+
+
+def _bucket_expr(v: str, buckets: list[float]) -> str:
+    """遞增界線 → multiIf：<b0、b0–b1、…、≥bn（標籤值用全形連接號，與數值分桶隱碼一致）。"""
+    parts = [f"{v} < {buckets[0]!r}, {q('<' + _num(buckets[0]))}"]
+    parts += [f"{v} < {buckets[i + 1]!r}, {q(_num(buckets[i]) + '–' + _num(buckets[i + 1]))}" for i in range(len(buckets) - 1)]
+    return f"multiIf({', '.join(parts)}, {q('≥' + _num(buckets[-1]))})"

@@ -8,8 +8,8 @@ import { RequireGrant } from '@/auth/RequireGrant';
 import { RuleBuilder } from '@/users/RuleBuilder';
 import { emptyRule, ruleValid, summarizeRule } from '@/users/rule';
 import type { Segment } from '@/users/types';
-import { DTYPE_CN, TAG_KIND_CN, TAG_STATUS_CN, TAG_STATUS_PILL, fmtTs, suggestKey, topDistribution, updateText } from './tags';
-import type { Tag, TagCreate, TagCustomFields, TagValue, TagVersion } from './types';
+import { AGG_CN, DTYPE_CN, FEATURE_CN, TAG_KIND_CN, TAG_STATUS_CN, TAG_STATUS_PILL, bucketLabels, fmtTs, parseBuckets, specText, suggestKey, topDistribution, updateText } from './tags';
+import type { Tag, TagCreate, TagCustomFields, TagKind, TagSpec, TagValue, TagVersion } from './types';
 
 export function TagsPage() {
   return <RequireGrant module="segments"><TagsInner /></RequireGrant>;
@@ -110,7 +110,7 @@ function TagDetail({ tag, cat, segOpts, me, can, busy, act }: { tag: Tag; cat: C
         </div>
         <div className="card">
           <div className="card-h"><h3>規則</h3></div>
-          {tag.kind === 'values' ? <table className="tbl"><thead><tr><th>標籤值</th><th>規則</th><th className="num">人數（最新版）</th></tr></thead><tbody>{tag.values.map((v: TagValue) => <tr key={v.value}><td><b>{v.value}</b></td><td className="sub">{summarizeRule(v.rule, cat, segOpts)}</td><td className="num mono">{tag.latest?.distribution.find((d) => d.value === v.value)?.users.toLocaleString() ?? '—'}</td></tr>)}</tbody></table>
+          {tag.spec && ['metric', 'firstlast', 'rfm'].includes(tag.kind) ? <p className="note"><b>{TAG_KIND_CN[tag.kind]}</b>：{specText(tag, (e) => cat?.events.find((x) => x.name === e)?.cn ?? e)}{tag.project ? `（專案 ${tag.project}）` : ''}</p> : tag.kind === 'values' ? <table className="tbl"><thead><tr><th>標籤值</th><th>規則</th><th className="num">人數（最新版）</th></tr></thead><tbody>{tag.values.map((v: TagValue) => <tr key={v.value}><td><b>{v.value}</b></td><td className="sub">{summarizeRule(v.rule, cat, segOpts)}</td><td className="num mono">{tag.latest?.distribution.find((d) => d.value === v.value)?.users.toLocaleString() ?? '—'}</td></tr>)}</tbody></table>
             : <pre className="code">{tag.sql}</pre>}
         </div>
         <div className="card">
@@ -134,18 +134,23 @@ function TagDetail({ tag, cat, segOpts, me, can, busy, act }: { tag: Tag; cat: C
   );
 }
 
-type Draft = { name: string; key: string; directory: string; description: string; dtype: 'string' | 'number' | 'bool'; kind: 'values' | 'sql'; values: TagValue[]; sql: string; update: Tag['update']; fields: Record<string, string> };
+type Draft = { name: string; key: string; directory: string; description: string; dtype: 'string' | 'number' | 'bool'; kind: TagKind; values: TagValue[]; sql: string; spec: TagSpec; buckets: string; project: string; update: Tag['update']; fields: Record<string, string> };
+const SPEC_KINDS: TagKind[] = ['metric', 'firstlast', 'rfm'];
 function TagForm({ cat, cf, segOpts, onDone, onCancel }: { cat: Catalog | null; cf: TagCustomFields | null; segOpts: { id: string; name: string }[]; onDone: (t: Tag) => Promise<void> | void; onCancel: () => void }) {
-  const [d, setD] = useState<Draft>({ name: '', key: '', directory: cf?.directories[0] ?? '客戶價值', description: '', dtype: 'string', kind: 'values', values: [{ value: '', rule: emptyRule('golden') }], sql: "SELECT one_id_uint, toString(count()) AS tag_value\nFROM dmp.events WHERE event = 'bond_deal' AND event_date >= today() - 30\nGROUP BY one_id_uint", update: { mode: 'routine', freq: 'daily', earliest: '06:00', keep: 7 }, fields: {} });
+  const [d, setD] = useState<Draft>({ name: '', key: '', directory: cf?.directories[0] ?? '客戶價值', description: '', dtype: 'string', kind: 'values', values: [{ value: '', rule: emptyRule('golden') }], spec: { event: '', agg: 'count', window_days: 90, which: 'first', feature: 'date', amount_field: 'amount', bins: 5, output: 'score' }, buckets: '', project: 'golden', sql: "SELECT one_id_uint, toString(count()) AS tag_value\nFROM dmp.events WHERE event = 'bond_deal' AND event_date >= today() - 30\nGROUP BY one_id_uint", update: { mode: 'routine', freq: 'daily', earliest: '06:00', keep: 7 }, fields: {} });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(0);
   const setV = (i: number, p: Partial<TagValue>) => setD({ ...d, values: d.values.map((v, j) => (j === i ? { ...v, ...p } : v)) });
-  const valid = d.name.trim() && (d.kind === 'sql' ? d.sql.trim().length > 10 : d.values.length > 0 && d.values.every((v) => v.value.trim() && ruleValid(v.rule)));
+  const bk = parseBuckets(d.buckets);
+  const specOk = !!d.spec.event && bk !== null && (d.kind !== 'metric' || !['sum', 'avg', 'max', 'min'].includes(d.spec.agg ?? '') || !!d.spec.field) && (d.kind !== 'firstlast' || d.spec.feature !== 'field' || !!d.spec.field);
+  const valid = d.name.trim() && (d.kind === 'sql' ? d.sql.trim().length > 10 : SPEC_KINDS.includes(d.kind) ? specOk : d.values.length > 0 && d.values.every((v) => v.value.trim() && ruleValid(v.rule)));
+  const setS = (p: Partial<TagSpec>) => setD({ ...d, spec: { ...d.spec, ...p } });
+  const numFields = (cat?.event_columns ?? []).filter((c) => c.type === 'number');
   const save = async () => {
     setBusy(true); setErr(null);
     const body: TagCreate = { name: d.name, key: d.key || suggestKey(d.name) || undefined, directory: d.directory, description: d.description, dtype: d.dtype, kind: d.kind, update: d.update, fields: d.fields,
-      ...(d.kind === 'values' ? { values: d.values.map((v) => ({ value: v.value.trim(), rule: { ...v.rule, filters: v.rule.filters?.length ? v.rule.filters : undefined, behaviors: v.rule.behaviors?.length ? v.rule.behaviors : undefined } })) } : { sql: d.sql }) };
+      ...(d.kind === 'values' ? { values: d.values.map((v) => ({ value: v.value.trim(), rule: { ...v.rule, filters: v.rule.filters?.length ? v.rule.filters : undefined, behaviors: v.rule.behaviors?.length ? v.rule.behaviors : undefined } })) } : d.kind === 'sql' ? { sql: d.sql } : { project: d.project, spec: d.kind === 'metric' ? { event: d.spec.event, agg: d.spec.agg, field: d.spec.field || undefined, window_days: d.spec.window_days, buckets: bk?.length ? bk : undefined } : d.kind === 'firstlast' ? { event: d.spec.event, which: d.spec.which, feature: d.spec.feature, field: d.spec.feature === 'field' ? d.spec.field : undefined, window_days: d.spec.window_days ?? 0, buckets: d.spec.feature === 'days_since' && bk?.length ? bk : undefined } : { event: d.spec.event, amount_field: d.spec.amount_field || 'amount', window_days: d.spec.window_days, bins: d.spec.bins, output: d.spec.output } }) };
     try { await onDone(await api.post<Tag>('/v1/tags', body)); } catch (e) { setErr(e instanceof ApiError ? e.message : '建立失敗'); } finally { setBusy(false); }
   };
   return (
@@ -155,10 +160,36 @@ function TagForm({ cat, cf, segOpts, onDone, onCancel }: { cat: Catalog | null; 
         <label>顯示名<input aria-label="標籤名稱" value={d.name} maxLength={60} onChange={(e) => setD({ ...d, name: e.target.value })} /></label>
         <label>key（留空自動）<input aria-label="標籤 key" className="mono" value={d.key} placeholder={suggestKey(d.name) || 'tag_xxx'} onChange={(e) => setD({ ...d, key: e.target.value })} /></label>
         <label>目錄<select value={d.directory} onChange={(e) => setD({ ...d, directory: e.target.value })}>{(cf?.directories ?? ['客戶價值', '其他']).map((x) => <option key={x}>{x}</option>)}</select></label>
-        <label>建立方式<select aria-label="建立方式" value={d.kind} onChange={(e) => setD({ ...d, kind: e.target.value as 'values' | 'sql' })}><option value="values">自定義標籤值（每值一條規則）</option><option value="sql">SQL 標籤</option></select></label>
+        <label>建立方式<select aria-label="建立方式" value={d.kind} onChange={(e) => setD({ ...d, kind: e.target.value as TagKind, dtype: e.target.value === 'metric' && !d.buckets ? 'number' : d.dtype })}><option value="values">自定義標籤值（每值一條規則）</option><option value="sql">SQL 標籤</option><option value="metric">基礎指標值（次數／總和／均值…，可分桶）</option><option value="firstlast">首末次特徵（首次／末次的日期、距今天數、屬性）</option><option value="rfm">RFM（R／F／M 分級或八類客群）</option></select></label>
         <label>型別<select value={d.dtype} onChange={(e) => setD({ ...d, dtype: e.target.value as 'string' })}><option value="string">字串</option><option value="number">數值（推送時區間化）</option><option value="bool">布林</option></select></label>
         <label>說明<input value={d.description} onChange={(e) => setD({ ...d, description: e.target.value })} /></label>
       </div>
+      {SPEC_KINDS.includes(d.kind) && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="grid c3">
+            <label>事件<select aria-label="指標事件" value={d.spec.event} onChange={(e) => setS({ event: e.target.value })}><option value="">— 選事件 —</option>{(cat?.events ?? []).filter((e) => e.status !== 'deprecated').map((e) => <option key={e.name} value={e.name}>{e.cn}（{e.name}）</option>)}</select></label>
+            <label>專案<input value={d.project} onChange={(e) => setD({ ...d, project: e.target.value })} /></label>
+            <label>{d.kind === 'firstlast' ? '回溯天數（0＝不限）' : '回溯天數'}<input type="number" min={d.kind === 'firstlast' ? 0 : 1} max={730} value={d.spec.window_days ?? 90} onChange={(e) => setS({ window_days: Number(e.target.value) })} /></label>
+            {d.kind === 'metric' && <>
+              <label>指標<select aria-label="指標彙總" value={d.spec.agg} onChange={(e) => setS({ agg: e.target.value as TagSpec['agg'] })}>{(Object.keys(AGG_CN) as (keyof typeof AGG_CN)[]).map((k) => <option key={k} value={k}>{AGG_CN[k]}</option>)}</select></label>
+              {['sum', 'avg', 'max', 'min'].includes(d.spec.agg ?? '') && <label>數值欄位<select aria-label="指標欄位" value={d.spec.field ?? ''} onChange={(e) => setS({ field: e.target.value })}><option value="">— 選欄位 —</option>{numFields.map((c) => <option key={c.name} value={c.name}>{c.cn}（{c.name}）</option>)}<option value="amount">amount</option></select></label>}
+              <label>分桶界線（逗號分隔，留空輸出原值）<input aria-label="分桶" className="mono" placeholder="1, 3, 10" value={d.buckets} onChange={(e) => setD({ ...d, buckets: e.target.value, dtype: parseBuckets(e.target.value)?.length ? 'string' : 'number' })} /></label>
+            </>}
+            {d.kind === 'firstlast' && <>
+              <label>首次／末次<select aria-label="首末次" value={d.spec.which} onChange={(e) => setS({ which: e.target.value as 'first' | 'last' })}><option value="first">首次</option><option value="last">末次</option></select></label>
+              <label>特徵<select aria-label="特徵" value={d.spec.feature} onChange={(e) => setS({ feature: e.target.value as TagSpec['feature'] })}>{(Object.keys(FEATURE_CN) as (keyof typeof FEATURE_CN)[]).map((k) => <option key={k} value={k}>{FEATURE_CN[k]}</option>)}</select></label>
+              {d.spec.feature === 'field' && <label>屬性<select aria-label="特徵欄位" value={d.spec.field ?? ''} onChange={(e) => setS({ field: e.target.value })}><option value="">— 選欄位 —</option>{(cat?.event_columns ?? []).map((c) => <option key={c.name} value={c.name}>{c.cn}（{c.name}）</option>)}</select></label>}
+              {d.spec.feature === 'days_since' && <label>天數分桶（逗號分隔）<input aria-label="分桶" className="mono" placeholder="7, 30, 90" value={d.buckets} onChange={(e) => setD({ ...d, buckets: e.target.value })} /></label>}
+            </>}
+            {d.kind === 'rfm' && <>
+              <label>金額欄位<select aria-label="金額欄位" value={d.spec.amount_field ?? 'amount'} onChange={(e) => setS({ amount_field: e.target.value })}><option value="amount">amount</option>{numFields.filter((c) => c.name !== 'amount').map((c) => <option key={c.name} value={c.name}>{c.cn}（{c.name}）</option>)}</select></label>
+              <label>分級數<input type="number" min={2} max={10} value={d.spec.bins ?? 5} onChange={(e) => setS({ bins: Number(e.target.value) })} /></label>
+              <label>輸出<select aria-label="RFM 輸出" value={d.spec.output} onChange={(e) => setS({ output: e.target.value as 'score' | 'segment' })}><option value="score">R／F／M 分數（R5F4M3）</option><option value="segment">八類客群（重要價值…一般挽留）</option></select></label>
+            </>}
+          </div>
+          <p className="note">{d.spec.event ? specText({ kind: d.kind, spec: { ...d.spec, buckets: bk ?? [] } }, (e) => cat?.events.find((x) => x.name === e)?.cn ?? e) : '選一個事件。'}{bk === null ? ' 分桶需為遞增數字。' : bk.length ? `（標籤值：${bucketLabels(bk).join('／')}）` : ''}{d.kind === 'rfm' ? ' 各維度以 ntile 分級，高於中位為「高」；只計算窗口內有該事件的人。' : ''}</p>
+        </div>
+      )}
       {d.kind === 'values' ? (
         <div style={{ marginTop: 14 }}>
           {d.values.map((v, i) => (
@@ -170,7 +201,7 @@ function TagForm({ cat, cf, segOpts, onDone, onCancel }: { cat: Catalog | null; 
             </div>))}
           {d.values.length < 24 && <button className="btn-ghost sm" onClick={() => { setD({ ...d, values: [...d.values, { value: '', rule: emptyRule('golden') }] }); setOpen(d.values.length); }}>＋ 新增值</button>}
         </div>
-      ) : (
+      ) : d.kind !== 'sql' ? null : (
         <div style={{ marginTop: 14 }}><textarea aria-label="標籤 SQL" value={d.sql} spellCheck={false} onChange={(e) => setD({ ...d, sql: e.target.value })} style={{ width: '100%', minHeight: 120, fontFamily: "'IBM Plex Mono', ui-monospace, monospace", fontSize: 12.5, padding: 10, border: '1px solid var(--line)', borderRadius: 8 }} />
           <p className="note">輸出 one_id_uint 與 tag_value 兩欄；與自定義 SQL 相同沙盒（唯讀、依權限表目錄、脫敏欄位會被擋）。</p></div>
       )}

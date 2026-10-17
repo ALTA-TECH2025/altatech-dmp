@@ -5,9 +5,11 @@ export type TagStatus = 'draft' | 'pending_approval' | 'active' | 'paused' | 're
 export interface TagUpdate { mode: 'manual' | 'routine'; freq: 'daily' | 'weekly' | 'monthly'; earliest: string; keep: number }
 export interface TagValue { value: string; rule: UsersQuery }
 export interface TagVersion { version: number; basetime: string; users: number | null; status: 'running' | 'success' | 'failed'; computed_at: string; ms: number; trigger: string; error: string | null; distribution: { value: string; users: number }[] }
-export interface TagCreate { name: string; key?: string; directory?: string; description?: string; dtype: 'string' | 'number' | 'bool'; kind: 'values' | 'sql'; values?: TagValue[]; sql?: string; update?: Partial<TagUpdate>; fields?: Record<string, string> }
+export type TagKind = 'values' | 'sql' | 'metric' | 'firstlast' | 'rfm';
+export interface TagSpec { event: string; window_days?: number; buckets?: number[] | null; agg?: 'count' | 'sum' | 'avg' | 'max' | 'min' | 'days'; field?: string; which?: 'first' | 'last'; feature?: 'date' | 'days_since' | 'field'; amount_field?: string; bins?: number; output?: 'score' | 'segment' }
+export interface TagCreate { name: string; key?: string; directory?: string; description?: string; dtype: 'string' | 'number' | 'bool'; kind: TagKind; values?: TagValue[]; sql?: string; spec?: TagSpec; project?: string; update?: Partial<TagUpdate>; fields?: Record<string, string> }
 export interface Tag extends TagCreate {
-  id: string; status: TagStatus; owner: string; created_at: string; updated_at: string; update: TagUpdate; values: TagValue[]; sql: string; fields: Record<string, string>;
+  id: string; status: TagStatus; owner: string; created_at: string; updated_at: string; update: TagUpdate; values: TagValue[]; sql: string; spec?: TagSpec; fields: Record<string, string>;
   approval: { status: 'none' | 'pending' | 'approved' | 'rejected'; by: string | null; at: string | null; note: string; id?: string };
   latest: TagVersion | null; versions?: TagVersion[]; lineage: { up: string[]; down: string[] }; recycled_at: string | null; warnings?: string[];
 }

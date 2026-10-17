@@ -390,10 +390,26 @@ def main(store: Any | None = None) -> None:
     cp = c.post("/v1/tags/tier_grade/compute", json={}); assert cp.status_code == 202, cp.text
     cpb = cp.json(); assert cpb["status"] == "success" and cpb["version"] == 1 and cpb["users"] == 120 and [d["value"] for d in cpb["distribution"]] == ["P1", "P2"], cpb
     assert ch.sqls[-3].startswith("INSERT INTO dmp.user_tags (tag_id, tag_value, version, users) WITH") and "'tier_grade', 'P2', 1, groupBitmapState(e.one_id_uint)" in ch.sqls[-3], ch.sqls[-3]
+    # 基礎指標值／首末次特徵／RFM：建立即編一次 SQL（事件、欄位、分桶都檢查），計算走與 SQL 標籤同一條寫入路徑
+    for bad in ({"kind": "metric", "spec": {"event": "nope", "agg": "count", "window_days": 30}}, {"kind": "metric", "spec": {"event": "bond_deal", "agg": "sum", "window_days": 30}}, {"kind": "metric", "spec": {"event": "bond_deal", "agg": "count", "window_days": 30, "buckets": [5, 1]}},
+                {"kind": "firstlast", "spec": {"event": "bond_deal", "which": "soon", "feature": "date"}}, {"kind": "rfm", "spec": {"event": "bond_deal", "bins": 1}}, {"kind": "metric"}):
+        r = c.post("/v1/tags", json={"name": "壞的", **bad}); assert r.status_code == 400, (bad, r.text)
+    mt = c.post("/v1/tags", json={"name": "近 90 天成交分級", "key": "deals_90d_level", "kind": "metric", "project": "golden", "spec": {"event": "bond_deal", "agg": "count", "window_days": 90, "buckets": [1, 3, 10]}}).json()
+    assert mt["status"] == "active" and mt["spec"] == {"event": "bond_deal", "window_days": 90, "agg": "count", "field": "", "buckets": [1.0, 3.0, 10.0]} and "event:bond_deal" in mt["lineage"]["up"], mt
+    cp3 = c.post("/v1/tags/deals_90d_level/compute", json={}).json(); assert cp3["status"] == "success", cp3
+    ins = next(s for s in reversed(ch.sqls) if s.startswith("INSERT INTO dmp.user_tags") and "deals_90d_level" in s)
+    assert "multiIf(v < 1.0, '<1', v < 3.0, '1–3', v < 10.0, '3–10', '≥10')" in ins and "e.project = 'golden' AND e.event = 'bond_deal'" in ins and "count() AS v" in ins and "GROUP BY tag_value" in ins, ins
+    fl = c.post("/v1/tags", json={"name": "首次成交商品", "key": "first_symbol", "kind": "firstlast", "project": "golden", "spec": {"event": "bond_deal", "which": "first", "feature": "field", "field": "symbol"}}).json()
+    assert fl["spec"]["window_days"] == 0 and fl["spec"]["buckets"] is None and "symbol" in fl["lineage"]["up"], fl["spec"]
+    assert c.post("/v1/tags/first_symbol/compute", json={}).json()["status"] == "success" and "argMin(e.symbol, e.time)" in ch.sqls[-3] and "event_date >" not in ch.sqls[-3]
+    rf = c.post("/v1/tags", json={"name": "RFM", "key": "rfm_90d", "kind": "rfm", "project": "golden", "spec": {"event": "bond_deal", "window_days": 90, "bins": 5, "output": "segment"}}).json()
+    assert rf["spec"] == {"event": "bond_deal", "window_days": 90, "amount_field": "amount", "bins": 5, "output": "segment"}, rf["spec"]
+    assert c.post("/v1/tags/rfm_90d/compute", json={}).json()["status"] == "success" and "ntile(5) OVER (ORDER BY r_days)" in ch.sqls[-3] and "'重要價值'" in ch.sqls[-3] and "sum(coalesce(e.amount, 0))" in ch.sqls[-3]
+    ed = c.put("/v1/tags/rfm_90d", json={"spec": {"event": "bond_deal", "window_days": 180, "bins": 4, "output": "score"}}).json(); assert ed["spec"]["bins"] == 4 and ed["spec"]["output"] == "score" and "spec" in ed["changes"][-1]["changed"], ed.get("changes")
     cp2 = c.post("/v1/tags/tier_sql/compute", json={}).json(); assert cp2["status"] == "success" and "GROUP BY tag_value" in ch.sqls[-3] and "toString(tag_value), 1, groupBitmapState(toUInt64(one_id_uint))" in ch.sqls[-3], (cp2, ch.sqls[-3])
     dist = c.get("/v1/tags/tier_grade/distribution").json(); assert dist["version"] == 1 and dist["users"] == 120 and dist["distribution"][0] == {"value": "P1", "users": 80}, dist
     assert len(c.get("/v1/tags/tier_grade/versions").json()) == 1 and c.get("/v1/tags/tier_grade/distribution?basetime=1999-01-01").status_code == 404
-    assert [t["id"] for t in c.get("/v1/tags").json()] == ["tier_sql", "tier_grade"] or {t["id"] for t in c.get("/v1/tags").json()} == {"tier_sql", "tier_grade"}
+    assert {t["id"] for t in c.get("/v1/tags").json()} == {"tier_sql", "tier_grade", "deals_90d_level", "first_symbol", "rfm_90d"}
     login(c, sm, ["marketing"], "mkt")
     mt = c.post("/v1/tags", json={"name": "行銷標籤", "key": "mkt_grp", "kind": "values", "values": tvals[:1]}); assert mt.status_code == 201 and mt.json()["status"] == "pending_approval" and mt.json()["approval"]["status"] == "pending", mt.text
     assert c.post("/v1/tags", json={"name": "行銷 SQL", "kind": "sql", "sql": "SELECT one_id_uint, tier AS tag_value FROM dmp.users"}).status_code == 403
@@ -656,7 +672,7 @@ def main(store: Any | None = None) -> None:
     assert "secret" not in json.dumps(stg).replace("secret_refs", "").replace("client_secret_ref", "").replace("bind_password_ref", "").replace("signing_key_ref", "").replace("client_secret", "").lower() or True
     login(c, sm, ["admin"], "adm")
     assert [x for x in store.audit_tail(300) if x["event"] == "authz.denied"][-1]["path"] == "/v1/settings"
-    assert {x["event"] for x in store.audit_tail(400)} >= {"role.change_requested", "role.changed", "role.deleted", "iam.break_glass.requested", "iam.user.created", "iam.user.changed", "iam.user.deleted", "auth.session.revoked", "audit.exported", "authz.denied"}
+    assert {x["event"] for x in store.audit_tail(1200)} >= {"role.change_requested", "role.changed", "role.deleted", "iam.break_glass.requested", "iam.user.created", "iam.user.changed", "iam.user.deleted", "auth.session.revoked", "audit.exported", "authz.denied"}
     # 6b. 資料流與效能（/v1/ops/*、/metrics）：it_admin 看得到；marketing 403；重跑需 governance.admin；指標含 HTTP 與查詢直方圖
     login(c, sm, ["it_admin"], "it")
     pl = c.get("/v1/ops/pipeline").json(); assert [s["key"] for s in pl["stages"]] == ["sources", "warehouse", "serving", "activation"] and pl["slo"]["query_p95_ms"]["funnel"] == 10000, pl["stages"]

@@ -175,6 +175,15 @@ def main() -> None:
         ana.call("POST", "/v1/tags", {"name": "近 30 天成交筆數（SQL）", "key": "deals_30d", "directory": "交易活躍", "kind": "sql", "dtype": "number",
                                      "sql": "SELECT one_id_uint, toString(count()) AS tag_value\nFROM dmp.events WHERE event = 'bond_deal' AND event_date >= today() - 30 GROUP BY one_id_uint"})
         ana.call("POST", "/v1/tags/deals_30d/compute", {})
+        ana.call("POST", "/v1/tags", {"name": "近 90 天成交筆數分級", "key": "deals_90d_level", "directory": "交易活躍", "kind": "metric", "project": "golden", "description": "基礎指標值：成交次數分桶，推送時當交易活躍度",
+                                     "spec": {"event": "bond_deal", "agg": "count", "window_days": 90, "buckets": [1, 3, 10]}, "update": {"mode": "routine", "freq": "daily", "earliest": "06:30", "keep": 7}, "fields": {"department": "數位金融", "category": "名單推送"}})
+        ana.call("POST", "/v1/tags/deals_90d_level/compute", {})
+        ana.call("POST", "/v1/tags", {"name": "首次成交商品", "key": "first_deal_symbol", "directory": "交易偏好", "kind": "firstlast", "project": "golden", "description": "首末次特徵：第一筆成交的商品代碼，看入門商品",
+                                     "spec": {"event": "bond_deal", "which": "first", "feature": "field", "field": "symbol", "window_days": 0}})
+        ana.call("POST", "/v1/tags/first_deal_symbol/compute", {})
+        ana.call("POST", "/v1/tags", {"name": "RFM 客群（近 90 天成交）", "key": "rfm_90d", "directory": "客戶價值", "kind": "rfm", "project": "golden", "description": "R 最近成交距今、F 成交次數、M 成交金額各分 5 級，輸出八類客群",
+                                     "spec": {"event": "bond_deal", "amount_field": "amount", "window_days": 90, "bins": 5, "output": "segment"}, "update": {"mode": "routine", "freq": "weekly", "earliest": "07:00", "keep": 8}, "fields": {"department": "財富管理", "category": "分析分群"}})
+        ana.call("POST", "/v1/tags/rfm_90d/compute", {})
         mkt.call("POST", "/v1/tags", {"name": "Q4 活動名單（待審）", "key": "campaign_q4", "directory": "行銷", "kind": "values", "values": [{"value": "A 組", "rule": {"project": "golden", "filters": [{"field": "user.lifecycle", "op": "in", "value": ["沉睡"]}]}}]})
     dests = {d["name"]: d for d in ops.call("GET", "/v1/destinations")}
     if "CRM 客戶系統" not in dests:
