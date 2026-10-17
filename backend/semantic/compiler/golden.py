@@ -106,45 +106,60 @@ def scenario_events(rng: random.Random, ids: list[str]) -> list[dict[str, Any]]:
         d = date(2026, 10, 1) + timedelta(days=day)
         return datetime(d.year, d.month, d.day, rng.choices(range(24), HOUR_W)[0], rng.randrange(0, 60), rng.randrange(0, 60), rng.randrange(0, 1000) * 1000)
     plat_of = lambda: rng.choices(["iOS", "Android", "Web"], [45, 35, 20])[0]
-    # A5／C2／C5 開戶：每天 90 人進開戶首頁（三個來源各約 30，日線分組後仍 ≥ K）→ 55% 當天完成申請 → 70% 隔天登入 → 50% 兩天後委託
+    def n_of(base: float, day: int) -> int:
+        """每天人數：週末七折、±15% 抖動；基數本身可帶趨勢（讓解讀規則有上升／下降可講）。"""
+        wk = (date(2026, 10, 1) + timedelta(days=day)).weekday()
+        return max(1, int(base * (0.7 if wk >= 5 else 1.0) * (0.85 + 0.3 * rng.random())))
+    # A5／C2／C5 開戶：每天約 105 人進開戶首頁（三個來源平均，分組日線 ≥ K）→ 55% 當場完成申請（同一會話內）→ 70% 隔天登入 → 50% 兩天後委託
     for day in range(16):
-        for oid in rng.sample(ids, 90):
+        for oid in rng.sample(ids, n_of(105, day)):
             plat = plat_of(); src = rng.choice(["google", "facebook", "line"])
             t = day_time(day); put(oid, "kh_entry_khpg_pv", t, plat, utm_source=src, channel="web" if plat == "Web" else "app")
             if rng.random() < 0.55:
-                put(oid, "kh_apply", t + timedelta(minutes=rng.randrange(8, 50)), plat, utm_source=src, channel="web" if plat == "Web" else "app")
+                put(oid, "kh_apply", t + timedelta(minutes=rng.randrange(3, 22)), plat, utm_source=src, channel="web" if plat == "Web" else "app")
                 if rng.random() < 0.7:
                     put(oid, "app_login_success", t + timedelta(days=1, minutes=rng.randrange(0, 600)), plat)
                     if rng.random() < 0.5:
                         put(oid, "bond_order", t + timedelta(days=2, minutes=rng.randrange(0, 600)), plat, symbol=rng.choice(["2330", "0050", "2454"]), amount=float(rng.randrange(1, 20_001) * 100), props={"order_no": f"S{n[0]}"})
-    # A4／D4／E3 推播：三個發送計畫，每天 90 人點擊（每計畫 ≥ K）→ 45% 兩天內委託送出 → 60% 成交（帶金額）
+    # A4／D4／E3 推播：三個發送計畫，每天 85 → 125 人點擊（逐日上升；每計畫 ≥ K）→ 45% 委託送出（一半在同一會話、一半兩天內）→ 60% 成交（帶金額）
     camps = ["Q4_bond_promo", "sip_launch", "reactivation_oct"]
     for day in range(16):
-        for oid in rng.sample(ids, 90):
+        for oid in rng.sample(ids, n_of(85 + 40 * day / 15, day)):
             plat = rng.choice(["iOS", "Android"]); camp = rng.choices(camps, [4, 3, 3])[0]
             t = day_time(day); put(oid, "push_click", t, plat, channel="push", utm_source="push", utm_campaign=camp)
             if rng.random() < 0.45:
-                t2 = t + timedelta(minutes=rng.randrange(5, 2 * 24 * 60)); sym = rng.choice(["2330", "2317", "0050", "2454", "00878"])
+                t2 = t + timedelta(minutes=rng.randrange(4, 20) if rng.random() < 0.5 else rng.randrange(60, 2 * 24 * 60)); sym = rng.choice(["2330", "2317", "0050", "2454", "00878"])
                 put(oid, "stock_order_submit", t2, plat, symbol=sym, utm_campaign=camp, props={"order_no": f"P{n[0]}"})
                 if rng.random() < 0.6:
-                    put(oid, "bond_deal", t2 + timedelta(minutes=rng.randrange(1, 240)), plat, symbol=sym, amount=float(rng.randrange(1, 30_001) * 100), utm_campaign=camp, props={"order_no": f"P{n[0] - 1}"})
-    # 活動：每天 90 人點活動頁（渠道 app／web／line 各 ≥ K）
+                    put(oid, "bond_deal", t2 + timedelta(minutes=rng.randrange(1, 9)), plat, symbol=sym, amount=float(rng.randrange(1, 30_001) * 100), utm_campaign=camp, props={"order_no": f"P{n[0] - 1}"})
+    # 活動：每天 120 → 95 人點活動頁（逐日下降；渠道 app／web／line 各 ≥ K）
     for day in range(16):
-        for oid in rng.sample(ids, 90):
+        for oid in rng.sample(ids, n_of(120 - 25 * day / 15, day)):
             plat = plat_of(); put(oid, "act_click", day_time(day), plat, channel=rng.choices(["app", "web", "line"], [4, 3, 3])[0], utm_source=rng.choice(["line", "facebook", ""]))
-    # C1／C4 搜尋 → 看盤 → 委託送出：每天 ~40 人搜尋 → 65% 一小時內看盤 → 35% 委託送出 → 50% 成交；定期定額每天 ~24 筆申購
+    # C1／C4 搜尋 → 看盤 → 委託送出（同一會話，30 分鐘內）：每天約 45 人搜尋 → 65% 看盤 → 35% 委託送出 → 50% 成交；定期定額每天約 24 筆申購
     for day in range(16):
-        for oid in rng.sample(ids, 40):
+        for oid in rng.sample(ids, n_of(45, day)):
             plat = plat_of(); t = day_time(day); sym = rng.choice(["2330", "2317", "0050", "2454", "00878", "2603"])
             put(oid, "search_submit", t, plat, symbol=sym, props={"keyword": sym})
             if rng.random() < 0.65:
-                put(oid, "hq_stockdetail_view", t + timedelta(minutes=rng.randrange(1, 60)), plat, symbol=sym)
+                t2 = t + timedelta(minutes=rng.randrange(1, 12)); put(oid, "hq_stockdetail_view", t2, plat, symbol=sym)
                 if rng.random() < 0.35:
-                    t3 = t + timedelta(minutes=rng.randrange(61, 600)); put(oid, "stock_order_submit", t3, plat, symbol=sym, props={"order_no": f"Q{n[0]}"})
+                    t3 = t2 + timedelta(minutes=rng.randrange(2, 12)); put(oid, "stock_order_submit", t3, plat, symbol=sym, props={"order_no": f"Q{n[0]}"})
                     if rng.random() < 0.5:
-                        put(oid, "bond_deal", t3 + timedelta(minutes=rng.randrange(1, 120)), plat, symbol=sym, amount=float(rng.randrange(1, 30_001) * 100), props={"order_no": f"Q{n[0] - 1}"})
-        for oid in rng.sample(ids, 24):
+                        put(oid, "bond_deal", t3 + timedelta(minutes=rng.randrange(1, 8)), plat, symbol=sym, amount=float(rng.randrange(1, 30_001) * 100), props={"order_no": f"Q{n[0] - 1}"})
+        for oid in rng.sample(ids, n_of(24, day)):
             put(oid, "sip_purchase", day_time(day), plat_of(), symbol=rng.choice(["0050", "00878", "006208"]), amount=float(rng.choice([3000, 5000, 10000, 20000])))
+    # 登入會話鏈（路徑分析才有分支）：每天約 55 人 登入 → 看盤（2–9 分）→ 60% 委託（3–12 分）→ 70% 成交（1–6 分）
+    for day in range(16):
+        for oid in rng.sample(ids, n_of(55, day)):
+            plat = plat_of(); t = day_time(day); sym = rng.choice(["2330", "2317", "0050", "2454", "00878"])
+            put(oid, "app_login_success", t, plat)
+            t2 = t + timedelta(minutes=rng.randrange(2, 10)); put(oid, "hq_stockdetail_view", t2, plat, symbol=sym)
+            if rng.random() < 0.6:
+                t3 = t2 + timedelta(minutes=rng.randrange(3, 13)); amt = float(rng.randrange(1, 50_001) * 100); on = f"L{n[0]}"
+                put(oid, "bond_order", t3, plat, symbol=sym, amount=amt, props={"order_no": on})
+                if rng.random() < 0.7:
+                    put(oid, "bond_deal", t3 + timedelta(minutes=rng.randrange(1, 7)), plat, symbol=sym, amount=amt, props={"order_no": on})
     return out
 
 

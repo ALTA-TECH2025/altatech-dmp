@@ -113,7 +113,7 @@ def card_html(card: dict[str, Any], data: dict[str, Any], k: int, label_of: Call
 def explain_card(card: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
     kind, q, rows = card["kind"], card["query"], data.get("rows") or []
     sup = sum(1 for r in rows if r.get("suppressed"))
-    warnings = list(data.get("warnings") or []) + ([f"{sup} 列因 K 匿名抑制"] if sup else [])
+    warnings = [w for w in (data.get("warnings") or []) if not str(w).startswith("plan ")] + ([f"{sup} 列因 K 匿名抑制"] if sup else [])
     line, signal = "沒有資料", "none"
     if kind == "events" and rows:
         aliases, labels = metric_labels(q); a = aliases[0]; lab = labels[a]
@@ -129,10 +129,18 @@ def explain_card(card: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
                 peak = max(xs, key=lambda x: by[x])
                 signal = "flat" if chg is None or abs(chg) < 5 else ("up" if chg > 0 else "down")
                 line = f"{lab}：後半段日均 {svg.fmt(a2)}，較前半段{'持平' if signal == 'flat' else ('上升' if signal == 'up' else '下降') + f' {abs(chg):.0f}%'}；高點 {peak}（{svg.fmt(by[peak])}）"
+                if q.get("group_by"):
+                    gt: dict[str, float] = {}
+                    for r in rows:
+                        v = _f(r.get(a))
+                        if v is not None: gt[str(r.get("g1") or "（未填）")] = gt.get(str(r.get("g1") or "（未填）"), 0) + v
+                    if gt:
+                        g_top = max(gt, key=lambda g: gt[g]); g_tot = sum(gt.values())
+                        line += f"；分組以 {g_top} 最高（占 {gt[g_top] / g_tot * 100:.0f}%）" if g_tot else ""
             else:
                 line = f"{lab}：{svg.fmt(by.get(xs[0]) if xs else None)}"
         elif q.get("group_by"):
-            vals = [(str(r.get("g1")), _f(r.get(a))) for r in rows if _f(r.get(a)) is not None]
+            vals = [(str(r.get("g1") or "（未填）"), _f(r.get(a))) for r in rows if _f(r.get(a)) is not None]
             if vals:
                 top = max(vals, key=lambda t: t[1]); tot = sum(v for _, v in vals)
                 line = f"{lab}：{top[0]} 最高（{svg.fmt(top[1])}，占 {top[1] / tot * 100:.0f}%）" if tot else f"{lab}：{top[0]} 最高"
@@ -157,7 +165,14 @@ def explain_card(card: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
     elif kind == "path":
         paths = [p for p in (data.get("paths") or []) if not p.get("suppressed")]
         if paths:
-            top = paths[0]; line = f"最常見路徑 {' → '.join(top.get('path', []))}（{svg.fmt(top.get('users'))} 人，占 {float(top.get('share') or 0) * 100:.1f}%）；起點 {svg.fmt(data.get('anchor_users'))} 人"
+            def real(p: dict[str, Any]) -> bool:          # 有實際後續步驟（不是起點後直接離開）
+                steps = [x for x in (p.get("path") or [])[1:] if x not in ("離開", "其他")]
+                return len(steps) >= 1
+            nxt = next((p for p in paths if real(p)), None); leave = next((p for p in paths if not real(p)), None)
+            parts = []
+            if nxt: parts.append(f"最常見後續路徑 {' → '.join(nxt.get('path', []))}（{svg.fmt(nxt.get('users'))} 人，占起點 {float(nxt.get('share') or 0) * 100:.1f}%）")
+            if leave: parts.append(f"{float(leave.get('share') or 0) * 100:.0f}% 的起點用戶有過直接離開的會話")
+            line = "；".join(parts) + f"；起點 {svg.fmt(data.get('anchor_users'))} 人"
     elif kind == "attribution" and rows:
         models = list(data.get("models") or []); m = models[0] if models else None
         if m:
@@ -166,10 +181,25 @@ def explain_card(card: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
     return {"card": card["id"], "title": card["title"], "kind": kind, "line": line, "signal": signal, "warnings": warnings}
 
 
+KIND_CN = {"events": "事件", "funnel": "漏斗", "retention": "留存", "path": "路徑", "attribution": "歸因", "sql": "SQL"}
+
+
 def explain_summary(period: str, cards: list[dict[str, Any]]) -> list[str]:
-    ups = [c for c in cards if c["signal"] == "up"]; downs = [c for c in cards if c["signal"] == "down"]
-    s1 = f"{period}：{len(cards)} 張卡片，{len(ups)} 張上升、{len(downs)} 張下降、{len(cards) - len(ups) - len(downs)} 張持平或無趨勢。"
-    s2 = f"值得注意：{downs[0]['title']}（{downs[0]['line']}）。" if downs else (f"表現最好：{ups[0]['title']}（{ups[0]['line']}）。" if ups else "各卡片沒有明顯變化。")
+    """三句話：趨勢（只算有前後半段可比的卡）、重點（下降／上升卡優先，否則漏斗／留存／歸因那句）、注意事項。"""
+    trend = [c for c in cards if c["signal"] in ("up", "down", "flat") and c["kind"] == "events"]
+    ups = [c for c in trend if c["signal"] == "up"]; downs = [c for c in trend if c["signal"] == "down"]
+    others = [c for c in cards if c not in trend]
+    kinds = sorted({KIND_CN.get(c["kind"], c["kind"]) for c in others})
+    if trend:
+        s1 = f"{period}：{len(cards)} 張卡片；{len(trend)} 張趨勢卡中 {len(ups)} 張上升、{len(downs)} 張下降、{len(trend) - len(ups) - len(downs)} 張持平（前後半段日均差 < 5%）" + (f"；另 {len(others)} 張為{'／'.join(kinds)}。" if others else "。")
+    else:
+        s1 = f"{period}：{len(cards)} 張卡片（{'／'.join(kinds) or '—'}），沒有可比前後半段的趨勢卡。"
+    picks = downs[:1] + ups[:1]
+    if picks:
+        s2 = "；".join((("值得注意：" if c["signal"] == "down" else "表現最好：") + f"{c['title']}（{c['line']}）") for c in picks) + "。"
+    else:
+        key = [c for c in cards if c["kind"] in ("funnel", "retention", "attribution", "path") and c["signal"] != "none" or (c["kind"] in ("funnel", "retention", "attribution", "path") and c["line"] not in ("沒有資料", ""))]
+        s2 = ("重點：" + "；".join(f"{c['title']}：{c['line']}" for c in key[:2]) + "。") if key else "趨勢卡皆持平，沒有明顯變化。"
     nw = sum(len(c["warnings"]) for c in cards)
     s3 = f"{nw} 則注意事項（抑制列或資料不完整），解讀時請留意樣本量。" if nw else "沒有抑制列或資料不完整的提醒。"
     return [s1, s2, s3]
@@ -229,7 +259,13 @@ class DashboardShare:
     @staticmethod
     def _period_text(d: dict[str, Any], override: dict[str, Any] | None) -> str:
         if override and override.get("from") and override.get("to"): return f"{override['from']} ～ {override['to']}"
-        return {"7d": "最近 7 天", "14d": "最近 14 天", "30d": "最近 30 天", "90d": "最近 90 天"}.get(str((override or d.get("time") or {}).get("preset") or ""), "")
+        preset = {"7d": "最近 7 天", "14d": "最近 14 天", "30d": "最近 30 天", "90d": "最近 90 天"}.get(str((override or d.get("time") or {}).get("preset") or ""), "")
+        pins = [t for t in ((c.get("query") or {}).get("time") or {} for c in d.get("cards") or []) if t.get("pinned") and t.get("from") and t.get("to")]
+        if pins and len(pins) == len(d.get("cards") or []):
+            return f"{min(t['from'] for t in pins)} ～ {max(t['to'] for t in pins)}（卡片釘住區間）"
+        if pins:
+            return f"{preset}（{len(pins)} 張卡片釘住 {min(t['from'] for t in pins)} ～ {max(t['to'] for t in pins)}）"
+        return preset
 
     # ---- HTML 看板 ----
     def token(self, aid: str, expires_at: str) -> str:
