@@ -56,6 +56,14 @@ function CardBody({ card, data, k, labelOf }: { card: DashboardCard; data: CardD
     }
     return <LineChart series={toSeries(res, aliases, labels)} kind={chart === 'bar' || spec === 'bar' ? 'bar' : 'line'} height={220} />;
   }
+  if (card.kind === 'sql') {
+    const cols = (data.columns ?? Object.keys(data.rows[0] ?? {})).filter((c) => c !== '_k' && c !== 'suppressed');
+    const num = cols.slice(1).filter((c) => data.rows.some((r) => typeof r[c] === 'number'));
+    const dated = /^\d{4}-\d{2}/.test(String(data.rows[0]?.[cols[0]] ?? ''));                      // 第一欄是日期才畫折線；維度欄畫長條
+    const chart = card.chart === 'auto' ? (num.length && data.rows.length > 1 && cols.length <= 4 ? (dated ? 'line' : 'bar') : 'table') : card.chart;
+    if (chart === 'line' || chart === 'bar') return <LineChart series={num.slice(0, 3).map((y) => ({ key: y, label: y, metric: y, group: '', points: data.rows.map((r) => ({ x: String(r[cols[0]] ?? ''), y: typeof r[y] === 'number' ? (r[y] as number) : null, suppressed: false })) }))} kind={chart} height={220} />;
+    return <DataTable data={data} labels={{}} />;
+  }
   if (card.kind === 'funnel') {
     const g = firstGroup(data.rows as unknown as FunnelRow[]);
     return <>{g.groups > 1 && <p className="note">共 {g.groups} 組，只顯示 {g.key}；完整請到漏斗分析。</p>}<FunnelChart rows={g.rows} k={k} /></>;

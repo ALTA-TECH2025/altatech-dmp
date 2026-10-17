@@ -1,5 +1,5 @@
 // 與 openapi Dashboards（/v1/dashboards*）對齊：儀表板、卡片（一種分析 + 查詢 body）、卡片資料（以檢視者身分重算）
-export type CardKind = 'events' | 'funnel' | 'retention' | 'path' | 'attribution';
+export type CardKind = 'events' | 'funnel' | 'retention' | 'path' | 'attribution' | 'sql';
 export type CardChart = 'auto' | 'line' | 'bar' | 'stat' | 'table';
 export type Preset = '7d' | '14d' | '30d' | '90d';
 export interface DashboardCard { id: string; title: string; kind: CardKind; query: Record<string, unknown>; chart: CardChart; width: 1 | 2; note: string; created_by: string; created_at: string; bookmark?: string; bookmark_deleted?: boolean }

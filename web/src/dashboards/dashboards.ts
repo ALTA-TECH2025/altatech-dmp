@@ -2,7 +2,7 @@
 import type { CardKind, Preset } from './types';
 
 export const PRESET_CN: Record<Preset, string> = { '7d': '最近 7 天', '14d': '最近 14 天', '30d': '最近 30 天', '90d': '最近 90 天' };
-export const KIND_CN: Record<CardKind, string> = { events: '事件分析', funnel: '漏斗分析', retention: '留存分析', path: '行為路徑', attribution: '歸因分析' };
+export const KIND_CN: Record<CardKind, string> = { events: '事件分析', funnel: '漏斗分析', retention: '留存分析', path: '行為路徑', attribution: '歸因分析', sql: '自定義 SQL' };
 export const AGG_CN: Record<string, string> = { total: '總次數', users: '觸發用戶數', avg_per_user: '人均次數', uniq: '去重數', sum: '數值求和', avg: '數值均值', avg_val: '數值人均值', max: '最大值', min: '最小值', p25: '下四分位', p50: '中位數', p75: '上四分位', p90: 'P90', mau: 'MAU（按天）' };
 
 interface Metric { event?: string | null; agg: string; field?: string; alias?: string }
@@ -22,6 +22,7 @@ export function defaultTitle(kind: CardKind, query: Record<string, unknown>): st
   if (kind === 'funnel') return ((query.steps as { event: string; alias?: string }[] | undefined) ?? []).map((s) => s.alias || s.event).join(' → ').slice(0, 60) || '漏斗';
   if (kind === 'retention') return `${ev(query.initial) || '初始'} 留存${query.unit === 'week' ? '（週）' : query.unit === 'month' ? '（月）' : ''}`;
   if (kind === 'path') return `${ev(query.anchor) || '路徑'} ${query.direction === 'before' ? '之前' : '之後'} ${String(query.steps ?? 3)} 步`;
+  if (kind === 'sql') return String(query.sql ?? 'SQL').replace(/\s+/g, ' ').slice(0, 60);
   return `${ev(query.target) || '轉化'} 歸因（${((query.models as string[] | undefined) ?? []).join('／')}）`;
 }
 

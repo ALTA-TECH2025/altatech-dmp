@@ -7,7 +7,7 @@ import { RequireGrant } from '@/auth/RequireGrant';
 import { KIND_CN } from './dashboards';
 import type { Bookmark, CardKind, DashboardSummary } from './types';
 
-const PATH: Record<CardKind, string> = { events: '/events', funnel: '/funnel', retention: '/retention', path: '/path', attribution: '/attribution' };
+const PATH: Record<CardKind, string> = { events: '/events', funnel: '/funnel', retention: '/retention', path: '/path', attribution: '/attribution', sql: '/sql' };
 const ROLES: Record<string, string> = { admin: '系統管理員', marketing: '行銷', data_analyst: '數據分析', digital_ops: '數位經營', it_admin: '資訊管理' };
 
 export function BookmarksPage() {

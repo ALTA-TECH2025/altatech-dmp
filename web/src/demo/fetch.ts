@@ -45,12 +45,13 @@ export const demoFetch: typeof fetch = async (input, init) => {
 
 // ---- 記憶體覆蓋層：示範站建立的看板／書籤 ----
 type Obj = Record<string, unknown>;
-const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj>() };
+const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj>(), sqlSaved: new Map<string, Obj>(), sqlRuns: [] as Obj[], mids: new Map<string, Obj>(), midGone: new Set<string>() };
 const now = () => new Date().toISOString().slice(0, 19) + 'Z';
 const me = (fx: Fixtures): string => String(((fx.roles[demoRole()] ?? fx.roles.admin) as { user: { id: string } }).user.id);
 const nid = (p: string) => `${p}_demo${Math.random().toString(36).slice(2, 7)}`;
 function sampleData(fx: Fixtures, kind: string, query?: Obj): Obj | null {
   if (kind === 'events' && query) return synthEvents(query);
+  if (kind === 'sql' && query) { const r = synthSql(fx, String(query.sql ?? '')); return { rows: r.rows, columns: r.columns, chart_spec: { type: 'auto' }, masked: {}, sql: r.sql_effective, lineage: r.lineage, cost: { ms: r.ms, rows: r.row_count, layer: 'L0' }, warnings: r.warnings }; }
   for (const [k, v] of Object.entries(fx.routes)) if (/^POST \/v1\/dashboards\/d_[^/]+\/cards\/[^/]+\/data$/.test(k) && (v as { card?: { kind?: string } }).card?.kind === kind) return v as Obj;
   return null;
 }
@@ -83,6 +84,7 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
     return askOverlay(String(b.question ?? ''), null, fx);
   }
   if (seg[1] === 'dashboards' && seg[3] === 'ask' && method === 'POST') return askOverlay(String(b.question ?? ''), seg[2], fx);
+  if (seg[1] === 'sql') return sqlOverlay(method, seg, b, fx, who);
   if (seg[1] === 'bookmarks') {
     const id = seg[2]; const bm = id ? mem.bookmarks.get(id) : undefined;
     const usedIn = (bid: string) => [...mem.dashboards.values()].filter((d) => (d.cards as Obj[]).some((c) => c.bookmark === bid)).map((d) => ({ dashboard: d.id, name: d.name }));
@@ -147,4 +149,96 @@ function askOverlay(question: string, dashboard: string | null, fx: Fixtures): {
   const r = askRules(question, cat, { defaultTime: { from: '2026-09-17', to: '2026-10-16', grain: 'day' }, project: 'golden', dashboard });
   if (!r.cards.length) return { body: { detail: { message: '問題對不上任何分析模型或語意層事件', unmatched: r.unmatched } }, status: 422 };
   return { body: r };
+}
+
+// ---- 自定義 SQL：示範模式在瀏覽器內模擬（表目錄走固定資料；查詢結果為合成列；已存查詢／記錄／中間表存在記憶體） ----
+const ts = () => Math.floor(Date.now() / 1000);
+function hash(str: string): string { let h = 5381; for (const c of str) h = ((h << 5) + h + c.charCodeAt(0)) | 0; return (h >>> 0).toString(16).padStart(8, '0'); }
+/** 從 SELECT 清單推欄名（AS 別名優先，否則取運算式最後一個識別字），FROM 推血緣；產生 14 列確定性資料。 */
+function synthSql(fx: Fixtures, sql: string): { run_id: string; columns: string[]; rows: Obj[]; row_count: number; truncated: boolean; ms: number; scan_rows_estimate: number; sql_effective: string; lineage: string[]; warnings: string[] } {
+  const fixed = (fx.routes['POST /v1/sql/query/examples'] as Obj[] | undefined) ?? [];
+  const norm = (x: string) => x.replace(/\s+/g, ' ').trim().toLowerCase();
+  const hit = fixed.find((f) => norm(String(f.sql ?? '')) === norm(sql));
+  if (hit) { const r = hit.result as Obj; return { ...(r as ReturnType<typeof synthSql>), run_id: nid('run'), warnings: [...((r.warnings as string[]) ?? []), '示範模式：固定資料'] }; }
+  const m = /select\s+(?:distinct\s+)?([\s\S]*?)\s+from\s+([\w.]+)/i.exec(sql);
+  const items: string[] = []; let depth = 0, cur = '';
+  for (const ch of m?.[1] ?? '*') { if (ch === '(') depth++; if (ch === ')') depth--; if (ch === ',' && depth === 0) { items.push(cur); cur = ''; } else cur += ch; }
+  items.push(cur);
+  const columns = items.map((it, i) => { const t = it.trim(); if (t === '*') return 'col'; const as = /\s+as\s+([\w]+)\s*$/i.exec(t); if (as) return as[1]; const id = t.match(/[A-Za-z_][\w]*/g); return id ? id[id.length - 1] : `c${i + 1}`; });
+  const rows: Obj[] = []; let seed = 11; const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  const dimSets = [['iOS', 'Android', 'Web', 'Mobile Web'], ['P1', 'P2', 'P3', 'P4'], ['活躍', '成長', '成熟', '沉睡', '新客', '流失']];
+  const isDate = (c: string) => /date|day|time|at$|bucket|week|month/i.test(c);
+  const isNum = (c: string) => /count|cnt|users|deals|amount|sum|avg|rate|viewed|dealt|total|num|qty|aum|score|lvl|n$/i.test(c) || /\(/.test(items[columns.indexOf(c)] ?? '');
+  const dimCols = columns.filter((c) => !isDate(c) && !isNum(c));
+  const n = columns.some(isDate) ? 14 : dimCols.length ? Math.min(14, dimSets[0].length * (dimCols.length > 1 ? dimSets[1].length : 1)) : 1;   // 有日期欄：14 天；只有維度欄：各維度值組合各一列
+  for (let i = 0; i < n; i++) {
+    const r: Obj = {};
+    for (const c of columns) {
+      const di = dimCols.indexOf(c);
+      if (isDate(c)) r[c] = new Date(Date.UTC(2026, 9, 3 + i)).toISOString().slice(0, 10);
+      else if (isNum(c)) r[c] = Math.round((60 + 50 * Math.sin(i / 2 + columns.indexOf(c)) + rnd() * 40) * 10) / 10;
+      else { const set = dimSets[Math.min(di, dimSets.length - 1)]; r[c] = columns.some(isDate) ? set[i % set.length] : set[di === 0 ? Math.floor(i / (dimCols.length > 1 ? dimSets[1].length : 1)) % set.length : i % set.length]; }
+    }
+    rows.push(r);
+  }
+  const table = m?.[2] ? (m[2].includes('.') ? m[2] : `dmp.${m[2]}`) : 'dmp.events';
+  return { run_id: nid('run'), columns, rows, row_count: rows.length, truncated: false, ms: 18, scan_rows_estimate: 1_240_000, sql_effective: `SELECT * FROM (${sql.trim()}) AS _q LIMIT 1000 SETTINGS readonly = 1, max_execution_time = 60`, lineage: [table], warnings: ['示範模式：合成資料，未執行 SQL'] };
+}
+const L3_ONLY_ADMIN = new Set(['one_id', 'cust_code', 'account_no']);
+const L2_ANALYST = new Set(['amount', 'filled_amount', 'fee', 'fee90', 'churn_score', 'aum']);
+/** 表目錄依示範角色標記不可直接查的欄位（與 masking.yaml 同口徑：L3 只有 admin 明文；L2 數據分析／數位經營明文）。 */
+function sqlTables(fx: Fixtures): Obj | null {
+  const cat = fx.routes['GET /v1/sql/tables'] as { tables: { name: string; columns: { name: string; allowed: boolean; level: string }[] }[] } | undefined;
+  if (!cat) return null;
+  const role = demoRole(); const admin = role === 'admin' || role === 'it';
+  const blocked = (c: string) => (L3_ONLY_ADMIN.has(c) && !admin) || (L2_ANALYST.has(c) && role === 'it');
+  const mids = [...mem.mids.values()].filter((m) => !cat.tables.some((t) => t.name === m.name)).map((m) => ({ name: m.name, mid_table: true, note: m.note, columns: (m.columns as string[]).map((c) => ({ name: c, type: 'auto', level: 'L1', allowed: true })) }));
+  return { ...cat, tables: [...cat.tables.filter((t) => !mem.midGone.has(t.name)).map((t) => ({ ...t, columns: t.columns.map((c) => ({ ...c, allowed: c.allowed && !blocked(c.name) })) })), ...mids] };
+}
+function sqlOverlay(method: string, seg: string[], b: Obj, fx: Fixtures, who: string): { body: unknown; status?: number } | null {
+  const kind = seg[2]; const id = seg[3];
+  if (demoRole() === 'marketing' || demoRole() === 'ops') return { body: { detail: '此身分沒有自定義 SQL 權限（數據分析、資訊管理、系統管理員）' }, status: 403 };
+  if (kind === 'tables' && method === 'GET') { const t = sqlTables(fx); return t ? { body: t } : null; }
+  if (kind === 'query' && method === 'POST' && !id) {
+    const sql = String(b.sql ?? '');
+    if (!sql.trim()) return { body: { detail: 'sql 必填' }, status: 400 };
+    if (/^\s*(insert|alter|drop|create|truncate|delete|update|optimize|system|grant|attach|detach|rename|set|kill)\b/i.test(sql) || /;\s*\S/.test(sql)) return { body: { detail: '只允許單一 SELECT（唯讀）；不接受 DDL／DML／多語句' }, status: 400 };
+    const cat = sqlTables(fx) as { tables?: { name: string; columns: { name: string; allowed: boolean }[] }[] } | null;
+    const bad = (cat?.tables ?? []).flatMap((t) => t.columns.filter((c) => !c.allowed).map((c) => c.name)).find((c) => new RegExp(`\\b${c}\\b`, 'i').test(sql));
+    if (bad) return { body: { detail: `SQL 涉及脫敏欄位，不可直接查詢：${bad}（可用 one_id_uint 做去重／關聯；明細請走用戶列表與揭露申請）` }, status: 400 };
+    const r = synthSql(fx, sql);
+    if (b.explain) return { body: { ...r, rows: [], row_count: 0, explained: true } };
+    mem.sqlRuns.unshift({ id: r.run_id, user: who, sql, sql_hash: hash(sql), at: ts(), status: 'ok', rows: r.row_count, ms: r.ms, error: null, lineage: r.lineage, columns: r.columns });
+    return { body: r };
+  }
+  if (kind === 'history' && method === 'GET') return { body: [...mem.sqlRuns, ...(((fx.routes['GET /v1/sql/history'] as Obj[] | undefined) ?? []))] };
+  if (kind === 'saved') {
+    const fixed = ((fx.routes['GET /v1/sql/saved'] as Obj[] | undefined) ?? []).filter((x) => !mem.sqlSaved.has(String(x.id)));
+    if (method === 'GET' && !id) return { body: [...[...mem.sqlSaved.values()].filter((x) => !x._gone), ...fixed] };
+    if (method === 'POST' && !id) { const x: Obj = { id: nid('sq'), name: b.name || '未命名查詢', group: b.group ?? '', description: b.description ?? '', sql: b.sql, params_default: b.params_default ?? {}, shared: b.shared ?? { roles: [], users: [] }, owner: who, created_at: ts(), updated_at: ts(), mine: true, editable: true }; mem.sqlSaved.set(String(x.id), x); return { body: x, status: 201 }; }
+    const cur = id ? (mem.sqlSaved.get(id) ?? fixed.find((x) => x.id === id)) : undefined;
+    if (!cur) return null;
+    if (method === 'PUT') { const x = { ...cur, ...b, updated_at: ts() }; mem.sqlSaved.set(id, x); return { body: x }; }
+    if (method === 'DELETE') { mem.sqlSaved.set(id, { ...cur, _gone: true }); return { body: null, status: 204 }; }
+    return { body: cur };
+  }
+  if (kind === 'mid-tables') {
+    const fixed = ((fx.routes['GET /v1/sql/mid-tables'] as Obj[] | undefined) ?? []).filter((x) => !mem.mids.has(String(x.name)) && !mem.midGone.has(String(x.name)));
+    if (method === 'GET' && !id) return { body: [...mem.mids.values(), ...fixed] };
+    if (method === 'POST' && !id) {
+      const raw = String(b.name ?? '');
+      if (!/^[a-z][a-z0-9_]{1,40}$/.test(raw)) return { body: { detail: '名稱需為小寫英數底線，2–41 字' }, status: 400 };
+      const name = raw.startsWith('mid_') ? raw : `mid_${raw}`;
+      if (mem.mids.has(name) || fixed.some((x) => x.name === name)) return { body: { detail: `中間表 ${name} 已存在` }, status: 409 };
+      const r = synthSql(fx, String(b.sql ?? ''));
+      const x: Obj = { id: nid('mt'), name, sql: b.sql, note: b.note ?? '', owner: who, created_at: ts(), rows: r.row_count, columns: r.columns, refreshed_at: ts() };
+      mem.mids.set(name, x); return { body: x, status: 201 };
+    }
+    const cur = id ? (mem.mids.get(id) ?? fixed.find((x) => x.name === id)) : undefined;
+    if (!cur) return null;
+    if (seg[4] === 'refresh' && method === 'POST') { const x = { ...cur, refreshed_at: ts() }; mem.mids.set(id, x); return { body: x }; }
+    if (method === 'DELETE') { mem.mids.delete(id); mem.midGone.add(id); return { body: null, status: 204 }; }
+    return { body: cur };
+  }
+  return null;
 }

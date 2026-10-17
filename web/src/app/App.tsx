@@ -21,6 +21,7 @@ import { ItemsPage } from '@/governance/ItemsPage';
 import { MigrationPage } from '@/migration/MigrationPage';
 import { AuditPage } from '@/audit/AuditPage';
 import { BookmarksPage } from '@/dashboards/BookmarksPage';
+import { SqlPage } from '@/sql/SqlPage';
 import { SettingsPage } from '@/settings/SettingsPage';
 import { ProfileEntryPage } from '@/users/ProfileEntryPage';
 import type { Module } from '@/api/types';
@@ -53,7 +54,7 @@ export function App() {
             <Route path="/retention" element={<RetentionPage />} />
             <Route path="/path" element={<PathPage />} />
             <Route path="/attribution" element={<AttributionPage />} />
-            <Route path="/sql" element={<Placeholder title="自定義 SQL" module="events" stage="todo" note="SQL 沙盒：語意層遮罩、行級條件注入、掃描量門檻與歷史；排在 M4。" instead={{ to: '/events', cn: '事件分析（含 SQL 檢視）' }} />} />
+            <Route path="/sql" element={<SqlPage />} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="/segments" element={<SegmentsPage />} />
             <Route path="/segments/:id" element={<SegmentsPage />} />
