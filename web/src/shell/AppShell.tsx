@@ -1,47 +1,56 @@
-// 大框架：側欄（依權限過濾）＋ 頂欄（身分、角色、step-up 提示、登出）＋ 內容區（<Outlet/>）。版面沿用原型 css 的 .sidebar/.topbar/.page 結構。
+// 大框架（與原型 v0.3 同構，橫向導覽）：頂欄 = 品牌 + 群組（首頁／分析／營運／資料／AI 洞察／數據治理／系統管理）+ 右側（專案、身分、登出）；
+// 第二列子導覽 = 目前群組的項目（未實作標二期／待開發）+ 數據範圍；手機版收進抽屜。群組與項目依 /v1/iam/me 的 grants 過濾（後端另有 authorize）。
 import { useState, type FormEvent } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
-import { NAV } from './nav';
+import { NAV, type NavItem } from './nav';
 import { DEMO_ROLES, demoRole, isDemo, setDemoRole } from '@/demo/mode';
+
+const stageTag = (it: NavItem) => (it.stage ? <small className="nav-stage">{it.stage === 'phase2' ? '二期' : '待開發'}</small> : null);
 
 export function AppShell() {
   const { me, can, logout } = useAuth();
+  const loc = useLocation(); const nav = useNavigate();
   const [open, setOpen] = useState(false);
   if (!me) return null;
   const groups = NAV.map((g) => ({ ...g, items: g.items.filter((it) => can(it.module, 'view')) })).filter((g) => g.items.length);
+  const isActive = (it: NavItem) => (it.path === '/governance' ? loc.pathname === '/governance' : loc.pathname === it.path || loc.pathname.startsWith(it.path + '/'));
+  const active = groups.find((g) => g.items.some(isActive)) ?? groups[0];
+  const initial = (me.user.name || me.user.username || '?').slice(0, 1);
+  const scopeCn = me.scope.kind === 'global' ? '全域' : me.scope.kind === 'aggregate_only' ? '僅聚合' : '受限範圍';
   return (
-    <div className={`app ${open ? 'nav-open' : ''}`}>
-      <aside className="sidebar" aria-label="主選單">
-        <div className="brand"><img src="/favicon.svg" alt="" /><b>AltaTech DMP</b></div>
-        {groups.map((g) => (
-          <div className="nav-group" key={g.id}>
-            <div className="nav-h">{g.cn}</div>
-            {g.items.map((it) => (
-              <NavLink key={it.path} to={it.path} className={({ isActive }) => `nav-item${isActive ? ' on' : ''}`} onClick={() => setOpen(false)} title={it.stage === 'phase2' ? '第二階段' : it.stage === 'todo' ? '待開發' : undefined}>{it.cn}{it.stage && <small className="nav-stage">{it.stage === 'phase2' ? '二期' : '待開發'}</small>}</NavLink>
-            ))}
+    <div className="app">
+      <header className="topnav">
+        <div className="tn-in">
+          <button className="icon-btn hamb" aria-label="選單" onClick={() => setOpen(true)}>☰</button>
+          <NavLink className="brand" to="/overview"><img className="logo" src="/favicon.svg" alt="" /><b>ALTA TECH<sup>LTD</sup></b><span className="prod">DMP</span></NavLink>
+          <nav className="tn-nav" aria-label="主選單">
+            {groups.map((g) => <button key={g.id} className={g.id === active?.id ? 'on' : ''} onClick={() => nav(g.items[0].path)}>{g.cn}{g.id === 'ai' && <span className="badge">二期</span>}</button>)}
+          </nav>
+          <div className="tn-right">
+            {isDemo && <span className="row" style={{ marginTop: 0, gap: 6 }}><span className="pill amber" title="固定資料來自單機後端 + 合成黃金資料集；寫入動作只模擬成功">示範模式 · 固定資料</span><select aria-label="示範角色" value={demoRole()} onChange={(e) => { setDemoRole(e.target.value); location.reload(); }}>{DEMO_ROLES.map(([k, cn]) => <option key={k} value={k}>{cn}</option>)}</select></span>}
+            {me.session.step_up_needed && (me.user.provider === 'local' ? <StepUp /> : <a className="pill amber" href={`/auth/login?provider=${me.session.idp_mode === 'broker' ? 'keycloak' : 'entra'}&return_to=${encodeURIComponent(location.pathname)}`}>管理動作需重新驗證</a>)}
+            <span className="org-pick" title="專案 / 環境">證券示範專案<span className="sep">/</span>{isDemo ? 'demo' : 'prod'}</span>
+            <div className="me" title={me.user.id}><span className="av">{initial}</span><span><span className="nm">{me.user.name || me.user.username}</span><span className="rl">{me.roles.map((r) => r.cn + (r.active ? '' : '（待驗證）')).join('、') || '無角色'}</span></span></div>
+            <button className="btn-ghost sm" onClick={() => void logout()}>登出</button>
           </div>
-        ))}
-        <div className="nav-foot">
-          <span className="pill gray">{me.scope.kind === 'global' ? '全域' : me.scope.kind === 'aggregate_only' ? '僅聚合' : '受限範圍'}</span>
-          {me.scope.lookback_days ? <span className="pill amber">回溯 {me.scope.lookback_days} 天</span> : null}
         </div>
-      </aside>
-      <div className="main">
-        <header className="topbar">
-          <button className="burger" aria-label="選單" onClick={() => setOpen((v) => !v)}>☰</button>
-          <div className="grow" />
-          {isDemo && <span className="row" style={{ marginTop: 0, gap: 6 }}><span className="pill amber" title="固定資料來自單機後端 + 合成黃金資料集；寫入動作只模擬成功">示範模式 · 固定資料 · 變更不保存</span><select aria-label="示範角色" value={demoRole()} onChange={(e) => { setDemoRole(e.target.value); location.reload(); }}>{DEMO_ROLES.map(([k, cn]) => <option key={k} value={k}>{cn}</option>)}</select></span>}
-          {me.session.step_up_needed && (me.user.provider === 'local' ? <StepUp /> : <a className="pill amber" href={`/auth/login?provider=${me.session.idp_mode === 'broker' ? 'keycloak' : 'entra'}&return_to=${encodeURIComponent(location.pathname)}`}>管理動作需重新驗證</a>)}
-          <div className="who">
-            <b>{me.user.name || me.user.username}</b>
-            <span className="sub">{me.roles.map((r) => r.cn + (r.active ? '' : '（待驗證）')).join('、') || '無角色'} · {me.user.provider}</span>
-          </div>
-          <button className="btn-ghost sm" onClick={() => void logout()}>登出</button>
-        </header>
-        <main className="content"><Outlet /></main>
-      </div>
+      </header>
+      {active && (
+        <div className="subnav"><div className="tn-in">
+          {active.items.map((it) => <NavLink key={it.path} to={it.path} className={`sn-item${isActive(it) ? ' on' : ''}`} title={it.stage === 'phase2' ? '第二階段' : it.stage === 'todo' ? '待開發' : undefined}>{it.cn}{stageTag(it)}</NavLink>)}
+          <div className="right"><span className={`pill ${me.scope.kind === 'global' ? 'blue' : 'amber'}`}>{scopeCn}{me.scope.lookback_days ? ` · 回溯 ${me.scope.lookback_days} 天` : ''}</span></div>
+        </div></div>
+      )}
+      {open && (
+        <div className="mnav"><div className="drawer-bk" onClick={() => setOpen(false)} /><nav className="mnav-panel" aria-label="主選單">
+          <div className="hd"><img className="logo" src="/favicon.svg" alt="" /><b>ALTA TECH</b><span className="prod">DMP</span><button className="icon-btn x" onClick={() => setOpen(false)}>✕</button></div>
+          {groups.map((g) => <div key={g.id}><div className="grp">{g.cn}</div>{g.items.map((it) => <NavLink key={it.path} to={it.path} className={`it${isActive(it) ? ' on' : ''}`} onClick={() => setOpen(false)}>{it.cn}{stageTag(it)}</NavLink>)}</div>)}
+          <div className="ft"><button className="it" onClick={() => void logout()}>登出</button></div>
+        </nav></div>
+      )}
+      <main className="content"><div className="wrap"><Outlet /></div></main>
     </div>
   );
 }
