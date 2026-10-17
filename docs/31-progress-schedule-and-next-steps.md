@@ -8,9 +8,9 @@
 |---|---|
 | 開發期間 | 2026-10-14 ～ 10-17，4 天，147 個 commit（vibe coding，單一工作流） |
 | 後端 Python | 約 17,500 行（FastAPI、語意編譯器、政策引擎、分群／標籤／推送、整合、遷移、OneID、本機帳號） |
-| 正式前端 TypeScript | 約 6,200 行（React 19，26 個頁面，62 個單元測試） |
-| 契約 | OpenAPI 172 個路徑，其中 133 個已有實作（另有 7 個實作路徑尚未回寫契約；以路由宣告比對）；semantic／security／mcp YAML |
-| 自動化驗證 | 17 組 Python 自測（含真 ClickHouse 端到端、80 條黃金查詢 oracle 逐列比對、36 條必拒）、ruff、OpenAPI 驗證、yaml 載入、vitest、Playwright 截圖流程（本機真資料與示範站） |
+| 正式前端 TypeScript | 約 6,200 行（React 19，27 個頁面，66 個單元測試） |
+| 契約 | OpenAPI 173 個路徑（另有 `/metrics`），其中 138 個已有實作（另有 7 個實作路徑尚未回寫契約；以路由宣告比對）；semantic／security／mcp YAML |
+| 自動化驗證 | 18 組 Python 自測（含真 ClickHouse 端到端、80 條黃金查詢 oracle 逐列比對、36 條必拒）、ruff、OpenAPI 驗證、yaml 載入、vitest、Playwright 截圖流程（本機真資料與示範站） |
 | 示範站 | https://altatech-dmp-demo.vercel.app（瀏覽器內固定資料，五種角色切換；手機版可用） |
 | 文件 | docs/01–31 共 31 份；系統圖四張附實作狀態 |
 
@@ -133,7 +133,7 @@ v2.1 相對 v2 的差別來自兩件事：
 | 身分整合 | 只接過假 IdP；Entra ID／AD LDAPS 的群組對照、MFA、session 時效都要在客戶環境才知道 | 登入模組有 OIDC＋PKCE、LDAPS、TOTP 三條路 | M0 第一週就接真 IdP；本機帳號只留作緊急後門 |
 | 微批 vs 客戶對「即時」的期待 | 第一階段不上 Flink／Kafka，行為事件 5–15 分鐘可查、推送增量 15 分鐘；需求表 C11／E2 標為落差 | docs/23 已說明並獲理解，但 UAT 時容易被拿出來比 | 文件口徑一致（docs/27 需求表）；儀表板與推送頁都標示延遲；第二階段再談即時 |
 | K 匿名在小樣本 | K=20 讓小分公司、小標籤值、短窗口的日線整張被抑制（本週做情境看板就撞到） | 政策正確但體驗差 | 待確認 K 值與適用模組；前端已會提示「抑制列」；考慮分組自動合併為「其他」 |
-| 營運與監控空白 | 沒有 Prometheus／Grafana、告警、備份演練；控制面 JSON／PostgreSQL 的備援未定 | docs/27 §2 信心「低」 | M3 最小看板、M5 演練；控制面正式用 PostgreSQL（store_pg 已有自測） |
+| 營運與監控 | 監控最小版已做（指標、資料流與效能頁、Helm 的 ServiceMonitor／PrometheusRule／Grafana 看板）；還沒有通知管道、備份演練；控制面 JSON／PostgreSQL 的備援未定 | docs/27 §2 信心「中偏低」 | M3 通知管道與值班、M5 演練；控制面正式用 PostgreSQL（store_pg 已有自測） |
 | 前端沒有斷言型端到端測試 | Playwright 只做截圖與流程檢查，沒有在 CI 對真後端跑 | 回歸靠人眼 | M5 前補：登入→分析→存書籤→看板→推送一條主線在 CI 跑 |
 
 ### 3.2 非技術
@@ -153,7 +153,7 @@ v2.1 相對 v2 的差別來自兩件事：
 1. **真 IdP 試接**：用 AltaTech 自己的 Entra ID 租戶跑一次 OIDC＋PKCE 與群組→角色，把 `auth/` 的 TODO 清掉。
 2. **GA4 匯出 schema 驗證**：以 GA4 官方 BigQuery 匯出樣本（公開資料集）跑接入、轉名、T1，確認攤平欄位與 `user_id`／`user_pseudo_id` 處理。
 3. **10 億效能基準腳本**：把 docs/09 的基準寫成可重跑的腳本（合成 10 億筆到測試機），先在單機 ClickHouse 量出 MV 命中率與 P95，給 M2 當基線。
-4. **監控最小版**：API 與排程器輸出 Prometheus 指標（查詢耗時、批次成功率、資料源延遲），Grafana 一張看板；`deploy/` 加 ServiceMonitor。
+4. ~~**監控最小版**~~（已完成 2026-10-17：`/metrics`、`/v1/ops/*` 與資料流與效能頁、`ops/alerts.yaml` 11 條規則、Helm ServiceMonitor／PrometheusRule／Grafana 看板）→ 改為：告警通知管道（Alertmanager → Email／LINE）與值班分工草案。
 5. **功能缺口**（排在真資料工作之後，依序）：間隔／分佈／Session 分析（契約已定）；標籤「基礎指標值」「首末次特徵」「RFM」三種建立方式；Kafka／GCS 目的地（視 M0）。
 6. **Playwright 斷言型端到端**：登入→事件分析→存書籤→看板→推送一條主線，在 CI 對真後端跑。
 7. **文件**：操作手冊（五種角色各一份快速上手）、教育訓練投影片（分析師 B 到位後接手）、UAT 測試案例草稿（T1–T9 與結合分析五案例）。

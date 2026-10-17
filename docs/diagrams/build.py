@@ -28,7 +28,7 @@ STATUS: list[tuple[str, str]] = [
     # 接入
     ("Collector", "planned"), ("GA360 Importer", "done"), ("BigQuery Importer", "done"), ("CDC", "partial"), ("CDC：Debezium", "planned"), ("用戶列表人數預估", "confirm"), ("KafkaConnect", "planned"), ("數據中台批次導入", "confirm"), ("dlt / SeaTunnel", "planned"), ("神策導出", "done"), ("神策歷史匯入", "done"), ("Sensors", "done"),
     # 橫切
-    ("身分與權限", "done"), ("資料保護", "partial"), ("審計與法遵", "partial"), ("審計與觀測", "partial"), ("Prometheus", "planned"), ("Grafana", "planned"), ("Keycloak", "partial"),
+    ("身分與權限", "done"), ("資料保護", "partial"), ("審計與法遵", "partial"), ("審計與觀測", "partial"), ("Prometheus", "partial"), ("Grafana", "partial"), ("Keycloak", "partial"),
     ("Docker 部署套件", "done"), ("Helm umbrella", "partial"), ("GKE", "confirm"), ("全部 OSI", "partial"), ("Ingress", "planned"), ("NetworkPolicy", "partial"), ("Cloud SQL", "partial"), ("Cloud KMS", "partial"), ("Secret Manager", "partial"), ("Cloud Logging", "planned"), ("Cloud Armor", "planned"),
     # 元件組成
     ("dmp-ingest", "planned"), ("dmp-batch", "partial"), ("dmp-core", "done"), ("dmp-agent", "phase2"), ("dmp-web", "done"),

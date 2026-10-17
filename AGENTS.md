@@ -34,7 +34,7 @@ python3 -m backend.integration.sensors_api    # 神策查詢 API 連接器自測
 python3 -m backend.semantic.compiler.golden   # 查詢編譯器黃金測試乾跑（30 條編譯 + oracle、10 條必拒）；設 CLICKHOUSE_BIN 走真 ClickHouse 逐列比對
 python3 -m backend.integration.e2e_clickhouse # 接入端到端乾跑；設 CLICKHOUSE_BIN（自啟）或 CLICKHOUSE_URL（現成伺服器）走真 ClickHouse，最後一段跑編譯器黃金測試
 python3 backend/insight_agent/runtime.py      # agent 迴圈煙霧測試
-python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True)]"
+python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True) if '/templates/' not in f]"
 node --check prototype/js/app.js && node --check prototype/js/data.js
 cd web && npm ci && npm run typecheck && npm test && npm run build   # 正式前端（React + Vite + TS）：型別、單元測試、建置
 cd prototype && python3 -m http.server 8080   # 手動或 Playwright 檢視

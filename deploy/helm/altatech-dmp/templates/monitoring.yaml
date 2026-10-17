@@ -1,0 +1,100 @@
+{{- /*
+監控（docs/17 §5.16、docs/27 G2）：observability.prometheus=true 時渲染
+- ServiceMonitor：Prometheus Operator 抓 core API 的 /metrics（Bearer token 從 Secret 取；見 backend/api/README.md 的 DMP_METRICS_TOKEN）
+- PrometheusRule：與 backend/ops/alerts.yaml 同名的告警規則（PromQL 版），送 Alertmanager；通知管道（Email／LINE）在 Alertmanager 設
+- ConfigMap：Grafana 看板 JSON（grafana sidecar 以 label grafana_dashboard=1 自動載入；GCP Managed Prometheus 同樣可用）
+*/ -}}
+{{- if .Values.observability.prometheus }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dmp-core-api
+  labels: { app.kubernetes.io/name: dmp-core, release: {{ .Values.observability.prometheusRelease | default "kube-prometheus-stack" }} }
+spec:
+  selector: { matchLabels: { app.kubernetes.io/name: dmp-core, app.kubernetes.io/component: api } }
+  namespaceSelector: { matchNames: [ {{ .Release.Namespace }} ] }
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.observability.scrapeInterval | default "30s" }}
+      scrapeTimeout: 10s
+      authorization: { type: Bearer, credentials: { name: dmp-metrics-token, key: token } }   # Secret 由密鑰庫（OpenBao／Secret Manager）同步，值 = DMP_METRICS_TOKEN
+      relabelings:
+        - { sourceLabels: [__meta_kubernetes_pod_name], targetLabel: pod }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dmp-alerts
+  labels: { app.kubernetes.io/name: dmp-core, release: {{ .Values.observability.prometheusRelease | default "kube-prometheus-stack" }} }
+spec:
+  groups:
+    - name: dmp.pipeline                      # 規則鍵與 backend/ops/alerts.yaml 一致；門檻同 backend/ops/sla.yaml
+      rules:
+        - alert: DmpSourceLag
+          expr: dmp_source_lag_seconds > 7200
+          for: 10m
+          labels: { severity: high, key: source_lag }
+          annotations: { summary: "來源延遲：{{ "{{" }} $labels.task {{ "}}" }} 水位落後 {{ "{{" }} $value | humanizeDuration {{ "}}" }}", runbook: "docs/17 §5.16；數據整合 › 同步任務看最近一次執行紀錄" }
+        - alert: DmpSyncFailed
+          expr: dmp_sync_last_ok == 0
+          for: 5m
+          labels: { severity: high, key: sync_failed }
+          annotations: { summary: "同步任務失敗或暫停：{{ "{{" }} $labels.task {{ "}}" }}", runbook: "重試耗盡或 schema 變更暫停；資料流與效能 › 批次與儲存可重跑" }
+        - alert: DmpQuarantineRate
+          expr: dmp_sync_quarantine_ratio > 0.05
+          for: 30m
+          labels: { severity: medium, key: quarantine_rate }
+          annotations: { summary: "隔離率 {{ "{{" }} $value | humanizePercentage {{ "}}" }}：{{ "{{" }} $labels.task {{ "}}" }}", runbook: "元事件管理 › 隔離區看原因（未登記事件／型別不符）" }
+        - alert: DmpEventsStale
+          expr: dmp_events_stale_seconds > 3600
+          for: 5m
+          labels: { severity: critical, key: events_stale }
+          annotations: { summary: "行為事件停滯 {{ "{{" }} $value | humanizeDuration {{ "}}" }}（SLA 15 分鐘可查）", runbook: "GA360 匯出／串流中斷；先看 ingest 與 Kafka 消費延遲" }
+        - alert: DmpRoutineFailed
+          expr: increase(dmp_routine_runs_total{status="error"}[24h]) >= 3
+          labels: { severity: high, key: routine_failed }
+          annotations: { summary: "背景例行 {{ "{{" }} $labels.job {{ "}}" }} 24 小時內失敗 {{ "{{" }} $value {{ "}}" }} 次", runbook: "審計 scheduler.tick.failed 有錯誤訊息" }
+        - alert: DmpStorageHot
+          expr: dmp_clickhouse_hot_ratio > 0.9
+          for: 1h
+          labels: { severity: medium, key: storage_hot }
+          annotations: { summary: "ClickHouse 熱層用量 {{ "{{" }} $value | humanizePercentage {{ "}}" }}（規劃值 docs/13）", runbook: "啟用冷層（TTL TO VOLUME 'cold'）或擴容" }
+    - name: dmp.serving
+      rules:
+        - alert: DmpHttpErrors
+          expr: sum(rate(dmp_http_requests_total{status=~"5.."}[5m])) / sum(rate(dmp_http_requests_total[5m])) > 0.02
+          for: 5m
+          labels: { severity: high, key: http_errors }
+          annotations: { summary: "API 5xx 比例 {{ "{{" }} $value | humanizePercentage {{ "}}" }}", runbook: "core api 日誌；ClickHouse 連線" }
+        - alert: DmpQueryP95
+          expr: |
+            histogram_quantile(0.95, sum by (le, module) (rate(dmp_query_seconds_bucket[24h]))) > on (module) group_left ( (label_replace(vector(3), "module", "events", "", "") or label_replace(vector(10), "module", "funnel", "", "") or label_replace(vector(10), "module", "retention", "", "") or label_replace(vector(10), "module", "path", "", "") or label_replace(vector(10), "module", "attribution", "", "") or label_replace(vector(5), "module", "users", "", "") or label_replace(vector(1), "module", "estimate", "", "") or label_replace(vector(10), "module", "dashboard", "", "") or label_replace(vector(60), "module", "sql", "", "")) )
+          for: 30m
+          labels: { severity: medium, key: query_p95 }
+          annotations: { summary: "{{ "{{" }} $labels.module {{ "}}" }} 查詢 P95 {{ "{{" }} $value | humanizeDuration {{ "}}" }} 超過 SLA（backend/ops/sla.yaml）", runbook: "system.query_log 看 read_rows／memory_usage；補 MV 或改口徑" }
+        - alert: DmpQueryErrors
+          expr: sum by (module) (rate(dmp_query_total{status="error"}[24h])) / sum by (module) (rate(dmp_query_total[24h])) > 0.05
+          for: 30m
+          labels: { severity: medium, key: query_errors }
+          annotations: { summary: "{{ "{{" }} $labels.module {{ "}}" }} 查詢錯誤率 {{ "{{" }} $value | humanizePercentage {{ "}}" }}", runbook: "審計 query.failed 的錯誤訊息" }
+    - name: dmp.activation
+      rules:
+        - alert: DmpDeliveryDlq
+          expr: dmp_delivery_24h{status="dlq"} >= 1
+          labels: { severity: high, key: delivery_dlq }
+          annotations: { summary: "推送交付進死信 {{ "{{" }} $value {{ "}}" }} 筆", runbook: "營運 › 名單推送 › 交付紀錄 重放（沿用 Delivery-Id）" }
+        - alert: DmpDestinationPaused
+          expr: dmp_destination_paused >= 1
+          labels: { severity: medium, key: destination_paused }
+          annotations: { summary: "目的地 {{ "{{" }} $labels.destination {{ "}}" }} 連續失敗自動暫停", runbook: "接收端驗章／網路；修好後在目的地頁恢復" }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dmp-grafana-dashboard
+  labels: { grafana_dashboard: "1", app.kubernetes.io/name: dmp-core }
+data:
+  dmp-overview.json: |-
+{{ .Files.Get "dashboards/dmp-overview.json" | indent 4 }}
+{{- end }}

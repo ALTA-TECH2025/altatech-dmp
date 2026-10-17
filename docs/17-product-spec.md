@@ -111,10 +111,10 @@
 | 5.13b 自定義 SQL | 🟢 已實作 | 唯讀沙盒、權限表目錄、脫敏預校驗、動態參數、預覽／下載／已存查詢／記錄／中間表、存書籤進看板 | 格式化、EXPLAIN 視覺化 | 下載上限依角色 |
 | 5.14 權限中心 | 🟢 已實作 | 五角色＋自訂、指派與範圍、模組矩陣、行級模擬、成員目錄、本機帳號＋TOTP、session 強制登出、雙人複核、臨時提權 | 真實 AD／Entra ID 對接驗證（只接過假 IdP） | 客戶 IdP（Entra／AD／Keycloak）與群組→角色對照 |
 | 5.15 日誌統計／審計 | 🟢 已實作 | 全操作審計、看板（指標卡、趨勢、模組／角色、敏感存取、告警規則）、CSV 匯出含浮水印 | 審計 WORM（GCS 物件鎖）、DSAR 流程 | 審計保存年限 |
-| 5.16 資料流與效能 | ⚪ 規劃中 | 原型頁 | Prometheus／OTel、Grafana 看板與告警、查詢效能看板 | SLA 實測：行為事件 15 分鐘可查、30 天漏斗 10 秒、標籤日批 60 分鐘 |
+| 5.16 資料流與效能 | 🟡 部分實作 | 資料流四段（來源同步 → ClickHouse 進倉 → API 與查詢 → 推送交付）與資料品質、各模組查詢 P50/P95/P99 對 SLA（`ops/sla.yaml`）、批次作業（同步任務可重跑、背景例行）與儲存用量、告警（`ops/alerts.yaml` 11 條規則）；API 輸出 Prometheus 指標 `/metrics`；Helm 的 ServiceMonitor／PrometheusRule（同一組規則）／Grafana 看板 | OTel 追蹤、OpenSearch／Cloud Logging 日誌、告警通知管道（Email／LINE）與值班分工、query_log 物化、Airflow 作業接入 | SLA 實測：行為事件 15 分鐘可查、30 天漏斗 10 秒、標籤日批 60 分鐘（M2 效能基準回填） |
 | 5.17 歷史資料遷移 | 🟢 已實作（工具） | 盤點、橋接表、導出任務狀態機、三方對帳 T2／T5／T6、並行期樣本 | 真資料尚未跑 | 神策 70 億筆的導出方式（Impala／HDFS／API）與並行期長度 |
 | 總覽／儀表板 | 🟢 已實作 | 書籤→看板、拖曳排版、解讀（規則）、單檔 HTML、定時寄送、AI 生成卡片、四個需求表情境範例看板、手機版 | 模型解讀需 LLM 金鑰 | — |
-| 部署與營運 | 🟡 部分實作 | Helm、values（機房／GCP 檔位）、ClickHouse Keeper、CI 弱掃（Trivy／hadolint／gitleaks）、PostgreSQL 控制面 | OpenTofu GCP、Operators、Valkey、物件儲存冷層、監控告警、備份／DR 演練 | GCP 或機房；A 檔 6 台 vs D 檔 3 台 |
+| 部署與營運 | 🟡 部分實作 | Helm、values（機房／GCP 檔位）、ClickHouse Keeper、CI 弱掃（Trivy／hadolint／gitleaks）、PostgreSQL 控制面、監控最小版（ServiceMonitor、PrometheusRule、Grafana 看板） | OpenTofu GCP、Operators、Valkey、物件儲存冷層、告警通知管道、備份／DR 演練 | GCP 或機房；A 檔 6 台 vs D 檔 3 台 |
 
 ### 待確認清單（需客戶／PO 決定）
 
@@ -138,7 +138,7 @@
 | 安全 | 私有網路、TLS 強制、CMEK／KMS、密鑰只存參照、最小權限、Pod Security restricted、SBOM／Trivy／Grype／Semgrep／gitleaks、授權白名單（docs/07、10、11、06 §6） |
 | 法遵 | L4 不入倉、代碼化、K 匿名、揭露審批、審計 WORM、DSAR 30 天（docs/01 §法遵、10） |
 | 可維護性 | SQL-first（Flink SQL／dbt／MV）、6 個映像、Operators、Renovate、AGENTS.md／CLAUDE.md（docs/11、16） |
-| 可觀測 | Prometheus + OTel + Grafana OSS；資料流、查詢、批次、儲存、審計看板；告警規則（原型「資料流與效能」頁） |
+| 可觀測 | Prometheus + OTel + Grafana OSS；API 程序內指標 `/metrics`（HTTP、查詢依模組、例行作業、來源延遲、交付、表用量）；資料流與效能頁（`/v1/ops/*`）與 Grafana 看板看同一組指標；告警規則一份（`backend/ops/alerts.yaml` ↔ PrometheusRule）；OTel 追蹤與日誌第二階段 |
 | 相容 | 神策協議超集、GA4 匯出 schema、OpenAPI 3.1、MCP 工具；OS：RHEL 9／Rocky 9／Ubuntu 24.04 節點（docs/07 §OS） |
 
 ## 7. 開發測試計畫
