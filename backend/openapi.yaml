@@ -732,6 +732,7 @@ components:
         filters: { type: array, items: { type: object } }
         segment: { type: string }
         sample: { type: number, nullable: true, description: '預設 0.1（按用戶分桶）；null = 不抽樣' }
+        exact: { type: boolean, default: false, description: 'true＝精確：一律走明細並精確去重。false（預設）時，符合條件的查詢走日聚合層，其中人數為近似值（uniqMerge，誤差約 1–2%），回應 warnings 會標示' }
         top_n: { type: integer, default: 100, maximum: 1000 }
         time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string }, now: { type: string } } }
     PathResult:
