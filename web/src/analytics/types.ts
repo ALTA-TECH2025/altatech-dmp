@@ -59,6 +59,7 @@ export interface EventsQuery {
   compare?: 'previous_period';
   sample?: number;
   segment?: string;
+  exact?: boolean;                                                   // true＝精確（明細去重）；未勾選時人數可能走日聚合層（近似值）
 }
 export type EventsRow = Record<string, string | number | boolean | null | undefined>;
 export interface EventsResult { rows: EventsRow[]; columns: string[]; chart_spec: Record<string, unknown>; sql: string; lineage: string[]; cost: { ms: number; rows: number; layer: string }; warnings: string[]; masked: Record<string, string> }
