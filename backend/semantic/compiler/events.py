@@ -1,8 +1,8 @@
 """事件分析樣板：AST → ClickHouse SQL。
 
 層級（planner）：
-  L1  dmp.events_daily_agg（日聚合 MV）：指標只有 total／sum(amount)，欄位只用 event/platform/channel/utm_source，粒度 ≥ day，無抽樣、無用戶屬性。
-      users 走 MV 是近似值（uniqMerge），黃金測試要求誤差 0，因此 users 一律走 L0（之後可用 exact:false 放行）。
+  L1  dmp.events_daily_agg（日聚合 MV）：指標只有 total／sum(amount)／users，欄位只用 event/platform/channel/utm_source，粒度 ≥ day，無抽樣、無用戶屬性。
+      users 走 MV 是近似值（uniqMerge，大量時誤差約 1–2%，6.5 萬人以下為精確），回應帶警示；exact:true（UI「精確」）一律走 L0 精確去重。
   L0  dmp.events 明細（可加 SAMPLE）。
 
 Policy 注入（policy.inject）：行級 WHERE（分公司／營業員／回看天數）、欄位遮罩（bucket／round／hide）、K 匿名（每列不足 K 人 → 指標置 NULL、suppressed=1）、
@@ -17,7 +17,7 @@ from typing import Any
 from .catalog import TZ, Catalog, FieldRef
 from .parser import Cond, Formula, Group, Metric, Query
 
-MV_AGGS = {"total", "sum"}
+MV_AGGS = {"total", "sum", "users"}
 
 
 @dataclass
@@ -120,6 +120,7 @@ def metric_sql(m: Metric, ctx: Ctx) -> str:
     if ctx.layer == "L1":
         if m.agg == "total": return f"countMergeIf(a.cnt, {cond})"
         if m.agg == "sum": return f"sumMergeIf(a.amount, {cond})"
+        if m.agg == "users": return f"uniqMergeIf(a.users, {cond})"
         raise ValueError(f"L1 不支援 {m.agg}")
     fx = ctx.expr(m.field) if m.field else None
     users = f"uniqExactIf(e.one_id_uint, {cond})"      # 去重用 UInt64（cityHash64(one_id)）：結果同字串、記憶體約 1/3；1,500 萬人碰撞機率約 6e-6
@@ -252,7 +253,7 @@ def compile_events(qr: Query, cat: Catalog | None = None, decision: Any = None, 
         first = qr.metrics[0]
         tcond = ctx.mcond(first)
         rank = f"countIf({tcond})" if layer == "L0" else f"countMergeIf(a.cnt, {tcond})"
-        if first.agg == "users": rank = f"uniqExactIf(e.one_id_uint, {tcond})"
+        if first.agg == "users": rank = f"uniqExactIf(e.one_id_uint, {tcond})" if layer == "L0" else f"uniqMergeIf(a.users, {tcond})"
         if first.agg == "sum" and first.field: rank = f"sumIf({ctx.expr(first.field)}, {tcond})" if layer == "L0" else f"sumMergeIf(a.amount, {tcond})"
         gsel = ", ".join(f"{ctx.expr(g)} AS {c}" for g, c in zip(qr.group_by, gcols_out))
         ctes.insert(0, f"top AS (SELECT {gsel}, {rank} AS r FROM {src}{sample}{cold_join} WHERE {' AND '.join(where)} GROUP BY {', '.join(gcols_out)} ORDER BY r DESC, {', '.join(gcols_out)} LIMIT {qr.top_n})")
@@ -280,6 +281,8 @@ def compile_events(qr: Query, cat: Catalog | None = None, decision: Any = None, 
         + [f"metric:{qr.metric_name}" if qr.metric_name else f"event:{e}" for e in (qr.events or ["any"])]
     from .policy import budget
     settings = budget(profile)
+    if layer == "L1" and any(m.agg == "users" for m in qr.metrics):
+        warnings.append("人數走日聚合層，為近似值（誤差約 1–2%）；需要精確請開「精確」")
     return Compiled(sql=sql, layer=layer, columns=out_cols, settings=settings, lineage=sorted(set(lineage)), warnings=warnings + ([f"plan L0 because {', '.join(why)}"] if why else []),
                     k_anonymity=k, masked=masked, row_filters=rows_filters)
 
