@@ -278,6 +278,29 @@ CREATE TABLE IF NOT EXISTS dmp.segment_members
 ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.segment_members', '{replica}')
 ORDER BY (segment_id, version, one_id_uint);
 
+-- 導入名單（客戶代號先以 token_v1(k_idm) 轉成 one_id 才寫入，不存原始代號；docs/21 §6）
+CREATE TABLE IF NOT EXISTS dmp.segment_imports
+(
+    import_id    LowCardinality(String),
+    one_id       String,
+    one_id_uint  UInt64 DEFAULT cityHash64(one_id),
+    created_at   DateTime DEFAULT now()
+)
+ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.segment_imports', '{replica}')
+ORDER BY (import_id, one_id_uint);
+
+-- 導入標籤值（神策標籤快照遷移用；一人一值）
+CREATE TABLE IF NOT EXISTS dmp.tag_imports
+(
+    import_id    LowCardinality(String),
+    one_id       String,
+    one_id_uint  UInt64 DEFAULT cityHash64(one_id),
+    tag_value    String,
+    created_at   DateTime DEFAULT now()
+)
+ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.tag_imports', '{replica}')
+ORDER BY (import_id, tag_value, one_id_uint);
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS dmp.events_daily_agg
 ENGINE = ReplicatedAggregatingMergeTree('/ch/{shard}/dmp.events_daily_agg', '{replica}')
 ORDER BY (project, event_date, event, platform, channel, utm_source)

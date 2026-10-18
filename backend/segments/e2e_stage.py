@@ -73,9 +73,20 @@ def segments_stage(ch: Any) -> None:
     login(["data_analyst"], "ana")
     vr = c.post(f"/v1/segments/{rs['id']}/compute").json(); assert vr["users"] == len(expect["U08"]) and vr["users"] > 0, (vr, len(expect["U08"]))
     assert "event:app_login_success" in rs["lineage"]["up"] and FUNNELS[5][1]["steps"][0]["event"] == "app_login_success"
+    # 4b. 導入名單：30 個黃金用戶 + 5 個不存在 + 2 個格式錯 → matched 30；kind=import 分群計算 == 30 且 == oracle；帶值導入 → import 標籤分布 == 導入值
+    known = sorted(ds.users)[:30]
+    im = c.post("/v1/segments/imports", json={"project": PROJECT, "id_type": "one_id", "values": known + [f"v1_nobody{i:03d}" for i in range(5)] + ["bad id!", ""]}).json()
+    assert (im["total"], im["distinct"], im["matched"], im["unmatched"], im["invalid"]) == (37, 35, 30, 5, 2), im
+    isg = c.post("/v1/segments", json={"name": "e2e 導入名單", "kind": "import", "rule": {"project": PROJECT, "source": {"type": "import", "import_id": im["id"]}}}).json(); assert isg["status"] == "active", isg
+    vi = c.post(f"/v1/segments/{isg['id']}/compute").json(); assert vi["users"] == 30, vi
+    oracle.imports[im["id"]] = set(known) | {f"v1_nobody{i:03d}" for i in range(5)}
+    assert len(oracle.run_users(parse_users({"project": PROJECT, "source": {"type": "import", "import_id": im["id"]}}, cat), decision_of("data_analyst"))) == 30
+    ti = svc.imports.create_pairs(PROJECT, [(o, "A" if i % 3 else "B") for i, o in enumerate(known)], "e2e 標籤快照", Subject("entra:ana", ["data_analyst"]), 30, 0)
+    tg = c.post("/v1/tags", json={"name": "e2e 導入標籤", "key": "e2e_import_tag", "kind": "import", "import_id": ti["id"]}); assert tg.status_code == 201, tg.text
+    tv = c.post("/v1/tags/e2e_import_tag/compute", json={}).json(); assert tv["status"] == "success" and {d["value"]: d["users"] for d in tv["distribution"]} == {"A": 20, "B": 10}, tv
     # 5. 回收站 → 徹底刪除清成員；審計不含 one_id
     c.post(f"/v1/segments/{rs['id']}/recycle"); login(["admin"], "adm"); assert c.delete(f"/v1/segments/{rs['id']}/purge").status_code == 204
     assert run_sql(ch, f"SELECT count() AS n FROM dmp.segment_members WHERE segment_id = '{rs['id']}'", {})[0]["n"] == 0
     assert all("v1_" not in str(x) for x in store.audit_tail(300) if x["event"].startswith("segment."))
     d = authorize(Subject("entra:ana", ["data_analyst"]), "use", "users"); assert d.allowed
-    print(f"segments stage OK: rule segment users={v1['users']} (== oracle U04), rule change → v2 users={v2['users']} (== oracle U01), keep=2 pruned, seg.<id> latest version in events, routine tick v4, result segment users={vr['users']} (== oracle U08), purge cleared members")
+    print(f"segments stage OK: rule segment users={v1['users']} (== oracle U04), rule change → v2 users={v2['users']} (== oracle U01), keep=2 pruned, seg.<id> latest version in events, routine tick v4, result segment users={vr['users']} (== oracle U08), import segment users={vi['users']}/tag A20 B10, purge cleared members")

@@ -72,10 +72,10 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     app.include_router(tags.build_router(store, get_subject, tag_svc))
     app.include_router(activation.build_router(store, get_subject, act_svc))
     app.include_router(meta.build_router(store, get_subject, ch))
-    app.include_router(migration.build_router(store, get_subject, ch, migration_runner))
-    app.include_router(users.build_router(store, get_subject, ch))
     seg_svc = segment_service or SegmentService(store, ch)
     seg_svc.approvals = approvals
+    app.include_router(migration.build_router(store, get_subject, ch, migration_runner, segments=seg_svc, tags=tag_svc))
+    app.include_router(users.build_router(store, get_subject, ch))
     exp = ExportService(store, ch, approvals, Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports", members_rule=seg_svc.members_rule)
     app.include_router(segments.build_router(store, get_subject, seg_svc))
     app.include_router(exports.build_router(store, get_subject, approvals, exp, reveals))

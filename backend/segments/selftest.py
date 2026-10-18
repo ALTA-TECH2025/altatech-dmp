@@ -29,6 +29,7 @@ class FakeClickHouse:
             self.fail_next = False; raise RuntimeError("ClickHouse 500: boom")
         if sql.startswith("INSERT") or sql.startswith("ALTER"): return ""
         if "bitmapCardinality(" in sql: return '{"users":123}\n'
+        if sql.startswith("SELECT count() FROM dmp.segment_imports"): return "2\n"
         if sql.startswith("SELECT count() FROM dmp.segment_members"):
             return str(int(sql.rsplit("version = ", 1)[1]) * 10) + "\n"
         if "GROUP BY value" in sql: return '{"value":"P1","users":80}\n{"value":"P2","users":43}\n'
@@ -99,6 +100,26 @@ def main() -> None:
     mem = c.get(f"/v1/segments/{sid}/versions/latest/members?page_size=20").json()
     assert mem["rows"][0]["one_id"] == "v1_abc****" and f"segment_id = '{sid}' AND version = {mem['version']['version']}" in mem["sql"] and mem["masked"]["one_id"] == "mask_tail(4)" and mem["total"] == mem["version"]["users"], mem
     assert c.get(f"/v1/segments/{sid}/versions/2020-01-01/members").status_code == 404
+    # 6b. 導入名單：缺金鑰 503；客戶代碼轉 one_id、原始代碼不進 SQL；去重與格式錯誤計數；kind=import 強制手動、不可改規則；計算從 dmp.segment_imports 取人
+    from ..integration import modeling
+    saved = modeling.KEYS.pop("k_idm", None)
+    assert c.post("/v1/segments/imports", json={"values": ["A123"]}).status_code == 503
+    modeling.set_key("k_idm", b"test-key-idm")
+    assert c.post("/v1/segments/imports", json={"id_type": "phone", "values": ["A1"]}).status_code == 400 and c.post("/v1/segments/imports", json={"values": []}).status_code == 400
+    im = c.post("/v1/segments/imports", json={"project": "golden", "values": ["A123", " A123", "B456", "bad code!", ""], "label": "VIP 名單"}); assert im.status_code == 201, im.text
+    im = im.json(); assert (im["total"], im["distinct"], im["invalid"], im["matched"], im["unmatched"]) == (5, 2, 2, 2, 0) and im["id"].startswith("im_"), im
+    ins = [x for x in ch.sqls if x.startswith("INSERT INTO dmp.segment_imports")]; assert ins and "'v1_" in ins[-1] and "A123" not in ins[-1] and "B456" not in ins[-1], ins
+    assert "A123" not in repr(store.audit_tail(5)) and c.get(f"/v1/segments/imports/{im['id']}").json()["distinct"] == 2 and c.get("/v1/segments/imports/im_0000000000").status_code == 404
+    isg = c.post("/v1/segments", json={"name": "VIP 名單", "kind": "import", "rule": {"project": "golden", "source": {"type": "import", "import_id": im["id"]}}, "update": {"mode": "routine"}}); assert isg.status_code == 201, isg.text
+    isg = isg.json(); assert isg["kind"] == "import" and isg["update"]["mode"] == "manual" and isg["update"]["keep"] == 1 and "dmp.segment_imports" in isg["lineage"]["up"], isg
+    assert c.post(f"/v1/segments/{isg['id']}/compute").json()["status"] == "success" and f"FROM dmp.segment_imports WHERE import_id = '{im['id']}'" in [x for x in ch.sqls if x.startswith("INSERT INTO dmp.segment_members")][-1]
+    assert c.put(f"/v1/segments/{isg['id']}", json={"rule": rule}).status_code == 409
+    assert c.post("/v1/segments", json={"name": "缺來源", "kind": "import", "rule": rule}).status_code == 400
+    assert c.post("/v1/segments", json={"name": "錯 id", "kind": "import", "rule": {"project": "golden", "source": {"type": "import", "import_id": "im_0000000000"}}}).status_code == 404
+    seq = {"project": "golden", "sequences": [{"steps": [{"event": "app_login_success"}, {"event": "bond_order"}], "window": {"value": 1, "unit": "day"}, "time": T}]}
+    sq = c.post("/v1/segments", json={"name": "登入後一天內下單", "rule": seq}).json(); assert sq["status"] == "active" and c.post(f"/v1/segments/{sq['id']}/compute").json()["status"] == "success", sq
+    assert "windowFunnel(86400)" in [x for x in ch.sqls if x.startswith("INSERT INTO dmp.segment_members")][-1]
+    if saved is not None: modeling.set_key("k_idm", saved)
     # 7. 回收站：有下游 409 → force → 列表不含；恢復；徹底刪除需 admin 並清成員；到期自動刪
     assert c.post(f"/v1/segments/{sid}/recycle").status_code == 409
     assert c.post(f"/v1/segments/{sid}/recycle?force=true").json()["status"] == "recycled" and sid not in {s["id"] for s in c.get("/v1/segments").json()}
@@ -116,7 +137,7 @@ def main() -> None:
     login(c, sm, ["svc_insight"], "svc"); assert c.get("/v1/segments").status_code == 200 and c.post(f"/v1/segments/{sid}/compute").status_code == 403
     login(c, sm, ["marketing"], "mkt"); assert c.post("/v1/segments/tick").status_code == 403
     ev = [x["event"] for x in store.audit_tail(500)]
-    assert {"segment.created", "segment.computed", "segment.compute_failed", "segment.approved", "segment.rejected", "segment.recycled", "segment.restored", "segment.purged", "segment.members_listed", "segment.updated"} <= set(ev)
+    assert {"segment.created", "segment.computed", "segment.compute_failed", "segment.approved", "segment.rejected", "segment.recycled", "segment.restored", "segment.purged", "segment.members_listed", "segment.updated", "segment.import.created"} <= set(ev)
     print(f"segments self-test ok: create/approve/compute(versions keep={sg['update']['keep']})/tick(daily,weekly,monthly)/edit rules/copy/pause/lineage/members/recycle/purge; audit={len(ev)} sql={len(ch.sqls)}")
 
 

@@ -19,6 +19,8 @@ import yaml  # type: ignore
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..migration import bridge as bridge_mod
+from ..migration.sensors_groups import Conflict as GroupConflict
+from ..migration.sensors_groups import GroupMigration
 from ..security.policy import Subject, authorize
 from .analytics import Executor
 from .meta import _rows
@@ -80,7 +82,7 @@ class ExportRunner:
         return res
 
 
-def build_router(store: Store, get_subject: Any, ch: Executor | None, runner: ExportRunner | None = None) -> APIRouter:
+def build_router(store: Store, get_subject: Any, ch: Executor | None, runner: ExportRunner | None = None, segments: Any = None, tags: Any = None) -> APIRouter:
     r = APIRouter()
     work = Path(os.environ.get("DMP_MIGRATION_WORK", "/tmp/dmp-migration")); work.mkdir(parents=True, exist_ok=True)
     uf = Path(os.environ["DMP_CH_USER_FILES"]) if os.environ.get("DMP_CH_USER_FILES") else None
@@ -231,6 +233,58 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, runner: Ex
         store.audit("migration.export.rerun", {"user": subject.user_id, "job": id_, "days": len(days)})
         run_job(j, only_days=days)
         return {**job_summary(j), "rerun_days": days}
+
+    # ---------- 神策分群／標籤 ----------
+    groups = GroupMigration(store, runner.client, segments, tags)
+
+    def gcall(fn: Any, *a: Any) -> Any:
+        from ..integration.sensors_api import SensorsApiError
+        from ..segments import Conflict as SegConflict
+        from ..segments import Unavailable
+        from ..tags.service import Conflict as TagConflict
+        try:
+            return fn(*a)
+        except KeyError as e:
+            raise HTTPException(404, f"不存在：{e}") from None
+        except (GroupConflict, SegConflict, TagConflict) as e:
+            raise HTTPException(409, str(e)) from None
+        except Unavailable as e:
+            raise HTTPException(503, str(e)) from None
+        except SensorsApiError as e:
+            raise HTTPException(502, f"神策查詢失敗：{str(e)[:200]}") from None
+        except PermissionError as e:
+            raise HTTPException(403, str(e)) from None
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+
+    @r.get("/v1/migration/sensors-groups")
+    def sensors_groups(subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "view")
+        return gcall(groups.list)
+
+    @r.post("/v1/migration/sensors-groups/scan")
+    def sensors_groups_scan(subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "use")
+        return gcall(groups.scan, subject)
+
+    @r.post("/v1/migration/sensors-groups/{name}/snapshot")
+    def sensors_group_snapshot(name: str, body: dict[str, Any] | None = None, subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "use")
+        for mod, act in (("segments", "use"), ("users", "use")):
+            d = authorize(subject, act, mod)
+            if not d.allowed:
+                raise HTTPException(403, d.reason)
+        return gcall(groups.snapshot, name, (body or {}).get("dmp_name"), subject)
+
+    @r.post("/v1/migration/sensors-groups/{name}/link")
+    def sensors_group_link(name: str, body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "use")
+        return gcall(groups.link, name, str(body.get("type") or ""), str(body.get("id") or ""), subject)
+
+    @r.post("/v1/migration/sensors-groups/{name}/skip")
+    def sensors_group_skip(name: str, body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "use")
+        return gcall(groups.skip, name, str(body.get("note") or ""), subject)
 
     # ---------- 對帳 ----------
     @r.get("/v1/migration/reconcile")

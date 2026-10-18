@@ -19,6 +19,7 @@ import csv
 import io
 import json
 import os
+import re
 import socket
 import ssl
 import sys
@@ -266,6 +267,9 @@ class FakeSensors:
         base = datetime(2026, 10, 1, 9, 0, 0, tzinfo=TPE)
         self.rows = [{"event": ["$pageview", "bond_order", "bond_deal"][i % 3], "distinct_id": f"C{i % 7:04d}", "time": (base + timedelta(seconds=i * 37)).strftime("%Y-%m-%d %H:%M:%S.000"),
                       "date": "2026-10-01", "user_id": str(100 + i % 7), "$lib": "iOS", "$is_login_id": "true" if i % 7 else "false", "symbol": "2330", "amount": 1000 + i, "name": "王小明"} for i in range(53)]
+        # users 表：神策分群 = user_group_* 欄（0／1）、標籤 = user_tag_* 欄；C0000 沒有登入 ID（只有 first_id）
+        self.users = [{"id": str(i), "first_id": f"dev{i:04d}", "second_id": f"C{i:04d}" if i else "", "user_group_vip_active": "1" if 1 <= i <= 4 else "0",
+                       "user_group_old_campaign": "1" if i <= 1 else "0", "user_tag_risk_level": f"R{i % 3 + 1}" if i < 6 else ""} for i in range(7)]
 
     def __call__(self, url: str, form: dict[str, str], headers: dict[str, str]) -> HttpResponse:
         self.calls.append(url.split("?")[0] + " " + form["q"][:60])
@@ -280,6 +284,16 @@ class FakeSensors:
             rows = [{"1": "1"}]
         elif q.startswith("SELECT now()"):
             rows = [{"t": datetime.now(TPE).strftime("%Y-%m-%d %H:%M:%S")}]
+        elif q == "SELECT * FROM users LIMIT 1":
+            rows = self.users[:1]
+        elif m := re.fullmatch(r"SELECT COUNT\(\*\) AS n FROM users WHERE (user_group_\w+) = 1", q):
+            rows = [{"n": str(sum(1 for u in self.users if u[m.group(1)] == "1"))}]
+        elif m := re.fullmatch(r"SELECT COUNT\(\*\) AS n, COUNT\(DISTINCT (user_tag_\w+)\) AS k FROM users WHERE \1 IS NOT NULL", q):
+            vs = [u[m.group(1)] for u in self.users if u[m.group(1)]]
+            rows = [{"n": str(len(vs)), "k": str(len(set(vs)))}]
+        elif m := re.fullmatch(r"SELECT first_id, second_id(?:, (user_tag_\w+) AS v)? FROM users WHERE (\w+) (?:= 1|IS NOT NULL) ORDER BY id LIMIT (\d+) OFFSET (\d+)", q):
+            col = m.group(2); sel = [u for u in self.users if (u[col] == "1" if col.startswith("user_group_") else u[col])]
+            rows = [{"first_id": u["first_id"], "second_id": u["second_id"], **({"v": u[col]} if m.group(1) else {})} for u in sel][int(m.group(4)): int(m.group(4)) + int(m.group(3))]
         elif q.startswith("SELECT COUNT(*) AS n FROM users"):
             rows = [{"n": "7"}]
         elif q.startswith("SELECT event, date, COUNT(*)"):

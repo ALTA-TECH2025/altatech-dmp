@@ -28,8 +28,10 @@ class FakeClickHouse:
         self.sqls.append(sql)
         if sql.startswith("EXPLAIN ESTIMATE"):
             return "dmp\tevents\t2\t16384\t2\n"
-        if sql.startswith(("INSERT INTO dmp.user_tags", "ALTER TABLE dmp.user_tags", "INSERT INTO dmp.segment_members")):
+        if sql.startswith(("INSERT INTO dmp.user_tags", "ALTER TABLE dmp.user_tags", "INSERT INTO dmp.segment_members", "INSERT INTO dmp.segment_imports", "INSERT INTO dmp.tag_imports")):
             return ""
+        if sql.startswith(("SELECT count() FROM dmp.segment_imports", "SELECT count() FROM dmp.tag_imports")):     # 導入名單對到用戶表的人數
+            return "3\n"
         if sql.startswith("SELECT count() FROM dmp.segment_members"):                          # 分群引擎的計數查詢不帶 settings
             return "3\n"
         assert settings and settings.get("max_execution_time") in (60, 600), settings        # human 60s；匯出走 batch 600s
@@ -631,7 +633,31 @@ def main(store: Any | None = None) -> None:
     assert c2.post(f"/v1/migration/exports/{ex2['id']}/rerun", json={"days": ["2026-10-01"]}).json()["rerun_days"] == ["2026-10-01"]
     assert c2.post("/v1/migration/exports", json={"dataset": "events", "date_from": "2026-10-05", "date_to": "2026-10-01"}).status_code == 400
     _ = _mig_router
-    assert {x["event"] for x in store.audit_tail(300)} >= {"migration.export.created", "migration.inventory.refreshed", "migration.export.rerun"}
+    # 神策分群／標籤遷移：未接神策 → 清單空、掃描 503；掃描（user_group_*／user_tag_*）→ 快照（登入 ID 轉 one_id、原始 ID 不落地）→ 409 重複 → 標籤快照 → 略過需原因 → 連到重建的分群 → 權限
+    def sync() -> None:
+        c2.cookies.set("dmp_sid", c.cookies["dmp_sid"]); c2.cookies.set("dmp_csrf", c.cookies["dmp_csrf"]); c2.headers["X-CSRF-Token"] = c.cookies["dmp_csrf"]
+    login(c, sm, ["admin"], "adm"); sync()
+    assert c.get("/v1/migration/sensors-groups").json()["items"] == [] and c.post("/v1/migration/sensors-groups/scan").status_code == 503
+    sg_ = c2.post("/v1/migration/sensors-groups/scan").json(); by = {x["name"]: x for x in sg_["items"]}
+    assert set(by) == {"user_group_vip_active", "user_group_old_campaign", "user_tag_risk_level"} and sg_["summary"]["pending"] == 3 and sg_["scanned_at"], sg_
+    assert by["user_group_vip_active"]["users"] == 4 and by["user_group_vip_active"]["cn"] == "vip_active" and by["user_tag_risk_level"]["values"] == 3 and by["user_tag_risk_level"]["users"] == 6, by
+    sn = c2.post("/v1/migration/sensors-groups/user_group_vip_active/snapshot", json={"dmp_name": "神策：活躍 VIP"}); assert sn.status_code == 200, sn.text
+    sn = sn.json(); assert sn["status"] == "snapshot" and sn["dmp"]["type"] == "segment" and sn["dmp"]["users"] == 3 and sn["dmp"]["diff_pct"] == -0.25, sn
+    ins = [x for x in ch.sqls if x.startswith("INSERT INTO dmp.segment_imports")][-1]; assert ins.count("'v1_") == 4 and "C0001" not in ins, ins
+    snap_seg = c.get(f"/v1/segments/{sn['dmp']['id']}").json(); assert snap_seg["kind"] == "import" and snap_seg["update"]["mode"] == "manual" and snap_seg["latest"]["status"] == "success", snap_seg
+    assert c2.post("/v1/migration/sensors-groups/user_group_vip_active/snapshot", json={}).status_code == 409
+    tn = c2.post("/v1/migration/sensors-groups/user_tag_risk_level/snapshot", json={}).json(); assert tn["status"] == "snapshot" and tn["dmp"]["type"] == "tag" and tn["dmp"]["users"] == 120 and tn["dmp"]["name"] == "神策：risk_level", tn
+    tins = [x for x in ch.sqls if x.startswith("INSERT INTO dmp.tag_imports")][-1]; assert "'R1'" in tins and "'dev0000'" in tins and "C0002" not in tins, tins      # C0000 沒有登入 ID → first_id
+    assert any("FROM dmp.tag_imports WHERE import_id = " in x for x in ch.sqls if x.startswith("INSERT INTO dmp.user_tags"))
+    assert c2.post("/v1/migration/sensors-groups/user_group_old_campaign/skip", json={"note": ""}).status_code == 400
+    assert c2.post("/v1/migration/sensors-groups/user_group_old_campaign/skip", json={"note": "2025 活動已結束"}).json()["status"] == "skipped"
+    assert c2.post("/v1/migration/sensors-groups/user_group_old_campaign/link", json={"type": "segment", "id": "sg_nope"}).status_code == 404
+    lk = c2.post("/v1/migration/sensors-groups/user_group_old_campaign/link", json={"type": "segment", "id": sn["dmp"]["id"]}).json(); assert lk["status"] == "rebuilt" and lk["dmp"]["diff_pct"] == 0.5, lk
+    s2 = c2.get("/v1/migration/sensors-groups").json()["summary"]; assert s2 == {"total": 3, "pending": 0, "snapshot": 2, "rebuilt": 1, "skipped": 0}, s2
+    login(c, sm, ["data_analyst"], "ana"); sync(); assert c2.get("/v1/migration/sensors-groups").status_code == 200 and c2.post("/v1/migration/sensors-groups/scan").status_code == 403
+    login(c, sm, ["it_admin"], "it"); sync(); assert c2.post("/v1/migration/sensors-groups/user_group_old_campaign/snapshot", json={}).status_code == 403      # 資訊管理沒有 segments.use
+    assert not any("C0001" in repr(x) for x in store.audit_tail(300))
+    assert {x["event"] for x in store.audit_tail(300)} >= {"migration.export.created", "migration.inventory.refreshed", "migration.export.rerun", "migration.groups.scanned", "migration.group.snapshot", "migration.group.skipped", "migration.group.linked", "segment.import.created"}
     login(c, sm, ["marketing"], "mkt")
     # 6. 審計：行銷只看自己；admin 全看
     mine = c.get("/v1/audit").json(); assert mine and all(x.get("user") == "entra:mkt" for x in mine)

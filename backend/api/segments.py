@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from ..security.policy import Subject, authorize
-from ..segments import Conflict, SegmentService
+from ..segments import Conflict, SegmentService, Unavailable
 from ..semantic.compiler.users import compile_estimate, compile_list, next_cursor, parse_list, parse_users
 from .analytics import run_rows
 from .store import Store
@@ -29,6 +29,8 @@ def build_router(store: Store, get_subject: Any, svc: SegmentService) -> APIRout
             raise HTTPException(404, f"分群不存在：{e}") from None
         except Conflict as e:
             raise HTTPException(409, str(e)) from None
+        except Unavailable as e:
+            raise HTTPException(503, str(e)) from None
         except PermissionError as e:
             raise HTTPException(403, str(e)) from None
         except ValueError as e:
@@ -57,6 +59,16 @@ def build_router(store: Store, get_subject: Any, svc: SegmentService) -> APIRout
         res = call(svc.estimate, body.get("rule") or body, rule_decision(subject))
         store.audit("segment.estimated", {"user": subject.user_id, "users": res["users"]})          # 預估只記次數，不記規則明細
         return res
+
+    @r.post("/v1/segments/imports", status_code=201)
+    def create_import(body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "use")
+        return call(svc.imports.create, body, subject)
+
+    @r.get("/v1/segments/imports/{id}")
+    def get_import(id: str, subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "view")
+        return call(svc.imports.get, id)
 
     @r.post("/v1/segments/tick")
     def tick(now: str | None = None, subject: Subject = Depends(get_subject)) -> dict[str, Any]:

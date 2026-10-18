@@ -27,7 +27,7 @@ from ..semantic.compiler.events import q
 from ..semantic.compiler.users import _bitmaps, compile_estimate, parse_users
 from ..sql import sandbox
 
-KINDS = ("values", "sql", "metric", "firstlast", "rfm")
+KINDS = ("values", "sql", "metric", "firstlast", "rfm", "import")
 SPEC_KINDS = ("metric", "firstlast", "rfm")
 METRIC_AGGS = ("count", "sum", "avg", "max", "min", "days")
 RFM_SEGMENTS = ("重要價值", "重要發展", "重要保持", "重要挽留", "一般價值", "一般發展", "一般保持", "一般挽留")
@@ -129,6 +129,11 @@ class TagService:
                 ups |= set(comp.lineage) | {f"segment:{r}" for r in self._refs(rule)}; warnings += comp.warnings; seen.add(val)
                 norm.append({"value": val, "rule": rule})
             values = norm; sql = ""
+        elif kind == "import":
+            iid = str(body.get("import_id") or x.get("import_id") or "")
+            imp = next((i for i in self.store.items("segment_import") if i["id"] == iid), None)
+            if imp is None or imp.get("table") != "dmp.tag_imports": raise ValueError("import 標籤需 import_id（帶標籤值的導入，例如神策標籤快照）")
+            x["import_id"] = iid; values = []; sql = ""; spec = {}; ups.add("dmp.tag_imports")
         elif kind == "sql":
             if not sql.strip(): raise ValueError("SQL 標籤需 sql")
             if not re.search(r"\bone_id_uint\b", sql) or not re.search(r"\btag_value\b", sql): raise ValueError("SQL 需輸出 one_id_uint 與 tag_value 兩欄（可用 AS 別名）")
@@ -140,6 +145,7 @@ class TagService:
             x["project"] = str(body.get("project") or x.get("project") or "altatech_dmp")
             self._spec_sql({"kind": kind, "spec": spec, "project": x["project"]}, decision, self.now().date().isoformat())   # 行級條件與欄位現在就編一次，壞的設定不要等到計算才爆
         if kind in ("values", "sql"): spec = {}
+        if kind == "import": body = {**body, "update": {**(body.get("update") or {}), "mode": "manual"}}   # 快照只算一次
         upd = {**{"mode": "routine", "freq": "daily", "earliest": "02:00", "keep": 7}, **(x.get("update") or {}), **(body.get("update") or {})}
         if upd["mode"] not in ("manual", "routine"): raise ValueError("update.mode 只能是 manual／routine")
         if upd["freq"] not in FREQS: raise ValueError(f"update.freq 只能是 {FREQS}")
@@ -325,7 +331,9 @@ class TagService:
                                   f"SELECT {q(id_)}, {q(v['value'])}, {version}, groupBitmapState(e.one_id_uint) FROM dmp.users AS e FINAL WHERE bitmapContains({bm}, e.one_id_uint)",
                                   settings={"max_execution_time": 600})
             else:
-                if t["kind"] == "sql":
+                if t["kind"] == "import":
+                    inner = f"SELECT one_id_uint, tag_value FROM dmp.tag_imports WHERE import_id = {q(t['import_id'])} AND one_id IN (SELECT one_id FROM dmp.users FINAL)"
+                elif t["kind"] == "sql":
                     c = sandbox.compile_sql(t["sql"], None, decision, self.cat, subject.roles, sandbox.MAX_LIMIT, sandbox.MID_TABLES)
                     inner = c.sql[len("SELECT * FROM ("):c.sql.rindex(") AS _q LIMIT")]
                 else:

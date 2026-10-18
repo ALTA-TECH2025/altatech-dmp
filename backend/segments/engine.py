@@ -24,13 +24,14 @@ from ..security.policy import Subject
 from ..semantic.compiler import Catalog
 from ..semantic.compiler.events import q
 from ..semantic.compiler.users import _bitmaps, compile_estimate, parse_users
+from .imports import ImportService
 
 
 def summarize(rule: dict[str, Any]) -> str:
     return ", ".join(f"{k}={v}" for k, v in rule.items() if k != "project")[:300]
 
 STATUSES = ("draft", "pending_approval", "active", "paused", "recycled")
-KINDS = ("rule", "result")
+KINDS = ("rule", "result", "import")
 FREQS = ("daily", "weekly", "monthly")
 MAX_SEGMENTS = 500
 RECYCLE_DAYS = 15
@@ -55,6 +56,7 @@ class SegmentService:
         self.now = now or (lambda: datetime.now(ZoneInfo("Asia/Taipei")))
         self._approvals = None
         self.approvals = approvals
+        self.imports = ImportService(store, ch, self.now)
 
     @property
     def approvals(self) -> Any:
@@ -112,6 +114,11 @@ class SegmentService:
             raise ValueError("rule（UsersQuery）必填")
         if kind == "result" and not rule.get("source"):
             raise ValueError("結果保存分群的 rule 需含 source（分析落點）")
+        if kind == "import":
+            src = rule.get("source") or {}
+            if src.get("type") != "import":
+                raise ValueError("導入名單分群的 rule.source 需為 {type: import, import_id}")
+            self.imports.get(str(src.get("import_id") or ""))          # 不存在 → KeyError 404
         project = str(rule.get("project") or body.get("project") or (existing or {}).get("project") or "altatech_dmp")
         rule = {**rule, "project": project}
         uq = parse_users(rule, self.cat)
@@ -123,6 +130,8 @@ class SegmentService:
         if upd["mode"] not in ("manual", "routine"): raise ValueError("update.mode 只能是 manual／routine")
         if upd["freq"] not in FREQS: raise ValueError(f"update.freq 只能是 {FREQS}")
         if not re.fullmatch(r"[0-2]\d:[0-5]\d", str(upd["earliest"])) or int(str(upd["earliest"])[:2]) > 23: raise ValueError("update.earliest 需為 HH:MM")
+        if kind == "import":
+            upd = {**upd, "mode": "manual"}                                # 名單是固定的，只算一次（重新上傳 = 新分群）
         upd["keep"] = 1 if upd["mode"] == "manual" else int(upd["keep"])
         if not 1 <= upd["keep"] <= 100: raise ValueError("update.keep 需在 1–100")
         tz = str(body.get("tz") or (existing or {}).get("tz") or "Asia/Taipei")
@@ -157,8 +166,8 @@ class SegmentService:
         seg = self.get(id_)
         if seg["status"] == "recycled":
             raise Conflict("回收站中的分群不能編輯，請先恢復")
-        if seg["kind"] == "result" and body.get("rule") is not None and body["rule"] != seg["rule"]:
-            raise Conflict("結果保存分群不可改規則")
+        if seg["kind"] in ("result", "import") and body.get("rule") is not None and body["rule"] != seg["rule"]:
+            raise Conflict("結果保存／導入名單分群不可改規則")
         if body.get("kind") and body["kind"] != seg["kind"]:
             raise Conflict("分群類型不可改")
         upd = body.get("update") or {}
@@ -212,7 +221,7 @@ class SegmentService:
 
     def copy(self, id_: str, subject: Subject, decision: Any, name: str | None = None) -> dict[str, Any]:
         src = self.get(id_)
-        body = {"name": name or f"{src['name']}（複製）", "description": src.get("description", ""), "kind": "rule", "rule": src["rule"], "update": src["update"], "tz": src["tz"]}
+        body = {"name": name or f"{src['name']}（複製）", "description": src.get("description", ""), "kind": "import" if src["kind"] == "import" else "rule", "rule": src["rule"], "update": src["update"], "tz": src["tz"]}
         seg = self.create(body, subject, decision)
         self.store.audit("segment.copied", {"user": subject.user_id, "segment": seg["id"], "from": id_})
         return seg
