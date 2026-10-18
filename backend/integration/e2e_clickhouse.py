@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HTTP_PORT, TCP_PORT = 18123, 19000
 
 
-def start_clickhouse(binary: str, workdir: Path) -> subprocess.Popen:
+def start_clickhouse(binary: str, workdir: Path, extra: str = "") -> subprocess.Popen:
     cfg = workdir / "config.xml"
     cfg.write_text(f"""<clickhouse>
   <logger><level>warning</level><console>0</console><log>{workdir}/ch.log</log><errorlog>{workdir}/ch.err</errorlog></logger>
@@ -38,6 +38,7 @@ def start_clickhouse(binary: str, workdir: Path) -> subprocess.Popen:
   <mark_cache_size>268435456</mark_cache_size><max_server_memory_usage_to_ram_ratio>0.5</max_server_memory_usage_to_ram_ratio>
   <users><default><password></password><networks><ip>127.0.0.1</ip></networks><profile>default</profile><quota>default</quota><access_management>1</access_management></default></users>
   <profiles><default><allow_experimental_json_type>1</allow_experimental_json_type></default></profiles><quotas><default/></quotas>
+  {extra}
   <named_collections><dmp_dict><host>127.0.0.1</host><port>{TCP_PORT}</port><user>default</user><password></password></dmp_dict></named_collections>
 </clickhouse>""")
     p = subprocess.Popen([binary, "server", f"--config-file={cfg}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
