@@ -2,6 +2,7 @@
 import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
 import { Anchor, Badge, Paper, Text } from '@mantine/core';
 import { PageHeader } from '@/ds';
+import { DesktopOnly } from '@/ds/DesktopOnly';
 import { AuthProvider } from '@/auth/AuthContext';
 import { LoginPage, NoAccessPage } from '@/auth/LoginPage';
 import { RequireAuth, RequireGrant } from '@/auth/RequireGrant';
@@ -59,9 +60,9 @@ export function App() {
             <Route path="/events" element={<EventsPage />} />
             <Route path="/funnel" element={<FunnelPage />} />
             <Route path="/retention" element={<RetentionPage />} />
-            <Route path="/path" element={<PathPage />} />
+            <Route path="/path" element={<DesktopOnly title="行為路徑"><PathPage /></DesktopOnly>} />
             <Route path="/attribution" element={<AttributionPage />} />
-            <Route path="/sql" element={<SqlPage />} />
+            <Route path="/sql" element={<DesktopOnly title="自定義 SQL"><SqlPage /></DesktopOnly>} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="/segments" element={<SegmentsPage />} />
             <Route path="/segments/:id" element={<SegmentsPage />} />
@@ -70,21 +71,21 @@ export function App() {
             <Route path="/activation" element={<ActivationPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/triggers" element={<Placeholder title="即時觸發" module="triggers" stage="phase2" note="Flink 規則引擎 + MA Webhook：事件到達即觸發推送；第一階段以分群名單推送（審批後）替代。" instead={{ to: '/activation', cn: '名單推送' }} />} />
-            <Route path="/integration" element={<IntegrationPage />} />
+            <Route path="/integration" element={<DesktopOnly title="數據整合"><IntegrationPage /></DesktopOnly>} />
             <Route path="/profile" element={<ProfileEntryPage />} />
             <Route path="/ai/insights" element={<Placeholder title="洞察串流" module="ai_ask" stage="phase2" note="Agent（異常偵測、漏斗診斷、流失雷達）產出的洞察物件：證據、信心度、建議動作、訂閱與回饋；第一階段 AI 閘道關閉（docs/03、22 §1）。" instead={{ to: '/overview', cn: '總覽／儀表板' }} />} />
             <Route path="/ai/ask" element={<Placeholder title="問答" module="ai_ask" stage="phase2" note="對話式問答（多輪追問、解釋、存成洞察）排第二階段。「問數建卡片」已可用：到任一儀表板按「解讀 / HTML 看板 / 定時寄送」→「AI 生成卡片」，一句話在既有分析模型上做選擇，草稿乾跑編譯後加入看板或存成書籤；設定 LLM 金鑰後自動改用模型解析。" instead={{ to: '/overview', cn: '總覽／儀表板（AI 生成卡片）' }} />} />
             <Route path="/ai/agents" element={<Placeholder title="Agents" module="ai_admin" stage="phase2" note="Agent 定義（agents.yaml）、排程、執行紀錄與預算（掃描量、LLM token）；提議（分群、觸發）一律走審批。" />} />
             <Route path="/ai/tools" element={<Placeholder title="工具目錄" module="ai_admin" stage="phase2" note="MCP 工具閘道目錄（backend/mcp/tools.yaml）：每個工具的權限、預算、脫敏與審計；第一階段只有契約。" />} />
-            <Route path="/governance" element={<GovernancePage />} />
-            <Route path="/governance/users" element={<UserSchemaPage />} />
-            <Route path="/governance/items" element={<ItemsPage />} />
+            <Route path="/governance" element={<DesktopOnly title="元事件管理"><GovernancePage /></DesktopOnly>} />
+            <Route path="/governance/users" element={<DesktopOnly title="用戶表管理"><UserSchemaPage /></DesktopOnly>} />
+            <Route path="/governance/items" element={<DesktopOnly title="維度表與字典"><ItemsPage /></DesktopOnly>} />
             <Route path="/governance/pipeline" element={<OpsPage />} />
-            <Route path="/migration" element={<MigrationPage />} />
+            <Route path="/migration" element={<DesktopOnly title="歷史資料遷移"><MigrationPage /></DesktopOnly>} />
             <Route path="/audit" element={<AuditPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings" element={<DesktopOnly title="平台設定"><SettingsPage /></DesktopOnly>} />
             <Route path="/system/monitor" element={<MonitorPage />} />
-            <Route path="/iam/*" element={<RequireGrant module="iam"><IamPage /></RequireGrant>} />
+            <Route path="/iam/*" element={<RequireGrant module="iam"><DesktopOnly title="權限中心"><IamPage /></DesktopOnly></RequireGrant>} />
             <Route path="*" element={<div className="page"><div className="card"><h1>找不到頁面</h1></div></div>} />
           </Route>
         </Routes>

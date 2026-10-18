@@ -9,6 +9,7 @@ import { RequireGrant } from '@/auth/RequireGrant';
 import { Chart, hbar } from '@/ds/Chart';
 import { EmptyState, KeyValue, Mono, PageHeader, SectionTitle, StatusBadge } from '@/ds';
 import { RuleBuilder } from '@/users/RuleBuilder';
+import { DesktopOnly } from '@/ds/DesktopOnly';
 import { cleanRule, emptyRule, ruleValid, summarizeRule } from '@/users/rule';
 import type { Segment } from '@/users/types';
 import { AGG_CN, DTYPE_CN, FEATURE_CN, TAG_KIND_CN, TAG_STATUS_CN, TAG_STATUS_PILL, bucketLabels, fmtTs, parseBuckets, specText, suggestKey, topDistribution, updateText } from './tags';
@@ -148,7 +149,11 @@ function TagDetail({ tag, cat, segOpts, me, can, busy, act }: { tag: Tag; cat: C
 type Draft = { name: string; key: string; directory: string; description: string; dtype: 'string' | 'number' | 'bool'; kind: TagKind; values: TagValue[]; sql: string; spec: TagSpec; buckets: string; project: string; update: Tag['update']; fields: Record<string, string> };
 const SPEC_KINDS: TagKind[] = ['metric', 'firstlast', 'rfm'];
 const KIND_OPTS = [opt('values', '規則標籤（動態：每值一條規則）'), opt('metric', '基礎指標值（次數／總和／均值…，可分桶）'), opt('firstlast', '首末次特徵（首次／末次的日期、距今天數、屬性）'), opt('rfm', 'RFM（R／F／M 分級或八類客群）'), opt('sql', 'SQL 標籤')];
-function TagForm({ cat, cf, segOpts, onDone, onCancel }: { cat: Catalog | null; cf: TagCustomFields | null; segOpts: { id: string; name: string }[]; onDone: (t: Tag) => Promise<void> | void; onCancel: () => void }) {
+function TagForm(props: Parameters<typeof TagFormInner>[0]) {
+  return <DesktopOnly title="新建標籤" inline reason="規則建構器有多層條件與欄位，手機上不好設定。請用電腦建立或編輯；手機可以查看清單與詳情。"><TagFormInner {...props} /></DesktopOnly>;
+}
+
+function TagFormInner({ cat, cf, segOpts, onDone, onCancel }: { cat: Catalog | null; cf: TagCustomFields | null; segOpts: { id: string; name: string }[]; onDone: (t: Tag) => Promise<void> | void; onCancel: () => void }) {
   const [d, setD] = useState<Draft>({ name: '', key: '', directory: cf?.directories[0] ?? '客戶價值', description: '', dtype: 'string', kind: 'values', values: [{ value: '', rule: emptyRule('golden') }], spec: { event: '', agg: 'count', window_days: 90, which: 'first', feature: 'date', amount_field: 'amount', bins: 5, output: 'score' }, buckets: '', project: 'golden', sql: "SELECT one_id_uint, toString(count()) AS tag_value\nFROM dmp.events WHERE event = 'bond_deal' AND event_date >= today() - 30\nGROUP BY one_id_uint", update: { mode: 'routine', freq: 'daily', earliest: '02:00', keep: 7 }, fields: {} });   // 動態標籤：預設每日凌晨 02:00 重算
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

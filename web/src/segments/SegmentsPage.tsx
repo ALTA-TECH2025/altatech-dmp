@@ -11,6 +11,7 @@ import { EmptyState, KeyValue, Mono, PageHeader, SectionTitle, StatTile, StatusB
 import { ExportDialog } from '@/users/ExportDialog';
 import { ProfileDrawer } from '@/users/ProfileDrawer';
 import { RuleBuilder } from '@/users/RuleBuilder';
+import { DesktopOnly } from '@/ds/DesktopOnly';
 import { cleanRule, emptyRule, normalizeRule, ruleValid, summarizeRule } from '@/users/rule';
 import type { Segment, SegmentCreate, SegmentPreview, SegmentStatus, SegmentVersion, UsersEstimate, UsersListResult } from '@/users/types';
 import { UsersTable } from '@/users/UsersTable';
@@ -87,7 +88,11 @@ function SegmentsInner() {
   );
 }
 
-function SegmentForm({ cat, segOpts, initial, existing, onDone, onCancel }: { cat: Catalog | null; segOpts: { id: string; name: string }[]; initial: Draft; existing?: Segment; onDone: (s: Segment) => Promise<void> | void; onCancel: () => void }) {
+function SegmentForm(props: Parameters<typeof SegmentFormInner>[0]) {
+  return <DesktopOnly title="新建／編輯分群" inline reason="規則建構器有多層條件與欄位，手機上不好設定。請用電腦建立或編輯；手機可以查看清單與詳情。"><SegmentFormInner {...props} /></DesktopOnly>;
+}
+
+function SegmentFormInner({ cat, segOpts, initial, existing, onDone, onCancel }: { cat: Catalog | null; segOpts: { id: string; name: string }[]; initial: Draft; existing?: Segment; onDone: (s: Segment) => Promise<void> | void; onCancel: () => void }) {
   const [d, setD] = useState<Draft>(initial);
   const [est, setEst] = useState<UsersEstimate | null>(null);
   const [err, setErr] = useState<string | null>(null);
