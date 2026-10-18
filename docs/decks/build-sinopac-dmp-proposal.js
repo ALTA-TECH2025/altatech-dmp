@@ -80,7 +80,7 @@ pres.addSection({ title: sec1 });
   [['139 / 174', 'OpenAPI 路徑已實作'], ['18 組', '自動化自測，含真 ClickHouse 端到端'], ['5 種', '角色權限可在示範站切換演示']].forEach(([v, l], i) => { const x = 0.5 + i * 3.1; card(s, x, 1.5, 2.8, 2.0, C.background1, `s6_stat${i}`);
     s.addText(v, T({ x: x + 0.25, y: 1.75, w: 2.3, h: 0.85, fontSize: 30, bold: true, color: C.accent1 }));
     s.addText(l, T({ x: x + 0.25, y: 2.65, w: 2.3, h: 0.7, fontSize: 14, color: C.text1 })); });
-  bullets(s, ['示範站：altatech-dmp.vercel.app（合成資料，不含客戶資料）', 'CI 對真後端跑瀏覽器主線：登入 → 事件分析 → 書籤 → 看板 → 推送'], { x: 0.5, y: 3.85, w: 9.0, h: 1.1, fontSize: 15 });
+  bullets(s, ['示範站：altatech-dmp-demo.vercel.app（合成資料，不含客戶資料）', 'CI 對真後端跑瀏覽器主線：登入 → 事件分析 → 書籤 → 看板 → 推送'], { x: 0.5, y: 3.85, w: 9.0, h: 1.1, fontSize: 15 });
   s.addText('數字截至 2026-10-17（docs/31 §1）', T({ x: 5.5, y: 5.2, w: 3.5, h: 0.3, fontSize: 10, color: HEX.muted, align: 'right' })); }
 
 // 7 現場操作
