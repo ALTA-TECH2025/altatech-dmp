@@ -111,9 +111,9 @@ function EventsInner() {
               <TextInput label="開始" type="date" value={q.time.from} onChange={(e) => setQ({ ...q, time: { ...q.time, from: e.target.value } })} />
               <TextInput label="結束" type="date" value={q.time.to} onChange={(e) => setQ({ ...q, time: { ...q.time, to: e.target.value } })} />
               <NativeSelect label="對比" value={q.compare ?? ''} data={[opt('', '無'), opt('previous_period', '上一期')]} onChange={(e) => setQ({ ...q, compare: (e.target.value || undefined) as EventsQuery['compare'] })} />
-              <NativeSelect label="抽樣" value={q.sample ?? ''} data={[opt('', '不抽樣（精確）'), opt('0.5', '1/2'), opt('0.1', '1/10'), opt('0.01', '1/100')]} onChange={(e) => setQ({ ...q, sample: e.target.value ? Number(e.target.value) : undefined })} />
+              <NativeSelect label="抽樣" value={q.sample ?? ''} data={[opt('', '不抽樣'), opt('0.5', '1/2'), opt('0.1', '1/10'), opt('0.01', '1/100')]} onChange={(e) => setQ({ ...q, sample: e.target.value ? Number(e.target.value) : undefined })} />
               <TextInput label="分群" placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} />
-              <NativeSelect label="人數計算" aria-label="人數計算" value={q.exact ? 'exact' : 'fast'} data={[opt('fast', '快速（可能為近似值）'), opt('exact', '精確')]} onChange={(e) => setQ({ ...q, exact: e.target.value === 'exact' ? true : undefined })} />
+              <NativeSelect label="人數計算" aria-label="人數計算" value={q.estimate ? 'estimate' : 'exact'} data={[opt('exact', '精確（預設）'), opt('estimate', '快速估算（近似值）')]} onChange={(e) => setQ({ ...q, estimate: e.target.value === 'estimate' ? true : undefined })} />
             </SimpleGrid>
             <Group gap="xs">
               <Button variant="filled" disabled={busy || !q.metrics.every((m) => (!NUM_AGGS.has(m.agg) && m.agg !== 'uniq') || m.field)} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</Button>
