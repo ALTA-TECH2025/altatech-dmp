@@ -149,10 +149,21 @@ def queries(days: int) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------- 量測
-def _run(ch: Any, q: dict[str, Any], tag: str) -> str:
+def limits() -> dict[str, int]:
+    """每條查詢的記憶體上限與溢寫門檻：超過就溢寫到磁碟或記為失敗，不讓單一查詢把伺服器拖垮（1 億筆在 4 核 15 GB 實測會 OOM）。"""
+    mem = int(float(os.environ.get("BENCH_QUERY_MEM_GB", "4")) * 1e9)
+    return {"max_memory_usage": mem, "max_bytes_before_external_group_by": mem // 2, "max_bytes_before_external_sort": mem // 2}
+
+
+def _run(ch: Any, q: dict[str, Any], tag: str) -> tuple[str, str | None]:
     qid = f"bench-{tag}-{uuid.uuid4().hex[:12]}"
-    ch.query(q["sql"] + " FORMAT Null", settings={**q["settings"], "query_id": qid, "use_query_cache": 0, "max_execution_time": 600})
-    return qid
+    try:
+        ch.query(q["sql"] + " FORMAT Null", settings={**q["settings"], **limits(), "query_id": qid, "use_query_cache": 0, "max_execution_time": 600})
+        return qid, None
+    except Exception as e:                                   # 記憶體／溢寫空間／逾時：記錄原因，繼續下一條
+        msg = str(e); code = msg.split("DB::Exception:")[0][-40:] if "DB::Exception" in msg else msg[:80]
+        reason = "記憶體超過上限" if "MEMORY_LIMIT" in msg else "暫存磁碟不足" if "NOT_ENOUGH_SPACE" in msg else "逾時" if "TIMEOUT" in msg else code.strip()[:80]
+        return qid, reason
 
 
 def _log(ch: Any, qids: list[str]) -> dict[str, dict[str, Any]]:
@@ -172,15 +183,23 @@ def pct(xs: list[float], p: float) -> float:
 
 
 def measure(ch: Any, qs: list[dict[str, Any]], repeat: int, concurrency: int) -> dict[str, Any]:
-    for q in qs:                                             # 暖身一次（載入 mark cache；不計）
-        _run(ch, q, "warm")
+    failed: dict[str, str] = {}
+    for q in qs:                                             # 暖身一次（載入 mark cache；不計）；暖身就失敗的查詢不再重跑
+        _, err = _run(ch, q, "warm")
+        if err:
+            failed[q["name"]] = err; print(f"  失敗：{q['name']}（{err}）", flush=True)
     per: dict[str, list[str]] = {q["name"]: [] for q in qs}
     for _ in range(repeat):
         for q in qs:
-            per[q["name"]].append(_run(ch, q, "seq"))
+            if q["name"] in failed: continue
+            qid, err = _run(ch, q, "seq")
+            if err: failed[q["name"]] = err
+            else: per[q["name"]].append(qid)
     logs = _log(ch, [x for v in per.values() for x in v])
     rows = []
     for q in qs:
+        if q["name"] in failed:
+            rows.append({"name": q["name"], "module": q["module"], "layer": q["layer"], "failed": failed[q["name"]]}); continue
         rs = [logs[x] for x in per[q["name"]] if x in logs]
         ms = [float(r["ms"]) for r in rs]
         rows.append({"name": q["name"], "module": q["module"], "layer": q["layer"], "p50_ms": pct(ms, 0.5), "p95_ms": pct(ms, 0.95),
@@ -189,21 +208,22 @@ def measure(ch: Any, qs: list[dict[str, Any]], repeat: int, concurrency: int) ->
                      "mem_mb": round(max(r["mem"] for r in rs) / 1e6, 1) if rs else None, "mv_hit": bool(rs and rs[0]["mv"])})
     conc: dict[str, Any] = {}
     if concurrency > 1:
-        jobs = [q for q in qs for _ in range(2)]
+        jobs = [q for q in qs if q["name"] not in failed for _ in range(2)]
         t0 = time.perf_counter()
         with ThreadPoolExecutor(concurrency) as pool:
-            qids = list(pool.map(lambda q: (q["name"], _run(ch, q, "conc")), jobs))
+            qids = [(n, r[0]) for n, r in pool.map(lambda q: (q["name"], _run(ch, q, "conc")), jobs) if not r[1]]
         wall = time.perf_counter() - t0
         logs = _log(ch, [x for _, x in qids])
         ms = [float(logs[x]["ms"]) for _, x in qids if x in logs]
-        seq = [r["p95_ms"] for r in rows]
+        seq = [r["p95_ms"] for r in rows if "failed" not in r]
         conc = {"concurrency": concurrency, "queries": len(jobs), "wall_s": round(wall, 1), "p50_ms": pct(ms, 0.5), "p95_ms": pct(ms, 0.95),
                 "seq_p95_of_p95_ms": pct(seq, 0.95), "degradation": round(pct(ms, 0.95) / max(pct(seq, 0.95), 1), 2)}
     by_mod: dict[str, dict[str, Any]] = {}
     for m in sorted({r["module"] for r in rows}):
-        xs = [r for r in rows if r["module"] == m]
-        by_mod[m] = {"queries": len(xs), "p95_max_ms": max(r["p95_ms"] for r in xs), "p95_median_ms": pct([r["p95_ms"] for r in xs], 0.5)}
-    ev = [r for r in rows if r["module"] == "events"]
+        xs = [r for r in rows if r["module"] == m and "failed" not in r]
+        by_mod[m] = {"queries": len(xs), "failed": sum(1 for r in rows if r["module"] == m and "failed" in r),
+                     "p95_max_ms": max((r["p95_ms"] for r in xs), default=None), "p95_median_ms": pct([r["p95_ms"] for r in xs], 0.5) if xs else None}
+    ev = [r for r in rows if r["module"] == "events" and "failed" not in r]
     return {"queries": rows, "modules": by_mod, "concurrency": conc,
             "mv_hit_rate": round(sum(1 for r in ev if r["mv_hit"]) / len(ev), 3) if ev else None,
             "mv_eligible": sum(1 for r in ev if r["layer"] == "L1")}
@@ -213,14 +233,18 @@ def report_md(res: dict[str, Any]) -> str:
     m = res["meta"]; out = [f"# 效能基準結果：{m['rows']:,} 筆事件 × {m['users']:,} 人 × {m['days']} 天", "",
                             f"- ClickHouse {m['clickhouse']}；{m['cpus']} vCPU；資料 {m['events_disk_gb']} GB（壓縮後，{m['bytes_per_event']} B／筆）",
                             f"- 載入：{m['load']}", f"- 每條查詢暖身 1 次後跑 {m['repeat']} 次；查詢快取關閉", ""]
-    out += ["| 模組 | 條數 | P95 中位數 (ms) | P95 最大 (ms) |", "|---|---:|---:|---:|"]
-    out += [f"| {k} | {v['queries']} | {v['p95_median_ms']} | {v['p95_max_ms']} |" for k, v in res["modules"].items()]
+    out += ["| 模組 | 成功條數 | 失敗 | P95 中位數 (ms) | P95 最大 (ms) |", "|---|---:|---:|---:|---:|"]
+    out += [f"| {k} | {v['queries']} | {v['failed']} | {v['p95_median_ms']} | {v['p95_max_ms']} |" for k, v in res["modules"].items()]
+    bad = [r for r in res["queries"] if "failed" in r]
+    if bad:
+        out += ["", f"單條查詢記憶體上限 {m.get('query_mem_gb')} GB 下失敗：" + "；".join(f"{r['name']}（{r['failed']}）" for r in bad)]
     out += ["", f"事件分析命中聚合層（MV）：{res['mv_hit_rate']:.0%}（編譯器判定可走 L1 的 {res['mv_eligible']} 條）" if res["mv_hit_rate"] is not None else ""]
     c = res["concurrency"]
     if c:
         out += ["", f"並發 {c['concurrency']}（{c['queries']} 條查詢）：P95 {c['p95_ms']} ms，單條依序的 P95 {c['seq_p95_of_p95_ms']} ms，劣化 {c['degradation']} 倍；總耗時 {c['wall_s']} s"]
     out += ["", "| 查詢 | 層 | P50 | P95 | 讀取列數 | 讀取 MB | 記憶體 MB | MV |", "|---|---|---:|---:|---:|---:|---:|---|"]
-    out += [f"| {r['name']} | {r['layer']} | {r['p50_ms']} | {r['p95_ms']} | {r['read_rows']:,} | {r['read_mb']} | {r['mem_mb']} | {'✓' if r['mv_hit'] else ''} |" for r in res["queries"]]
+    out += [f"| {r['name']} | {r['layer']} | {r['p50_ms']} | {r['p95_ms']} | {r['read_rows']:,} | {r['read_mb']} | {r['mem_mb']} | {'✓' if r['mv_hit'] else ''} |" if "failed" not in r
+            else f"| {r['name']} | {r['layer']} | 失敗：{r['failed']} | | | | | |" for r in res["queries"]]
     return "\n".join(out) + "\n"
 
 
@@ -245,7 +269,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if binary:
             proc = start_clickhouse(binary, work, extra="<query_log><database>system</database><table>query_log</table><flush_interval_milliseconds>1000</flush_interval_milliseconds></query_log>"
-                                                 "<merge_tree><old_parts_lifetime>30</old_parts_lifetime></merge_tree>")      # 合併後的舊 part 30 秒就清，避免 1 億筆以上把磁碟塞滿
+                                                 "<merge_tree><old_parts_lifetime>30</old_parts_lifetime></merge_tree>"
+                                                 f"<max_server_memory_usage>{int(os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') * 0.6)}</max_server_memory_usage>")      # 合併後的舊 part 30 秒就清，避免 1 億筆以上把磁碟塞滿
             url = "http://127.0.0.1:18123"
         ch = ClickHouseHTTP(url or "", user=os.environ.get("CLICKHOUSE_USER", "default"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), timeout=7200)
         for st in local_ddl((ROOT / "clickhouse" / "schema.sql").read_text(encoding="utf-8")):
@@ -262,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"--- measure {len(qs)} queries × {a.repeat} + concurrency {a.concurrency}")
         res = measure(ch, qs, a.repeat, a.concurrency)
         res["meta"] = {"rows": n, "users": users, "days": a.days, "repeat": a.repeat, "clickhouse": ch.query("SELECT version()").strip(), "cpus": os.cpu_count(),
-                       "events_disk_gb": round(disk / 1e9, 2), "bytes_per_event": round(disk / max(n, 1), 1), "load": load_t, "at": time.strftime("%Y-%m-%d %H:%M")}
+                       "events_disk_gb": round(disk / 1e9, 2), "query_mem_gb": limits()["max_memory_usage"] / 1e9, "bytes_per_event": round(disk / max(n, 1), 1), "load": load_t, "at": time.strftime("%Y-%m-%d %H:%M")}
         out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
         stem = f"bench_{n // 1_000_000}M"
         (out / f"{stem}.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
