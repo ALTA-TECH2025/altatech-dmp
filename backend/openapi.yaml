@@ -288,8 +288,10 @@ paths:
     delete: { tags: [Segments], summary: '徹底刪除（系統管理員；不可恢復；回收站保留天數到期自動執行）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
   /v1/segments/estimate:
     post: { tags: [Segments], summary: '規則預估人數（預設 1/16 抽樣，比例可後台配置）', responses: { '200': { description: ok } } }
-  /v1/segments/import:
-    post: { tags: [Segments], summary: '導入創建：上傳 txt／csv，指定匹配屬性（任一 ID 欄位或用戶屬性）、是否保留未匹配 ID；先做 L4 欄位掃描', responses: { '202': { description: queued } } }
+  /v1/segments/imports:
+    post: { tags: [Segments], summary: '導入名單（第一步）：上傳客戶代碼或 one_id 清單（前端讀 txt／csv，一列一個；≤ 200,000）。客戶代碼以與神策登入 ID 相同的金鑰（token_v1）轉成 one_id，原始代碼不落地；只存 one_id 於 dmp.segment_imports。回總數、去重後數、對到用戶表的人數與未對到數，再以 kind=import 建分群（第二步）；需 segments.use；審計 segment.import.created（只記數量）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SegmentImportCreate' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/SegmentImport' } } } }, '400': { description: 空清單、超過上限或 id_type 不支援 }, '503': { description: 未連接 ClickHouse 或未設定 token 金鑰 } } }
+  /v1/segments/imports/{id}:
+    get: { tags: [Segments], summary: '導入名單摘要（不回名單本身）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SegmentImport' } } } }, '404': { description: 不存在 } } }
   /v1/tags:
     get: { tags: [Segments], summary: '標籤目錄（第一階段：分群對應值／SQL 兩種建立方式；含最新版本人數與分布）', parameters: [{ name: status, in: query, schema: { type: string } }, { name: q, in: query, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Tag' } } } } } } }
     post: { tags: [Segments], summary: '建立標籤（行銷建立需數位經營審批；數據分析／數位經營／系統管理員直接生效；建立後可立即計算）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/TagCreate' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Tag' } } } } } }
@@ -509,6 +511,16 @@ paths:
     post: { tags: [Migration], summary: '建立導出任務（資料集、日期範圍、方式 impala|api；需 governance.d；審計 migration.export.created）', responses: { '202': { description: accepted } } }
   /v1/migration/exports/{id}/rerun:
     post: { tags: [Migration], summary: '重跑指定日期分片（差異 > 0.1% 時）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
+  /v1/migration/sensors-groups:
+    get: { tags: [Migration], summary: '神策分群／標籤遷移清單：每個神策分群（users 表 user_group_* 欄）與標籤（user_tag_* 欄）的人數、處理方式（待處理／快照／已重建／略過）、對應的 DMP 分群或標籤與人數差異；需 governance.view', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SensorsGroupList' } } } } } }
+  /v1/migration/sensors-groups/scan:
+    post: { tags: [Migration], summary: '以神策查詢 API 掃描 users 表的 user_group_*／user_tag_* 欄位與人數（標籤另回值的種類數）；保留既有處理狀態；需 governance.use；審計 migration.groups.scanned', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SensorsGroupList' } } } }, '503': { description: 未設定神策連線 } } }
+  /v1/migration/sensors-groups/{name}/snapshot:
+    post: { tags: [Migration], summary: '快照：從神策取成員（登入 ID 以 token_v1 轉 one_id，匿名用 first_id）→ 導入名單 → 建 kind=import 的分群（分群）或標籤（標籤，每人一值）並計算一次；規則重建不了的用這個；需 governance.use 與 segments.use；審計 migration.group.snapshot', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { dmp_name: { type: string, maxLength: 60, description: '預設「神策：<名稱>」' } } } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SensorsGroup' } } } }, '409': { description: 已處理或名稱重複 }, '503': { description: 未設定神策連線或 ClickHouse } } }
+  /v1/migration/sensors-groups/{name}/link:
+    post: { tags: [Migration], summary: '標記已重建：連到分析師以規則建構器重建的 DMP 分群或標籤，之後比對人數差異；需 governance.use', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, required: [type, id], properties: { type: { type: string, enum: [segment, tag] }, id: { type: string } } } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SensorsGroup' } } } }, '404': { description: 分群或標籤不存在 } } }
+  /v1/migration/sensors-groups/{name}/skip:
+    post: { tags: [Migration], summary: '略過（已停用、不再需要）；需附原因；需 governance.use', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, required: [note], properties: { note: { type: string, maxLength: 200 } } } } } }, responses: { '200': { description: ok } } }
   /v1/migration/reconcile:
     get: { tags: [Migration], summary: '新舊對帳（T2 每事件每日：神策筆數 vs 載入筆數；T5 並行期：神策 vs GA360 每日量與差異；T6 登入用戶銜接率；由 ClickHouse ingest_recon 與 events.source 計算）', parameters: [{ name: days, in: query, schema: { type: integer, default: 28 } }, { name: project, in: query, schema: { type: string } }], responses: { '200': { description: ok }, '503': { description: 未連接 ClickHouse } } }
   /v1/integration/tables:
@@ -809,7 +821,8 @@ components:
         filters: { description: '用戶屬性（user.<key>，只限寬表 L0–L2）與分群（seg.<id>）條件樹：陣列＝全部符合（且）；{ op: and|or, items: [條件或子群組] } 可巢狀（建議最多兩層）；條件 { field, op, value }，運算子依型別：字串 eq/neq/in/nin/like/nlike/set/nset、數值 eq/neq/gt/gte/lt/lte/between/set/nset、布林 true/false、日期 rel({days})/between/set/nset、分群 in/nin', oneOf: [{ type: array, items: { type: object } }, { type: object, properties: { op: { type: string, enum: [and, or] }, items: { type: array, items: { type: object } } } }] }
         segment: { type: string, description: 等同 filters 加 seg.<id> in }
         behaviors: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/UsersBehavior' } }
-        behaviors_op: { type: string, enum: [and, or], default: and }
+        sequences: { type: array, maxItems: 5, items: { $ref: '#/components/schemas/UsersSequence' }, description: 行為序列（依序完成 A → B → …）；與 behaviors 一起受 behaviors_op 組合 }
+        behaviors_op: { type: string, enum: [and, or], default: and, description: behaviors 與 sequences 之間的組合 }
         time: { type: object, description: behaviors 未各自指定時的預設時間範圍, properties: { from: { type: string }, to: { type: string }, now: { type: string } } }
         source: { $ref: '#/components/schemas/UsersSource' }
     UsersBehavior:
@@ -823,12 +836,22 @@ components:
         cmp: { type: object, description: 指標比較；未給時等同 count ≥ 1, properties: { op: { type: string, enum: [gte, lte, eq, gt, lt, between], default: gte }, value: { description: '數字或 [a, b]' } } }
         count: { type: object, deprecated: true, description: 舊寫法＝measure count ＋ cmp, properties: { op: { type: string, enum: [gte, lte, eq, between], default: gte }, value: { description: '數字或 [a, b]' } } }
         time: { type: object, description: '期間：{ last_days: N }＝到基準日（time.now 或例行計算的 basetime）為止近 N 天，動態標籤用這個；或 { from, to } 自訂日期', properties: { last_days: { type: integer, minimum: 1, maximum: 730 }, from: { type: string }, to: { type: string } } }
+    UsersSequence:
+      type: object
+      description: '行為序列：期間內依序完成各步（ClickHouse windowFunnel 預設模式：從第一步起算，後續每一步都要在窗口內發生；中間可夾其他事件）；done=false＝期間內沒有依序完成'
+      required: [steps, window]
+      properties:
+        steps: { type: array, minItems: 2, maxItems: 6, items: { type: object, required: [event], properties: { event: { type: string }, filters: { description: '該步的事件屬性條件：陣列（且）或 { op, items }' } } } }
+        window: { type: object, required: [value, unit], properties: { value: { type: integer, minimum: 1 }, unit: { type: string, enum: [minute, hour, day] } }, description: 從第一步起算的完成窗口，最長 90 天 }
+        done: { type: boolean, default: true }
+        time: { type: object, description: '期間：{ last_days } 或 { from, to }，同 UsersBehavior.time；未給用頂層 time', properties: { last_days: { type: integer, minimum: 1, maximum: 730 }, from: { type: string }, to: { type: string } } }
     UsersSource:
       type: object
-      description: 從分析結果的某個落點下鑽成用戶列表（漏斗某步到達／流失、留存某同期群某期留存／未留存、事件分析某桶某分組）
-      required: [type, query]
+      description: 從分析結果的某個落點下鑽成用戶列表（漏斗某步到達／流失、留存某同期群某期留存／未留存、事件分析某桶某分組），或導入名單
+      required: [type]
       properties:
-        type: { type: string, enum: [funnel, retention, events, path, attribution] }
+        type: { type: string, enum: [funnel, retention, events, path, attribution, import] }
+        import_id: { type: string, description: 'import：導入名單 id（/v1/segments/imports 回傳）；此時不需 query' }
         query: { type: object, description: 原分析查詢（FunnelQuery／RetentionQuery／SemanticQuery／PathQuery／AttributionQuery） }
         touch: { type: string, description: 'attribution：觸點別名（轉化前窗口內有此觸點的轉化者）' }
         node: { type: string, description: 'path：節點名' }
@@ -899,10 +922,32 @@ components:
       properties:
         name: { type: string, maxLength: 60 }
         description: { type: string }
-        kind: { type: string, enum: [rule, result], default: rule, description: result = 從分析結果點保存（rule.source 必填，規則不可再改） }
+        kind: { type: string, enum: [rule, result, import], default: rule, description: 'result = 從分析結果點保存（rule.source 必填，規則不可再改）；import = 導入名單（rule.source = { type: import, import_id }，規則不可再改，更新方式固定手動；神策分群快照也用這種）' }
         rule: { $ref: '#/components/schemas/UsersQuery' }
         update: { type: object, properties: { mode: { type: string, enum: [manual, routine], default: routine, description: '預設例行（動態分群：每日凌晨重算符合規則的受眾）' }, freq: { type: string, enum: [daily, weekly, monthly], default: daily }, earliest: { type: string, default: '02:00', description: 'HH:MM，最早計算時間' }, keep: { type: integer, minimum: 1, maximum: 100, default: 7, description: 例行版本保留數；手動固定 1 } } }
         tz: { type: string, default: Asia/Taipei }
+    SegmentImportCreate:
+      type: object
+      required: [id_type, values]
+      properties:
+        project: { type: string }
+        id_type: { type: string, enum: [customer_code, one_id], description: 'customer_code＝客戶代碼（原始值，伺服器以 token_v1 轉 one_id）；one_id＝已是 DMP 的 one_id' }
+        values: { type: array, minItems: 1, maxItems: 200000, items: { type: string, maxLength: 64 } }
+        label: { type: string, maxLength: 60, description: 檔名或說明（只存摘要） }
+    SegmentImport:
+      type: object
+      properties:
+        id: { type: string }
+        project: { type: string }
+        id_type: { type: string }
+        label: { type: string }
+        total: { type: integer, description: 上傳列數 }
+        distinct: { type: integer, description: 去重後 }
+        matched: { type: integer, description: 對到用戶表的人數 }
+        unmatched: { type: integer }
+        invalid: { type: integer, description: 空白或格式不符而略過的列 }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
     Segment:
       allOf:
         - $ref: '#/components/schemas/SegmentCreate'
@@ -1406,6 +1451,24 @@ components:
         firing: { type: array, items: { $ref: '#/components/schemas/OpsAlert' } }
         rules: { type: array, items: { $ref: '#/components/schemas/OpsAlert' } }
         notify: { type: array, items: { type: string }, description: 通知角色（第一階段只在頁面顯示） }
+    SensorsGroup:
+      type: object
+      properties:
+        name: { type: string, description: 神策欄位名（user_group_xxx／user_tag_xxx） }
+        kind: { type: string, enum: [segment, tag] }
+        cn: { type: string, description: 顯示名（去掉前綴） }
+        users: { type: integer, description: 神策端人數 }
+        values: { type: integer, nullable: true, description: 標籤值種類數 }
+        status: { type: string, enum: [pending, snapshot, rebuilt, skipped] }
+        dmp: { type: object, nullable: true, properties: { type: { type: string, enum: [segment, tag] }, id: { type: string }, name: { type: string }, users: { type: integer, nullable: true }, diff_pct: { type: number, nullable: true, description: '(DMP − 神策) ÷ 神策' } } }
+        note: { type: string }
+        updated_at: { type: string, format: date-time }
+    SensorsGroupList:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/SensorsGroup' } }
+        scanned_at: { type: string, format: date-time, nullable: true }
+        summary: { type: object, properties: { total: { type: integer }, pending: { type: integer }, snapshot: { type: integer }, rebuilt: { type: integer }, skipped: { type: integer } } }
     TagCreate:
       type: object
       required: [name, kind]
@@ -1415,9 +1478,10 @@ components:
         directory: { type: string, description: 所屬目錄（客戶價值／交易偏好／風險／活躍／行銷…） }
         description: { type: string }
         dtype: { type: string, enum: [string, number, bool], default: string }
-        kind: { type: string, enum: [values, sql, metric, firstlast, rfm], description: 'values＝自定義標籤值：每個值一條用戶規則（UsersQuery；最多 24 值）；sql＝SQL 標籤：SELECT one_id_uint, tag_value；metric＝基礎指標值（事件在窗口內的次數／總和／均值／最大／最小／有行為天數，可分桶）；firstlast＝首末次特徵（首次或末次某事件的日期、距今天數分桶、或當時某屬性值）；rfm＝RFM（最近一次距今 R、次數 F、金額 M 各分 n 級，輸出 R5F4M3 分數或八類客群）' }
+        kind: { type: string, enum: [values, sql, metric, firstlast, rfm, import], description: 'import＝快照（目前只由神策標籤遷移建立：每人一個值存於 dmp.tag_imports，計算時照抄成新版本）；values＝自定義標籤值：每個值一條用戶規則（UsersQuery；最多 24 值）；sql＝SQL 標籤：SELECT one_id_uint, tag_value；metric＝基礎指標值（事件在窗口內的次數／總和／均值／最大／最小／有行為天數，可分桶）；firstlast＝首末次特徵（首次或末次某事件的日期、距今天數分桶、或當時某屬性值）；rfm＝RFM（最近一次距今 R、次數 F、金額 M 各分 n 級，輸出 R5F4M3 分數或八類客群）' }
         values: { type: array, maxItems: 24, items: { type: object, required: [value, rule], properties: { value: { type: string }, rule: { $ref: '#/components/schemas/UsersQuery' } } } }
         sql: { type: string }
+        import_id: { type: string, description: 'kind=import 的快照 id' }
         project: { type: string, description: 'metric／firstlast／rfm 的事件專案（預設 altatech_dmp）' }
         spec:
           type: object
