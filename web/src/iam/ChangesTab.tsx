@@ -61,8 +61,8 @@ export function Diff({ before, after }: { before: Role | null; after: Role | nul
       <Stack gap="sm">
         <SectionTitle title="變更前後"><Text size="xs" c="dimmed">{before ? '' : '新增；'}{after ? '' : '刪除；'}{changed.length} 個模組權限異動</Text></SectionTitle>
         {meta.length > 0 && <KeyValue rows={meta.map(([k, x, y]) => [k, <Text size="sm" key={k}><Text component="s" c="dimmed" span>{String(x ?? '—')}</Text> → <b>{String(y ?? '—')}</b></Text>])} />}
-        {changed.length > 0 && <Table><Table.Thead><Table.Tr><Table.Th>模組</Table.Th><Table.Th>變更前</Table.Th><Table.Th>變更後</Table.Th></Table.Tr></Table.Thead>
-          <Table.Tbody>{changed.map((m) => <Table.Tr key={m.key}><Table.Td>{m.cn}</Table.Td><Table.Td><Mono>{(b[m.key] ?? []).map((x) => ACTIONS.find((y) => y.key === x)?.cn ?? x).join('、') || '—'}</Mono></Table.Td><Table.Td><Mono><b>{(a[m.key] ?? []).map((x) => ACTIONS.find((y) => y.key === x)?.cn ?? x).join('、') || '—'}</b></Mono></Table.Td></Table.Tr>)}</Table.Tbody></Table>}
+        {changed.length > 0 && <Table.ScrollContainer minWidth={480}><Table><Table.Thead><Table.Tr><Table.Th>模組</Table.Th><Table.Th>變更前</Table.Th><Table.Th>變更後</Table.Th></Table.Tr></Table.Thead>
+          <Table.Tbody>{changed.map((m) => <Table.Tr key={m.key}><Table.Td>{m.cn}</Table.Td><Table.Td><Mono>{(b[m.key] ?? []).map((x) => ACTIONS.find((y) => y.key === x)?.cn ?? x).join('、') || '—'}</Mono></Table.Td><Table.Td><Mono><b>{(a[m.key] ?? []).map((x) => ACTIONS.find((y) => y.key === x)?.cn ?? x).join('、') || '—'}</b></Mono></Table.Td></Table.Tr>)}</Table.Tbody></Table></Table.ScrollContainer>}
       </Stack>
     </Paper>
   );

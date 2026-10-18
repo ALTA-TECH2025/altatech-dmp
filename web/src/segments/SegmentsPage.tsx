@@ -51,7 +51,7 @@ function SegmentsInner() {
       {id === 'new' ? <SegmentForm cat={cat} segOpts={segOpts} initial={newDraft()} onDone={async (s) => { await reload(); nav(`/segments/${s.id}`); }} onCancel={() => nav('/segments')} />
         : current ? <SegmentDetail seg={current} cat={cat} segOpts={segOpts} me={me?.user.id} can={can} onChanged={reload} busy={busy} setBusy={setBusy} setErr={setErr} />
         : (
-          <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
+          <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" className="ds-split">
             <Paper p={0} style={{ overflow: 'hidden' }}>
               <Group p="sm" gap="sm">
                 <SegmentedControl size="xs" value={tab} onChange={(v) => setTab(v as typeof tab)} data={[{ value: 'all', label: '全部' }, { value: 'pending', label: pending ? `待審批 (${pending})` : '待審批' }, { value: 'recycled', label: '回收站' }]} />

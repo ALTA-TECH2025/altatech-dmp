@@ -30,11 +30,11 @@ export function AppShell() {
             {groups.map((g) => <button key={g.id} className={g.id === active?.id ? 'on' : ''} onClick={() => nav(g.items[0].path)}>{g.cn}{g.id === 'ai' && <span className="badge">二期</span>}</button>)}
           </nav>
           <div className="tn-right">
-            {isDemo && <Group gap={6} wrap="nowrap"><Badge color="orange" title="固定資料來自單機後端 + 合成黃金資料集；寫入動作只模擬成功">示範模式 · 固定資料</Badge><NativeSelect size="xs" aria-label="示範角色" value={demoRole()} data={DEMO_ROLES.map(([k, cn]) => ({ value: k, label: cn }))} onChange={(e) => { setDemoRole(e.target.value); location.reload(); }} /></Group>}
+            {isDemo && <Group className="tn-demo" gap={6} wrap="nowrap"><Badge color="orange" title="固定資料來自單機後端 + 合成黃金資料集；寫入動作只模擬成功">示範模式 · 固定資料</Badge><NativeSelect size="xs" aria-label="示範角色" value={demoRole()} data={DEMO_ROLES.map(([k, cn]) => ({ value: k, label: cn }))} onChange={(e) => { setDemoRole(e.target.value); location.reload(); }} /></Group>}
             {me.session.step_up_needed && (me.user.provider === 'local' ? <StepUp /> : <a className="pill amber" href={`/auth/login?provider=${me.session.idp_mode === 'broker' ? 'keycloak' : 'entra'}&return_to=${encodeURIComponent(location.pathname)}`}>管理動作需重新驗證</a>)}
             <span className="org-pick" title="專案 / 環境">證券示範專案<span className="sep">/</span>{isDemo ? 'demo' : 'prod'}</span>
             <div className="me" title={me.user.id}><span className="av">{initial}</span><span><span className="nm">{me.user.name || me.user.username}</span><span className="rl">{me.roles.map((r) => r.cn + (r.active ? '' : '（待驗證）')).join('、') || '無角色'}</span></span></div>
-            <Button size="compact-sm" onClick={() => void logout()}>登出</Button>
+            <Button className="tn-logout" size="compact-sm" onClick={() => void logout()}>登出</Button>
           </div>
         </div>
       </header>
@@ -48,7 +48,7 @@ export function AppShell() {
         <div className="mnav"><div className="drawer-bk" onClick={() => setOpen(false)} /><nav className="mnav-panel" aria-label="主選單">
           <div className="hd"><img className="logo" src="/favicon.svg" alt="" /><b>ALTA TECH</b><span className="prod">DMP</span><button className="icon-btn x" onClick={() => setOpen(false)}>✕</button></div>
           {groups.map((g) => <div key={g.id}><div className="grp">{g.cn}</div>{g.items.map((it) => <NavLink key={it.path} to={it.path} className={`it${isActive(it) ? ' on' : ''}`} onClick={() => setOpen(false)}>{it.cn}{stageTag(it)}</NavLink>)}</div>)}
-          <div className="ft"><button className="it" onClick={() => void logout()}>登出</button></div>
+          <div className="ft">{isDemo && <div className="mnav-demo"><Badge color="orange">示範模式 · 固定資料</Badge><NativeSelect size="xs" aria-label="示範角色（選單）" value={demoRole()} data={DEMO_ROLES.map(([k, cn]) => ({ value: k, label: cn }))} onChange={(e) => { setDemoRole(e.target.value); location.reload(); }} /></div>}<button className="it" onClick={() => void logout()}>登出</button></div>
         </nav></div>
       )}
       <main className="content"><div className="wrap"><Outlet /></div></main>

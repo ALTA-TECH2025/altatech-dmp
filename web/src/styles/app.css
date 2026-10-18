@@ -234,3 +234,24 @@ label.chk input { width: auto; }
 
 /* 規則建構器：且／或切換鈕直立貼在群組左側 */
 .rb .rb-op { align-self: stretch; height: auto; min-width: 30px; padding: 0 4px; }
+
+/* 設計系統的響應式補強（手機 H5） */
+@media (min-width: 900px) {
+  .ds-split { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) !important; }
+  .ds-split-side { grid-template-columns: minmax(0, 300px) minmax(0, 1fr) !important; }
+}
+.page .mantine-Table-th { white-space: nowrap; }
+.page .mantine-Table-td { min-width: 3.5em; }                        /* 中文欄位不會被擠成一字一行 */
+.mantine-SegmentedControl-root { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.mantine-SegmentedControl-root::-webkit-scrollbar { display: none; }
+select[multiple].mantine-NativeSelect-input { height: auto !important; min-height: 112px; max-height: 160px; overflow-y: auto; padding-top: 6px; padding-bottom: 6px; }
+.mnav-demo { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 12px; }
+@media (max-width: 900px) {
+  .tn-demo, .tn-logout { display: none !important; }
+  .page .mantine-Group-root { row-gap: 8px; }
+  .page .mantine-NativeSelect-root, .page .mantine-TextInput-root { max-width: 100%; }
+}
+@media (max-width: 600px) {
+  .page .mantine-Title-root[data-order="1"] { font-size: 18px; }
+}
+.page .mantine-Table-td .mantine-Badge-root, .page .mantine-Table-td .mantine-Badge-label { overflow: visible; text-overflow: clip; }   /* 標章不被窄欄截成「生…」 */

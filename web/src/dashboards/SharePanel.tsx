@@ -47,7 +47,7 @@ function ExplainTab({ d, llm }: { d: Dashboard; llm: boolean }) {
       <Group gap="xs"><Button variant="filled" disabled={busy} onClick={() => void run('rules')}>{busy ? '計算中…' : ex ? '重新解讀' : '解讀這個看板'}</Button>{llm && <Button disabled={busy} onClick={() => void run('llm')}>敘述版（模型）</Button>}{ex && <Text size="xs" c="dimmed">{ex.period} · {fmt(ex.generated_at)} · {ex.method === 'llm' ? '模型敘述 + 規則事實' : '規則式'}{ex.note ? ` · ${ex.note}` : ''}</Text>}</Group>
       {err && <Alert color="red" variant="light">{err}</Alert>}
       {ex?.narrative && <Paper shadow="none" radius="md" style={{ borderLeft: '4px solid var(--purple)' }}>{ex.narrative.split(/\n+/).map((p, i) => <Text key={i} size="sm" my={4}>{p}</Text>)}</Paper>}
-      {ex && <SimpleGrid cols={{ base: 1, md: 2 }} style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
+      {ex && <SimpleGrid cols={{ base: 1, md: 2 }} className="ds-split">
         <div><Text size="sm" fw={600}>本期重點</Text><List size="sm" spacing={4}>{ex.summary.map((s, i) => <List.Item key={i}>{s}</List.Item>)}</List></div>
         <div><Text size="sm" fw={600}>每張卡片</Text><List size="sm" spacing={4}>{ex.cards.map((c) => <List.Item key={c.card} icon={<ColorSwatch size={8} color={SIGNAL[c.signal]} />}>{c.title}：{c.line}{c.warnings.length > 0 && <Text size="xs" c="dimmed">{c.warnings.join('；')}</Text>}</List.Item>)}</List></div>
       </SimpleGrid>}

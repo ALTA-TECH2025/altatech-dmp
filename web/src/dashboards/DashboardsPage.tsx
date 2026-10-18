@@ -62,7 +62,7 @@ function DashboardList() {
                 <Table.Tbody>{(ds as DashboardSummary[]).map((d) => (
                   <Table.Tr key={d.id} style={{ cursor: 'pointer' }} onClick={() => nav(`/overview/${d.id}`)}>
                     <Table.Td><Group gap={6}><Anchor component={Link} to={`/overview/${d.id}`} size="sm" fw={600} onClick={(e) => e.stopPropagation()}>{d.name}</Anchor>{d.seed && <Badge color="gray">範例</Badge>}</Group>{d.description && <Text size="xs" c="dimmed">{d.description}</Text>}</Table.Td>
-                    <Table.Td ta="right"><Mono>{d.cards}</Mono></Table.Td><Table.Td>{PRESET_CN[d.time.preset]}</Table.Td><Table.Td><Mono>{d.owner}</Mono></Table.Td>
+                    <Table.Td ta="right"><Mono>{d.cards}</Mono></Table.Td><Table.Td style={{ whiteSpace: 'nowrap' }}>{PRESET_CN[d.time.preset]}</Table.Td><Table.Td><Mono>{d.owner}</Mono></Table.Td>
                     <Table.Td><Group gap={4}>{d.shared.roles.map((r) => <StatusBadge tone="blue" key={r}>{ROLES.find(([k]) => k === r)?.[1] ?? r}</StatusBadge>)}{d.shared.users.map((u) => <Badge color="gray" key={u}>{u}</Badge>)}</Group></Table.Td>
                     <Table.Td><Mono>{d.updated_at.slice(0, 16).replace('T', ' ')}</Mono></Table.Td>
                   </Table.Tr>))}</Table.Tbody>

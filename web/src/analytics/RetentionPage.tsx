@@ -56,7 +56,7 @@ function RetentionInner() {
     <div className="page">
       <PageHeader title="留存分析" lead={`依初始行為把用戶分成同期群，看之後每一${unitCn}的回訪比例。四種模型、日／週／月、可依分群或維度比較；同期群人數少於 ${k} 人的列會被抑制。`} />
       <Stack gap="md">
-        <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
+        <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" className="ds-split">
           <Paper>
             <Stack gap="md">
               <SimpleGrid cols={{ base: 1, sm: 3 }}>

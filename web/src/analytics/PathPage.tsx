@@ -54,7 +54,7 @@ function PathInner() {
     <div className="page">
       <PageHeader title="行為路徑" lead={`從起點事件往後（或終點事件往前）看用戶 1–10 步走到哪裡；節點就是事件，可依屬性拆分；會話依間隔切，結束補「離開」。預設抽樣 1/10（按用戶分桶），人數少於 ${k} 的路徑會被抑制。`} />
       <Stack gap="md">
-        <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
+        <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" className="ds-split">
           <Paper>
             <Stack gap="md">
               <div>

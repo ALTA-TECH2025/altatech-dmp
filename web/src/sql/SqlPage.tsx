@@ -92,7 +92,7 @@ function Inner() {
     <div className="page">
       <PageHeader title="自定義 SQL" lead={`唯讀 SELECT／WITH 直接查 ClickHouse 熱層：只能引用你有權限的表，涉及脫敏欄位（L3／L4）會直接報錯；預覽 ${cat?.limits.preview_rows ?? 1000} 列、${cat?.limits.timeout_s ?? 60} 秒逾時、每人 ${cat?.limits.concurrent_per_user ?? 5} 條同時；每次執行都寫審計。大量取數請走匯出申請。`} />
       {err && <Alert color="red" variant="light" mb="md">{err}</Alert>}{msg && <Text size="sm" c="dimmed" mb="md">{msg}</Text>}
-      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md" style={{ gridTemplateColumns: 'minmax(0, 300px) minmax(0, 1fr)' }}>
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md" className="ds-split-side">
         <Paper p={0} style={{ alignSelf: 'start', overflow: 'hidden' }}>
           <Group p="sm"><SegmentedControl size="xs" value={side} onChange={(v) => setSide(v as typeof side)} data={SIDE_TABS} /></Group>
           {side === 'tables' && <Stack gap="xs" px="sm" pb="sm" style={{ maxHeight: 560, overflow: 'auto' }}>

@@ -57,7 +57,7 @@ function FunnelInner() {
     <div className="page">
       <PageHeader title="漏斗分析" lead={`步驟可含線下事件（開戶、入金、成交）；關聯屬性可用業務 ID（訂單編號、帳戶）把多步串成同一流程；窗口 1 分鐘到 90 天；結果不抽樣，分組人數少於 ${k} 人的列會被抑制。`} />
       <Stack gap="md">
-        <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
+        <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" className="ds-split">
           <Paper>
             <Stack gap="md">
               <div>

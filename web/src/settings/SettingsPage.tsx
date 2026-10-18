@@ -25,10 +25,10 @@ function Inner() {
       <SegmentedControl size="xs" mb="sm" value={cur.key} onChange={setSec} data={st.sections.map((s) => ({ value: s.key, label: s.cn }))} />
       <Paper>
         <SectionTitle title={cur.cn} right={<Text size="xs" c="dimmed" ff="monospace">{cur.source}</Text>} />
-        <Table layout="fixed">
+        <Table.ScrollContainer minWidth={720}><Table>
           <Table.Thead><Table.Tr><Table.Th w={180}>項目</Table.Th><Table.Th>值</Table.Th><Table.Th w={260}>說明</Table.Th></Table.Tr></Table.Thead>
           <Table.Tbody>{cur.items.map((it) => <Table.Tr key={it.key}><Table.Td><Text fw={600} size="sm">{it.cn}</Text><Text size="xs" c="dimmed" ff="monospace">{it.key}</Text></Table.Td><Table.Td><Value v={it.value} /></Table.Td><Table.Td><Text size="xs" c="dimmed">{it.note}</Text></Table.Td></Table.Tr>)}</Table.Tbody>
-        </Table>
+        </Table></Table.ScrollContainer>
       </Paper>
       <Text size="sm" c="dimmed" mt="sm">{st.edit.note}</Text>
     </div>

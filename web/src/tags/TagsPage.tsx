@@ -52,7 +52,7 @@ function TagsInner() {
       {id === 'new' ? <TagForm cat={cat} cf={cf} segOpts={segOpts} onDone={async (t) => { await reload(); nav(`/tags/${t.id}`); }} onCancel={() => nav('/tags')} />
         : current ? <TagDetail tag={current} cat={cat} segOpts={segOpts} me={me?.user.id} can={can} busy={busy} act={act} />
         : (
-          <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
+          <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" className="ds-split">
             <Paper p={0} style={{ overflow: 'hidden' }}>
               <Group p="sm" gap="sm">
                 <SegmentedControl size="xs" value={tab} onChange={(v) => setTab(v as typeof tab)} data={[{ value: 'all', label: '全部' }, { value: 'pending', label: pending ? `待審批 (${pending})` : '待審批' }, { value: 'recycled', label: '回收站' }]} />
@@ -98,7 +98,7 @@ function TagDetail({ tag, cat, segOpts, me, can, busy, act }: { tag: Tag; cat: C
   const fieldCn: Record<string, string> = { department: '所屬部門', requester: '需求提出人', category: '需求類別' };
   const eventCn = (e: string) => cat?.events.find((x) => x.name === e)?.cn ?? e;
   return (
-    <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
+    <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" className="ds-split">
       <Stack gap="md">
         <Paper>
           <Stack gap="sm">
@@ -122,7 +122,7 @@ function TagDetail({ tag, cat, segOpts, me, can, busy, act }: { tag: Tag; cat: C
         </Paper>
         <Paper><SectionTitle title="規則" />
           {tag.spec && ['metric', 'firstlast', 'rfm'].includes(tag.kind) ? <Text size="sm"><b>{TAG_KIND_CN[tag.kind]}</b>：{specText(tag, eventCn)}{tag.project ? `（專案 ${tag.project}）` : ''}</Text>
-            : tag.kind === 'values' ? <Table><Table.Thead><Table.Tr><Table.Th>標籤值</Table.Th><Table.Th>規則</Table.Th><Table.Th ta="right">人數（最新版）</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{tag.values.map((v: TagValue) => <Table.Tr key={v.value}><Table.Td><Text fw={600} size="sm">{v.value}</Text></Table.Td><Table.Td><Text size="sm" c="dimmed">{summarizeRule(v.rule, cat, segOpts)}</Text></Table.Td><Table.Td ta="right"><Mono>{n(tag.latest?.distribution.find((d) => d.value === v.value)?.users)}</Mono></Table.Td></Table.Tr>)}</Table.Tbody></Table>
+            : tag.kind === 'values' ? <Table.ScrollContainer minWidth={480}><Table><Table.Thead><Table.Tr><Table.Th>標籤值</Table.Th><Table.Th>規則</Table.Th><Table.Th ta="right">人數（最新版）</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{tag.values.map((v: TagValue) => <Table.Tr key={v.value}><Table.Td><Text fw={600} size="sm">{v.value}</Text></Table.Td><Table.Td><Text size="sm" c="dimmed">{summarizeRule(v.rule, cat, segOpts)}</Text></Table.Td><Table.Td ta="right"><Mono>{n(tag.latest?.distribution.find((d) => d.value === v.value)?.users)}</Mono></Table.Td></Table.Tr>)}</Table.Tbody></Table></Table.ScrollContainer>
             : <Code block>{tag.sql}</Code>}
         </Paper>
         <Paper p={0} style={{ overflow: 'hidden' }}><Group p="sm" pb={0} justify="space-between"><Title order={3}>歷史版本</Title><Text size="xs" c="dimmed">保留 {tag.update.keep} 版</Text></Group>

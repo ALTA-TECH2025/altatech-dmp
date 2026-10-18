@@ -125,7 +125,7 @@ function DictsTab({ dicts, canUse, onChange }: { dicts: Dictionary[]; canUse: bo
   return (
     <Stack gap="md">
       {err && <Alert color="red" variant="light">{err}</Alert>}
-      <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
+      <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" className="ds-split">
         <Paper p={0} style={{ overflow: 'hidden' }}>
           <Table.ScrollContainer minWidth={760}>
             <Table>

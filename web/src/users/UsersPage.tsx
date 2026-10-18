@@ -72,7 +72,7 @@ function UsersInner() {
     <div className="page">
       <PageHeader title="用戶列表" lead="用屬性、分群、做過／未做過的行為，或從分析結果的落點圈人；即時估數（Bitmap 精確基數），分頁瀏覽最多 10 萬筆，欄位依你的角色遮罩；匯出走審批。" />
       <Stack gap="md">
-        <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
+        <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" className="ds-split">
           <Paper>
             <Stack gap="md">
               <RuleBuilder q={q} cat={cat} segments={segOpts} onChange={(nq) => { setQ(nq); setEst(null); setRes(null); setCursors([]); }} />

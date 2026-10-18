@@ -60,7 +60,7 @@ function Inner() {
               </Table>
             </Table.ScrollContainer></Paper>
           <SimpleGrid cols={{ base: 1, md: 2 }}>
-            <Paper><SectionTitle title="分工" /><Table><Table.Tbody>{[['AltaTech', '橋接表、導出與載入工具、對帳、整合測試、系統'], ['GA360 導入商', '依橋接表埋點、GTM／Firebase 設定、BigQuery 匯出開通、DebugView 核對'], ['客戶', '神策存取權、數據中台交易測試資料、新 MA 工具決策、驗收']].map((r) => <Table.Tr key={r[0]}><Table.Td><Text fw={600} size="sm">{r[0]}</Text></Table.Td><Table.Td>{r[1]}</Table.Td></Table.Tr>)}</Table.Tbody></Table></Paper>
+            <Paper><SectionTitle title="分工" /><Table.ScrollContainer minWidth={480}><Table><Table.Tbody>{[['AltaTech', '橋接表、導出與載入工具、對帳、整合測試、系統'], ['GA360 導入商', '依橋接表埋點、GTM／Firebase 設定、BigQuery 匯出開通、DebugView 核對'], ['客戶', '神策存取權、數據中台交易測試資料、新 MA 工具決策、驗收']].map((r) => <Table.Tr key={r[0]}><Table.Td><Text fw={600} size="sm">{r[0]}</Text></Table.Td><Table.Td>{r[1]}</Table.Td></Table.Tr>)}</Table.Tbody></Table></Table.ScrollContainer></Paper>
             <Paper><SectionTitle title="風險" />
               <List size="sm" spacing="xs">
                 <List.Item>客戶無法開放神策底層（Impala／HDFS）→ 退而用查詢 API 按日導出，70 億約需更久；先確認權限。</List.Item>

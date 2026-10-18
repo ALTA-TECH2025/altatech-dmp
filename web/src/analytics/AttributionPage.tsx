@@ -60,7 +60,7 @@ function AttributionInner() {
     <div className="page">
       <PageHeader title="歸因分析" lead={`把每次轉化分給轉化前窗口內的觸點：首次、末次、線性、位置（U 型）、時間衰減、自訂權重，可同時比較；跨 Web／App 靠 OneID 歸戶。被歸到的轉化用戶少於 ${k} 人的觸點會被抑制。`} />
       <Stack gap="md">
-        <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
+        <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" className="ds-split">
           <Paper>
             <Stack gap="md">
               <div>
