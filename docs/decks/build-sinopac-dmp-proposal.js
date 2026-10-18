@@ -150,21 +150,23 @@ pres.addSection({ title: sec2 });
   table(s, [['角色', '單價／人日', '本案對應'], ['PMO／產品經理', '25,000', '產品 1 人'], ['研發工程師', '25,000', '研發 R1、R2'], ['資料科學家', '20,000', '未編制；ClickHouse 顧問暫以此價計'], ['專案經理', '20,000', 'PM 1 人'], ['系統工程師', '20,000', '運維 1 人'], ['CSM', '16,000', '未編制；列為選配'], ['數據分析師', '16,000', '分析師 A、B']], { y: 1.4, colW: [2.8, 1.8, 4.4], align: ['left', 'right', 'left'], rowH: 0.42 });
   s.addText('單位：新台幣，未稅；不含基礎設施、GA360／BigQuery、LINE 訊息方案與差旅', T({ x: 0.5, y: 4.9, w: 8.6, h: 0.3, fontSize: 11, color: HEX.muted })); }
 
-// 18 投入
-{ const s = content('預估 1,020 人天：研發兩人各 200，其餘 100–150', sec2);
-  table(s, [['角色', '預估人天', '主要工作'], ['研發 R1（資料與查詢）', '200', '接入管線、語意編譯器、ClickHouse、遷移工具'], ['研發 R2（應用與前端）', '200', 'API、前端各模組、權限與審計、推送'], ['專案經理', '150', '時程、三方窗口、週會與風險追蹤'], ['數據分析師 A', '150', '神策盤點與導出、橋接表、並行期對帳'], ['產品', '100', '需求與規格、驗收標準、UAT 協調'], ['系統工程師（運維）', '100', '環境建置、監控告警、備份與 DR、上線'], ['數據分析師 B', '100', '看板、操作手冊、教育訓練、PD 後調優'], ['ClickHouse 顧問', '20', '架構與效能審查']], { y: 1.3, colW: [2.6, 1.3, 5.1], align: ['left', 'right', 'left'], rowH: 0.34, fontSize: 13 });
-  s.addText('計價＝人天單價 × 預估人天；超出部分另計或改固定總價加風險準備', T({ x: 0.5, y: 4.9, w: 8.6, h: 0.3, fontSize: 11, color: HEX.muted })); }
+// 18 分階段
+{ const s = content('分階段：第一階段只做取代神策所必需的', sec2);
+  bullets(s, ['部署安裝（測試＋正式）、SSO 與權限', 'GA360 BigQuery 匯出接入、數據中台交易批次', '神策近 13 個月歷史導入與並行期對帳', '六個分析模組、分群、標籤、名單推送（Webhook）', '審批與審計、四個情境看板、一輪教育訓練'], { x: 0.5, y: 1.45, w: 5.6, h: 3.3, fontSize: 15 });
+  card(s, 6.3, 1.45, 3.2, 3.3, C.accent6, 's18_phase');
+  s.addText([{ text: '第一階段', options: { bold: true, breakLine: true } }, { text: '290 人天', options: { fontSize: 26, bold: true, breakLine: true, paraSpaceAfter: 10 } }, { text: '規格外', options: { bold: true, breakLine: true } }, { text: '後續模組，需要時再加；一律人天單價 × 人天', options: {} }], T({ x: 6.5, y: 1.65, w: 2.8, h: 2.9, fontSize: 14, color: C.text1 }));
+  s.addText('平台功能已大致完成，只計導入、接入、遷移、對帳與驗收；比較基準：神策年費約 6,000,000', T({ x: 0.5, y: 4.9, w: 8.6, h: 0.3, fontSize: 11, color: HEX.muted })); }
 
-// 19 金額
-{ const s = content('基本方案 21,900,000 元未稅，含 CSM 選配為 22,700,000 元', sec2);
-  table(s, [['角色', '人天', '單價', '金額'], ['產品', '100', '25,000', '2,500,000'], ['研發 R1', '200', '25,000', '5,000,000'], ['研發 R2', '200', '25,000', '5,000,000'], ['專案經理', '150', '20,000', '3,000,000'], ['系統工程師（運維）', '100', '20,000', '2,000,000'], ['數據分析師 A', '150', '16,000', '2,400,000'], ['數據分析師 B', '100', '16,000', '1,600,000'], ['ClickHouse 顧問', '20', '20,000', '400,000'], ['基本方案合計', '1,020', '', '21,900,000']], { y: 1.3, colW: [3.3, 1.5, 1.7, 2.5], align: ['left', 'right', 'right', 'right'], rowH: 0.32, fontSize: 13, highlight: [9] }); }
+// 19 第一階段金額
+{ const s = content('第一階段 6,180,000 元未稅，維運約 194 萬／年', sec2);
+  table(s, [['角色', '人天', '單價', '金額'], ['研發 R1', '70', '25,000', '1,750,000'], ['研發 R2', '50', '25,000', '1,250,000'], ['數據分析師 A', '50', '16,000', '800,000'], ['專案經理', '40', '20,000', '800,000'], ['數據分析師 B', '30', '16,000', '480,000'], ['系統工程師（運維）', '30', '20,000', '600,000'], ['產品', '20', '25,000', '500,000'], ['第一階段合計', '290', '', '6,180,000']], { y: 1.3, colW: [3.3, 1.5, 1.7, 2.5], align: ['left', 'right', 'right', 'right'], rowH: 0.34, fontSize: 13, highlight: [8] });
+  s.addText('兩年約 10,100,000，低於兩年神策 12,000,000；第三年起每年約神策的三分之一', T({ x: 0.5, y: 4.9, w: 8.6, h: 0.3, fontSize: 11, color: HEX.muted })); }
 
-// 20 報價前要定
-{ const s = content('出客戶版前還要定四件事', sec2);
-  bullets(s, ['計價方式：人天實報（超出另計）或固定總價（加 10–15% 風險準備）', '付款節點建議：簽約 20%、M2 20%、M5 20%、UAT 20%、PD 15%、簽結 5%', '客戶自備：GA360、BigQuery 用量、GCP 或機房、LINE 訊息方案、內部人力', '與 Merkle 的分工線：目前不含埋點與 GA360 設定工時'], { x: 0.5, y: 1.45, w: 5.3, h: 3.5, fontSize: 15 });
-  card(s, 6.1, 1.45, 3.4, 3.4, C.accent6, 's20_opt');
-  s.addText('選配與後續', T({ x: 6.35, y: 1.65, w: 2.9, h: 0.4, fontSize: 16, bold: true, color: C.text1 }));
-  s.addText([{ text: 'CSM 客戶成功', options: { bold: true, breakLine: true } }, { text: '800,000（50 人天）', options: { breakLine: true, paraSpaceAfter: 8 } }, { text: 'PD 後延長調優', options: { bold: true, breakLine: true } }, { text: '約 770,000／月（40 人天）', options: { breakLine: true, paraSpaceAfter: 8 } }, { text: '維運合約', options: { bold: true, breakLine: true } }, { text: '約 300,000／月（15 人天）', options: {} }], T({ x: 6.35, y: 2.15, w: 2.9, h: 2.55, fontSize: 14, color: C.text1 })); }
+// 20 後續模組
+{ const s = content('規格外的放後續模組，需要時再加', sec2);
+  table(s, [['後續模組', '人天', '金額（未稅）'], ['間隔／分佈／Session／LTV 分析', '50', '1,160,000'], ['CDP 標籤同步＋推送排除名單', '40', '950,000'], ['AI 問數與洞察（接 LLM）', '50', '1,250,000'], ['即時觸發（Flink 規則引擎）', '80', '1,900,000'], ['神策歷史超過 13 個月', '40', '730,000'], ['CSM 客戶成功', '50', '800,000']], { x: 0.5, y: 1.3, w: 5.6, colW: [3.2, 0.9, 1.5], align: ['left', 'right', 'right'], rowH: 0.36, fontSize: 12 });
+  card(s, 6.3, 1.3, 3.2, 3.5, C.accent6, 's20_opt');
+  s.addText([{ text: '出客戶版前要定', options: { bold: true, breakLine: true, paraSpaceAfter: 6 } }, { text: '1. 固定總價或人天實報', options: { breakLine: true } }, { text: '2. 付款：簽約 30%、UAT 30%、上線 30%、驗收 10%', options: { breakLine: true } }, { text: '3. 客戶自備：GA360、BigQuery、GCP 或機房、LINE', options: { breakLine: true } }, { text: '4. Merkle 分工：不含埋點與 GA360 設定', options: {} }], T({ x: 6.5, y: 1.5, w: 2.8, h: 3.1, fontSize: 13, color: C.text1 })); }
 
 // 21 Merkle 九點
 pres.addSection({ title: sec3 });
