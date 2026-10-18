@@ -1,4 +1,4 @@
-"""神策分群／標籤遷移（openapi /v1/migration/sensors-groups；docs/22 §7）。
+"""神策分群／標籤遷移（openapi /v1/migration/sensors-groups；docs/22 §3.4）。
 
 神策把分群存成 users 表的 user_group_<名稱> 欄（0／1），標籤存成 user_tag_<名稱> 欄（值）。三種處理：
 - 快照：規則重建不了（或不值得重建）的，取當下成員 → second_id（登入 ID）以 token_v1(k_idm) 轉 one_id、沒有登入 ID 的用 first_id
