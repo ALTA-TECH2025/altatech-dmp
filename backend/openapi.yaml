@@ -719,6 +719,8 @@ components:
         group_by: { type: array, items: { type: string } }
         segment: { type: string }
         compare: { type: string, enum: [previous_period, segment] }
+        exact: { type: boolean, default: false, description: 'true＝一律走明細、不用日聚合層（次數／金額在聚合層本來就精確，這個開關用於對帳）' }
+        estimate: { type: boolean, default: false, description: '快速估算（docs/04 §1.3）：true 時人數可走日聚合層（uniqMerge，近似值），回應 warnings 標示；預設 false＝人數精確去重。與 exact 同時為 true 時以 exact 為準' }
     PathQuery:
       type: object
       required: [anchor, time]
@@ -732,7 +734,6 @@ components:
         filters: { type: array, items: { type: object } }
         segment: { type: string }
         sample: { type: number, nullable: true, description: '預設 0.1（按用戶分桶）；null = 不抽樣' }
-        exact: { type: boolean, default: false, description: 'true＝精確：一律走明細並精確去重。false（預設）時，符合條件的查詢走日聚合層，其中人數為近似值（uniqMerge，誤差約 1–2%），回應 warnings 會標示' }
         top_n: { type: integer, default: 100, maximum: 1000 }
         time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string }, now: { type: string } } }
     PathResult:
