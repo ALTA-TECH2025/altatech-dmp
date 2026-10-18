@@ -2,7 +2,9 @@
 
 層級（planner）：
   L1  dmp.events_daily_agg（日聚合 MV）：指標只有 total／sum(amount)／users，欄位只用 event/platform/channel/utm_source，粒度 ≥ day，無抽樣、無用戶屬性。
-      users 走 MV 是近似值（uniqMerge，大量時誤差約 1–2%，6.5 萬人以下為精確），回應帶警示；exact:true（UI「精確」）一律走 L0 精確去重。
+      users 預設精確（走 L0 uniqExact，docs/04 §1.3）；estimate:true（UI「快速估算」）才走 MV 的 uniqMerge 近似值並帶警示。
+      MV 在寫入當下就聚合，OneID 回補（ALTER UPDATE one_id）不會改到它，所以近似值對剛登入合併的匿名訪客會偏多。
+      行級條件用到用戶屬性（branch_id／agent_id）時 MV 沒有這兩個維度，一律走 L0。exact:true 一律走 L0。
   L0  dmp.events 明細（可加 SAMPLE）。
 
 Policy 注入（policy.inject）：行級 WHERE（分公司／營業員／回看天數）、欄位遮罩（bucket／round／hide）、K 匿名（每列不足 K 人 → 指標置 NULL、suppressed=1）、
@@ -10,6 +12,7 @@ Policy 注入（policy.inject）：行級 WHERE（分公司／營業員／回看
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -18,6 +21,7 @@ from .catalog import TZ, Catalog, FieldRef
 from .parser import Cond, Formula, Group, Metric, Query
 
 MV_AGGS = {"total", "sum", "users"}
+APPROX_WARNING = "人數為快速估算（日聚合層近似值，誤差約 1–2%；剛登入合併的匿名訪客可能重複計）；要精確請關閉「快速估算」"
 
 
 @dataclass
@@ -173,10 +177,15 @@ def formula_sql(f: Formula) -> str:
     return out
 
 
-def plan(qr: Query) -> tuple[str, list[str]]:
-    """選層：回傳 (layer, reasons)。"""
+USER_ROW_FILTER = re.compile(r"\b(branch_id|agent_id)\b")
+
+
+def plan(qr: Query, decision: Any = None) -> tuple[str, list[str]]:
+    """選層：回傳 (layer, reasons)。decision 的行級條件用到用戶屬性時不能走 MV。"""
     why: list[str] = []
     if qr.exact: why.append("exact")
+    if any(m.agg == "users" for m in qr.metrics) and not qr.estimate: why.append("users exact")
+    if any(USER_ROW_FILTER.search(r) for r in (getattr(decision, "row_filters", None) or [])): why.append("row filter on user attribute")
     if qr.sample: why.append("sample")
     if qr.time.grain in ("minute", "hour"): why.append("grain<day")
     if any(m.agg not in MV_AGGS for m in qr.metrics): why.append("agg not in MV")
@@ -188,7 +197,7 @@ def plan(qr: Query) -> tuple[str, list[str]]:
 def compile_events(qr: Query, cat: Catalog | None = None, decision: Any = None, profile: str = "human") -> Compiled:
     """decision = security.policy.Decision（None = 不注入，僅測試用）；profile = budgets.yaml 的設定檔（human／batch／sql_user）。"""
     cat = cat or Catalog()
-    layer, why = plan(qr)
+    layer, why = plan(qr, decision)
     ctx = Ctx(cat, qr, layer)
     src = "dmp.events_daily_agg AS a" if layer == "L1" else "dmp.events AS e"
     tcol = "a" if layer == "L1" else "e"
@@ -263,7 +272,7 @@ def compile_events(qr: Query, cat: Catalog | None = None, decision: Any = None, 
     if qr.compare == "previous_period":
         days = (qr.time.end - qr.time.start).days + 1
         prev = Query(project=qr.project, metrics=qr.metrics, time=type(qr.time)(qr.time.start - timedelta(days=days), qr.time.end - timedelta(days=days), qr.time.grain, qr.time.now),
-                     formulas=qr.formulas, filters=qr.filters, group_by=qr.group_by, top_n=None, compare=None, sample=qr.sample, exact=qr.exact)
+                     formulas=qr.formulas, filters=qr.filters, group_by=qr.group_by, top_n=None, compare=None, sample=qr.sample, exact=qr.exact, estimate=qr.estimate)
         pc = compile_events(prev, cat, decision, profile)
         shift = f"bucket + INTERVAL {days} DAY" if qr.time.grain != "month" else f"bucket + INTERVAL {_months(qr.time.start, qr.time.end)} MONTH"
         vals = [m.alias for m in qr.metrics] + [f.alias for f in qr.formulas]
@@ -281,8 +290,8 @@ def compile_events(qr: Query, cat: Catalog | None = None, decision: Any = None, 
         + [f"metric:{qr.metric_name}" if qr.metric_name else f"event:{e}" for e in (qr.events or ["any"])]
     from .policy import budget
     settings = budget(profile)
-    if layer == "L1" and any(m.agg == "users" for m in qr.metrics):
-        warnings.append("人數走日聚合層，為近似值（誤差約 1–2%）；需要精確請開「精確」")
+    if layer == "L1" and any(m.agg == "users" for m in qr.metrics) and APPROX_WARNING not in warnings:
+        warnings.append(APPROX_WARNING)
     return Compiled(sql=sql, layer=layer, columns=out_cols, settings=settings, lineage=sorted(set(lineage)), warnings=warnings + ([f"plan L0 because {', '.join(why)}"] if why else []),
                     k_anonymity=k, masked=masked, row_filters=rows_filters)
 

@@ -7,7 +7,7 @@
   filters:  {op: and|or, items: [...]} 或 條件陣列（= and）；條件 = {field, op, value, type?}
   group_by: ["platform", {field: "props.market", type: string}]；top_n: N（依第一個指標取前 N 個分組值）
   time:     {from, to, grain: minute|hour|day|week|month|total, now?}   # 台北日期，含兩端
-  compare:  previous_period；sample: 0.1（按用戶抽樣）；exact: true（不走 MV）
+  compare:  previous_period；sample: 0.1（按用戶抽樣）；exact: true（不走 MV）；estimate: true（快速估算：人數可走 MV 近似）
 """
 from __future__ import annotations
 
@@ -80,6 +80,7 @@ class Query:
     compare: str | None = None
     sample: float | None = None
     exact: bool = False
+    estimate: bool = False                  # 快速估算：人數可走 MV（uniqMerge 近似）
     metric_name: str | None = None          # 來自 metrics.yaml 的指標名（血緣用）
 
     @property
@@ -211,6 +212,15 @@ def parse_formula(raw: dict[str, Any], aliases: set[str]) -> Formula:
     return Formula(alias, expr, toks)
 
 
+def flag(raw: dict[str, Any], key: str) -> bool:
+    """布林開關：只收 true／false（表單或查詢字串來的 "true"／"false"／"1"／"0" 也收），其他值拒絕，避免 "false" 被當成真。"""
+    v = raw.get(key)
+    if v is None or isinstance(v, bool): return bool(v)
+    if isinstance(v, int) and v in (0, 1): return bool(v)
+    if isinstance(v, str) and v.strip().lower() in ("true", "1", "false", "0", ""): return v.strip().lower() in ("true", "1")
+    raise ValueError(f"{key} 只能是 true／false")
+
+
 def parse(raw: dict[str, Any], cat: Catalog | None = None) -> Query:
     cat = cat or Catalog()
     if not isinstance(raw, dict):
@@ -271,7 +281,7 @@ def parse(raw: dict[str, Any], cat: Catalog | None = None) -> Query:
             raise ValueError("sample 必須在 (0,1)")
     q = Query(project=str(raw.get("project") or "altatech_dmp"), metrics=metrics, time=TimeRange(start, end, grain, now),
               formulas=formulas, filters=parse_filters(cat, raw.get("filters")), group_by=gb, top_n=top_n,
-              compare=compare or None, sample=sample, exact=bool(raw.get("exact")), metric_name=metric_name)
+              compare=compare or None, sample=sample, exact=flag(raw, "exact"), estimate=flag(raw, "estimate"), metric_name=metric_name)
     if raw.get("segment"):
         seg = Cond(cat.resolve(f"seg.{raw['segment']}"), "in", None)
         q.filters = Group("and", [q.filters, seg]) if q.filters else Group("and", [seg])

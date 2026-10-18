@@ -150,8 +150,10 @@ def main(store: Any | None = None) -> None:
     login(c, sm, ["marketing"], "mkt")
     q = {"metrics": [{"event": "bond_deal", "agg": "sum", "field": "amount"}, {"event": "bond_deal", "agg": "users"}], "group_by": ["platform"], "time": {"from": "2026-10-01", "to": "2026-10-16"}, "exact": True}
     comp = c.post("/v1/semantic/compile", json=q).json()
-    fast = c.post("/v1/semantic/compile", json={**q, "exact": False}).json()                               # 不要求精確：人數走日聚合層、帶近似值警示
-    assert fast["layer"] == "L1" and "uniqMergeIf(a.users" in fast["sql"] and any("近似值" in w for w in fast["warnings"]) and fast["masked"] == {"m1": "bucket([0,1e5,5e5,1e6,5e6])"}, fast
+    dflt = c.post("/v1/semantic/compile", json={**q, "exact": False}).json()                               # 預設：人數精確（走明細）
+    assert dflt["layer"] == "L0" and "uniqExact" in dflt["sql"] and not any("快速估算" in w for w in dflt["warnings"]), dflt
+    fast = c.post("/v1/semantic/compile", json={**q, "exact": False, "estimate": True}).json()             # 快速估算：人數走日聚合層、帶近似值警示
+    assert fast["layer"] == "L1" and "uniqMergeIf(a.users" in fast["sql"] and any("快速估算" in w for w in fast["warnings"]) and fast["masked"] == {"m1": "bucket([0,1e5,5e5,1e6,5e6])"}, fast
     assert comp["layer"] == "L0" and comp["masked"] == {"m1": "bucket([0,1e5,5e5,1e6,5e6])"} and comp["estimated_scan_rows"] == 16384 and "dmp.events" in comp["lineage"], comp
     assert c.post("/v1/semantic/compile", json={"metrics": [{"event": "nope", "agg": "total"}], "time": q["time"]}).status_code == 400
     assert c.post("/v1/semantic/compile", json={"metrics": [{"event": None, "agg": "total"}], "group_by": ["user.agent_id"], "time": q["time"]}).status_code == 400

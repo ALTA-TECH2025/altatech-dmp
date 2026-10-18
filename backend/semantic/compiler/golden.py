@@ -228,6 +228,7 @@ QUERIES: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("Q28 exact 強制 L0 與 MV 結果一致", {"metrics": [{"event": "bond_order", "agg": "total"}, {"event": "bond_order", "agg": "sum", "field": "amount"}], "group_by": ["channel", "utm_source"], "filters": [{"field": "platform", "op": "neq", "value": "Web"}], "exact": True, "time": T}, "data_analyst"),
     ("Q29 分鐘粒度（單日）", {"metrics": [{"event": None, "agg": "total"}], "time": {"from": "2026-10-16", "to": "2026-10-16", "grain": "minute", "now": NOW.isoformat()}, "filters": [{"field": "$event_hour", "op": "eq", "value": 10}]}, "admin"),
     ("Q30 人均值 avg_val×渠道", {"metrics": [{"event": "bond_deal", "agg": "avg_val", "field": "amount"}, {"event": "bond_deal", "agg": "avg_per_user"}], "group_by": ["channel"], "time": {**T, "grain": "total"}}, "data_analyst"),
+    ("Q31 快速估算：人數走 MV（uniqMerge；種子資料量小，與精確值相同）", {"metrics": [{"event": "bond_order", "agg": "users"}], "group_by": ["platform"], "estimate": True, "time": T}, "admin"),
 ]
 W7 = {"value": 7, "unit": "day"}
 FUNNELS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
@@ -627,6 +628,21 @@ def dry_run() -> None:
             assert kw in str(e), f"{name}: {e}"
         else:
             raise AssertionError(f"{name}: 應被拒絕")
+    # 選層：人數預設精確走 L0；快速估算才走 MV 並只警示一次（含 compare）；行級條件用到分公司／營業員時一律 L0（MV 沒有這兩個維度）
+    uq = {"metrics": [{"event": "bond_order", "agg": "users"}], "time": T}
+    assert compile_events(parse_g(uq, cat), cat, _subject("admin")).layer == "L0"
+    ce = compile_events(parse_g({**uq, "estimate": True, "compare": "previous_period"}, cat), cat, _subject("admin"))
+    assert ce.layer == "L1" and "uniqMerge(a.users)" in ce.sql and sum("快速估算" in w for w in ce.warnings) == 1, ce.warnings
+    for raw in ({**uq, "estimate": True}, {"metrics": [{"event": "bond_order", "agg": "total"}], "time": T}):
+        cb = compile_events(parse_g(raw, cat), cat, BRANCH)
+        assert cb.layer == "L0" and "events_daily_agg" not in cb.sql and "row filter on user attribute" in " ".join(cb.warnings), cb.warnings
+    assert compile_events(parse_g({**uq, "estimate": "false"}, cat), cat, _subject("admin")).layer == "L0"
+    try:
+        parse_g({**uq, "exact": "maybe"}, cat)
+    except ValueError as e:
+        assert "true／false" in str(e)
+    else:
+        raise AssertionError("exact 非布林應被拒絕")
     c1 = compile_events(parse_g(QUERIES[0][1], cat), cat, _subject("admin")); c4 = compile_events(parse_g(QUERIES[3][1], cat), cat, _subject("data_analyst"))
     assert c1.layer == "L1" and c4.layer == "L1" and "events_daily_agg" in c1.sql, (c1.layer, c4.layer)
     c19 = compile_events(parse_g(QUERIES[18][1], cat), cat, _subject("marketing"))

@@ -122,7 +122,8 @@ def queries(days: int) -> list[dict[str, Any]]:
     cat = Catalog(); out: list[dict[str, Any]] = []
     full = {"from": (END - timedelta(days=days - 1)).isoformat(), "to": END.isoformat(), "grain": "day", "now": END.isoformat()}
     extra = [("X01 全期間每日委託次數", {"metrics": [{"event": "bond_order", "agg": "total"}], "time": full}, "admin"),
-             ("X02 全期間每日活躍人數×平台", {"metrics": [{"event": None, "agg": "users"}], "group_by": ["platform"], "time": full}, "admin"),
+             ("X02 全期間每日活躍人數×平台（精確，預設）", {"metrics": [{"event": None, "agg": "users"}], "group_by": ["platform"], "time": full}, "admin"),
+             ("X02e 全期間每日活躍人數×平台（快速估算，走 MV）", {"metrics": [{"event": None, "agg": "users"}], "group_by": ["platform"], "estimate": True, "time": full}, "admin"),
              ("X03 全期間成交金額×商品（明細）", {"metrics": [{"event": "bond_deal", "agg": "sum", "field": "amount"}], "group_by": ["symbol"], "exact": True, "time": {**full, "grain": "total"}}, "admin")]
     for name, raw, spec in [*g.QUERIES, *extra]:
         c = compile_events(parse({**raw, "project": PROJECT}, cat), cat, g.decision_of(spec))
