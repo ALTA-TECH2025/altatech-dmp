@@ -158,15 +158,15 @@ pres.addSection({ title: sec2 });
   s.addText('平台功能已大致完成，只計導入、接入、遷移、對帳與驗收；比較基準：神策年費約 6,000,000', T({ x: 0.5, y: 4.9, w: 8.6, h: 0.3, fontSize: 11, color: HEX.muted })); }
 
 // 19 第一階段金額
-{ const s = content('第一階段 6,180,000 元未稅，維運約 194 萬／年', sec2);
+{ const s = content('第一階段 6,180,000 元未稅；保固一年，次年維運 20%', sec2);
   table(s, [['角色', '人天', '單價', '金額'], ['研發 R1', '70', '25,000', '1,750,000'], ['研發 R2', '50', '25,000', '1,250,000'], ['數據分析師 A', '50', '16,000', '800,000'], ['專案經理', '40', '20,000', '800,000'], ['數據分析師 B', '30', '16,000', '480,000'], ['系統工程師（運維）', '30', '20,000', '600,000'], ['產品', '20', '25,000', '500,000'], ['第一階段合計', '290', '', '6,180,000']], { y: 1.3, colW: [3.3, 1.5, 1.7, 2.5], align: ['left', 'right', 'right', 'right'], rowH: 0.34, fontSize: 13, highlight: [8] });
-  s.addText('兩年約 10,100,000，低於兩年神策 12,000,000；第三年起每年約神策的三分之一', T({ x: 0.5, y: 4.9, w: 8.6, h: 0.3, fontSize: 11, color: HEX.muted })); }
+  s.addText('上線保固一年；次年起維運費＝合約 20%（1,236,000／年）。頭兩年約 7,416,000，低於兩年神策 12,000,000', T({ x: 0.5, y: 4.9, w: 8.6, h: 0.3, fontSize: 11, color: HEX.muted })); }
 
 // 20 後續模組
 { const s = content('規格外的放後續模組，需要時再加', sec2);
   table(s, [['後續模組', '人天', '金額（未稅）'], ['間隔／分佈／Session／LTV 分析', '50', '1,160,000'], ['CDP 標籤同步＋推送排除名單', '40', '950,000'], ['AI 問數與洞察（接 LLM）', '50', '1,250,000'], ['即時觸發（Flink 規則引擎）', '80', '1,900,000'], ['神策歷史超過 13 個月', '40', '730,000'], ['CSM 客戶成功', '50', '800,000']], { x: 0.5, y: 1.3, w: 5.6, colW: [3.2, 0.9, 1.5], align: ['left', 'right', 'right'], rowH: 0.36, fontSize: 12 });
   card(s, 6.3, 1.3, 3.2, 3.5, C.accent6, 's20_opt');
-  s.addText([{ text: '出客戶版前要定', options: { bold: true, breakLine: true, paraSpaceAfter: 6 } }, { text: '1. 固定總價或人天實報', options: { breakLine: true } }, { text: '2. 付款：簽約 30%、UAT 30%、上線 30%、驗收 10%', options: { breakLine: true } }, { text: '3. 客戶自備：GA360、BigQuery、GCP 或機房、LINE', options: { breakLine: true } }, { text: '4. Merkle 分工：不含埋點與 GA360 設定', options: {} }], T({ x: 6.5, y: 1.5, w: 2.8, h: 3.1, fontSize: 13, color: C.text1 })); }
+  s.addText([{ text: '出客戶版前要定', options: { bold: true, breakLine: true, paraSpaceAfter: 6 } }, { text: '1. 固定總價或人天實報', options: { breakLine: true } }, { text: '2. 保固一年；次年維運＝合約 20%', options: { breakLine: true } }, { text: '3. 付款：簽約 30%、UAT 30%、上線 30%、驗收 10%', options: { breakLine: true } }, { text: '4. 規格更改只走 CR，人天另計', options: { breakLine: true } }, { text: '5. 客戶自備：GA360、BigQuery、GCP 或機房、LINE', options: { breakLine: true } }, { text: '6. Merkle 分工：不含埋點與 GA360 設定', options: {} }], T({ x: 6.5, y: 1.5, w: 2.8, h: 3.1, fontSize: 13, color: C.text1 })); }
 
 // 21 Merkle 九點
 pres.addSection({ title: sec3 });
