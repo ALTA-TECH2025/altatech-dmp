@@ -1,0 +1,126 @@
+{
+ "queries": [
+  {
+   "name": "P01 登入之後 3 步（間隔 30 分切會話、合併重複、離開）",
+   "module": "path",
+   "layer": "L0",
+   "p50_ms": 2358.0,
+   "p95_ms": 2359.8,
+   "read_rows": 8900920,
+   "read_mb": 578.5,
+   "mem_mb": 544.8,
+   "mv_hit": false
+  },
+  {
+   "name": "P02 成交之前 3 步",
+   "module": "path",
+   "layer": "L0",
+   "p50_ms": 2436.0,
+   "p95_ms": 2574.6,
+   "read_rows": 8900920,
+   "read_mb": 578.5,
+   "mem_mb": 516.1,
+   "mv_hit": false
+  },
+  {
+   "name": "P03 瀏覽依平台拆分 + 只留 3 個事件其餘折「其他」",
+   "module": "path",
+   "layer": "L0",
+   "p50_ms": 2652.0,
+   "p95_ms": 2659.2,
+   "read_rows": 8900920,
+   "read_mb": 587.4,
+   "mem_mb": 499.9,
+   "mv_hit": false
+  },
+  {
+   "name": "P04 跨會話整段、不合併、不補離開、5 步",
+   "module": "path",
+   "layer": "L0",
+   "p50_ms": 524.0,
+   "p95_ms": 533.9,
+   "read_rows": 3903800,
+   "read_mb": 253.7,
+   "mem_mb": 257.3,
+   "mv_hit": false
+  },
+  {
+   "name": "P05 以 session_id 切（黃金資料沒有 → 一條）+ 每會話最多 30 事件",
+   "module": "path",
+   "layer": "L0",
+   "p50_ms": 1206.0,
+   "p95_ms": 1213.2,
+   "read_rows": 8900920,
+   "read_mb": 578.5,
+   "mem_mb": 535.0,
+   "mv_hit": false
+  },
+  {
+   "name": "P06 起點條件（委託金額 ≥ 10 萬）+ 用戶屬性 + 間隔 120 分",
+   "module": "path",
+   "layer": "L0",
+   "p50_ms": 1742.0,
+   "p95_ms": 1768.1,
+   "read_rows": 12900920,
+   "read_mb": 694.6,
+   "mem_mb": 304.1,
+   "mv_hit": false
+  },
+  {
+   "name": "P07 分群 vip + 行銷（K 匿名）",
+   "module": "path",
+   "layer": "L0",
+   "p50_ms": 1033.0,
+   "p95_ms": 1087.9,
+   "read_rows": 9653680,
+   "read_mb": 586.3,
+   "mem_mb": 208.5,
+   "mv_hit": false
+  },
+  {
+   "name": "P08 終點「離開」之前 2 步",
+   "module": "path",
+   "layer": "L0",
+   "p50_ms": 2940.0,
+   "p95_ms": 3236.1,
+   "read_rows": 8900920,
+   "read_mb": 578.5,
+   "mem_mb": 481.0,
+   "mv_hit": false
+  }
+ ],
+ "modules": {
+  "path": {
+   "queries": 8,
+   "failed": 0,
+   "p95_max_ms": 3236.1,
+   "p95_median_ms": 2063.9
+  }
+ },
+ "concurrency": {
+  "concurrency": 8,
+  "queries": 16,
+  "failed": [],
+  "mem_per_query_gb": 1.05,
+  "wall_s": 29.5,
+  "p50_ms": 12583.0,
+  "p95_ms": 21647.6,
+  "seq_p95_of_p95_ms": 3034.2,
+  "degradation": 7.13
+ },
+ "mv_hit_rate": null,
+ "mv_eligible": 0,
+ "meta": {
+  "rows": 100000000,
+  "users": 1000000,
+  "days": 90,
+  "repeat": 3,
+  "clickhouse": "26.10.1.2499",
+  "cpus": 4,
+  "events_disk_gb": 4.98,
+  "query_mem_gb": 4.0,
+  "bytes_per_event": 49.8,
+  "load": {},
+  "at": "2026-10-18 10:16"
+ }
+}

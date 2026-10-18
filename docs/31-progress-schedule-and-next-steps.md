@@ -152,7 +152,7 @@ v2.1 相對 v2 的差別來自兩件事：
 
 1. **真 IdP 試接**：用 AltaTech 自己的 Entra ID 租戶跑一次 OIDC＋PKCE 與群組→角色，把 `auth/` 的 TODO 清掉。
 2. **GA4 匯出 schema 驗證**：以 GA4 官方 BigQuery 匯出樣本（公開資料集）跑接入、轉名、T1，確認攤平欄位與 `user_id`／`user_pseudo_id` 處理。
-3. **10 億效能基準腳本**：把 docs/09 的基準寫成可重跑的腳本（合成 10 億筆到測試機），先在單機 ClickHouse 量出 MV 命中率與 P95，給 M2 當基線。
+3. ~~**10 億效能基準腳本**~~（腳本完成 2026-10-18：`python3 -m backend.bench`；單機 1 千萬／1 億筆實測與優化清單見 docs/36，10 億筆待測試機）→ 2. GA4 匯出樣本驗證腳本也已完成（`backend/integration/ga4_validate.py`），待 GCP 服務帳號。
 4. ~~**監控最小版**~~（已完成 2026-10-17：`/metrics`、`/v1/ops/*` 與資料流與效能頁、`ops/alerts.yaml` 11 條規則、Helm ServiceMonitor／PrometheusRule／Grafana 看板）→ 通知管道也已完成（Email／LINE 官方帳號可線上設定、Alertmanager 同一條路）→ 改為：值班分工與升級規則草案（誰收、多久沒回應升級給誰），M0 與客戶資訊單位定。
 5. **功能缺口**（排在真資料工作之後，依序）：間隔／分佈／Session 分析（契約已定）；標籤「基礎指標值」「首末次特徵」「RFM」三種建立方式；Kafka／GCS 目的地（視 M0）。
 6. **Playwright 斷言型端到端**：登入→事件分析→存書籤→看板→推送一條主線，在 CI 對真後端跑。

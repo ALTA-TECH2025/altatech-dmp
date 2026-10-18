@@ -134,7 +134,7 @@ def queries(days: int) -> list[dict[str, Any]]:
         c = compile_retention(parse_retention({**raw, "project": PROJECT}, cat), cat, g.decision_of(spec))
         out.append({"name": name, "module": "retention", "sql": c.sql, "settings": c.settings, "layer": "L0"})
     for name, raw, spec in g.PATHS:
-        c = compile_path(parse_path({**raw, "project": PROJECT}, cat), cat, g.decision_of(spec))
+        c = compile_path(parse_path({**raw, "project": PROJECT, "sample": raw.get("sample", 0.1)}, cat), cat, g.decision_of(spec))   # 與 API 一致：路徑預設抽樣 1/10
         out.append({"name": name, "module": "path", "sql": c.sql, "settings": c.settings, "layer": "L0"})
     for name, raw, spec in g.ATTRIBUTIONS:
         c = compile_attribution(parse_attribution({**raw, "project": PROJECT}, cat), cat, g.decision_of(spec))
@@ -263,6 +263,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--concurrency", type=int, default=8)
     ap.add_argument("--out", default="bench-results")
     ap.add_argument("--skip-load", action="store_true")
+    ap.add_argument("--only", default="", help="只跑指定模組（逗號分隔：events,funnel,retention,path,attribution,users）")
     ap.add_argument("--keep", action="store_true", help="跑完保留資料（現成伺服器不刪 bench 資料；本機不刪暫存資料夾）")
     a = ap.parse_args(argv)
     users = a.users or max(1000, a.rows // 100)
@@ -290,12 +291,14 @@ def main(argv: list[str] | None = None) -> int:
         n = int(ch.scalar(f"SELECT count() FROM dmp.events WHERE project = '{PROJECT}'"))
         disk = float(ch.scalar("SELECT sum(bytes_on_disk) FROM system.parts WHERE database = 'dmp' AND table = 'events' AND active"))
         qs = queries(a.days)
+        if a.only:
+            keep = {m.strip() for m in a.only.split(",")}; qs = [q for q in qs if q["module"] in keep]
         print(f"--- measure {len(qs)} queries × {a.repeat} + concurrency {a.concurrency}")
         res = measure(ch, qs, a.repeat, a.concurrency)
         res["meta"] = {"rows": n, "users": users, "days": a.days, "repeat": a.repeat, "clickhouse": ch.query("SELECT version()").strip(), "cpus": os.cpu_count(),
                        "events_disk_gb": round(disk / 1e9, 2), "query_mem_gb": limits()["max_memory_usage"] / 1e9, "bytes_per_event": round(disk / max(n, 1), 1), "load": load_t, "at": time.strftime("%Y-%m-%d %H:%M")}
         out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
-        stem = f"bench_{n // 1_000_000}M"
+        stem = f"bench_{n // 1_000_000}M" + (f"_{a.only.replace(',', '-')}" if a.only else "")
         (out / f"{stem}.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
         (out / f"{stem}.md").write_text(report_md(res), encoding="utf-8")
         print(report_md(res).split("| 查詢 |")[0]); print(f"結果：{out / stem}.json／.md")
