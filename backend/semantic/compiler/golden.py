@@ -663,7 +663,7 @@ def dry_run() -> None:
     from .attribution import compile_attribution, parse_attribution, shape
     for name, raw, spec in ATTRIBUTIONS:
         aq = parse_attribution({**raw, "project": PROJECT}, cat); d = decision_of(spec); c = compile_attribution(aq, cat, d)
-        rows = oracle.run_attribution(aq, d); assert rows and "ARRAY JOIN touches AS t" in c.sql and c.columns[0] == "ti" and c.sql.count("(") == c.sql.count(")"), name
+        rows = oracle.run_attribution(aq, d); assert rows and "ARRAY JOIN if(n = 0, " in c.sql and "GROUPING SETS" in c.sql and "(SELECT count() FROM seq)" not in c.sql and c.columns[0] == "ti" and c.sql.count("(") == c.sql.count(")"), name
         sh = shape(rows, aq); assert sh["summary"]["conversions"] > 0 and all(set(r["models"]) == set(aq.models) for r in sh["rows"]), name
         h.update(c.sql.encode())
     for name, raw, kw in ATTRIBUTION_REJECTED:

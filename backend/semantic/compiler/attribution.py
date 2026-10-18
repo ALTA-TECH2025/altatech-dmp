@@ -5,7 +5,7 @@
   decay 2^(-(t_conv - t_i)/半衰期) 正規化；custom 觸點自訂權重正規化。沒有觸點的轉化不分（計入 untouched）。
 SQL 形狀：
   conv（轉化）、tp（觸點：索引 ti、拆分值 sp）→ tpu 每人觸點陣列 → seq LEFT JOIN 後 arrayFilter 回溯窗口 → w 各模型權重陣列
-  → ARRAY JOIN 觸點與序號 → GROUP BY ti [, sp]：各模型 sum(w)、sum(w × v)、uniqExact(one_id) AS _k；summary 用純量子查詢。
+  → ARRAY JOIN 觸點與序號（無觸點的轉化補哨兵列）→ GROUP BY GROUPING SETS ((ti [, sp]), ())：各觸點的模型 sum(w)、sum(w × v)、_k 與全體 summary 一次算完。
 K 匿名：被歸到該觸點的轉化用戶 < K → 該列各模型數值 NULL。觸點表（dmp.touchpoints）是之後的加速層；現在直接掃事件表。
 """
 from __future__ import annotations
@@ -171,17 +171,21 @@ WEIGHT = {"first": "if(i = 1, 1, 0)", "last": "if(i = n, 1, 0)", "linear": "1 / 
 def compile_attribution(aq: AttributionQuery, cat: Catalog | None = None, decision: Any = None, profile: str = "human") -> Compiled:
     cat = cat or Catalog()
     parts = attribution_parts(aq, cat, decision); k = parts.k
+    # 一次掃描：沒有觸點的轉化補一列哨兵（ti = -1），每次轉化恰有一列 i = 1；GROUPING SETS 同時算各觸點（ti[, sp]）與全體（()）。
+    # 以前 summary 用 (SELECT … FROM seq) 純量子查詢，ClickHouse 會把 CTE 鏈（含兩次掃事件表）每個引用各算一遍，1 億筆時讀 4.5 倍資料。
     msel = []
     for m in aq.models:
-        msel += [f"sum({WEIGHT[m]}) AS {m}_conv", f"sum({WEIGHT[m]} * v) AS {m}_val"]
+        msel += [f"sumIf({WEIGHT[m]}, ti >= 0) AS {m}_conv", f"sumIf({WEIGHT[m]} * v, ti >= 0) AS {m}_val"]
     gcols = ["ti"] + (["sp"] if aq.split else [])
-    inner = (f"SELECT t.2 AS ti{', t.3 AS sp' if aq.split else ''}, {', '.join(msel)}, uniqExact(one_id) AS _k, "
-             f"(SELECT count() FROM seq) AS conversions, (SELECT uniqExact(one_id) FROM seq) AS converters, (SELECT countIf(n > 0) FROM w) AS touched, "
-             f"(SELECT sum(v) FROM seq) AS total_value, (SELECT avg(n) FROM w WHERE n > 0) AS avg_touches "
-             f"FROM w ARRAY JOIN touches AS t, arrayEnumerate(touches) AS i GROUP BY {', '.join(gcols)}")
+    arr = "if(n = 0, [(ct, -1, '')], touches)"
+    inner = (f"SELECT grouping({', '.join(gcols)}) AS g, t.2 AS ti{', t.3 AS sp' if aq.split else ''}, {', '.join(msel)}, uniqExactIf(one_id, ti >= 0) AS _k, "
+             f"countIf(i = 1) AS c_t, uniqExactIf(one_id, i = 1) AS cu_t, countIf(i = 1 AND n > 0) AS t_t, sumIf(v, i = 1) AS v_t, avgIf(n, i = 1 AND n > 0) AS a_t "
+             f"FROM w ARRAY JOIN {arr} AS t, arrayEnumerate({arr}) AS i GROUP BY GROUPING SETS (({', '.join(gcols)}), ())")
+    mid = (f"SELECT *, maxIf(c_t, g != 0) OVER () AS conversions, maxIf(cu_t, g != 0) OVER () AS converters, maxIf(t_t, g != 0) OVER () AS touched, "
+           f"maxIf(v_t, g != 0) OVER () AS total_value, maxIf(a_t, g != 0) OVER () AS avg_touches FROM ({inner})")
     vals = [f"{m}_{x}" for m in aq.models for x in ("conv", "val")]
     sel = gcols + ([f"if(_k < {k}, NULL, {c}) AS {c}" for c in vals] if k else vals) + ["_k", "conversions", "converters", "touched", "total_value", "avg_touches"] + ([f"_k < {k} AS suppressed"] if k else [])
-    sql = f"WITH {parts.with_sql} SELECT {', '.join(sel)} FROM ({inner}) ORDER BY {', '.join(gcols)}"
+    sql = f"WITH {parts.with_sql} SELECT {', '.join(sel)} FROM ({mid}) WHERE g = 0 AND ti >= 0 ORDER BY {', '.join(gcols)}"
     from .policy import budget
     cols = gcols + vals + ["_k", "conversions", "converters", "touched", "total_value", "avg_touches"] + (["suppressed"] if k else [])
     fields = _fields(aq)

@@ -122,7 +122,7 @@ def metric_sql(m: Metric, ctx: Ctx) -> str:
         if m.agg == "sum": return f"sumMergeIf(a.amount, {cond})"
         raise ValueError(f"L1 不支援 {m.agg}")
     fx = ctx.expr(m.field) if m.field else None
-    users = f"uniqExactIf(e.one_id, {cond})"
+    users = f"uniqExactIf(e.one_id_uint, {cond})"      # 去重用 UInt64（cityHash64(one_id)）：結果同字串、記憶體約 1/3；1,500 萬人碰撞機率約 6e-6
     if m.agg == "total": return f"countIf({cond})"
     if m.agg == "users": return users
     if m.agg == "avg_per_user": return f"if({users} = 0, NULL, countIf({cond}) / {users})"
@@ -199,7 +199,7 @@ def compile_events(qr: Query, cat: Catalog | None = None, decision: Any = None, 
         name = f"g{i + 1}"
         sel.append(f"{ctx.expr(g)} AS {name}"); cols.append(name); grp.append(name)
     msql = [metric_sql(m, ctx) for m in qr.metrics]
-    kexpr = "uniqMerge(a.users)" if layer == "L1" else "uniqExact(e.one_id)"
+    kexpr = "uniqMerge(a.users)" if layer == "L1" else "uniqExact(e.one_id_uint)"
     where = [f"{tcol}.project = {q(qr.project)}", f"{tcol}.event_date BETWEEN toDate({q(qr.time.start.isoformat())}) AND toDate({q(qr.time.end.isoformat())})"]
     if qr.events:
         where.append(f"{tcol}.event IN ({', '.join(q(x) for x in qr.events)})")
@@ -222,7 +222,7 @@ def compile_events(qr: Query, cat: Catalog | None = None, decision: Any = None, 
         if m.agg == "mau":
             cond = ctx.mcond(m)
             gcols = ", ".join(f"{ctx.expr(g)} AS {c}" for g, c in zip(qr.group_by, cols[1:]))
-            ctes.append(f"mau_{m.alias} AS (SELECT toStartOfMonth(e.event_date) AS mon{', ' + gcols if gcols else ''}, uniqExactIf(e.one_id, {cond}) AS v FROM dmp.events AS e WHERE {' AND '.join(where)} GROUP BY ALL)")
+            ctes.append(f"mau_{m.alias} AS (SELECT toStartOfMonth(e.event_date) AS mon{', ' + gcols if gcols else ''}, uniqExactIf(e.one_id_uint, {cond}) AS v FROM dmp.events AS e WHERE {' AND '.join(where)} GROUP BY ALL)")
             on = " AND ".join([f"mau_{m.alias}.mon = toStartOfMonth(base.bucket)"] + [f"mau_{m.alias}.{c} = base.{c}" for c in cols[1:]])
             joins += f" LEFT JOIN mau_{m.alias} ON {on}"
     sample = f" SAMPLE {qr.sample}" if qr.sample and layer == "L0" else ""
@@ -252,7 +252,7 @@ def compile_events(qr: Query, cat: Catalog | None = None, decision: Any = None, 
         first = qr.metrics[0]
         tcond = ctx.mcond(first)
         rank = f"countIf({tcond})" if layer == "L0" else f"countMergeIf(a.cnt, {tcond})"
-        if first.agg == "users": rank = f"uniqExactIf(e.one_id, {tcond})"
+        if first.agg == "users": rank = f"uniqExactIf(e.one_id_uint, {tcond})"
         if first.agg == "sum" and first.field: rank = f"sumIf({ctx.expr(first.field)}, {tcond})" if layer == "L0" else f"sumMergeIf(a.amount, {tcond})"
         gsel = ", ".join(f"{ctx.expr(g)} AS {c}" for g, c in zip(qr.group_by, gcols_out))
         ctes.insert(0, f"top AS (SELECT {gsel}, {rank} AS r FROM {src}{sample}{cold_join} WHERE {' AND '.join(where)} GROUP BY {', '.join(gcols_out)} ORDER BY r DESC, {', '.join(gcols_out)} LIMIT {qr.top_n})")
