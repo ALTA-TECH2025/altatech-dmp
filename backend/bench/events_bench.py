@@ -149,16 +149,19 @@ def queries(days: int) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------- 量測
-def limits() -> dict[str, int]:
-    """每條查詢的記憶體上限與溢寫門檻：超過就溢寫到磁碟或記為失敗，不讓單一查詢把伺服器拖垮（1 億筆在 4 核 15 GB 實測會 OOM）。"""
+def limits(concurrency: int = 1) -> dict[str, int]:
+    """每條查詢的記憶體上限與溢寫門檻：超過就溢寫到磁碟或記為失敗，不讓單一查詢把伺服器拖垮（1 億筆在 4 核 15 GB 實測會 OOM）。
+    並發時每條的上限 ＝ min(單條上限, 實體記憶體 50% ÷ 並發數)。"""
     mem = int(float(os.environ.get("BENCH_QUERY_MEM_GB", "4")) * 1e9)
+    if concurrency > 1:
+        mem = min(mem, int(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") * 0.5 / concurrency))
     return {"max_memory_usage": mem, "max_bytes_before_external_group_by": mem // 2, "max_bytes_before_external_sort": mem // 2}
 
 
-def _run(ch: Any, q: dict[str, Any], tag: str) -> tuple[str, str | None]:
+def _run(ch: Any, q: dict[str, Any], tag: str, concurrency: int = 1) -> tuple[str, str | None]:
     qid = f"bench-{tag}-{uuid.uuid4().hex[:12]}"
     try:
-        ch.query(q["sql"] + " FORMAT Null", settings={**q["settings"], **limits(), "query_id": qid, "use_query_cache": 0, "max_execution_time": 600})
+        ch.query(q["sql"] + " FORMAT Null", settings={**q["settings"], **limits(concurrency), "query_id": qid, "use_query_cache": 0, "max_execution_time": 600})
         return qid, None
     except Exception as e:                                   # 記憶體／溢寫空間／逾時：記錄原因，繼續下一條
         msg = str(e); code = msg.split("DB::Exception:")[0][-40:] if "DB::Exception" in msg else msg[:80]
@@ -211,12 +214,14 @@ def measure(ch: Any, qs: list[dict[str, Any]], repeat: int, concurrency: int) ->
         jobs = [q for q in qs if q["name"] not in failed for _ in range(2)]
         t0 = time.perf_counter()
         with ThreadPoolExecutor(concurrency) as pool:
-            qids = [(n, r[0]) for n, r in pool.map(lambda q: (q["name"], _run(ch, q, "conc")), jobs) if not r[1]]
+            res_c = list(pool.map(lambda q: (q["name"], _run(ch, q, "conc", concurrency)), jobs))
+        qids = [(n, r[0]) for n, r in res_c if not r[1]]
+        conc_failed = sorted({f"{n}（{r[1]}）" for n, r in res_c if r[1]})
         wall = time.perf_counter() - t0
         logs = _log(ch, [x for _, x in qids])
         ms = [float(logs[x]["ms"]) for _, x in qids if x in logs]
         seq = [r["p95_ms"] for r in rows if "failed" not in r]
-        conc = {"concurrency": concurrency, "queries": len(jobs), "wall_s": round(wall, 1), "p50_ms": pct(ms, 0.5), "p95_ms": pct(ms, 0.95),
+        conc = {"concurrency": concurrency, "queries": len(jobs), "failed": conc_failed, "mem_per_query_gb": round(limits(concurrency)["max_memory_usage"] / 1e9, 2), "wall_s": round(wall, 1), "p50_ms": pct(ms, 0.5), "p95_ms": pct(ms, 0.95),
                 "seq_p95_of_p95_ms": pct(seq, 0.95), "degradation": round(pct(ms, 0.95) / max(pct(seq, 0.95), 1), 2)}
     by_mod: dict[str, dict[str, Any]] = {}
     for m in sorted({r["module"] for r in rows}):
@@ -241,7 +246,8 @@ def report_md(res: dict[str, Any]) -> str:
     out += ["", f"事件分析命中聚合層（MV）：{res['mv_hit_rate']:.0%}（編譯器判定可走 L1 的 {res['mv_eligible']} 條）" if res["mv_hit_rate"] is not None else ""]
     c = res["concurrency"]
     if c:
-        out += ["", f"並發 {c['concurrency']}（{c['queries']} 條查詢）：P95 {c['p95_ms']} ms，單條依序的 P95 {c['seq_p95_of_p95_ms']} ms，劣化 {c['degradation']} 倍；總耗時 {c['wall_s']} s"]
+        out += ["", f"並發 {c['concurrency']}（{c['queries']} 條查詢，每條記憶體上限 {c.get('mem_per_query_gb')} GB）：P95 {c['p95_ms']} ms，單條依序的 P95 {c['seq_p95_of_p95_ms']} ms，劣化 {c['degradation']} 倍；總耗時 {c['wall_s']} s"
+                + (f"；並發下失敗 {len(c['failed'])} 條：{'；'.join(c['failed'])}" if c.get("failed") else "")]
     out += ["", "| 查詢 | 層 | P50 | P95 | 讀取列數 | 讀取 MB | 記憶體 MB | MV |", "|---|---|---:|---:|---:|---:|---:|---|"]
     out += [f"| {r['name']} | {r['layer']} | {r['p50_ms']} | {r['p95_ms']} | {r['read_rows']:,} | {r['read_mb']} | {r['mem_mb']} | {'✓' if r['mv_hit'] else ''} |" if "failed" not in r
             else f"| {r['name']} | {r['layer']} | 失敗：{r['failed']} | | | | | |" for r in res["queries"]]
