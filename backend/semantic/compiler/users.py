@@ -31,6 +31,8 @@ MAX_PAGE = 500
 MAX_BROWSE = 100_000
 DEFAULT_COLUMNS = ["branch_id", "lifecycle", "tier", "aum_bucket", "churn_score", "last_active_at"]
 MEASURE_AGGS = ("count", "sum", "avg", "max", "min", "days")
+WINDOW_UNITS = {"minute": 60, "hour": 3600, "day": 86400}
+IMPORT_ID = re.compile(r"^im_[0-9a-f]{10}$")
 COUNT_OPS = ("gte", "lte", "eq", "gt", "lt", "between")
 PROFILE_SUMMARY_DAYS = 30
 TIMELINE_COLS = ["time", "event", "platform", "channel", "symbol", "side", "amount", "entity_type", "entity_id", "session_id", "event_id", "props"]
@@ -52,8 +54,17 @@ class Behavior:
 
 
 @dataclass
+class Sequence:
+    steps: list[tuple[str, Group | None]]   # [(事件, 該步事件屬性條件)]，2–6 步
+    window_s: int                           # 從第一步起算的完成窗口（秒）
+    done: bool
+    time: TimeRange
+    last_days: int | None = None
+
+
+@dataclass
 class Source:
-    type: str                      # funnel | retention | events
+    type: str                      # funnel | retention | events | path | attribution | import
     query: Any                     # FunnelQuery | RetentionQuery | Query
     step: int | None = None
     reached: bool = True
@@ -63,6 +74,7 @@ class Source:
     period: int | None = None
     retained: bool | None = None
     metric: str | None = None
+    import_id: str | None = None   # import：導入名單 id
 
 
 @dataclass
@@ -75,6 +87,7 @@ class UsersQuery:
     now: date | None
     raw: dict[str, Any] = field(default_factory=dict)
     combine: str = "and"          # 用戶屬性塊與行為塊之間：and | or
+    sequences: list[Sequence] = field(default_factory=list)   # 行為序列，與 behaviors 同受 behaviors_op 組合
 
     def as_query(self) -> Query:
         d = self.now or date.today()
@@ -167,6 +180,34 @@ def parse_users(raw: dict[str, Any], cat: Catalog | None = None) -> UsersQuery:
         if t is None:
             raise ValueError(f"behaviors[{i}] 需要 time（近 N 天或自訂期間；或在頂層 time 給預設）")
         behaviors.append(Behavior(name, parse_filters(cat, b.get("filters")), bool(b.get("done", True)), op, val, t, agg, fref, (b.get("time") or {}).get("last_days")))
+    sequences: list[Sequence] = []
+    for i, sq in enumerate(raw.get("sequences") or []):
+        if i >= 5:
+            raise ValueError("sequences 最多 5 條")
+        steps_raw = sq.get("steps") or []
+        if not 2 <= len(steps_raw) <= 6:
+            raise ValueError(f"sequences[{i}] 需要 2–6 步")
+        steps: list[tuple[str, Group | None]] = []
+        for j, st in enumerate(steps_raw):
+            name = cat.canonical_event(str(st.get("event") or ""))
+            if not name:
+                raise ValueError(f"sequences[{i}].steps[{j}] 事件 {st.get('event')} 不在事件字典")
+            steps.append((name, parse_filters(cat, st.get("filters"))))
+        w = sq.get("window") or {}
+        unit = str(w.get("unit") or "day")
+        if unit not in WINDOW_UNITS:
+            raise ValueError(f"sequences[{i}].window.unit 只能是 {tuple(WINDOW_UNITS)}")
+        try:
+            wv = int(w.get("value") or 0)
+        except (TypeError, ValueError):
+            raise ValueError(f"sequences[{i}].window.value 需為整數") from None
+        window_s = wv * WINDOW_UNITS[unit]
+        if not 60 <= window_s <= 90 * 86400:
+            raise ValueError(f"sequences[{i}] 窗口需在 1 分鐘～90 天")
+        t = _time(sq.get("time"), now, f"sequences[{i}]") or default_time
+        if t is None:
+            raise ValueError(f"sequences[{i}] 需要 time（近 N 天或自訂期間；或在頂層 time 給預設）")
+        sequences.append(Sequence(steps, window_s, bool(sq.get("done", True)), t, (sq.get("time") or {}).get("last_days")))
     bop = str(raw.get("behaviors_op") or "and")
     if bop not in ("and", "or"):
         raise ValueError("behaviors_op 只能是 and／or")
@@ -174,13 +215,18 @@ def parse_users(raw: dict[str, Any], cat: Catalog | None = None) -> UsersQuery:
     if combine not in ("and", "or"):
         raise ValueError("combine 只能是 and／or")
     source = _parse_source(raw.get("source"), project, cat) if raw.get("source") else None
-    if not (filters or behaviors or source):
-        raise ValueError("至少要有一個條件（filters／segment／behaviors／source）")
-    return UsersQuery(project, filters, behaviors, bop, source, now, raw, combine)
+    if not (filters or behaviors or sequences or source):
+        raise ValueError("至少要有一個條件（filters／segment／behaviors／sequences／source）")
+    return UsersQuery(project, filters, behaviors, bop, source, now, raw, combine, sequences)
 
 
 def _parse_source(raw: dict[str, Any], project: str, cat: Catalog) -> Source:
     t = str(raw.get("type") or "")
+    if t == "import":
+        iid = str(raw.get("import_id") or "")
+        if not IMPORT_ID.match(iid):
+            raise ValueError("source.import_id 格式不符（im_ 加 10 碼）")
+        return Source("import", None, import_id=iid)
     sq = dict(raw.get("query") or {}); sq["project"] = project
     if t == "funnel":
         from .funnel import parse_funnel
@@ -352,7 +398,8 @@ def _bitmaps(uq: UsersQuery, cat: Catalog, decision: Any) -> tuple[list[str], st
     uctx = UserCtx(cat, uq.now)
     uwhere = ["1"] + ([group_sql(uq.filters, uctx)] if uq.filters else []) + user_row_filters(decision)
     ctes = [f"(SELECT groupBitmapState(one_id_uint) FROM dmp.users AS e FINAL WHERE {' AND '.join(uwhere)}) AS bm_u"]
-    if uq.combine == "or" and uq.filters and uq.behaviors:                 # 「屬性 或 行為」：行為那邊要對全體（含行級範圍）算，不能先被屬性框住
+    has_beh = bool(uq.behaviors or uq.sequences)
+    if uq.combine == "or" and uq.filters and has_beh:                       # 「屬性 或 行為」：行為那邊要對全體（含行級範圍）算，不能先被屬性框住
         ctes.append(f"(SELECT groupBitmapState(one_id_uint) FROM dmp.users AS e FINAL WHERE {' AND '.join(['1'] + user_row_filters(decision))}) AS bm_all")
     lineage = ["dmp.users"] + (["dmp.segment_members"] if any(c.field.kind == "segment" for c in _walk(uq.filters)) else [])
     warnings: list[str] = []; row_filters: list[str] = []
@@ -380,7 +427,22 @@ def _bitmaps(uq: UsersQuery, cat: Catalog, decision: Any) -> tuple[list[str], st
         ctes.append(f"(SELECT groupBitmapState(one_id_uint) FROM (SELECT e.one_id_uint AS one_id_uint FROM dmp.events AS e{cold} WHERE {' AND '.join(where)} GROUP BY e.one_id_uint HAVING {having})) AS bm_b{i}")
         parts.append((f"bm_b{i}", b.done))
         lineage += ["dmp.events", f"event:{b.event}"] + (["dmp.users_dict"] if any(c.field.kind == "user_hot" for c in _walk(b.filters)) else [])
-    base = "bm_all" if (uq.combine == "or" and uq.filters and uq.behaviors) else "bm_u"
+    for i, sq in enumerate(uq.sequences, 1):                                # 行為序列：依序完成各步（windowFunnel 預設模式，窗口從第一步起算）
+        qr = Query(project=uq.project, metrics=[], time=sq.time, filters=None)
+        ctx = Ctx(cat, qr, "L0")
+        evs = sorted({ev for ev, _ in sq.steps})
+        where = [f"e.project = {q(uq.project)}", f"e.event_date BETWEEN toDate({q(sq.time.start.isoformat())}) AND toDate({q(sq.time.end.isoformat())})",
+                 f"e.event IN ({', '.join(q(ev) for ev in evs)})"]
+        if decision is not None:
+            rf, _, _, w = inject(decision, qr, cat, ctx, [])
+            where += rf; warnings += w; row_filters = rf
+        conds = [f"(e.event = {q(ev)} AND {group_sql(fl, ctx)})" if fl else f"e.event = {q(ev)}" for ev, fl in sq.steps]
+        cold = f" LEFT JOIN (SELECT one_id, {', '.join('`' + n + '`' for n in ctx.cold)} FROM dmp.users FINAL) AS u ON u.one_id = e.one_id" if ctx.cold else ""
+        ctes.append(f"(SELECT groupBitmapState(one_id_uint) FROM (SELECT e.one_id_uint AS one_id_uint FROM dmp.events AS e{cold} WHERE {' AND '.join(where)} "
+                    f"GROUP BY e.one_id_uint HAVING windowFunnel({sq.window_s})(toDateTime(e.time), {', '.join(conds)}) >= {len(sq.steps)})) AS bm_q{i}")
+        parts.append((f"bm_q{i}", sq.done))
+        lineage += ["dmp.events"] + [f"event:{ev}" for ev in evs] + (["dmp.users_dict"] if any(c.field.kind == "user_hot" for _, fl in sq.steps for c in _walk(fl)) else [])
+    base = "bm_all" if (uq.combine == "or" and uq.filters and has_beh) else "bm_u"
     acc = base
     if parts:
         if uq.behaviors_op == "and":
@@ -404,6 +466,8 @@ def _bitmaps(uq: UsersQuery, cat: Catalog, decision: Any) -> tuple[list[str], st
 
 def _source_sql(s: Source, cat: Catalog, decision: Any) -> tuple[str, list[str], list[str], list[str]]:
     """下鑽來源 → 回 one_id 的子查詢。"""
+    if s.type == "import":                                                  # 導入名單：只存 one_id；行級範圍由 bm_u（用戶寬表）那邊套用
+        return f"SELECT one_id FROM dmp.segment_imports WHERE import_id = {q(s.import_id)}", ["dmp.segment_imports"], [], []
     if s.type == "funnel":
         from .funnel import funnel_base
         fq = s.query; fb = funnel_base(fq, cat, decision)

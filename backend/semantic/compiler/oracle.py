@@ -27,6 +27,7 @@ class Oracle:
     def __init__(self, events: list[dict[str, Any]], users: dict[str, dict[str, Any]], segments: dict[str, set[str]] | None = None, hot_defaults: dict[str, Any] | None = None):
         self.events, self.users, self.segments = events, users, segments or {}
         self.hot_defaults = hot_defaults or {"string": "", "number": 0.0, "bool": 0, "date": date(1970, 1, 1)}
+        self.imports: dict[str, set[str]] = {}                         # 導入名單 id → one_id（golden／e2e 用）
 
     # ---- 欄位取值 ----
     def value(self, f: FieldRef, r: dict[str, Any]) -> Any:
@@ -431,7 +432,7 @@ class Oracle:
             base = {oid for oid, u in self.users.items() if self.group(uq.filters, {"one_id": oid}, now) and self._user_ok(decision, u)}
         finally:
             self.hot_defaults = saved
-        if uq.behaviors:
+        if uq.behaviors or uq.sequences:
             sets: list[tuple[set[str], bool]] = []
             if uq.combine == "or" and uq.filters:                      # 「屬性 或 行為」：行為那邊對全體（只受行級範圍限制）算
                 attr_base = base; base = {oid for oid, u in self.users.items() if self._user_ok(decision, u)}
@@ -448,6 +449,17 @@ class Oracle:
                     cmp = {"gte": operator.ge, "lte": operator.le, "eq": operator.eq, "gt": operator.gt, "lt": operator.lt}[b.count_op]
                     ok = {o for o, n in ms.items() if cmp(n, b.count)}
                 sets.append((ok, True))
+            for sq in uq.sequences:                                     # 行為序列：與 SQL 同一套 windowFunnel 演算法
+                chains: dict[str, list[tuple[int, int]]] = defaultdict(list)
+                evs = {ev for ev, _ in sq.steps}
+                for r in self.events:
+                    if r["project"] == uq.project and sq.time.start <= r["event_date"] <= sq.time.end and r["event"] in evs and self._row_filters_ok(decision, r, sq.time.now or now):
+                        sec = int((r["time"] - timedelta(hours=8)).replace(tzinfo=UTC).timestamp())
+                        for k, (ev, fl) in enumerate(sq.steps):
+                            if r["event"] == ev and self.group(fl, r, now):
+                                chains[r["one_id"]].append((sec, k))
+                done_set = {o for o, ch in chains.items() if self.window_funnel(ch, sq.window_s, len(sq.steps)) >= len(sq.steps)}
+                sets.append((done_set, sq.done))
             if uq.behaviors_op == "and":
                 for s_, done in sets:
                     base = (base & s_) if done else (base - s_)
@@ -471,6 +483,8 @@ class Oracle:
         return {"sum": sum(vals), "avg": sum(vals) / len(vals), "max": max(vals), "min": min(vals)}[b.agg]
 
     def _source_users(self, s: Any, decision: Any) -> set[str]:
+        if s.type == "import":
+            return set(self.imports.get(s.import_id, set()))
         if s.type == "funnel":
             fq = s.query
             best: dict[str, int] = defaultdict(int)
