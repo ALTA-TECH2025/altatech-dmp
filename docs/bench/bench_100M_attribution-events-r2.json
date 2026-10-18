@@ -1,0 +1,463 @@
+{
+ "queries": [
+  {
+   "name": "Q01 委託次數×日（走 MV）",
+   "module": "events",
+   "layer": "L1",
+   "p50_ms": 650.0,
+   "p95_ms": 705.8,
+   "read_rows": 31249,
+   "read_mb": 3.9,
+   "mem_mb": 262.3,
+   "mv_hit": true
+  },
+  {
+   "name": "Q02 委託用戶數×日",
+   "module": "events",
+   "layer": "L1",
+   "p50_ms": 832.0,
+   "p95_ms": 968.8,
+   "read_rows": 31249,
+   "read_mb": 3.4,
+   "mem_mb": 251.5,
+   "mv_hit": true
+  },
+  {
+   "name": "Q03 人均次數×合計",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 196.0,
+   "p95_ms": 217.6,
+   "read_rows": 5569642,
+   "read_mb": 66.8,
+   "mem_mb": 365.8,
+   "mv_hit": false
+  },
+  {
+   "name": "Q04 成交金額×平台×日（走 MV，含未設值平台）",
+   "module": "events",
+   "layer": "L1",
+   "p50_ms": 420.0,
+   "p95_ms": 447.9,
+   "read_rows": 31249,
+   "read_mb": 4.4,
+   "mem_mb": 256.3,
+   "mv_hit": true
+  },
+  {
+   "name": "Q05 平均／最大／最小金額×週",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 243.0,
+   "p95_ms": 262.8,
+   "read_rows": 6911862,
+   "read_mb": 144.7,
+   "mem_mb": 225.3,
+   "mv_hit": false
+  },
+  {
+   "name": "Q06 分位數×合計",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 246.0,
+   "p95_ms": 246.9,
+   "read_rows": 4800266,
+   "read_mb": 100.2,
+   "mem_mb": 366.3,
+   "mv_hit": false
+  },
+  {
+   "name": "Q07 去重商品數×渠道×月",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 372.0,
+   "p95_ms": 382.8,
+   "read_rows": 9298292,
+   "read_mb": 130.2,
+   "mem_mb": 311.1,
+   "mv_hit": false
+  },
+  {
+   "name": "Q08 JSON 屬性分組（market）×日",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 229.0,
+   "p95_ms": 243.4,
+   "read_rows": 4112384,
+   "read_mb": 120.4,
+   "mem_mb": 228.1,
+   "mv_hit": false
+  },
+  {
+   "name": "Q09 時段篩選 9–13 點×小時",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 33.0,
+   "p95_ms": 35.7,
+   "read_rows": 884736,
+   "read_mb": 17.7,
+   "mem_mb": 7.8,
+   "mv_hit": false
+  },
+  {
+   "name": "Q10 巢狀且／或 + in/like/set/nset",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 942.0,
+   "p95_ms": 958.2,
+   "read_rows": 17778564,
+   "read_mb": 564.9,
+   "mem_mb": 962.2,
+   "mv_hit": false
+  },
+  {
+   "name": "Q11 指標內篩選 + 用戶屬性（dictGet）分組",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 160.0,
+   "p95_ms": 213.1,
+   "read_rows": 2842624,
+   "read_mb": 61.5,
+   "mem_mb": 135.6,
+   "mv_hit": false
+  },
+  {
+   "name": "Q12 用戶屬性篩選（enum／bool／number／date rel）",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 397.0,
+   "p95_ms": 406.0,
+   "read_rows": 7874240,
+   "read_mb": 86.5,
+   "mem_mb": 92.1,
+   "mv_hit": false
+  },
+  {
+   "name": "Q13 分群篩選（segment in）",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 103.0,
+   "p95_ms": 109.3,
+   "read_rows": 4646992,
+   "read_mb": 54.1,
+   "mem_mb": 50.1,
+   "mv_hit": false
+  },
+  {
+   "name": "Q14 JSON 數值屬性（整數／小數混放）",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 663.0,
+   "p95_ms": 672.0,
+   "read_rows": 17778564,
+   "read_mb": 497.8,
+   "mem_mb": 569.2,
+   "mv_hit": false
+  },
+  {
+   "name": "Q15 公式（成交率 %、除零）",
+   "module": "events",
+   "layer": "L1",
+   "p50_ms": 479.0,
+   "p95_ms": 499.7,
+   "read_rows": 31249,
+   "read_mb": 3.9,
+   "mem_mb": 268.4,
+   "mv_hit": true
+  },
+  {
+   "name": "Q16 top_n 商品（依第一指標）×日",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 149.0,
+   "p95_ms": 177.8,
+   "read_rows": 11139284,
+   "read_mb": 100.3,
+   "mem_mb": 174.6,
+   "mv_hit": false
+  },
+  {
+   "name": "Q17 mau（當月觸發用戶數，按天）",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 545.0,
+   "p95_ms": 569.3,
+   "read_rows": 16433152,
+   "read_mb": 197.1,
+   "mem_mb": 534.4,
+   "mv_hit": false
+  },
+  {
+   "name": "Q18 K 匿名抑制（tier P5 只有 5 人）",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 134.0,
+   "p95_ms": 142.1,
+   "read_rows": 2842624,
+   "read_mb": 59.3,
+   "mem_mb": 81.2,
+   "mv_hit": false
+  },
+  {
+   "name": "Q19 行銷看金額只有區間（遮罩 bucket）",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 200.0,
+   "p95_ms": 228.8,
+   "read_rows": 2842624,
+   "read_mb": 61.5,
+   "mem_mb": 178.0,
+   "mv_hit": false
+  },
+  {
+   "name": "Q20 回看天數行級條件（自訂角色 10 天）",
+   "module": "events",
+   "layer": "L1",
+   "p50_ms": 412.0,
+   "p95_ms": 615.4,
+   "read_rows": 28201,
+   "read_mb": 3.5,
+   "mem_mb": 208.1,
+   "mv_hit": true
+  },
+  {
+   "name": "Q21 分公司行級條件（branch_id IN）",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 178.0,
+   "p95_ms": 205.9,
+   "read_rows": 4145152,
+   "read_mb": 49.5,
+   "mem_mb": 100.2,
+   "mv_hit": false
+  },
+  {
+   "name": "Q22 compare 上一期×日",
+   "module": "events",
+   "layer": "L1",
+   "p50_ms": 411.0,
+   "p95_ms": 442.5,
+   "read_rows": 50258,
+   "read_mb": 6.2,
+   "mem_mb": 135.7,
+   "mv_hit": true
+  },
+  {
+   "name": "Q23 compare 上一期×月×平台",
+   "module": "events",
+   "layer": "L1",
+   "p50_ms": 987.0,
+   "p95_ms": 1070.7,
+   "read_rows": 62474,
+   "read_mb": 7.7,
+   "mem_mb": 255.3,
+   "mv_hit": true
+  },
+  {
+   "name": "Q24 語意層指標 dau",
+   "module": "events",
+   "layer": "L1",
+   "p50_ms": 994.0,
+   "p95_ms": 1336.0,
+   "read_rows": 31249,
+   "read_mb": 3.3,
+   "mem_mb": 268.7,
+   "mv_hit": true
+  },
+  {
+   "name": "Q25 語意層指標 order_reject_rate（ratio）",
+   "module": "events",
+   "layer": "L1",
+   "p50_ms": 318.0,
+   "p95_ms": 422.4,
+   "read_rows": 31249,
+   "read_mb": 3.9,
+   "mem_mb": 233.6,
+   "mv_hit": true
+  },
+  {
+   "name": "Q26 語意層指標 digital_self_service_rate（filter 片段）×平台",
+   "module": "events",
+   "layer": "L1",
+   "p50_ms": 462.0,
+   "p95_ms": 471.9,
+   "read_rows": 31249,
+   "read_mb": 3.9,
+   "mem_mb": 223.3,
+   "mv_hit": true
+  },
+  {
+   "name": "Q27 三維分組（平台×渠道×market）×日",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 184.0,
+   "p95_ms": 202.0,
+   "read_rows": 3366912,
+   "read_mb": 102.6,
+   "mem_mb": 158.0,
+   "mv_hit": false
+  },
+  {
+   "name": "Q28 exact 強制 L0 與 MV 結果一致",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 170.0,
+   "p95_ms": 177.2,
+   "read_rows": 4120576,
+   "read_mb": 98.1,
+   "mem_mb": 95.3,
+   "mv_hit": false
+  },
+  {
+   "name": "Q29 分鐘粒度（單日）",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 22.0,
+   "p95_ms": 31.0,
+   "read_rows": 1132420,
+   "read_mb": 21.5,
+   "mem_mb": 3.9,
+   "mv_hit": false
+  },
+  {
+   "name": "Q30 人均值 avg_val×渠道",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 194.0,
+   "p95_ms": 201.2,
+   "read_rows": 2842624,
+   "read_mb": 61.5,
+   "mem_mb": 176.1,
+   "mv_hit": false
+  },
+  {
+   "name": "X01 全期間每日委託次數",
+   "module": "events",
+   "layer": "L1",
+   "p50_ms": 3154.0,
+   "p95_ms": 3637.3,
+   "read_rows": 103641,
+   "read_mb": 12.9,
+   "mem_mb": 1105.4,
+   "mv_hit": true
+  },
+  {
+   "name": "X02 全期間每日活躍人數×平台",
+   "module": "events",
+   "layer": "L1",
+   "p50_ms": 8502.0,
+   "p95_ms": 8922.3,
+   "read_rows": 103641,
+   "read_mb": 11.2,
+   "mem_mb": 1965.2,
+   "mv_hit": true
+  },
+  {
+   "name": "X03 全期間成交金額×商品（明細）",
+   "module": "events",
+   "layer": "L0",
+   "p50_ms": 771.0,
+   "p95_ms": 811.5,
+   "read_rows": 15770669,
+   "read_mb": 344.3,
+   "mem_mb": 508.2,
+   "mv_hit": false
+  },
+  {
+   "name": "A01 成交 × 三觸點 × 首次／末次／線性，7 天",
+   "module": "attribution",
+   "layer": "L0",
+   "p50_ms": 6720.0,
+   "p95_ms": 6828.9,
+   "read_rows": 24346750,
+   "read_mb": 1407.2,
+   "mem_mb": 2069.6,
+   "mv_hit": false
+  },
+  {
+   "name": "A02 金額價值 × 位置（0.3/0.5）× 時間衰減（半衰期 2 天）× 自訂權重，3 天",
+   "module": "attribution",
+   "layer": "L0",
+   "p50_ms": 4886.0,
+   "p95_ms": 5030.0,
+   "read_rows": 20611198,
+   "read_mb": 1325.1,
+   "mem_mb": 2079.0,
+   "mv_hit": false
+  },
+  {
+   "name": "A03 依平台拆分 × 線性，14 天",
+   "module": "attribution",
+   "layer": "L0",
+   "p50_ms": 7514.0,
+   "p95_ms": 7662.5,
+   "read_rows": 27417747,
+   "read_mb": 1554.9,
+   "mem_mb": 2076.7,
+   "mv_hit": false
+  },
+  {
+   "name": "A04 轉化條件（金額 ≥ 10 萬）+ 觸點條件（iOS 看盤）+ 用戶屬性，1 天",
+   "module": "attribution",
+   "layer": "L0",
+   "p50_ms": 1642.0,
+   "p95_ms": 1743.7,
+   "read_rows": 17278355,
+   "read_mb": 769.8,
+   "mem_mb": 1026.4,
+   "mv_hit": false
+  },
+  {
+   "name": "A05 分群 vip + 行銷（K 匿名）× 市場拆分",
+   "module": "attribution",
+   "layer": "L0",
+   "p50_ms": 2137.0,
+   "p95_ms": 2168.5,
+   "read_rows": 25206006,
+   "read_mb": 1785.3,
+   "mem_mb": 1025.8,
+   "mv_hit": false
+  },
+  {
+   "name": "A06 全模型 × 90 天窗口（回溯到資料起點前）",
+   "module": "attribution",
+   "layer": "L0",
+   "p50_ms": 10689.5,
+   "p95_ms": 10714.2,
+   "read_rows": 76380328,
+   "read_mb": 4845.9,
+   "mem_mb": 2012.7,
+   "mv_hit": false
+  }
+ ],
+ "modules": {
+  "attribution": {
+   "queries": 6,
+   "failed": 0,
+   "p95_max_ms": 10714.2,
+   "p95_median_ms": 5929.4
+  },
+  "events": {
+   "queries": 33,
+   "failed": 0,
+   "p95_max_ms": 8922.3,
+   "p95_median_ms": 406.0
+  }
+ },
+ "concurrency": {},
+ "mv_hit_rate": 0.364,
+ "mv_eligible": 12,
+ "meta": {
+  "rows": 100000000,
+  "users": 1000000,
+  "days": 90,
+  "repeat": 3,
+  "clickhouse": "26.10.1.2499",
+  "cpus": 4,
+  "events_disk_gb": 4.98,
+  "query_mem_gb": 4.0,
+  "bytes_per_event": 49.8,
+  "load": {},
+  "at": "2026-10-18 13:26"
+ }
+}

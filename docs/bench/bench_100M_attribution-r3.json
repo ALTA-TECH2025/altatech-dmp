@@ -1,0 +1,94 @@
+{
+ "queries": [
+  {
+   "name": "A01 成交 × 三觸點 × 首次／末次／線性，7 天",
+   "module": "attribution",
+   "layer": "L0",
+   "p50_ms": 5344.0,
+   "p95_ms": 5368.3,
+   "read_rows": 21840244,
+   "read_mb": 813.9,
+   "mem_mb": 2107.5,
+   "mv_hit": false
+  },
+  {
+   "name": "A02 金額價值 × 位置（0.3/0.5）× 時間衰減（半衰期 2 天）× 自訂權重，3 天",
+   "module": "attribution",
+   "layer": "L0",
+   "p50_ms": 3949.0,
+   "p95_ms": 4539.4,
+   "read_rows": 18555252,
+   "read_mb": 711.7,
+   "mem_mb": 2466.7,
+   "mv_hit": false
+  },
+  {
+   "name": "A03 依平台拆分 × 線性，14 天",
+   "module": "attribution",
+   "layer": "L0",
+   "p50_ms": 7650.0,
+   "p95_ms": 7884.0,
+   "read_rows": 21684596,
+   "read_mb": 827.1,
+   "mem_mb": 2104.0,
+   "mv_hit": false
+  },
+  {
+   "name": "A04 轉化條件（金額 ≥ 10 萬）+ 觸點條件（iOS 看盤）+ 用戶屬性，1 天",
+   "module": "attribution",
+   "layer": "L0",
+   "p50_ms": 1282.0,
+   "p95_ms": 1301.8,
+   "read_rows": 14010996,
+   "read_mb": 502.2,
+   "mem_mb": 548.0,
+   "mv_hit": false
+  },
+  {
+   "name": "A05 分群 vip + 行銷（K 匿名）× 市場拆分",
+   "module": "attribution",
+   "layer": "L0",
+   "p50_ms": 1916.0,
+   "p95_ms": 2096.9,
+   "read_rows": 22593004,
+   "read_mb": 1321.5,
+   "mem_mb": 976.5,
+   "mv_hit": false
+  },
+  {
+   "name": "A06 全模型 × 90 天窗口（回溯到資料起點前）",
+   "module": "attribution",
+   "layer": "L0",
+   "p50_ms": 10983.5,
+   "p95_ms": 11063.1,
+   "read_rows": 76380328,
+   "read_mb": 4845.9,
+   "mem_mb": 2033.4,
+   "mv_hit": false
+  }
+ ],
+ "modules": {
+  "attribution": {
+   "queries": 6,
+   "failed": 0,
+   "p95_max_ms": 11063.1,
+   "p95_median_ms": 4953.9
+  }
+ },
+ "concurrency": {},
+ "mv_hit_rate": null,
+ "mv_eligible": 0,
+ "meta": {
+  "rows": 100000000,
+  "users": 1000000,
+  "days": 90,
+  "repeat": 3,
+  "clickhouse": "26.10.1.2499",
+  "cpus": 4,
+  "events_disk_gb": 4.98,
+  "query_mem_gb": 4.0,
+  "bytes_per_event": 49.8,
+  "load": {},
+  "at": "2026-10-18 13:35"
+ }
+}
