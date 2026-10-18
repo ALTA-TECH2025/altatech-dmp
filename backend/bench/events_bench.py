@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import statistics
 import tempfile
 import time
@@ -232,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--concurrency", type=int, default=8)
     ap.add_argument("--out", default="bench-results")
     ap.add_argument("--skip-load", action="store_true")
-    ap.add_argument("--keep", action="store_true", help="對現成伺服器：跑完不刪 bench 資料")
+    ap.add_argument("--keep", action="store_true", help="跑完保留資料（現成伺服器不刪 bench 資料；本機不刪暫存資料夾）")
     a = ap.parse_args(argv)
     users = a.users or max(1000, a.rows // 100)
     from ..integration.e2e_clickhouse import ROOT, start_clickhouse
@@ -243,7 +244,9 @@ def main(argv: list[str] | None = None) -> int:
     proc = None; work = Path(os.environ.get("BENCH_WORK") or tempfile.mkdtemp(prefix="dmp-bench-"))
     try:
         if binary:
-            proc = start_clickhouse(binary, work, extra="<query_log><database>system</database><table>query_log</table><flush_interval_milliseconds>1000</flush_interval_milliseconds></query_log>"); url = "http://127.0.0.1:18123"
+            proc = start_clickhouse(binary, work, extra="<query_log><database>system</database><table>query_log</table><flush_interval_milliseconds>1000</flush_interval_milliseconds></query_log>"
+                                                 "<merge_tree><old_parts_lifetime>30</old_parts_lifetime></merge_tree>")      # 合併後的舊 part 30 秒就清，避免 1 億筆以上把磁碟塞滿
+            url = "http://127.0.0.1:18123"
         ch = ClickHouseHTTP(url or "", user=os.environ.get("CLICKHOUSE_USER", "default"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), timeout=7200)
         for st in local_ddl((ROOT / "clickhouse" / "schema.sql").read_text(encoding="utf-8")):
             try:
@@ -271,3 +274,5 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if proc:
             proc.terminate(); proc.wait(timeout=30)
+            if not os.environ.get("BENCH_WORK") and not a.keep:       # 本機暫存的 ClickHouse 資料夾跑完就刪；--keep 或指定 BENCH_WORK 才保留
+                shutil.rmtree(work, ignore_errors=True)
