@@ -13,12 +13,18 @@ from ..security.policy import Subject, authorize
 from ..semantic.compiler import Catalog, compile_query
 from ..semantic.compiler.attribution import compile_attribution, parse_attribution, shape
 from ..semantic.compiler.funnel import compile_funnel, parse_funnel, with_rates
-from ..semantic.compiler.golden import ATTRIBUTIONS, FUNNELS, PATHS, PROJECT, QUERIES, RETENTIONS, USERS, run_sql
+from ..semantic.compiler.golden import ATTRIBUTIONS, FUNNELS, PATHS, PROJECT, QUERIES, RETENTIONS, USERS, run_sql, same
 from ..semantic.compiler.path import compile_path, parse_path, sankey
 from ..semantic.compiler.retention import compile_retention, parse_retention
 from ..semantic.compiler.users import compile_estimate, compile_identities, compile_list, compile_profile, compile_timeline, identity_graph, parse_list, parse_users
 from .app import create_app
 from .store import MemoryStore
+
+
+def close(a: Any, b: Any) -> bool:
+    if isinstance(a, dict) and isinstance(b, dict): return a.keys() == b.keys() and all(close(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list): return len(a) == len(b) and all(close(x, y) for x, y in zip(a, b))
+    return same(a, b)
 
 
 def api_stage(ch: Any) -> None:
@@ -53,7 +59,7 @@ def api_stage(ch: Any) -> None:
         for name, raw, _ in ATTRIBUTIONS[:3]:
             aq = parse_attribution(q := {**raw, "project": PROJECT}, cat); ca = compile_attribution(aq, cat, authorize(Subject(f"entra:{user}", [role]), "use", "attribution"))
             r = c.post("/v1/analytics/attribution", json=q); assert r.status_code == 200, (name, r.text[:200])
-            assert r.json()["rows"] == shape(run_sql(ch, ca.sql, ca.settings), aq)["rows"], name
+            assert close(r.json()["rows"], shape(run_sql(ch, ca.sql, ca.settings), aq)["rows"]), name      # 浮點加總順序會因平行度不同，差在 1e-9 以內
             checked += 1
         for name, raw, _ in RETENTIONS[:3]:
             rq = parse_retention(q := {**raw, "project": PROJECT}, cat); cr = compile_retention(rq, cat, authorize(Subject(f"entra:{user}", [role]), "use", "events"))

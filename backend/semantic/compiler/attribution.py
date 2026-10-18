@@ -4,7 +4,7 @@
   first 第一個觸點 1；last 最後一個 1；linear 1/n；position U 型（n=1 → 1、n=2 → 各半、否則首末各 wf／wl，中間平分其餘）；
   decay 2^(-(t_conv - t_i)/半衰期) 正規化；custom 觸點自訂權重正規化。沒有觸點的轉化不分（計入 untouched）。
 SQL 形狀：
-  conv（轉化）、tp（觸點：索引 ti、拆分值 sp）→ tpu 每人觸點陣列 → seq LEFT JOIN 後 arrayFilter 回溯窗口 → w 各模型權重陣列
+  ev（一次掃描，按用戶聚成轉化陣列 cs 與觸點陣列 ts；只留有轉化的人）→ seq ARRAY JOIN cs 後 arrayFilter 回溯窗口 → w 各模型權重陣列
   → ARRAY JOIN 觸點與序號（無觸點的轉化補哨兵列）→ GROUP BY GROUPING SETS ((ti [, sp]), ())：各觸點的模型 sum(w)、sum(w × v)、_k 與全體 summary 一次算完。
 K 匿名：被歸到該觸點的轉化用戶 < K → 該列各模型數值 NULL。觸點表（dmp.touchpoints）是之後的加速層；現在直接掃事件表。
 """
@@ -123,7 +123,7 @@ def parse_attribution(raw: dict[str, Any], cat: Catalog | None = None) -> Attrib
 
 @dataclass
 class AttributionParts:
-    with_sql: str              # conv, tp, tpu, seq, w
+    with_sql: str              # ev, seq, w
     ctx: Ctx
     warnings: list[str]
     row_filters: list[str]
@@ -147,22 +147,29 @@ def attribution_parts(aq: AttributionQuery, cat: Catalog | None = None, decision
     src = f"dmp.events AS e{sample}{cold}"
     tcond = [f"e.event = {q(aq.target)}", f"e.event_date BETWEEN toDate({q(aq.time.start.isoformat())}) AND toDate({q(aq.time.end.isoformat())})"] + ([group_sql(aq.target_filters, ctx)] if aq.target_filters else [])
     vexpr = f"ifNull(toFloat64({ctx.expr(aq.value)}), 0)" if aq.value else "1"
-    conv = f"SELECT e.one_id AS one_id, e.time AS ct, e.event_id AS cid, {vexpr} AS v FROM {src} WHERE {' AND '.join(common + tcond)}"
+    # 一次掃描、不做 JOIN：目標事件與觸點事件一起讀，按用戶聚成「轉化陣列 cs」與「觸點陣列 ts」，再 ARRAY JOIN cs 逐次轉化回溯。
+    # 先用轉化事件（範圍小）篩出有轉化的用戶，聚合只留這些人；以前 conv、tp 各掃一次再 LEFT JOIN 每人觸點陣列，90 天窗口在 1 億筆時要約 4 GB 的 JOIN 表。
+    is_conv = " AND ".join(tcond)
     branches = ", ".join(f"e.event = {q(t.event)}{' AND ' + group_sql(t.filters, ctx) if t.filters else ''}, {i}" for i, t in enumerate(aq.touches))
     ti = f"multiIf({branches}, -1)"
     sp = f"toString(ifNull({ctx.expr(aq.split)}, ''))" if aq.split else "''"
-    tp = (f"SELECT e.one_id AS one_id, e.time AS tt, {ti} AS ti, {sp} AS sp FROM {src} WHERE {' AND '.join(common)} AND e.event_date BETWEEN toDate({q(aq.touch_start().isoformat())}) AND toDate({q(aq.time.end.isoformat())})"
-          f" AND e.event IN ({', '.join(q(x) for x in sorted({t.event for t in aq.touches}))}) AND ti >= 0")
-    tpu = "SELECT one_id, groupArray((tt, ti, sp)) AS ts FROM tp GROUP BY one_id"
-    seq = (f"SELECT c.one_id AS one_id, c.ct AS ct, c.cid AS cid, c.v AS v, arraySort(x -> x.1, arrayFilter(x -> x.1 < c.ct AND x.1 >= c.ct - toIntervalDay({aq.window_days}), t.ts)) AS touches "
-           f"FROM conv AS c LEFT JOIN tpu AS t ON c.one_id = t.one_id")
+    evs = sorted({aq.target} | {t.event for t in aq.touches})
+    tstart = aq.touch_start().isoformat()
+    ev = (f"SELECT e.one_id_uint AS uid, any(e.one_id) AS one_id, "
+          f"groupArrayIf((e.time, {ti}, {sp}), {ti} >= 0) AS ts, groupArrayIf((e.time, e.event_id, {vexpr}), {is_conv}) AS cs "
+          f"FROM {src} WHERE {' AND '.join(common)} AND e.event IN ({', '.join(q(x) for x in evs)}) "
+          f"AND e.event_date BETWEEN toDate({q(tstart)}) AND toDate({q(aq.time.end.isoformat())}) "
+          f"AND e.one_id_uint IN (SELECT e.one_id_uint FROM {src} WHERE {' AND '.join(common + tcond)}) "
+          f"GROUP BY uid HAVING notEmpty(cs)")
+    seq = (f"SELECT one_id, c.1 AS ct, c.2 AS cid, c.3 AS v, arraySort(x -> (x.1, x.2, x.3), arrayFilter(x -> x.1 < c.1 AND x.1 >= c.1 - toIntervalDay({aq.window_days}), ts)) AS touches "
+           f"FROM ev ARRAY JOIN cs AS c")
     cw = "[" + ", ".join(repr(float(t.weight)) for t in aq.touches) + "]"
     w = (f"SELECT one_id, ct, cid, v, touches, length(touches) AS n, "
          f"arrayMap(x -> exp2(-(toUnixTimestamp64Milli(ct) - toUnixTimestamp64Milli(x.1)) / 1000 / {aq.half_life_days * 86400!r}), touches) AS raw_decay, "
          f"arrayMap(r -> r / arraySum(raw_decay), raw_decay) AS w_decay, "
          f"arrayMap(i -> if(n = 1, 1, if(n = 2, 0.5, if(i = 1, {aq.w_first!r}, if(i = n, {aq.w_last!r}, {1 - aq.w_first - aq.w_last!r} / (n - 2))))), arrayEnumerate(touches)) AS w_pos, "
          f"arrayMap(x -> {cw}[x.2 + 1], touches) AS raw_custom, arrayMap(r -> if(arraySum(raw_custom) = 0, 1 / n, r / arraySum(raw_custom)), raw_custom) AS w_custom FROM seq")
-    return AttributionParts(f"conv AS ({conv}), tp AS ({tp}), tpu AS ({tpu}), seq AS ({seq}), w AS ({w})", ctx, warnings, row_filters, k)
+    return AttributionParts(f"ev AS ({ev}), seq AS ({seq}), w AS ({w})", ctx, warnings, row_filters, k)
 
 
 WEIGHT = {"first": "if(i = 1, 1, 0)", "last": "if(i = n, 1, 0)", "linear": "1 / n", "position": "w_pos[i]", "decay": "w_decay[i]", "custom": "w_custom[i]"}
