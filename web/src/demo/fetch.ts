@@ -96,6 +96,8 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
   }
   if (seg[1] === 'dashboards' && seg[3] === 'ask' && method === 'POST') return askOverlay(String(b.question ?? ''), seg[2], fx);
   if (seg[1] === 'sql') return sqlOverlay(method, seg, b, fx, who);
+  if (seg[1] === 'segments') { const r = segOverlay(method, seg, b, fx, who); if (r) return r; }
+  if (seg[1] === 'migration' && seg[2] === 'sensors-groups') return groupsOverlay(method, seg, b, fx, who);
   if (seg[1] === 'tags' || seg[1] === 'destinations' || seg[1] === 'pushes' || seg[1] === 'audiences' || seg[1] === 'deliveries' || seg[1] === 'activation') return actOverlay(method, seg, b, fx, who);
   if (seg[1] === 'bookmarks') {
     const id = seg[2]; const bm = id ? mem.bookmarks.get(id) : undefined;
@@ -143,6 +145,94 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
   }
   return null;
 }
+// ---- 分群：示範站建立的分群（含導入名單）存在記憶體；固定資料的分群照舊 ----
+const segMem = new Map<string, Obj>(); const imports = new Map<string, Obj>();
+const ID_OK = { customer_code: /^[A-Za-z0-9_-]{1,40}$/, one_id: /^[A-Za-z0-9_\-:.]{1,64}$/ } as const;
+function segOverlay(method: string, seg: string[], b: Obj, fx: Fixtures, who: string): { body: unknown; status?: number } | null {
+  const id = seg[2]; const sub = seg[3];
+  if (id === 'imports') {
+    if (method === 'POST' && !sub) {
+      const vals = (Array.isArray(b.values) ? b.values : []).map((v) => String(v).trim());
+      const re = b.id_type === 'one_id' ? ID_OK.one_id : ID_OK.customer_code;
+      if (!vals.length) return { body: { detail: 'values 不可為空' }, status: 400 };
+      const good = vals.filter((v) => re.test(v)); const distinct = new Set(good).size;
+      if (!distinct) return { body: { detail: '清單裡沒有格式正確的值' }, status: 400 };
+      const matched = Math.round(distinct * 0.93);                                  // 示範：約 93% 對到用戶表
+      const rec: Obj = { id: `im_${Math.random().toString(16).slice(2, 12).padEnd(10, '0')}`, project: 'golden', id_type: b.id_type ?? 'customer_code', label: b.label ?? '', total: vals.length, distinct, matched, unmatched: distinct - matched, invalid: vals.length - good.length, created_by: who, created_at: now() };
+      imports.set(String(rec.id), rec); return { body: rec, status: 201 };
+    }
+    const rec = sub ? imports.get(sub) : undefined; return rec ? { body: rec } : { body: { detail: '不存在' }, status: 404 };
+  }
+  if (method === 'GET' && !id) { if (curQs.includes('status=recycled')) return null; return { body: listOf(fx, 'GET /v1/segments', segMem) }; }
+  if (method === 'POST' && !id) return { body: createSeg(b, who), status: 201 };
+  const s = id ? segMem.get(id) : undefined;
+  if (!s) return null;
+  if (method === 'GET' && !sub) return { body: s };
+  if (method === 'GET' && sub === 'versions' && !seg[4]) return { body: [...((s.versions as Obj[]) ?? [])].reverse() };
+  if (method === 'GET' && sub === 'lineage') return { body: s.lineage };
+  if (method === 'PUT') { const x = { ...s, ...b, kind: s.kind, rule: s.kind === 'rule' ? b.rule ?? s.rule : s.rule, updated_at: now() }; segMem.set(id, x); return { body: x }; }
+  if (method === 'POST' && sub === 'pause') { const x = { ...s, status: s.status === 'active' ? 'paused' : 'active', updated_at: now() }; segMem.set(id, x); return { body: x }; }
+  if (method === 'POST' && sub === 'preview') { const u = Number(((s.latest as Obj | null)?.users as number) ?? 0); return { body: { users: u, profile: {}, sql: '-- 示範模式', warnings: ['示範模式：不產生畫像'] } }; }
+  if (method === 'POST' && sub === 'compute') {
+    if (s.status !== 'active') return { body: { detail: `分群未生效（${s.status}），不能計算` }, status: 409 };
+    const src = ((s.rule as Obj).source ?? {}) as Obj; const imp = src.type === 'import' ? imports.get(String(src.import_id)) : undefined;
+    const users = imp ? Number(imp.matched) : 80 + Math.round(Math.random() * 400);
+    const v: Obj = { version: Number(((s.latest as Obj | null)?.version as number) ?? 0) + 1, basetime: now().slice(0, 10), users, status: 'success', computed_at: now(), ms: 41, trigger: 'manual', error: null };
+    segMem.set(id, { ...s, latest: v, versions: [...((s.versions as Obj[]) ?? []), v].slice(-Number((s.update as Obj).keep ?? 7)), updated_at: now() }); return { body: v, status: 202 };
+  }
+  return null;
+}
+function createSeg(b: Obj, who: string, latestUsers?: number): Obj {
+  const role = demoRole(); const kind = String(b.kind ?? 'rule'); const rule = (b.rule ?? {}) as Obj;
+  const update = kind === 'import' ? { mode: 'manual', freq: 'daily', earliest: '02:00', keep: 1 } : { mode: 'routine', freq: 'daily', earliest: '02:00', keep: 7, ...((b.update as Obj) ?? {}) };
+  const pending = role === 'marketing';
+  const latest = latestUsers == null ? null : { version: 1, basetime: now().slice(0, 10), users: latestUsers, status: 'success', computed_at: now(), ms: 38, trigger: 'manual', error: null };
+  const s: Obj = { id: nid('sg'), name: String(b.name ?? '未命名分群').slice(0, 60), description: b.description ?? '', kind, rule: { project: 'golden', ...rule }, project: 'golden', update, tz: 'Asia/Taipei', status: pending ? 'pending_approval' : 'active', owner: who, created_at: now(), updated_at: now(),
+    approval: { status: pending ? 'pending' : 'none', by: null, at: null, note: '' }, latest, versions: latest ? [latest] : [], lineage: { up: kind === 'import' ? ['dmp.segment_imports'] : ['dmp.users', 'dmp.events'], down: [] }, recycled_at: null };
+  segMem.set(String(s.id), s); return s;
+}
+
+// ---- 神策分群／標籤遷移：合成的神策清單（名稱與人數為示範值），處理狀態存在記憶體 ----
+let groups: Obj[] | null = null; let scannedAt: string | null = null;
+const SEED_GROUPS: [string, 'segment' | 'tag', number, number | null][] = [
+  ['user_group_active_traders_30d', 'segment', 205, null], ['user_group_etf_regular_saving', 'segment', 96, null], ['user_group_dormant_90d', 'segment', 142, null],      // 與示範資料集（400 人）同量級
+  ['user_group_2025_spring_campaign', 'segment', 31, null], ['user_group_ipo_subscribers', 'segment', 68, null], ['user_group_manual_vip_list', 'segment', 12, null],
+  ['user_tag_risk_level', 'tag', 380, 5], ['user_tag_preferred_channel', 'tag', 352, 4], ['user_tag_aum_band', 'tag', 395, 6],
+];
+function groupsOverlay(method: string, seg: string[], b: Obj, fx: Fixtures, who: string): { body: unknown; status?: number } {
+  const role = demoRole(); const canUse = role === 'admin' || role === 'it';
+  groups ??= SEED_GROUPS.map(([name, kind, users, values]) => ({ name, kind, cn: name.split('_').slice(2).join('_'), users, values, status: 'pending', dmp: null, note: '', updated_at: '2026-10-17T09:00:00Z' }));
+  const list = () => {
+    const items = (scannedAt ? groups ?? [] : []).map((g) => withDmp(g, fx));
+    const st = ['pending', 'snapshot', 'rebuilt', 'skipped'] as const;
+    return { items, scanned_at: scannedAt, summary: { total: items.length, ...Object.fromEntries(st.map((k) => [k, items.filter((x) => x.status === k).length])) }, sensors_configured: true };
+  };
+  if (method === 'GET') return { body: list() };
+  if (!canUse) return { body: { detail: '需 governance.use' }, status: 403 };
+  if (seg[3] === 'scan') { scannedAt = now(); groups = SEED_GROUPS.map(([name, kind, users, values]) => (groups ?? []).find((g) => g.name === name) ?? ({ name, kind, cn: name.split('_').slice(2).join('_'), users, values, status: 'pending', dmp: null, note: '', updated_at: now() })); return { body: list() }; }
+  const g = (groups ?? []).find((x) => x.name === decodeURIComponent(seg[3] ?? ''));
+  if (!g) return { body: { detail: '不存在' }, status: 404 };
+  const act = seg[4];
+  if (act === 'snapshot') {
+    if (role !== 'admin') return { body: { detail: '快照需 segments.use（資訊管理沒有）' }, status: 403 };
+    if (g.status === 'snapshot' || g.status === 'rebuilt') return { body: { detail: `已處理（${g.status}）` }, status: 409 };
+    const name = String(b.dmp_name || `神策：${g.cn}`).slice(0, 60); const users = Math.round(Number(g.users) * 0.96);
+    if (g.kind === 'segment') { const s = createSeg({ name, kind: 'import', description: `神策分群 ${g.name} 的快照`, rule: { source: { type: 'import', import_id: 'im_demo' } } }, who, users); Object.assign(g, { status: 'snapshot', dmp: { type: 'segment', id: s.id, name }, updated_at: now() }); }
+    else { const key = `sa_${String(g.cn).slice(0, 30)}`; mem.tags.set(key, { id: key, key, name, kind: 'import', directory: '其他', description: `神策標籤 ${g.name} 的快照`, dtype: 'string', values: [], status: 'active', owner: who, update: { mode: 'manual', freq: 'daily', earliest: '02:00', keep: 7 }, latest: { version: 1, basetime: now().slice(0, 10), users, status: 'success', computed_at: now(), ms: 52, trigger: 'manual', error: null, distribution: [] }, versions: [], lineage: { up: ['dmp.tag_imports'], down: [] }, approval: { status: 'none' }, created_at: now(), updated_at: now(), fields: {}, changes: [] });
+      Object.assign(g, { status: 'snapshot', dmp: { type: 'tag', id: key, name }, updated_at: now() }); }
+    return { body: withDmp(g, fx) };
+  }
+  if (act === 'link') { const t = String(b.type); const obj = t === 'segment' ? findIn(fx, 'GET /v1/segments', segMem, String(b.id)) : findIn(fx, 'GET /v1/tags', mem.tags, String(b.id)); if (!obj) return { body: { detail: '分群或標籤不存在' }, status: 404 }; Object.assign(g, { status: 'rebuilt', dmp: { type: t, id: obj.id, name: obj.name }, updated_at: now() }); return { body: withDmp(g, fx) }; }
+  if (act === 'skip') { const note = String(b.note ?? '').trim(); if (!note) return { body: { detail: '略過需附原因（1–200 字）' }, status: 400 }; Object.assign(g, { status: 'skipped', note, updated_at: now() }); return { body: withDmp(g, fx) }; }
+  return { body: { detail: '不支援' }, status: 404 };
+}
+function withDmp(g: Obj, fx: Fixtures): Obj {
+  const d = g.dmp as Obj | null; if (!d) return { ...g };
+  const obj = d.type === 'segment' ? findIn(fx, 'GET /v1/segments', segMem, String(d.id)) : findIn(fx, 'GET /v1/tags', mem.tags, String(d.id));
+  const users = ((obj?.latest as Obj | null)?.users as number | undefined) ?? null; const sa = Number(g.users);
+  return { ...g, dmp: { ...d, name: obj?.name ?? d.name, users, diff_pct: users != null && sa ? Math.round(((users - sa) / sa) * 10000) / 10000 : null } };
+}
+
 function newDash(name: string, who: string, preset = '30d'): Obj {
   const d: Obj = { id: nid('d'), name: name.slice(0, 60), description: '', owner: who, shared: { roles: [], users: [] }, time: { preset }, cards: [] as Obj[], created_at: now(), updated_at: now(), mine: true, editable: true };
   mem.dashboards.set(String(d.id), d); return d;

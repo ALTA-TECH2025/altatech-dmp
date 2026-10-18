@@ -13,3 +13,6 @@ export interface Reconcile {
   t6: { both: number; only_sa: number; only_ga: number; login_users: number; rate: number | null; ok: boolean };
   caveats: { item: string; note: string }[];
 }
+export type SensorsGroupStatus = 'pending' | 'snapshot' | 'rebuilt' | 'skipped';
+export interface SensorsGroup { name: string; kind: 'segment' | 'tag'; cn: string; users: number; values: number | null; status: SensorsGroupStatus; dmp: { type: 'segment' | 'tag'; id: string; name: string; users: number | null; diff_pct: number | null; missing?: boolean } | null; note: string; updated_at: string; scanned_at?: string }
+export interface SensorsGroupList { items: SensorsGroup[]; scanned_at: string | null; summary: Record<'total' | SensorsGroupStatus, number>; sensors_configured?: boolean }

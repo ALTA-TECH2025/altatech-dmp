@@ -24,3 +24,17 @@ export function actionsFor(seg: Pick<Segment, 'status' | 'owner'>, can: (m: Modu
 export function updateText(u: Segment['update'], tz: string): string {
   return u.mode === 'manual' ? '手動（1 版）' : `例行 ${FREQ_CN[u.freq]} ${u.earliest}（${tz}）· 留 ${u.keep} 版`;
 }
+
+export const KIND_CN = { rule: '規則', result: '結果保存', import: '導入名單' } as const;
+export const MAX_IMPORT = 200_000;
+const HEADER = /^(customer_?code|cust_?id|one_?id|id|客戶代[碼號]|代[碼號])$/i;
+/** 貼上或上傳的 txt／csv → 值清單：一列一個、取第一欄（逗號／Tab 分隔）、去引號與空白、丟空列與表頭。 */
+export function parseIdList(text: string): string[] {
+  const out: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const v = (line.split(/[,\t;]/)[0] ?? '').trim().replace(/^["']|["']$/g, '').trim();
+    if (!v || (out.length === 0 && HEADER.test(v))) continue;
+    out.push(v);
+  }
+  return out;
+}

@@ -15,7 +15,8 @@ import { DesktopOnly } from '@/ds/DesktopOnly';
 import { cleanRule, emptyRule, normalizeRule, ruleValid, summarizeRule } from '@/users/rule';
 import type { Segment, SegmentCreate, SegmentPreview, SegmentStatus, SegmentVersion, UsersEstimate, UsersListResult } from '@/users/types';
 import { UsersTable } from '@/users/UsersTable';
-import { ACTION_CN, STATUS_CN, STATUS_PILL, TRIGGER_CN, actionsFor, updateText, type SegAction } from './segments';
+import { ImportForm } from './ImportForm';
+import { ACTION_CN, KIND_CN, STATUS_CN, STATUS_PILL, TRIGGER_CN, actionsFor, updateText, type SegAction } from './segments';
 
 export function SegmentsPage() {
   return <RequireGrant module="segments"><SegmentsInner /></RequireGrant>;
@@ -42,14 +43,15 @@ function SegmentsInner() {
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); reload().catch((e: Error) => setErr(e.message)); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
   const shown = list.filter((s) => (tab === 'recycled' ? s.status === 'recycled' : tab === 'pending' ? s.status === 'pending_approval' : s.status !== 'recycled') && (!search || s.name.includes(search) || (s.description ?? '').includes(search)));
   const segOpts = list.filter((s) => s.status !== 'recycled').map((s) => ({ id: s.id, name: s.name }));
-  const current = id && id !== 'new' ? list.find((s) => s.id === id) ?? null : null;
+  const current = id && id !== 'new' && id !== 'import' ? list.find((s) => s.id === id) ?? null : null;
   const pending = list.filter((s) => s.status === 'pending_approval').length;
   return (
     <div className="page">
       <PageHeader title="分群" lead="動態分群：規則 = 用戶屬性／所屬分群 × 行為（事件、事件屬性、指標比較、近 N 天）× 且／或分組，以 Bitmap 計算存成版本，預設每日凌晨 02:00 重算最新符合資格的受眾；行銷建立的分群需數位經營審批後生效；分析落點也可存成分群。"
-        actions={can('segments', 'use') && <Button component={Link} to="/segments/new" variant="filled">＋ 新建分群</Button>} />
+        actions={can('segments', 'use') && <Group gap="xs"><Button component={Link} to="/segments/import" variant="light">導入名單</Button><Button component={Link} to="/segments/new" variant="filled">＋ 新建分群</Button></Group>} />
       {err && <Alert color="red" variant="light" mb="md">{err}</Alert>}
-      {id === 'new' ? <SegmentForm cat={cat} segOpts={segOpts} initial={newDraft()} onDone={async (s) => { await reload(); nav(`/segments/${s.id}`); }} onCancel={() => nav('/segments')} />
+      {id === 'import' ? <DesktopOnly title="導入名單" inline reason="上傳名單檔案與確認比對結果請用電腦操作。"><ImportForm onDone={async (s) => { await reload(); nav(`/segments/${s.id}`); }} onCancel={() => nav('/segments')} /></DesktopOnly>
+        : id === 'new' ? <SegmentForm cat={cat} segOpts={segOpts} initial={newDraft()} onDone={async (s) => { await reload(); nav(`/segments/${s.id}`); }} onCancel={() => nav('/segments')} />
         : current ? <SegmentDetail seg={current} cat={cat} segOpts={segOpts} me={me?.user.id} can={can} onChanged={reload} busy={busy} setBusy={setBusy} setErr={setErr} />
         : (
           <SimpleGrid cols={{ base: 1, lg: 3 }} spacing="md" className="ds-split">
@@ -63,7 +65,7 @@ function SegmentsInner() {
                   <Table.Thead><Table.Tr><Table.Th>分群</Table.Th><Table.Th>狀態</Table.Th><Table.Th ta="right">人數</Table.Th><Table.Th>更新</Table.Th><Table.Th>最近計算</Table.Th><Table.Th>建立者</Table.Th></Table.Tr></Table.Thead>
                   <Table.Tbody>{shown.map((s) => (
                     <Table.Tr key={s.id} style={{ cursor: 'pointer' }} onClick={() => nav(`/segments/${s.id}`)}>
-                      <Table.Td><Text fw={600} size="sm">{s.name}</Text><Text size="xs" c="dimmed" lineClamp={1}>{s.kind === 'result' ? '結果保存 · ' : ''}{summarizeRule(s.rule, cat, segOpts)}</Text></Table.Td>
+                      <Table.Td><Text fw={600} size="sm">{s.name}</Text><Text size="xs" c="dimmed" lineClamp={1}>{s.kind !== 'rule' ? `${KIND_CN[s.kind]} · ` : ''}{summarizeRule(s.rule, cat, segOpts)}</Text></Table.Td>
                       <Table.Td><Group gap={4}><StatusBadge tone={STATUS_PILL[s.status]}>{STATUS_CN[s.status]}</StatusBadge>{s.latest?.stale && <StatusBadge tone="amber">規則已改</StatusBadge>}</Group></Table.Td>
                       <Table.Td ta="right"><Mono>{n(s.latest?.users)}</Mono></Table.Td>
                       <Table.Td><Text size="xs" c="dimmed">{updateText(s.update, s.tz)}</Text></Table.Td>
@@ -77,7 +79,8 @@ function SegmentsInner() {
             </Paper>
             <Paper><SectionTitle title="說明" />
               <List size="sm" spacing="xs" c="dimmed">
-                <List.Item>規則與用戶列表同一套條件；「完成 A 未完成 B」= 做過 A 且 未做過 B。</List.Item>
+                <List.Item>規則與用戶列表同一套條件；「完成 A 未完成 B」= 做過 A 且 未做過 B；「完成 A 後 N 天內做 B」用行為序列。</List.Item>
+                <List.Item>導入名單：上傳客戶代碼或 one_id 清單，先看對到幾人再建分群；固定名單只算一次。</List.Item>
                 <List.Item>人數預估是精確的 Bitmap 基數；計算會把名單寫成版本（手動 1 版、例行留 N 版），查詢端引用分群時取最新版本。</List.Item>
                 <List.Item>結果保存分群（從漏斗流失、留存某期等落點建立）不可改規則；手動分群不可改更新方式；例行分群不可改頻率。</List.Item>
                 <List.Item>回收站保留 15 天後徹底刪除；有下游引用時需確認。所有動作寫審計。</List.Item>
@@ -104,7 +107,7 @@ function SegmentFormInner({ cat, segOpts, initial, existing, onDone, onCancel }:
     try { const s = existing ? await api.put<Segment>(`/v1/segments/${existing.id}`, clean()) : await api.post<Segment>('/v1/segments', clean()); await onDone(s); }
     catch (e) { setErr(e instanceof ApiError ? e.message : '儲存失敗'); } finally { setBusy(false); }
   };
-  const ro = existing?.kind === 'result'; const manual = d.update.mode === 'manual';
+  const ro = existing?.kind === 'result' || existing?.kind === 'import'; const manual = d.update.mode === 'manual';
   const upd = (p: Partial<Draft['update']>) => setD({ ...d, update: { ...d.update, ...p } });
   return (
     <Paper maw={980}>
@@ -169,7 +172,7 @@ function SegmentDetail({ seg, cat, segOpts, me, can, onChanged, busy, setBusy, s
     <Stack gap="md">
       <Paper>
         <Stack gap="sm">
-          <Group gap="xs"><Anchor component={Link} to="/segments" size="sm" c="dimmed">← 分群列表</Anchor><Title order={2}>{seg.name}</Title><StatusBadge tone={STATUS_PILL[seg.status]}>{STATUS_CN[seg.status]}</StatusBadge>{seg.kind === 'result' && <Badge color="violet">結果保存</Badge>}{seg.latest?.stale && <StatusBadge tone="amber">規則已改，請重新計算</StatusBadge>}</Group>
+          <Group gap="xs"><Anchor component={Link} to="/segments" size="sm" c="dimmed">← 分群列表</Anchor><Title order={2}>{seg.name}</Title><StatusBadge tone={STATUS_PILL[seg.status]}>{STATUS_CN[seg.status]}</StatusBadge>{seg.kind !== 'rule' && <Badge color="violet">{KIND_CN[seg.kind]}</Badge>}{seg.latest?.stale && <StatusBadge tone="amber">規則已改，請重新計算</StatusBadge>}</Group>
           {seg.description && <Text size="sm">{seg.description}</Text>}
           <Text size="sm" c="dimmed">{summarizeRule(seg.rule, cat, segOpts)}</Text>
           <SimpleGrid cols={{ base: 1, sm: 3 }}>

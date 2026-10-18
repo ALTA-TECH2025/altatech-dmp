@@ -1,6 +1,6 @@
 // 用戶條件規則（UsersQuery）的純函式：欄位目錄、條件樹（且／或）、行為指標與比較、規則清理、摘要、有效性。無 DOM，有單元測試。
 import type { Catalog, Cond } from '@/analytics/types';
-import type { CmpOp, CondGroup, MeasureAgg, RuleFilters, UsersBehavior, UsersQuery, UsersSource } from './types';
+import type { CmpOp, CondGroup, MeasureAgg, RuleFilters, UsersBehavior, UsersQuery, UsersSequence, UsersSource } from './types';
 
 export type FieldType = 'string' | 'number' | 'bool' | 'date';
 export interface FieldOpt { v: string; cn: string; type: FieldType; values?: string[] }
@@ -75,7 +75,27 @@ export function normalizeBehavior(b: UsersBehavior): UsersBehavior {
   const { count, ...rest } = b;
   return { ...rest, measure: b.measure ?? { agg: 'count' }, cmp: b.cmp ?? count ?? { op: 'gte', value: 1 }, filters: toGroup(b.filters), time: b.time ?? { last_days: 30 } };
 }
-export function normalizeRule(q: UsersQuery): UsersQuery { return { ...q, filters: toGroup(q.filters), behaviors: (q.behaviors ?? []).map(normalizeBehavior), behaviors_op: q.behaviors_op ?? 'and', combine: q.combine ?? 'and' }; }
+export function normalizeRule(q: UsersQuery): UsersQuery {
+  return { ...q, filters: toGroup(q.filters), behaviors: (q.behaviors ?? []).map(normalizeBehavior), sequences: (q.sequences ?? []).map(normalizeSequence), behaviors_op: q.behaviors_op ?? 'and', combine: q.combine ?? 'and' };
+}
+// ---- 行為序列 ----
+export const WINDOW_UNITS: [UsersSequence['window']['unit'], string][] = [['minute', '分鐘'], ['hour', '小時'], ['day', '天']];
+const UNIT_S = { minute: 60, hour: 3600, day: 86400 } as const;
+export function newSequence(lastDays = 30): UsersSequence { return { steps: [{ event: '' }, { event: '' }], window: { value: 1, unit: 'day' }, done: true, time: { last_days: lastDays } }; }
+export function normalizeSequence(s: UsersSequence): UsersSequence { return { ...s, steps: s.steps.map((x) => ({ ...x, filters: toGroup(x.filters) })), done: s.done ?? true, time: s.time ?? { last_days: 30 } }; }
+/** 序列有效：2–6 步都選了事件、窗口 1 分鐘～90 天、期間有填、步驟屬性條件完整。 */
+export function sequenceOk(s: UsersSequence): boolean {
+  if (s.steps.length < 2 || s.steps.length > 6 || s.steps.some((x) => !x.event || !groupOk(toGroup(x.filters)))) return false;
+  const sec = Number(s.window.value) * UNIT_S[s.window.unit]; if (!(sec >= 60 && sec <= 90 * 86400)) return false;
+  const t = s.time ?? {}; return !!((t.last_days && t.last_days >= 1) || (t.from && t.to));
+}
+export function sequenceText(s: UsersSequence, cat: Catalog | null): string {
+  const t = s.time ?? {}; const when = t.last_days ? `近 ${t.last_days} 天` : t.from && t.to ? `${t.from}～${t.to}` : '';
+  const ef = eventFields(cat);
+  const steps = s.steps.map((x) => { const fl = groupText(pruneGroup(toGroup(x.filters)), ef); return `${cat?.events.find((e) => e.name === x.event)?.cn ?? (x.event || '?')}${fl ? `（${fl}）` : ''}`; }).join(' → ');
+  const w = `${s.window.value} ${WINDOW_UNITS.find(([u]) => u === s.window.unit)?.[1] ?? s.window.unit}內`;
+  return `${when} ${s.done === false ? '未' : ''}依序完成 ${steps}（${w}）`.trim();
+}
 export function behaviorOk(b: UsersBehavior): boolean {
   if (!b.event) return false;
   const t = b.time ?? {}; if (!((t.last_days && t.last_days >= 1) || (t.from && t.to))) return false;
@@ -93,13 +113,15 @@ export function cleanRule(q: UsersQuery): UsersQuery {
     if (b.done === false) { delete base.measure; delete base.cmp; }
     return base;
   });
-  return { ...q, filters, behaviors: behaviors.length ? behaviors : undefined, combine: filters && behaviors.length ? q.combine ?? 'and' : undefined };
+  const sequences = (q.sequences ?? []).map((x) => ({ ...x, steps: x.steps.map((st) => ({ event: st.event, filters: pruneGroup(toGroup(st.filters)) })) }));
+  const anyBeh = behaviors.length + sequences.length > 0;
+  return { ...q, filters, behaviors: behaviors.length ? behaviors : undefined, sequences: sequences.length ? sequences : undefined, combine: filters && anyBeh ? q.combine ?? 'and' : undefined };
 }
 /** 規則有效：至少一個條件；條件要有欄位與值；行為要有事件、期間、指標欄位與比較值。 */
 export function ruleValid(q: UsersQuery): boolean {
-  const g = pruneGroup(toGroup(q.filters)); const bs = q.behaviors ?? [];
-  if (!g && !bs.length && !q.source && !q.segment) return false;
-  return groupOk(g) && bs.every(behaviorOk);
+  const g = pruneGroup(toGroup(q.filters)); const bs = q.behaviors ?? []; const ss = q.sequences ?? [];
+  if (!g && !bs.length && !ss.length && !q.source && !q.segment) return false;
+  return groupOk(g) && bs.every(behaviorOk) && ss.every(sequenceOk);
 }
 
 // ---- 摘要 ----
@@ -129,6 +151,7 @@ export function behaviorText(b: UsersBehavior, cat: Catalog | null): string {
 }
 export function sourceText(s: UsersSource): string {
   if (s.label) return s.label;
+  if (s.type === 'import') return `導入名單 ${s.import_id ?? ''}`.trim();
   if (s.type === 'funnel') return `漏斗第 ${s.step} 步${s.reached === false ? '流失' : '到達'}${s.bucket ? `（${s.bucket}）` : ''}${s.group != null ? ` · ${String(s.group)}` : ''}`;
   if (s.type === 'retention') return `留存 ${s.cohort} 同期群第 ${s.period} 期${s.retained === false ? '未留存' : s.retained === null ? '全部' : '留存'}${s.group != null ? ` · ${String(s.group)}` : ''}`;
   if (s.type === 'path') return `路徑第 ${s.level} 步 ${s.node}`;
@@ -140,7 +163,7 @@ export function summarizeRule(q: UsersQuery, cat: Catalog | null, segments: { id
   const parts: string[] = [];
   if (q.segment) parts.push(`屬於${segments.find((s) => s.id === q.segment)?.name ?? q.segment}`);
   const ft = groupText(pruneGroup(toGroup(q.filters)), userFields(cat, segments)); if (ft) parts.push(ft);
-  const bs = (q.behaviors ?? []).map((b) => behaviorText(b, cat));
+  const bs = [...(q.behaviors ?? []).map((b) => behaviorText(b, cat)), ...(q.sequences ?? []).map((x) => sequenceText(x, cat))];
   const bt = bs.join(q.behaviors_op === 'or' ? ' 或 ' : ' 且 ');
   let s = parts.join(' 且 ');
   if (bt) s = s ? `${s}${q.combine === 'or' ? ' 或 ' : ' 且 '}${bs.length > 1 && q.combine === 'or' ? `（${bt}）` : bt}` : bt;

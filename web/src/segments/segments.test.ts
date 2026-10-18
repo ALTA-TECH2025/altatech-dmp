@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Module } from '@/api/types';
-import { actionsFor, updateText } from './segments';
+import { actionsFor, parseIdList, updateText } from './segments';
 
 const grants = (g: Partial<Record<Module, Action[]>>) => (m: Module, a: Action) => (g[m] ?? []).includes(a);
 describe('segment actions', () => {
@@ -21,5 +21,13 @@ describe('segment actions', () => {
   it('updateText', () => {
     expect(updateText({ mode: 'manual', freq: 'daily', earliest: '06:00', keep: 1 }, 'Asia/Taipei')).toBe('手動（1 版）');
     expect(updateText({ mode: 'routine', freq: 'weekly', earliest: '07:00', keep: 4 }, 'Asia/Taipei')).toBe('例行 每週一 07:00（Asia/Taipei）· 留 4 版');
+  });
+});
+
+describe('parseIdList', () => {
+  it('takes first column, drops header, blanks and quotes', () => {
+    expect(parseIdList('客戶代碼,姓名\n"A123",x\n\n B456 \nC789\t2\n')).toEqual(['A123', 'B456', 'C789']);
+    expect(parseIdList('one_id\r\nv1_abc\r\n')).toEqual(['v1_abc']);
+    expect(parseIdList('A1\nA1')).toEqual(['A1', 'A1']);              // 去重交給後端（回去重後數）
   });
 });

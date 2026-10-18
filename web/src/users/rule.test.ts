@@ -64,4 +64,14 @@ describe('rule helpers', () => {
     expect(summarizeRule({ segment: 'sg1' }, cat, [{ id: 'sg1', name: 'VIP' }])).toBe('屬於VIP');
     expect(summarizeRule({}, cat)).toBe('（沒有條件）');
   });
+  it('sequences: valid / clean / summary', () => {
+    const q = { sequences: [{ steps: [{ event: 'app_login_success' }, { event: 'bond_deal', filters: { op: 'and' as const, items: [{ field: 'amount', op: 'gte', value: 100000 }] } }], window: { value: 2, unit: 'hour' as const }, time: { last_days: 7 } }] };
+    expect(ruleValid(q)).toBe(true);
+    expect(ruleValid({ sequences: [{ ...q.sequences[0], steps: [{ event: 'app_login_success' }] }] })).toBe(false);          // 少於 2 步
+    expect(ruleValid({ sequences: [{ ...q.sequences[0], window: { value: 91, unit: 'day' as const } }] })).toBe(false);       // 超過 90 天
+    expect(cleanRule({ ...q, filters: { op: 'and', items: [] } }).sequences?.[0].steps[0]).toEqual({ event: 'app_login_success', filters: undefined });
+    expect(summarizeRule(q, cat)).toBe('近 7 天 依序完成 登入 → 成交（金額 ≥ 100000）（2 小時內）');
+    expect(summarizeRule({ sequences: [{ ...q.sequences[0], done: false }] }, cat)).toContain('未依序完成');
+    expect(summarizeRule({ source: { type: 'import', import_id: 'im_0123456789' } }, cat)).toBe('來源：導入名單 im_0123456789');
+  });
 });

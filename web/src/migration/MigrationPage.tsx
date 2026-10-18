@@ -10,10 +10,11 @@ import type { Series } from '@/analytics/series';
 import { Chart, hbar } from '@/ds/Chart';
 import { Mono, PageHeader, SectionTitle, StatTile, StatusBadge } from '@/ds';
 import { pct } from '@/governance/governance';
+import { GroupsTab } from './GroupsTab';
 import { daysBetween, diffText, INV_STATUS, JOB_STATUS, KIND_PILL, timelineStatus } from './migration';
 import type { Bridge, ExportJob, Exports, ExportSlice, Inventory, Reconcile } from './types';
 
-type Tab = 'inventory' | 'bridge' | 'exports' | 'recon' | 'timeline';
+type Tab = 'inventory' | 'bridge' | 'exports' | 'groups' | 'recon' | 'timeline';
 const opt = (value: string, label: string) => ({ value, label });
 const WARN_BG = 'var(--mantine-color-orange-light)';   // 需要注意的列（有議題、差異超標、進行中）底色，跟著深淺色走
 const SLICE_CN: Record<string, string> = { loaded: '已載入', exported: '已導出', pending: '待執行', blocked: '待連線', failed: '失敗', mismatch: '筆數不符' };
@@ -45,10 +46,11 @@ function Inner() {
         actions={<><StatusBadge tone={inv?.sensors_configured ? 'blue' : 'amber'}>{inv?.sensors_configured ? '神策連線已設定' : '神策連線未設定（SA_*）'}</StatusBadge><Button component="a" href="https://github.com/ALTA-TECH2025/altatech-dmp/blob/main/docs/22-sensors-to-ga360-migration.md" target="_blank" rel="noreferrer">文件 docs/22</Button></>} />
       {err && <Alert color="red" variant="light" mb="md">{err}</Alert>}
       <SimpleGrid cols={{ base: 2, md: 4 }} mb="md">{tiles.map(([a, b, c]) => <StatTile key={a} label={a} value={b} hint={c} />)}</SimpleGrid>
-      <SegmentedControl mb="md" value={tab} onChange={(v) => setTab(v as Tab)} data={[opt('inventory', '盤點'), opt('bridge', `埋點銜接 ${br?.total ?? ''}`), opt('exports', `導出與載入 ${ex?.items.length ?? ''}`), opt('recon', '新舊對帳'), opt('timeline', '切換時序')]} />
+      <SegmentedControl mb="md" value={tab} onChange={(v) => setTab(v as Tab)} data={[opt('inventory', '盤點'), opt('bridge', `埋點銜接 ${br?.total ?? ''}`), opt('exports', `導出與載入 ${ex?.items.length ?? ''}`), opt('groups', '分群與標籤'), opt('recon', '新舊對帳'), opt('timeline', '切換時序')]} />
       {tab === 'inventory' && inv && <InventoryTab inv={inv} canUse={canUse} onChange={reload} />}
       {tab === 'bridge' && br && <BridgeTab br={br} />}
       {tab === 'exports' && ex && inv && <ExportsTab ex={ex} inv={inv} canUse={canUse} onChange={reload} />}
+      {tab === 'groups' && <GroupsTab canUse={canUse} canSnapshot={canUse && can('segments', 'use')} />}
       {tab === 'recon' && <ReconTab rc={rc} err={rcErr} project={project} setProject={setProject} days={days} setDays={setDays} onLoad={loadRecon} />}
       {tab === 'timeline' && inv && (
         <Stack gap="md">

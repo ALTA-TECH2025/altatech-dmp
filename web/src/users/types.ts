@@ -15,13 +15,21 @@ export interface UsersBehavior {
   count?: { op: CmpOp; value: number | [number, number] };           // 舊欄位（= measure count + cmp），讀舊規則用
   time?: { last_days?: number; from?: string; to?: string };         // 近 N 天（以計算基準日回推）或自訂期間
 }
-export interface UsersSource { type: 'funnel' | 'retention' | 'events' | 'path' | 'attribution'; query: Record<string, unknown>; touch?: string; step?: number; reached?: boolean; bucket?: string; group?: unknown; cohort?: string; period?: number; retained?: boolean | null; metric?: string; node?: string; level?: number; label?: string }
+/** 行為序列：期間內依序完成各步，從第一步起算要在窗口內完成（done=false＝沒有依序完成）。 */
+export interface UsersSequence {
+  steps: { event: string; filters?: RuleFilters }[];
+  window: { value: number; unit: 'minute' | 'hour' | 'day' };
+  done?: boolean;
+  time?: { last_days?: number; from?: string; to?: string };
+}
+export interface UsersSource { type: 'funnel' | 'retention' | 'events' | 'path' | 'attribution' | 'import'; query?: Record<string, unknown>; import_id?: string; touch?: string; step?: number; reached?: boolean; bucket?: string; group?: unknown; cohort?: string; period?: number; retained?: boolean | null; metric?: string; node?: string; level?: number; label?: string }
 export interface UsersQuery {
   project?: string;
   filters?: RuleFilters;                                             // 用戶屬性／分群條件樹
   segment?: string;
   behaviors?: UsersBehavior[];
-  behaviors_op?: 'and' | 'or';                                       // 行為之間
+  sequences?: UsersSequence[];                                       // 行為序列（A 後 N 天內做 B）
+  behaviors_op?: 'and' | 'or';                                       // 行為與序列之間
   combine?: 'and' | 'or';                                            // 用戶屬性塊 與 行為塊 之間
   time?: { from?: string; to?: string; now?: string };
   source?: UsersSource;
@@ -39,12 +47,14 @@ export interface IdentityGraph { nodes: { id: string; type: string; value: strin
 export type SegmentStatus = 'draft' | 'pending_approval' | 'active' | 'paused' | 'recycled';
 export interface SegmentUpdate { mode: 'manual' | 'routine'; freq: 'daily' | 'weekly' | 'monthly'; earliest: string; keep: number }
 export interface SegmentVersion { version: number; basetime: string; users: number | null; status: 'running' | 'success' | 'failed' | 'cancelled'; computed_at: string; ms: number; trigger: 'manual' | 'routine' | 'backfill'; error: string | null; stale?: boolean }
-export interface SegmentCreate { name: string; description?: string; kind?: 'rule' | 'result'; rule: UsersQuery; update?: Partial<SegmentUpdate>; tz?: string }
+export interface SegmentCreate { name: string; description?: string; kind?: 'rule' | 'result' | 'import'; rule: UsersQuery; update?: Partial<SegmentUpdate>; tz?: string }
 export interface Segment extends SegmentCreate {
-  id: string; project: string; kind: 'rule' | 'result'; status: SegmentStatus; owner: string; created_at: string; updated_at: string; update: SegmentUpdate; tz: string;
+  id: string; project: string; kind: 'rule' | 'result' | 'import'; status: SegmentStatus; owner: string; created_at: string; updated_at: string; update: SegmentUpdate; tz: string;
   approval: { status: 'none' | 'pending' | 'approved' | 'rejected'; by: string | null; at: string | null; note: string };
   latest: SegmentVersion | null; versions?: SegmentVersion[]; lineage: { up: string[]; down: string[] }; recycled_at: string | null;
 }
+/** 導入名單第一步的結果（不含名單本身）。 */
+export interface SegmentImport { id: string; project: string; id_type: 'customer_code' | 'one_id'; label: string; total: number; distinct: number; matched: number; unmatched: number; invalid: number; created_by: string; created_at: string }
 export interface SegmentPreview { users: number; profile: Record<string, { value: string; users: number }[]>; sql: string; warnings: string[] }
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired';
