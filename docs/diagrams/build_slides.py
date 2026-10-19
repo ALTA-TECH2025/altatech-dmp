@@ -173,5 +173,31 @@ def s4():
     s.text(96, 866, "弱點與授權：所有元件 OSI 寬鬆授權（Grafana OSS 僅內部使用）、LTS 版本、CI 自動 SBOM／Grype／Trivy／授權白名單；修補 SLA Critical 7 天。", 19, 400, C["gray"])
     s.save("slide-4-gcp-deployment.svg")
 
+def s5():
+    s = Slide("機房部署架構：Kubernetes 上只有五個有狀態服務，其餘全是無狀態應用", "RKE2 1.30+，3 個 control-plane 與 worker 共存於 3–6 台；同一套 Helm 部署套件，GCP 版只換 values（託管 Cloud SQL／Memorystore／GCS／KMS）", 5)
+    def band(y, h, label, color):
+        s.rect(96, y, 1728, h, "#FBFCFE", C[color], 18); s.text(120, y + 34, label, 22, 800, C[color])
+    def row(y, items, color, w=None, h=96, x0=120, gap=16, lsize=16):
+        w = w or (1680 - gap * (len(items) - 1)) / len(items)
+        for i, (t, ln) in enumerate(items):
+            s.box(x0 + i * (w + gap), y, w, h, t, ln, color, 20, lsize)
+    band(205, 150, "平台應用（無狀態 Deployment，映像 6 個：core／ingest／batch／agent／flink-jobs／web）", "brand")
+    row(250, [("dmp-web", ["前端靜態檔（nginx）"]), ("dmp-core", ["API、語意層、分群、OneID、同步、推送"]), ("dmp-ingest", ["Collector（Go）：直送 /v1/events"]),
+              ("dmp-batch", ["Airflow ＋ dbt 日批"]), ("dmp-agent", ["MCP 閘道（第二階段）"])], "brand")
+    band(375, 330, "Kubernetes（RKE2）", "teal")
+    s.text(120, 440, "資料層：有狀態、Operator 管理、本地 NVMe", 18, 700, C["gray"])
+    row(452, [("ClickHouse 2×2 ＋ Keeper ×3", ["行為事件倉、MV、Bitmap"]), ("PostgreSQL 16 ×2", ["CloudNativePG；控制面"]), ("Valkey 8 ×3", ["快取、佇列、即時標籤"]),
+              ("Kafka 3.8 KRaft ×3", ["Strimzi；推送、原始事件"]), ("SeaweedFS（S3）", ["冷層、備份、同步輸出"])], "yellow")
+    s.text(120, 585, "平台層", 18, 700, C["gray"])
+    row(597, [("Keycloak", ["SSO／OIDC"]), ("OpenBao ＋ HSM", ["密鑰只存參照"]), ("Prometheus ＋ Grafana", ["指標、告警、系統監控頁"]), ("VictoriaLogs", ["日誌（或 OpenSearch）"]),
+              ("Harbor", ["離線映像倉 ＋ Trivy"]), ("Ingress-NGINX ＋ MetalLB", ["入口與 VIP"])], "purple", h=86)
+    band(725, 140, "每個節點（DaemonSet）", "gray")
+    row(770, [("node-exporter", ["主機指標"]), ("OTel Collector", ["日誌與追蹤"]), ("LocalPV（OpenEBS）", ["NVMe 本地盤給 ClickHouse／Kafka"]),
+              ("RHEL 9／Rocky 9", ["SELinux enforcing；容器無 root、唯讀"])], "gray", h=86, lsize=15)
+    s.rect(96, 885, 1728, 60, C["brandsoft"], C["brand"], 12)
+    s.text(120, 923, "備份：ClickHouse BACKUP TO S3（日增量／週全量）、PostgreSQL WAL 歸檔；HA：ClickHouse 雙副本、PostgreSQL 主從、Kafka／Keeper 三節點；全部元件上游 LTS、OSI 授權、有 Operator", 18, 600)
+    s.text(96, 980, "對照 2025/07 提案舊棧（Hadoop／Hive／HBase／ZooKeeper／RocketMQ／MySQL 5.7／Redis／Tendis／InfluxDB／Consul／MinIO，約 20 個元件）：有狀態服務從十幾個降到 5 個，沒有 EOL 版本，沒有改寫版。", 17, 400, C["gray"])
+    s.save("slide-5-onprem-deployment.svg")
+
 if __name__ == "__main__":
-    s1(); s2(); s3(); s4()
+    s1(); s2(); s3(); s4(); s5()

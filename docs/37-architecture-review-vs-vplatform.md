@@ -116,7 +116,7 @@ flowchart TB
 | 計算 | Apache Spark／Trino／Iceberg | 3.5／4xx／1.6 | Apache-2.0 | 第二階段：70 億歷史重算、冷層查詢 |
 | 身分與密鑰 | Keycloak；OpenBao ＋ HSM（機房）／Secret Manager ＋ KMS（GCP） | 25；2.x | Apache-2.0；MPL-2.0 | SSO／OIDC；密鑰只存參照 |
 | 觀測 | Prometheus ＋ OTel Collector ＋ node-exporter；Grafana OSS | 2.x／0.1x；11.x | Apache-2.0；AGPL-3.0（內部使用） | 指標與告警；平台「系統監控」頁同源 |
-| 觀測 | OpenSearch（或 VictoriaLogs，§5.2） | 2.x | Apache-2.0 | 日誌 |
+| 觀測 | VictoriaLogs（或 OpenSearch；docs/37 §5.2） | 1.x／2.x | Apache-2.0 | 日誌 |
 | 執行環境 | Python、Go、Node、Temurin JDK | 3.12、1.23、22 LTS、17 | PSF／BSD／MIT／GPLv2+CE | core／ingest／web／Flink |
 | 作業系統 | RHEL 9／Rocky Linux 9；UBI 9 minimal 映像基底 | 9.4+ | — | SELinux enforcing；容器無 root、唯讀檔案系統 |
 
@@ -153,5 +153,5 @@ docs/32 的版本是 2026-10-17 寫的；M1（2027 Q1）開工時 PostgreSQL 17�
 | 1 | Iceberg 目錄決定 JDBC catalog，寫進 docs/02 第二階段 | docs/02 | 0.5 天 |
 | 2 | 日誌改 VictoriaLogs：docs/32、Helm values-onprem、docs/13 §11.4 | docs/32、deploy/helm | 1 天 |
 | 3 | docs/13 §6 補即時標籤只存 bitmap 的容量說明 | docs/13 | 0.5 天 |
-| 4 | 簡報：加機房部署圖 slide-5、以 §4.2 表取代舊元件表、註明「版本以開工時 LTS 為準」 | docs/diagrams、docs/decks | 1 天 |
+| 4 | ~~簡報：加機房部署圖 slide-5、以 §4.2 表取代舊元件表、註明「版本以開工時 LTS 為準」~~（已做：`docs/diagrams/slides/slide-5-onprem-deployment`、簡報 14b–14d、規格書 §1.1） | docs/diagrams、docs/decks、docs/17 | 完成 |
 | 5 | 數據治理第二階段加「指標目錄」頁（列入 docs/17 §5a 待做） | docs/17 | 0.5 天 |

@@ -19,11 +19,13 @@
 | 2 數據流 | `slides/slide-2-data-flow.png` | 五個步驟、五個延遲承諾 |
 | 3 AI Agent | `slides/slide-3-ai-agent.png` | 選擇題式 agent 流程、六個內建 agent、金融業守門 |
 | 4 GCP 部署與規模 | `slides/slide-4-gcp-deployment.png` | 3 個節點池 7 台、託管服務、安全、月費 |
+| 5 機房部署架構 | `slides/slide-5-onprem-deployment.png` | 平台應用／資料層（5 個有狀態）／平台層／每節點 DaemonSet；備份與 HA；對照 2025/07 舊棧 |
 
 ![簡報 1](diagrams/slides/slide-1-architecture.png)
 ![簡報 2](diagrams/slides/slide-2-data-flow.png)
 ![簡報 3](diagrams/slides/slide-3-ai-agent.png)
 ![簡報 4](diagrams/slides/slide-4-gcp-deployment.png)
+![簡報 5](diagrams/slides/slide-5-onprem-deployment.png)
 
 ## 工程版（詳細）
 

@@ -133,6 +133,50 @@ pres.addSection({ title: sec1 });
     bullets(s, items, { x: x + 0.3, y: 2.3, w: 3.8, h: 1.6, fontSize: 15 }); });
   s.addText('機器檔位 A 檔 6 台或 D 檔 3 台，M0 決策會拍板', T({ x: 0.5, y: 4.3, w: 9.0, h: 0.4, fontSize: 15, bold: true, color: C.text1 })); }
 
+// 14b 機房部署示意圖（docs/37 §4.1；GCP 版同一套 Helm 只換 values）
+{ const s = content('機房部署：Kubernetes 上只有五個有狀態服務，其餘全是無狀態應用', sec1);
+  const band = (y, h, label, color, name) => { card(s, 0.5, y, 9.0, h, C.background1, name); s.addText(label, T({ x: 0.65, y: y + 0.06, w: 8.7, h: 0.26, fontSize: 11, bold: true, color })); };
+  const row = (y, items, color, h = 0.5) => { const gap = 0.08, w = (8.7 - gap * (items.length - 1)) / items.length; items.forEach(([t, d], i) => { const x = 0.65 + i * (w + gap);
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h, rectRadius: 0.05, fill: { color: HEX.tint }, line: { color, width: 0.75 } });
+    s.addShape(pres.shapes.RECTANGLE, { x, y: y + 0.06, w: 0.05, h: h - 0.12, fill: { color }, line: { type: 'none' } });
+    s.addText([{ text: t, options: { bold: true, fontSize: 10.5, breakLine: !!d } }, ...(d ? [{ text: d, options: { fontSize: 8.5, color: HEX.muted } }] : [])], T({ x: x + 0.12, y: y + 0.04, w: w - 0.16, h: h - 0.08, color: C.text1, valign: 'middle' })); }); };
+  band(1.3, 0.92, '平台應用（無狀態 Deployment，映像 6 個：core／ingest／batch／agent／flink-jobs／web）', C.accent1, 's14b_app');
+  row(1.62, [['dmp-web', '前端靜態檔'], ['dmp-core', 'API、語意層、分群、OneID、同步、推送'], ['dmp-ingest', 'Collector：直送 /v1/events'], ['dmp-batch', 'Airflow ＋ dbt 日批'], ['dmp-agent', 'MCP 閘道（第二階段）']], C.accent1);
+  band(2.3, 1.72, 'Kubernetes（RKE2 1.30+，3 個 control-plane 與 worker 共存於 3–6 台）', C.accent2, 's14b_k8s');
+  s.addText('資料層：有狀態、Operator 管理、本地 NVMe', T({ x: 0.65, y: 2.58, w: 8.7, h: 0.2, fontSize: 9, color: HEX.muted }));
+  row(2.78, [['ClickHouse 2×2 ＋ Keeper ×3', '事件倉、MV、Bitmap'], ['PostgreSQL 16 ×2', 'CloudNativePG；控制面'], ['Valkey 8 ×3', '快取、佇列、即時標籤'], ['Kafka 3.8 KRaft ×3', 'Strimzi；推送、原始事件'], ['SeaweedFS（S3）', '冷層、備份、同步輸出']], C.accent3);
+  s.addText('平台層', T({ x: 0.65, y: 3.33, w: 8.7, h: 0.2, fontSize: 9, color: HEX.muted }));
+  row(3.52, [['Keycloak', 'SSO／OIDC'], ['OpenBao ＋ HSM', '密鑰只存參照'], ['Prometheus ＋ Grafana', '指標、告警'], ['VictoriaLogs', '日誌'], ['Harbor', '映像倉 ＋ Trivy'], ['Ingress ＋ MetalLB', '入口與 VIP']], C.accent4, 0.42);
+  band(4.12, 0.64, '每個節點（DaemonSet）', HEX.muted, 's14b_node');
+  row(4.4, [['node-exporter', '主機指標'], ['OTel Collector', '日誌與追蹤'], ['LocalPV（OpenEBS）', 'NVMe 給 ClickHouse／Kafka'], ['RHEL 9／Rocky 9', 'SELinux；容器無 root、唯讀']], HEX.muted, 0.3);
+  s.addText('備份：ClickHouse BACKUP TO S3、PostgreSQL WAL；HA：ClickHouse 雙副本、PostgreSQL 主從、Kafka／Keeper 三節點。對照 2025/07 舊棧約 20 個元件（Hadoop／Hive／HBase／RocketMQ／MySQL 5.7…）：有狀態服務降到 5 個，沒有 EOL 版本、沒有改寫版。', T({ x: 0.5, y: 4.82, w: 9.0, h: 0.36, fontSize: 9, color: C.text1 })); }
+
+// 14c／14d 開源元件表（docs/37 §4.2；版本以開工時 LTS 為準）
+{ const s = content('開源元件（一）資料與計算：全部上游 LTS、OSI 授權、有 Operator', sec1);
+  table(s, [['類別', '元件', '版本', '授權', '功能'],
+    ['分析存儲', 'ClickHouse ＋ Keeper（Altinity operator）', '25.8 LTS', 'Apache-2.0', '事件倉、MV 聚合層、Bitmap、用戶檔案字典'],
+    ['分析存儲', 'SeaweedFS（機房）／GCS', '3.x', 'Apache-2.0', 'S3：冷層、原始事件、備份、同步輸出'],
+    ['線上存儲', 'PostgreSQL ＋ pgvector（CloudNativePG）', '16', 'PostgreSQL', '控制面：看板、分群、審批、審計索引'],
+    ['線上存儲', 'Valkey', '8', 'BSD-3', '快取、工作佇列、即時標籤（第二階段）'],
+    ['訊息', 'Apache Kafka（KRaft，Strimzi）', '3.8', 'Apache-2.0', '推送更新、原始事件落地；二階段即時觸發'],
+    ['計算', 'Apache Airflow ＋ dbt-core', '2.10', 'Apache-2.0', '日批排程與 SQL 轉換'],
+    ['計算', 'Apache Flink ＋ K8s Operator', '1.20', 'Apache-2.0', '二階段：即時觸發 CEP（套件含、未啟用）'],
+    ['計算', 'Apache Spark／Trino／Iceberg', '3.5／4xx／1.6', 'Apache-2.0', '二階段：70 億歷史重算、冷層查詢']],
+    { colW: [0.85, 2.75, 1.0, 0.95, 3.45], fontSize: 9.5, rowH: 0.33 });
+  s.addText('版本為 2026-10 的 LTS，M1 開工時依當時 LTS 重釘；原則不變：上游版本、不改寫、OSI 授權、有 Operator 或託管版', T({ x: 0.5, y: 4.92, w: 9.0, h: 0.25, fontSize: 9, color: HEX.muted })); }
+{ const s = content('開源元件（二）平台、身分、觀測與執行環境', sec1);
+  table(s, [['類別', '元件', '版本', '授權', '功能'],
+    ['容器平台', 'Kubernetes（RKE2）／GKE', '1.30+', 'Apache-2.0', '容器編排；3 個 control-plane 與 worker 共存'],
+    ['容器平台', 'Helm、OpenTofu、Harbor', '3／1.8／2.x', 'Apache-2.0／MPL-2.0', 'umbrella chart；IaC；離線映像倉 ＋ Trivy'],
+    ['身分與密鑰', 'Keycloak；OpenBao ＋ HSM（GCP：Secret Manager ＋ KMS）', '25；2.x', 'Apache-2.0；MPL-2.0', 'SSO／OIDC；密鑰只存參照'],
+    ['觀測', 'Prometheus ＋ OTel Collector ＋ node-exporter', '2.x／0.1x', 'Apache-2.0', '指標與告警；平台「系統監控」頁同源'],
+    ['觀測', 'Grafana OSS', '11.x', 'AGPL-3.0（內部使用）', '監控看板；不修改、不散布'],
+    ['觀測', 'VictoriaLogs（或 OpenSearch）', '1.x', 'Apache-2.0', '日誌'],
+    ['執行環境', 'Python／Go／Node／Temurin JDK', '3.12／1.23／22／17', 'PSF／BSD／MIT／GPL+CE', 'core／ingest／web／Flink'],
+    ['作業系統', 'RHEL 9／Rocky 9；UBI 9 minimal 映像', '9.4+', '—', 'SELinux；容器無 root、唯讀']],
+    { colW: [0.85, 2.9, 1.0, 1.3, 2.95], fontSize: 9.5, rowH: 0.33 });
+  s.addText('必付授權 0；copyleft 只有 Grafana OSS（內部使用）。刻意不用：Redis ≥ 7.4、MinIO、Elasticsearch（SSPL／AGPL）、Vault／Terraform（BSL）、Confluent 社群授權元件', T({ x: 0.5, y: 4.92, w: 9.0, h: 0.25, fontSize: 9, color: HEX.muted })); }
+
 // 15 M0 十項
 { const s = content('M0 要客戶拍板十項，11-13 前決定', sec1);
   const items = ['部署環境：GCP 或機房、機器檔位', '交易資料提供方式：批次或 Kafka', '身分：Entra ID／AD／Keycloak 與角色對照', '舊平台歷史導出方式與並行期長度', '隱私門檻：K 值、匯出上限、審計保存年限', '推送接收端規格與增量延遲', '自定義 SQL 開放對象與下載上限', 'AI 洞察的 LLM 供應方式與預算（二期）', '效能 SLA 在客戶規模實測', 'GA360 BigQuery 匯出區域與費用'];

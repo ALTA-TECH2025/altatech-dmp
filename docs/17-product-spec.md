@@ -1,6 +1,8 @@
-# AltaTech DMP 產品規格書（v0.9.1，2026-10-19）
+# AltaTech DMP 產品規格書（v0.9.2，2026-10-19）
 
-> 版本：v0.9.1 — 對外版本：廠商與產品名稱改為中性用語（客戶既有行為分析平台稱「舊平台」，比較對象稱「同類商用 CDP」）。
+> 版本：v0.9.2 — 新增 §1.1 機房部署示意圖與開源元件表（與提案簡報 14b–14d 同源，docs/37 §4）。
+>
+> v0.9.1 — 對外版本：廠商與產品名稱改為中性用語（客戶既有行為分析平台稱「舊平台」，比較對象稱「同類商用 CDP」）。
 >
 > v0.9 — **舊平台埋點規格表對齊**：事件字典補上規格表 147 個自訂事件（共 264 個，17 個已停用只匯歷史）；用戶表比導出多的 36 欄列入遷移清單待確認；分公司＋帳號欄改 L3、加密參數（ivKey／hashKey／svid）不入倉不送 GA；元事件、事件屬性、用戶表屬性可下載範本與整批上傳（先預覽再套用）；事件分析人數預設精確、「快速估算」才走聚合層近似值；示範站改用依規格合成的 100 萬人模擬資料（約 1,600 萬筆事件）。
 >
@@ -32,6 +34,33 @@
 ![系統架構圖](diagrams/system-architecture.png)
 
 分層：來源 → 接入（Collector／KafkaConnect）→ 串流（Kafka、Flink 事件化、OneID、session）→ 儲存（ClickHouse 熱層 + MV、Iceberg 冷層、PostgreSQL 控制面、Valkey）→ 語意層與 Policy Engine → 服務（六個分析模組、標籤／分群、觸發／推送、AI 工具閘道）→ 前端與 API；橫切：身分與權限、資料保護、審計與法遵、觀測、部署。詳見 docs/02、12。
+
+### 1.1 系統部署示意圖與開源元件（機房；GCP 版見 docs/07 §1 與 diagrams/slides/slide-4）
+
+![機房部署架構](diagrams/slides/slide-5-onprem-deployment.png)
+
+- 平台應用全為無狀態 Deployment（映像 6 個）；有狀態服務只有 5 個（ClickHouse ＋ Keeper、PostgreSQL、Valkey、Kafka、物件儲存），皆由 Operator 管理、本地 NVMe；平台層 Keycloak、OpenBao、Prometheus ＋ Grafana、VictoriaLogs、Harbor、Ingress ＋ MetalLB；每節點 node-exporter、OTel Collector、LocalPV。
+- 備份：ClickHouse `BACKUP TO S3`（日增量／週全量）、PostgreSQL WAL 歸檔；HA：ClickHouse 雙副本、PostgreSQL 主從、Kafka／Keeper 三節點（docs/13 §11.4）。
+- 版本為 2026-10 的 LTS，M1 開工時依當時 LTS 重釘；原則不變：上游版本、不改寫、OSI 授權、有 Operator 或託管版（docs/32 為完整清單與來源國別，docs/37 為與舊棧的逐項對照）。
+
+| 類別 | 元件 | 版本 | 授權 | 功能說明 |
+|---|---|---|---|---|
+| 容器平台 | Kubernetes（RKE2）／GKE | 1.30+ | Apache-2.0 | 容器編排；3 個 control-plane 與 worker 共存 |
+| 容器平台 | Helm、OpenTofu | 3／1.8 | Apache-2.0／MPL-2.0 | 一套 umbrella chart 部署；IaC |
+| 容器平台 | Harbor | 2.x | Apache-2.0 | 離線映像倉；Trivy 弱掃 |
+| 線上存儲 | PostgreSQL ＋ pgvector（CloudNativePG） | 16 | PostgreSQL License | 控制面：看板、分群定義、審批、審計索引、洞察向量 |
+| 線上存儲 | Valkey | 8 | BSD-3 | 快取、工作佇列、即時標籤（第二階段） |
+| 分析存儲 | ClickHouse ＋ Keeper（Altinity operator） | 25.8 LTS | Apache-2.0 | 行為事件倉、MV 聚合層、分群／標籤 Bitmap、用戶檔案字典 |
+| 分析存儲 | SeaweedFS（機房）／GCS | 3.x | Apache-2.0 | S3 API：Iceberg 冷層、原始事件、備份、同步輸出 |
+| 訊息 | Apache Kafka（KRaft，Strimzi） | 3.8 | Apache-2.0 | 推送更新、原始事件落地；第二階段即時觸發輸入 |
+| 計算 | Apache Airflow ＋ dbt-core | 2.10 | Apache-2.0 | 日批排程與 SQL 轉換（第一階段由 API 內建排程器執行） |
+| 計算 | Apache Flink ＋ K8s Operator | 1.20 | Apache-2.0 | 第二階段：即時觸發 CEP（套件含、未啟用） |
+| 計算 | Apache Spark／Trino／Iceberg | 3.5／4xx／1.6 | Apache-2.0 | 第二階段：70 億歷史重算、冷層查詢 |
+| 身分與密鑰 | Keycloak；OpenBao ＋ HSM（機房）／Secret Manager ＋ KMS（GCP） | 25；2.x | Apache-2.0；MPL-2.0 | SSO／OIDC；密鑰只存參照 |
+| 觀測 | Prometheus ＋ OTel Collector ＋ node-exporter；Grafana OSS | 2.x／0.1x；11.x | Apache-2.0；AGPL-3.0（內部使用） | 指標與告警；平台「系統監控」頁同源 |
+| 觀測 | VictoriaLogs（或 OpenSearch；docs/37 §5.2） | 1.x／2.x | Apache-2.0 | 日誌 |
+| 執行環境 | Python、Go、Node、Temurin JDK | 3.12、1.23、22 LTS、17 | PSF／BSD／MIT／GPLv2+CE | core／ingest／web／Flink |
+| 作業系統 | RHEL 9／Rocky Linux 9；UBI 9 minimal 映像基底 | 9.4+ | — | SELinux enforcing；容器無 root、唯讀檔案系統 |
 
 ## 2. 元件模組圖
 
