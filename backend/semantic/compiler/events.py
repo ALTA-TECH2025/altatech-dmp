@@ -184,6 +184,7 @@ def plan(qr: Query, decision: Any = None) -> tuple[str, list[str]]:
     """選層：回傳 (layer, reasons)。decision 的行級條件用到用戶屬性時不能走 MV。"""
     why: list[str] = []
     if qr.exact: why.append("exact")
+    if qr.behaviors: why.append("behaviors")                          # 行為篩選要對 one_id 做 IN 子查詢，日聚合層沒有 one_id
     if any(m.agg == "users" for m in qr.metrics) and not qr.estimate: why.append("users exact")
     if any(USER_ROW_FILTER.search(r) for r in (getattr(decision, "row_filters", None) or [])): why.append("row filter on user attribute")
     if qr.sample: why.append("sample")
@@ -197,6 +198,10 @@ def plan(qr: Query, decision: Any = None) -> tuple[str, list[str]]:
 def compile_events(qr: Query, cat: Catalog | None = None, decision: Any = None, profile: str = "human") -> Compiled:
     """decision = security.policy.Decision（None = 不注入，僅測試用）；profile = budgets.yaml 的設定檔（human／batch／sql_user）。"""
     cat = cat or Catalog()
+    if qr.cohorts:
+        from .scope import derive, with_cohorts
+        order = ([] if qr.time.grain == "total" else ["bucket"]) + [f"g{i + 1}" for i in range(len(qr.group_by))]
+        return with_cohorts(qr.cohorts, lambda c: compile_events(derive(qr, c), cat, decision, profile), "cohort", order)
     layer, why = plan(qr, decision)
     ctx = Ctx(cat, qr, layer)
     src = "dmp.events_daily_agg AS a" if layer == "L1" else "dmp.events AS e"
@@ -218,6 +223,11 @@ def compile_events(qr: Query, cat: Catalog | None = None, decision: Any = None, 
     warnings: list[str] = []
     rows_filters: list[str] = []
     masked: dict[str, str] = {}
+    beh_lineage: list[str] = []
+    if qr.behaviors:
+        from .scope import behavior_where
+        bconds, beh_lineage, bw = behavior_where(qr.behaviors, qr.project, cat, decision)
+        where += bconds; warnings += bw
     if decision is not None:
         from .policy import inject, mask_sql
         rows_filters, msql, masked, warnings_p = inject(decision, qr, cat, ctx, msql)
@@ -272,7 +282,7 @@ def compile_events(qr: Query, cat: Catalog | None = None, decision: Any = None, 
     if qr.compare == "previous_period":
         days = (qr.time.end - qr.time.start).days + 1
         prev = Query(project=qr.project, metrics=qr.metrics, time=type(qr.time)(qr.time.start - timedelta(days=days), qr.time.end - timedelta(days=days), qr.time.grain, qr.time.now),
-                     formulas=qr.formulas, filters=qr.filters, group_by=qr.group_by, top_n=None, compare=None, sample=qr.sample, exact=qr.exact, estimate=qr.estimate)
+                     formulas=qr.formulas, filters=qr.filters, group_by=qr.group_by, top_n=None, compare=None, sample=qr.sample, exact=qr.exact, estimate=qr.estimate, behaviors=qr.behaviors)
         pc = compile_events(prev, cat, decision, profile)
         shift = f"bucket + INTERVAL {days} DAY" if qr.time.grain != "month" else f"bucket + INTERVAL {_months(qr.time.start, qr.time.end)} MONTH"
         vals = [m.alias for m in qr.metrics] + [f.alias for f in qr.formulas]
@@ -287,7 +297,7 @@ def compile_events(qr: Query, cat: Catalog | None = None, decision: Any = None, 
     sql += " ORDER BY " + ", ".join(cols) if cols else ""
     lineage = [("dmp.events_daily_agg" if layer == "L1" else "dmp.events")] + (["dmp.users_dict"] if any(f.kind == "user_hot" for f in qr.walk_fields()) else []) \
         + (["dmp.users"] if ctx.cold else []) + (["dmp.segment_members"] if any(f.kind == "segment" for f in qr.walk_fields()) else []) \
-        + [f"metric:{qr.metric_name}" if qr.metric_name else f"event:{e}" for e in (qr.events or ["any"])]
+        + [f"metric:{qr.metric_name}" if qr.metric_name else f"event:{e}" for e in (qr.events or ["any"])] + beh_lineage
     from .policy import budget
     settings = budget(profile)
     if layer == "L1" and any(m.agg == "users" for m in qr.metrics) and APPROX_WARNING not in warnings:

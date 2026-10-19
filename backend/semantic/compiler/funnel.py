@@ -46,6 +46,8 @@ class FunnelQuery:
     time: TimeRange
     sample: float | None = None
     raw: dict[str, Any] = field(default_factory=dict)
+    behaviors: list[Any] = field(default_factory=list)   # [([Behavior], and|or)]：行為篩選組（只作用於進漏斗的用戶）
+    cohorts: list[Any] = field(default_factory=list)     # [scope.Cohort]
 
     def as_query(self) -> Query:
         """給 Ctx／policy 用的最小 Query（只用到 time、filters、group_by、metrics 為空）。"""
@@ -111,7 +113,13 @@ def parse_funnel(raw: dict[str, Any], cat: Catalog | None = None) -> FunnelQuery
         sample = float(sample)
         if not 0 < sample < 1:
             raise ValueError("sample 必須在 (0,1)")
-    return FunnelQuery(str(raw.get("project") or "altatech_dmp"), steps, window_s, order, relation, metric, group, trend or None, filters, TimeRange(start, end, "day", now), sample, raw)
+    fq = FunnelQuery(str(raw.get("project") or "altatech_dmp"), steps, window_s, order, relation, metric, group, trend or None, filters, TimeRange(start, end, "day", now), sample, raw)
+    if raw.get("behaviors") or raw.get("cohorts"):
+        from .scope import parse_behavior_group, parse_cohorts
+        bg = parse_behavior_group(cat, raw, now, fq.time)
+        fq.behaviors = [bg] if bg else []
+        fq.cohorts = parse_cohorts(cat, raw.get("cohorts"), now, fq.time)
+    return fq
 
 
 @dataclass
@@ -137,6 +145,10 @@ def funnel_base(fq: FunnelQuery, cat: Catalog | None = None, decision: Any = Non
     if fq.filters:
         where.append(group_sql(fq.filters, ctx))
     warnings: list[str] = []; row_filters: list[str] = []
+    if fq.behaviors:
+        from .scope import behavior_where
+        bconds, _, bw = behavior_where(fq.behaviors, fq.project, cat, decision)
+        where += bconds; warnings += bw
     if decision is not None:
         from .policy import inject
         row_filters, _, _, w = inject(decision, fq.as_query(), cat, ctx, [])
@@ -160,6 +172,9 @@ def funnel_base(fq: FunnelQuery, cat: Catalog | None = None, decision: Any = Non
 
 def compile_funnel(fq: FunnelQuery, cat: Catalog | None = None, decision: Any = None, profile: str = "human") -> Compiled:
     cat = cat or Catalog()
+    if fq.cohorts:
+        from .scope import derive, with_cohorts
+        return with_cohorts(fq.cohorts, lambda c: compile_funnel(derive(fq, c), cat, decision, profile), "cohort", (["bucket"] if fq.trend else []) + (["g1"] if fq.group_by else []) + ["step"])
     fb = funnel_base(fq, cat, decision)
     base, outer_cols, ctx, warnings, row_filters, k = fb.sql, fb.outer_cols, fb.ctx, fb.warnings, fb.row_filters, fb.k
     agg = "uniqExactIf(one_id, level >= step)" if fq.metric == "users" else "countIf(level >= step)"
@@ -171,7 +186,8 @@ def compile_funnel(fq: FunnelQuery, cat: Catalog | None = None, decision: Any = 
     from .policy import budget
     cols = outer_cols + ["step", "users", "_k"] + (["suppressed"] if k else [])
     lineage = ["dmp.events"] + (["dmp.users_dict"] if any(f.kind == "user_hot" for f in _fields(fq)) else []) + (["dmp.users"] if ctx.cold else []) \
-        + (["dmp.segment_members"] if any(f.kind == "segment" for f in _fields(fq)) else []) + [f"event:{s.event}" for s in fq.steps]
+        + (["dmp.segment_members"] if any(f.kind == "segment" for f in _fields(fq)) else []) + [f"event:{s.event}" for s in fq.steps] \
+        + [f"event:{b.event}" for bs, _ in fq.behaviors for b in bs]
     if fq.order == "strict":
         warnings.append("strict_order：步驟之間若出現其他步驟的事件則中斷（黃金測試只鎖定寬鬆模式）")
     return Compiled(sql=sql, layer="L0", columns=cols, settings=budget(profile), lineage=sorted(set(lineage)), warnings=warnings, k_anonymity=k, masked={}, row_filters=row_filters)
@@ -196,7 +212,7 @@ def with_rates(rows: list[dict[str, Any]], steps: list[Step]) -> list[dict[str, 
     out: list[dict[str, Any]] = []
     first: dict[tuple, Any] = {}; prev: dict[tuple, Any] = {}
     for r in rows:
-        key = (r.get("bucket"), r.get("g1")); st = int(r["step"]); u = r.get("users")
+        key = (r.get("cohort"), r.get("bucket"), r.get("g1")); st = int(r["step"]); u = r.get("users")
         if st == 1:
             first[key] = u; prev[key] = u
         f, p = first.get(key), prev.get(key)

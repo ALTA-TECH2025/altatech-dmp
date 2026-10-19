@@ -163,12 +163,44 @@ class Oracle:
         return expr()
 
     # ---- 整條查詢 ----
+    def behavior_users(self, project: str, b: Any, decision: Any, now: date) -> set[str]:
+        """一條行為「做過且指標符合」的用戶集合（未做過的條件由呼叫端取反）；與 SQL 的 behavior_select_sql 同口徑。"""
+        rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for r in self.events:
+            if r["project"] == project and b.time.start <= r["event_date"] <= b.time.end and r["event"] == b.event and self.group(b.filters, r, now) and self._row_filters_ok(decision, r, b.time.now or now):
+                rows[r["one_id"]].append(r)
+        if not b.done:
+            return set(rows)
+        ms = {o: m for o, m in ((o, self._measure(b, rs)) for o, rs in rows.items()) if m is not None}
+        if b.count_op == "between":
+            return {o for o, n in ms.items() if b.count[0] <= n <= b.count[1]}      # type: ignore[index]
+        cmp = {"gte": operator.ge, "lte": operator.le, "eq": operator.eq, "gt": operator.gt, "lt": operator.lt}[b.count_op]
+        return {o for o, n in ms.items() if cmp(n, b.count)}
+
+    def _behaviors_ok(self, q: Any, decision: Any, now: date) -> set[str] | None:
+        """行為篩選通過的用戶（None = 沒有行為篩選）。"""
+        if not getattr(q, "behaviors", None): return None
+        from .scope import behavior_ok
+        ids = {r["one_id"] for r in self.events if r["project"] == q.project}
+        return {o for o in ids if behavior_ok(self, q.behaviors, q.project, o, decision, now)}
+
+    def _with_cohorts(self, q: Any, runner: Any, decision: Any, col: str) -> list[dict[str, Any]]:
+        from .scope import derive
+        out: list[dict[str, Any]] = []
+        for c in q.cohorts:
+            out += [{col: c.name, **r} for r in runner(derive(q, c), decision)]
+        return out
+
     def run(self, q: Query, decision: Any = None) -> list[dict[str, Any]]:
+        if q.cohorts:
+            return self._with_cohorts(q, self.run, decision, "cohort")
         now = q.time.now or date.today()
         k = int(getattr(decision, "k_anonymity", 0) or 0)
         fp: dict[str, str] = dict(getattr(decision, "field_policies", {}) or {}) if decision is not None else {}
+        allowed = self._behaviors_ok(q, decision, now)
         rows = [r for r in self.events if r["project"] == q.project and q.time.start <= r["event_date"] <= q.time.end
-                and (not q.events or r["event"] in q.events) and self.group(q.filters, r, now) and self._row_filters_ok(decision, r, now)]
+                and (not q.events or r["event"] in q.events) and self.group(q.filters, r, now) and self._row_filters_ok(decision, r, now)
+                and (allowed is None or r["one_id"] in allowed)]
         if q.sample:
             raise ValueError("oracle 不做抽樣（SAMPLE 由 ClickHouse 的 cityHash64 分桶決定）")
         gcols = [f"g{i + 1}" for i in range(len(q.group_by))]
@@ -221,7 +253,7 @@ class Oracle:
         if q.compare == "previous_period":
             days = (q.time.end - q.time.start).days + 1
             prev_q = Query(project=q.project, metrics=q.metrics, time=type(q.time)(q.time.start - timedelta(days=days), q.time.end - timedelta(days=days), q.time.grain, q.time.now),
-                           formulas=q.formulas, filters=q.filters, group_by=q.group_by, top_n=None, compare=None, sample=None, exact=q.exact)
+                           formulas=q.formulas, filters=q.filters, group_by=q.group_by, top_n=None, compare=None, sample=None, exact=q.exact, behaviors=q.behaviors)
             prev = {}
             for pr in self.run(prev_q, decision):
                 b = pr.get("bucket")
@@ -297,8 +329,9 @@ class Oracle:
         """(趨勢桶, 分組值) → [(鏈鍵 (one_id, rel), 層級)]：漏斗結果與用戶列表下鑽共用。"""
         now = fq.time.now or date.today()
         step_events = {s.event for s in fq.steps}
+        allowed = self._behaviors_ok(fq, decision, now)
         rows = [r for r in self.events if r["project"] == fq.project and fq.time.start <= r["event_date"] <= fq.time.end and r["event"] in step_events
-                and self.group(fq.filters, r, now) and self._row_filters_ok(decision, r, now)]
+                and self.group(fq.filters, r, now) and self._row_filters_ok(decision, r, now) and (allowed is None or r["one_id"] in allowed)]
         if fq.sample:
             raise ValueError("oracle 不做抽樣")
         chains: dict[tuple, list[tuple[int, int]]] = defaultdict(list)
@@ -333,6 +366,8 @@ class Oracle:
         return groups
 
     def run_funnel(self, fq: FunnelQuery, decision: Any = None) -> list[dict[str, Any]]:
+        if fq.cohorts:
+            return self._with_cohorts(fq, self.run_funnel, decision, "cohort")
         k = int(getattr(decision, "k_anonymity", 0) or 0)
         groups = self._funnel_groups(fq, decision)
         out = []
@@ -375,8 +410,9 @@ class Oracle:
         now = rq.time.now or date.today()
         if rq.sample:
             raise ValueError("oracle 不做抽樣")
+        allowed = self._behaviors_ok(rq, decision, now)
         def ok(r: dict[str, Any]) -> bool:
-            return r["project"] == rq.project and self.group(rq.filters, r, now) and self._row_filters_ok(decision, r, now)
+            return r["project"] == rq.project and self.group(rq.filters, r, now) and self._row_filters_ok(decision, r, now) and (allowed is None or r["one_id"] in allowed)
         ret_end = rq.return_end()
         cohorts: dict[tuple[str, date], list[tuple[Any, Any]]] = defaultdict(list)       # (one_id, cohort) → [(time, group value)]
         returns: dict[str, set[date]] = defaultdict(set)
@@ -397,6 +433,8 @@ class Oracle:
         return members
 
     def run_retention(self, rq: RetentionQuery, decision: Any = None) -> list[dict[str, Any]]:
+        if rq.cohorts:
+            return self._with_cohorts(rq, self.run_retention, decision, "cohort_name")
         k = int(getattr(decision, "k_anonymity", 0) or 0)
         members = self._retention_members(rq, decision)
         P, lo = rq.periods, rq.lo

@@ -8,6 +8,7 @@
   group_by: ["platform", {field: "props.market", type: string}]；top_n: N（依第一個指標取前 N 個分組值）
   time:     {from, to, grain: minute|hour|day|week|month|total, now?}   # 台北日期，含兩端
   compare:  previous_period；sample: 0.1（按用戶抽樣）；exact: true（不走 MV）；estimate: true（快速估算：人數可走 MV 近似）
+  behaviors: [UsersBehavior]（用戶做過／未做過，與用戶列表同一套）＋ behaviors_op；cohorts: [{name, filters?, segment?, behaviors?}]（對照組 ≤10，結果多一欄 cohort）
 """
 from __future__ import annotations
 
@@ -82,6 +83,8 @@ class Query:
     exact: bool = False
     estimate: bool = False                  # 快速估算：人數可走 MV（uniqMerge 近似）
     metric_name: str | None = None          # 來自 metrics.yaml 的指標名（血緣用）
+    behaviors: list[Any] = field(default_factory=list)   # [([Behavior], and|or)]：行為篩選組（全局一組；對照組再加一組），組間 AND
+    cohorts: list[Any] = field(default_factory=list)     # [scope.Cohort]
 
     @property
     def events(self) -> list[str]:
@@ -285,4 +288,9 @@ def parse(raw: dict[str, Any], cat: Catalog | None = None) -> Query:
     if raw.get("segment"):
         seg = Cond(cat.resolve(f"seg.{raw['segment']}"), "in", None)
         q.filters = Group("and", [q.filters, seg]) if q.filters else Group("and", [seg])
+    if raw.get("behaviors") or raw.get("cohorts"):
+        from .scope import parse_behavior_group, parse_cohorts  # 延遲載入：scope → users → parser
+        bg = parse_behavior_group(cat, raw, now, q.time)
+        q.behaviors = [bg] if bg else []
+        q.cohorts = parse_cohorts(cat, raw.get("cohorts"), now, q.time)
     return q

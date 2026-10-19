@@ -227,6 +227,11 @@ QUERIES: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("Q27 三維分組（平台×渠道×market）×日", {"metrics": [{"event": None, "agg": "total"}], "group_by": ["platform", "channel", "market"], "time": {"from": "2026-10-10", "to": "2026-10-12", "grain": "day", "now": NOW.isoformat()}}, "admin"),
     ("Q28 exact 強制 L0 與 MV 結果一致", {"metrics": [{"event": "bond_order", "agg": "total"}, {"event": "bond_order", "agg": "sum", "field": "amount"}], "group_by": ["channel", "utm_source"], "filters": [{"field": "platform", "op": "neq", "value": "Web"}], "exact": True, "time": T}, "data_analyst"),
     ("Q29 分鐘粒度（單日）", {"metrics": [{"event": None, "agg": "total"}], "time": {"from": "2026-10-16", "to": "2026-10-16", "grain": "minute", "now": NOW.isoformat()}, "filters": [{"field": "$event_hour", "op": "eq", "value": 10}]}, "admin"),
+    ("Q30 行為篩選：期間內成交 ≥ 2 次且未被拒單 × 平台", {"metrics": [{"event": "bond_order", "agg": "total"}, {"event": "bond_order", "agg": "users"}], "group_by": ["platform"],
+        "behaviors": [{"event": "bond_deal", "cmp": {"op": "gte", "value": 2}}, {"event": "order_rejected", "done": False}], "time": {**T, "grain": "total"}}, "admin"),
+    ("Q31 對照組：iOS vs Android（含對比上期）", {"metrics": [{"event": "bond_deal", "agg": "total"}], "compare": "previous_period",
+        "cohorts": [{"name": "iOS", "filters": [{"field": "platform", "op": "eq", "value": "iOS"}]}, {"name": "Android", "filters": [{"field": "platform", "op": "eq", "value": "Android"}]}, {"name": "VIP 有看盤", "segment": "vip", "behaviors": [{"event": "hq_stockdetail_view", "time": {"last_days": 30}}]}],
+        "time": {"from": "2026-10-10", "to": "2026-10-16", "grain": "day", "now": NOW.isoformat()}}, "admin"),
     ("Q30 人均值 avg_val×渠道", {"metrics": [{"event": "bond_deal", "agg": "avg_val", "field": "amount"}, {"event": "bond_deal", "agg": "avg_per_user"}], "group_by": ["channel"], "time": {**T, "grain": "total"}}, "data_analyst"),
     ("Q31 快速估算：人數走 MV（uniqMerge；種子資料量小，與精確值相同）", {"metrics": [{"event": "bond_order", "agg": "users"}], "group_by": ["platform"], "estimate": True, "time": T}, "admin"),
 ]
@@ -242,6 +247,8 @@ FUNNELS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
         "window": W7, "filters": [{"field": "platform", "op": "in", "value": ["iOS", "Android"]}, {"field": "user.has_margin", "op": "true"}], "time": T_ALL}, "admin"),
     ("F08 分群 vip + 行銷（K 匿名）", {"steps": [{"event": "app_login_success"}, {"event": "bond_deal"}], "window": W7, "segment": "vip", "group_by": ["user.tier"], "time": T_ALL}, "marketing"),
     ("F09 90 天窗口、月趨勢、分群 market", {"steps": [{"event": "hq_stockdetail_view"}, {"event": "bond_deal"}], "window": {"value": 90, "unit": "day"}, "trend": "month", "group_by": ["market"], "time": T_ALL}, "admin"),
+    ("F10 行為篩選（曾登入 ≥ 1 次）＋ 對照組 iOS／全體", {"steps": [{"event": "hq_stockdetail_view"}, {"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "behaviors": [{"event": "app_login_success"}],
+        "cohorts": [{"name": "iOS", "filters": [{"field": "platform", "op": "eq", "value": "iOS"}]}, {"name": "全體"}], "time": T_ALL}, "admin"),
 ]
 RETENTIONS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("R01 登入→任一事件 7 日留存（date）", {"initial": {"event": "app_login_success"}, "model": "date", "periods": 7, "time": T}, "admin"),
@@ -253,6 +260,8 @@ RETENTIONS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("R07 篩選 + 用戶屬性 + 初始事件篩選", {"initial": {"event": "bond_order", "filters": [{"field": "amount", "op": "gte", "value": 100000}]}, "return": {"event": "bond_deal"}, "model": "date", "periods": 5,
         "filters": [{"field": "user.lifecycle", "op": "in", "value": ["新客", "成長"]}], "time": T}, "admin"),
     ("R08 分群 vip + 行銷（K 匿名）× tier", {"initial": {"event": "app_login_success"}, "model": "interval", "periods": 3, "segment": "vip", "group_by": ["user.tier"], "time": T}, "marketing"),
+    ("R09 行為篩選（期間內未被拒單）＋ 對照組 有成交／全體", {"initial": {"event": "app_login_success"}, "model": "date", "periods": 3, "behaviors": [{"event": "order_rejected", "done": False}],
+        "cohorts": [{"name": "有成交", "behaviors": [{"event": "bond_deal"}]}, {"name": "全體"}], "time": T}, "admin"),
 ]
 RETENTION_REJECTED: list[tuple[str, dict[str, Any], str]] = [
     ("RR1 沒初始事件", {"model": "date", "time": T}, "初始行為"),
@@ -436,7 +445,7 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
     for name, qr, c, d in compile_all(cat):
         expect = oracle.run(qr, d)
         got = run_sql(ch, c.sql, c.settings)
-        gcols = (1 if qr.time.grain != "total" else 0) + len(qr.group_by)
+        gcols = (1 if qr.time.grain != "total" else 0) + len(qr.group_by) + (1 if qr.cohorts else 0)
         compare(name, c.columns, expect, got, gcols)
         in_range = sum(1 for r in ds.events if qr.time.start <= r["event_date"] <= qr.time.end)
         scans = c.sql.count("FROM dmp.events")                      # compare／mau／top_n 會多掃一次（各自裁剪）
@@ -460,7 +469,7 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
     for name, raw, spec in FUNNELS:
         d = decision_of(spec); fq = parse_funnel({**raw, "project": PROJECT}, cat); c = compile_funnel(fq, cat, d)
         got = run_sql(ch, c.sql, c.settings); expect = oracle.run_funnel(fq, d)
-        compare(name, c.columns, expect, got, (1 if fq.trend else 0) + (1 if fq.group_by else 0) + 1)
+        compare(name, c.columns, expect, got, (1 if fq.trend else 0) + (1 if fq.group_by else 0) + 1 + (1 if fq.cohorts else 0))
         report.append(f"  {name:<44} L0 rows={len(got):<4} step1={next((r['users'] for r in got if r['step'] == 1), None)}")
     fs = parse_funnel({**FUNNELS[0][1], "project": PROJECT, "order": "strict"}, cat); cs = compile_funnel(fs, cat, _subject("admin"))
     strict = run_sql(ch, cs.sql, cs.settings); loose = run_sql(ch, compile_funnel(parse_funnel({**FUNNELS[0][1], "project": PROJECT}, cat), cat, _subject("admin")).sql, cs.settings)
@@ -469,7 +478,7 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
     for name, raw, spec in RETENTIONS:
         d = decision_of(spec); rq = parse_retention({**raw, "project": PROJECT}, cat); c = compile_retention(rq, cat, d)
         got = run_sql(ch, c.sql, c.settings); expect = oracle.run_retention(rq, d)
-        compare(name, c.columns, expect, got, (2 if rq.group_by else 1) + 1)
+        compare(name, c.columns, expect, got, (2 if rq.group_by else 1) + 1 + (1 if rq.cohorts else 0))
         report.append(f"  {name:<44} L0 rows={len(got):<4} cohorts={len({r['cohort'] for r in got})}")
     for name, raw, kw in RETENTION_REJECTED:
         try:
@@ -659,7 +668,7 @@ def dry_run() -> None:
     from .retention import compile_retention, parse_retention, with_complete
     for name, raw, spec in RETENTIONS:
         rq = parse_retention({**raw, "project": PROJECT}, cat); c = compile_retention(rq, cat, decision_of(spec))
-        rows = oracle.run_retention(rq, decision_of(spec)); assert rows and "ARRAY JOIN range(" in c.sql and c.columns[:1] == ["cohort"], name
+        rows = oracle.run_retention(rq, decision_of(spec)); assert rows and "ARRAY JOIN range(" in c.sql and c.columns[:1] in (["cohort"], ["cohort_name"]), name
         assert all(0 <= (r["rate"] or 0) <= 1 for r in rows), name
         wc = with_complete(rows, rq, NOW); assert any(x["complete"] for x in wc), name
         h.update(c.sql.encode())

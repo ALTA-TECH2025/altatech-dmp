@@ -133,6 +133,49 @@ def _time(raw: dict[str, Any] | None, now: date | None, what: str) -> TimeRange 
     return TimeRange(s, e, "day", now)
 
 
+def parse_behavior(cat: Catalog, b: dict[str, Any], i: int, now: date | None, default_time: TimeRange | None, what: str = "behaviors") -> Behavior:
+    """一條「做過／未做過」：事件 × 指標 × 比較 × 期間 × 事件屬性條件。用戶列表、分群、事件分析／漏斗／留存的行為篩選同一套。"""
+    name = cat.canonical_event(str(b.get("event") or ""))
+    if not name:
+        raise ValueError(f"事件 {b.get('event')} 不在事件字典")
+    meas = b.get("measure") or {}; cmp_ = b.get("cmp") or b.get("count") or {}
+    agg = str(meas.get("agg") or "count")
+    if agg not in MEASURE_AGGS:
+        raise ValueError(f"measure.agg 只能是 {MEASURE_AGGS}")
+    fref = None
+    if agg in ("sum", "avg", "max", "min"):
+        if not meas.get("field"):
+            raise ValueError(f"{what}[{i}] measure.{agg} 需要 field（數值事件屬性）")
+        fref = cat.resolve(str(meas["field"]), "number")
+        if fref.type != "number":
+            raise ValueError(f"{what}[{i}] measure.field {meas['field']} 不是數值欄位")
+    op = str(cmp_.get("op") or "gte")
+    if op not in COUNT_OPS:
+        raise ValueError(f"cmp.op 只能是 {COUNT_OPS}")
+    v = cmp_.get("value", 1)
+    if op == "between":
+        if not (isinstance(v, list | tuple) and len(v) == 2):
+            raise ValueError("cmp.between 需要 [a, b]")
+        val: float | list[float] = [float(v[0]), float(v[1])]
+    else:
+        val = float(v)
+        if agg in ("count", "days") and val < 1 and op not in ("lte", "lt"):
+            raise ValueError("做過的次數至少 1；未做過請用 done: false")
+    t = _time(b.get("time"), now, f"{what}[{i}]") or default_time
+    if t is None:
+        raise ValueError(f"{what}[{i}] 需要 time（近 N 天或自訂期間；或在頂層 time 給預設）")
+    return Behavior(name, parse_filters(cat, b.get("filters")), bool(b.get("done", True)), op, val, t, agg, fref, (b.get("time") or {}).get("last_days"))
+
+
+def parse_behaviors(cat: Catalog, raw: Any, now: date | None, default_time: TimeRange | None, what: str = "behaviors") -> list[Behavior]:
+    out: list[Behavior] = []
+    for i, b in enumerate(raw or []):
+        if i >= 10:
+            raise ValueError(f"{what} 最多 10 條")
+        out.append(parse_behavior(cat, b, i, now, default_time, what))
+    return out
+
+
 def parse_users(raw: dict[str, Any], cat: Catalog | None = None) -> UsersQuery:
     cat = cat or Catalog()
     project = str(raw.get("project") or "altatech_dmp")
@@ -146,40 +189,7 @@ def parse_users(raw: dict[str, Any], cat: Catalog | None = None) -> UsersQuery:
     for c in _walk(filters):
         if c.field.kind not in ("user_hot", "user_cold", "segment"):
             raise ValueError(f"用戶列表的條件只能是用戶屬性（user.<key>）或分群（seg.<id>）：{c.field.key}；行為條件請用 behaviors")
-    behaviors: list[Behavior] = []
-    for i, b in enumerate(raw.get("behaviors") or []):
-        if i >= 10:
-            raise ValueError("behaviors 最多 10 條")
-        name = cat.canonical_event(str(b.get("event") or ""))
-        if not name:
-            raise ValueError(f"事件 {b.get('event')} 不在事件字典")
-        meas = b.get("measure") or {}; cmp_ = b.get("cmp") or b.get("count") or {}
-        agg = str(meas.get("agg") or "count")
-        if agg not in MEASURE_AGGS:
-            raise ValueError(f"measure.agg 只能是 {MEASURE_AGGS}")
-        fref = None
-        if agg in ("sum", "avg", "max", "min"):
-            if not meas.get("field"):
-                raise ValueError(f"behaviors[{i}] measure.{agg} 需要 field（數值事件屬性）")
-            fref = cat.resolve(str(meas["field"]), "number")
-            if fref.type != "number":
-                raise ValueError(f"behaviors[{i}] measure.field {meas['field']} 不是數值欄位")
-        op = str(cmp_.get("op") or "gte")
-        if op not in COUNT_OPS:
-            raise ValueError(f"cmp.op 只能是 {COUNT_OPS}")
-        v = cmp_.get("value", 1)
-        if op == "between":
-            if not (isinstance(v, list | tuple) and len(v) == 2):
-                raise ValueError("cmp.between 需要 [a, b]")
-            val: float | list[float] = [float(v[0]), float(v[1])]
-        else:
-            val = float(v)
-            if agg in ("count", "days") and val < 1 and op not in ("lte", "lt"):
-                raise ValueError("做過的次數至少 1；未做過請用 done: false")
-        t = _time(b.get("time"), now, f"behaviors[{i}]") or default_time
-        if t is None:
-            raise ValueError(f"behaviors[{i}] 需要 time（近 N 天或自訂期間；或在頂層 time 給預設）")
-        behaviors.append(Behavior(name, parse_filters(cat, b.get("filters")), bool(b.get("done", True)), op, val, t, agg, fref, (b.get("time") or {}).get("last_days")))
+    behaviors = parse_behaviors(cat, raw.get("behaviors"), now, default_time, "behaviors")
     sequences: list[Sequence] = []
     for i, sq in enumerate(raw.get("sequences") or []):
         if i >= 5:
@@ -387,6 +397,34 @@ def _int_lit(x: Any) -> str: return str(int(x))
 def _float_lit(x: Any) -> str: return repr(float(x))
 
 
+def behavior_select_sql(project: str, b: Behavior, cat: Catalog, decision: Any) -> tuple[str, list[str], list[str], list[str]]:
+    """一條行為 → 「符合的用戶」子查詢（SELECT one_id_uint … GROUP BY … HAVING）；未做過回「有做過的人」（呼叫端用 NOT IN／bitmapAndnot）。
+    回 (sql, lineage, warnings, row_filters)。用戶列表的 Bitmap 與事件分析／漏斗／留存的行為篩選共用。"""
+    qr = Query(project=project, metrics=[], time=b.time, filters=b.filters)
+    ctx = Ctx(cat, qr, "L0")
+    where = [f"e.project = {q(project)}", f"e.event_date BETWEEN toDate({q(b.time.start.isoformat())}) AND toDate({q(b.time.end.isoformat())})", f"e.event = {q(b.event)}"]
+    if b.filters:
+        where.append(group_sql(b.filters, ctx))
+    warnings: list[str] = []; row_filters: list[str] = []
+    if decision is not None:
+        row_filters, _, _, warnings = inject(decision, qr, cat, ctx, [])
+        where += row_filters
+    mexpr = {"count": "count()", "days": "uniqExact(e.event_date)"}.get(b.agg) or f"{b.agg}({ctx.expr(b.field)})"
+    lit = _int_lit if b.agg in ("count", "days") else _float_lit
+    if not b.done:
+        having = "count() >= 1"
+    elif b.count_op == "between":
+        having = f"{mexpr} BETWEEN {lit(b.count[0])} AND {lit(b.count[1])}"       # type: ignore[index]
+    else:
+        having = f"{mexpr} {dict(gte='>=', lte='<=', eq='=', gt='>', lt='<')[b.count_op]} {lit(b.count)}"   # type: ignore[arg-type]
+    if b.field is not None and b.field.kind == "user_cold":
+        ctx.cold[b.field.name] = b.field
+    cold = f" LEFT JOIN (SELECT one_id, {', '.join('`' + n + '`' for n in ctx.cold)} FROM dmp.users FINAL) AS u ON u.one_id = e.one_id" if ctx.cold else ""
+    sql = f"SELECT e.one_id_uint AS one_id_uint FROM dmp.events AS e{cold} WHERE {' AND '.join(where)} GROUP BY e.one_id_uint HAVING {having}"
+    lineage = ["dmp.events", f"event:{b.event}"] + (["dmp.users_dict"] if any(c.field.kind == "user_hot" for c in _walk(b.filters)) else []) + (["dmp.users"] if ctx.cold else [])
+    return sql, lineage, warnings, row_filters
+
+
 def _bitmaps(uq: UsersQuery, cat: Catalog, decision: Any) -> tuple[list[str], str, list[str], list[str], list[str]]:
     """回 (WITH 子句清單, 最終 bitmap 表達式名, lineage, warnings, row_filters)。"""
     if decision is not None and not getattr(decision, "allowed", True):
@@ -405,28 +443,11 @@ def _bitmaps(uq: UsersQuery, cat: Catalog, decision: Any) -> tuple[list[str], st
     warnings: list[str] = []; row_filters: list[str] = []
     parts: list[tuple[str, bool]] = []
     for i, b in enumerate(uq.behaviors, 1):
-        qr = Query(project=uq.project, metrics=[], time=b.time, filters=b.filters)
-        ctx = Ctx(cat, qr, "L0")
-        where = [f"e.project = {q(uq.project)}", f"e.event_date BETWEEN toDate({q(b.time.start.isoformat())}) AND toDate({q(b.time.end.isoformat())})", f"e.event = {q(b.event)}"]
-        if b.filters:
-            where.append(group_sql(b.filters, ctx))
-        if decision is not None:
-            rf, _, _, w = inject(decision, qr, cat, ctx, [])
-            where += rf; warnings += w; row_filters = rf
-        cold = f" LEFT JOIN (SELECT one_id, {', '.join('`' + n + '`' for n in ctx.cold)} FROM dmp.users FINAL) AS u ON u.one_id = e.one_id" if ctx.cold else ""
-        mexpr = {"count": "count()", "days": "uniqExact(e.event_date)"}.get(b.agg) or f"{b.agg}({ctx.expr(b.field)})"
-        lit = _int_lit if b.agg in ("count", "days") else _float_lit
-        if not b.done:
-            having = "count() >= 1"
-        elif b.count_op == "between":
-            having = f"{mexpr} BETWEEN {lit(b.count[0])} AND {lit(b.count[1])}"       # type: ignore[index]
-        else:
-            having = f"{mexpr} {dict(gte='>=', lte='<=', eq='=', gt='>', lt='<')[b.count_op]} {lit(b.count)}"   # type: ignore[arg-type]
-        if b.field is not None and b.field.kind == "user_cold":
-            ctx.cold[b.field.name] = b.field
-        ctes.append(f"(SELECT groupBitmapState(one_id_uint) FROM (SELECT e.one_id_uint AS one_id_uint FROM dmp.events AS e{cold} WHERE {' AND '.join(where)} GROUP BY e.one_id_uint HAVING {having})) AS bm_b{i}")
+        sub, lin, w, rf = behavior_select_sql(uq.project, b, cat, decision)
+        warnings += w; row_filters = rf or row_filters
+        ctes.append(f"(SELECT groupBitmapState(one_id_uint) FROM ({sub})) AS bm_b{i}")
         parts.append((f"bm_b{i}", b.done))
-        lineage += ["dmp.events", f"event:{b.event}"] + (["dmp.users_dict"] if any(c.field.kind == "user_hot" for c in _walk(b.filters)) else [])
+        lineage += lin
     for i, sq in enumerate(uq.sequences, 1):                                # 行為序列：依序完成各步（windowFunnel 預設模式，窗口從第一步起算）
         qr = Query(project=uq.project, metrics=[], time=sq.time, filters=None)
         ctx = Ctx(cat, qr, "L0")

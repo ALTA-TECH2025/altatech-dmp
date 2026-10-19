@@ -48,6 +48,8 @@ class RetentionQuery:
     time: TimeRange
     sample: float | None = None
     raw: dict[str, Any] = field(default_factory=dict)
+    behaviors: list[Any] = field(default_factory=list)   # [([Behavior], and|or)]：行為篩選組（只作用於進同期群的用戶）
+    cohorts: list[Any] = field(default_factory=list)     # [scope.Cohort]；結果欄 cohort_name
 
     @property
     def lo(self) -> int:
@@ -117,7 +119,13 @@ def parse_retention(raw: dict[str, Any], cat: Catalog | None = None) -> Retentio
         sample = float(sample)
         if not 0 < sample < 1:
             raise ValueError("sample 必須在 (0,1)")
-    return RetentionQuery(str(raw.get("project") or "altatech_dmp"), initial, ret, model, unit, periods, bool(raw.get("include_day0")), group, filters, TimeRange(start, end, "day", now), sample, raw)
+    rq = RetentionQuery(str(raw.get("project") or "altatech_dmp"), initial, ret, model, unit, periods, bool(raw.get("include_day0")), group, filters, TimeRange(start, end, "day", now), sample, raw)
+    if raw.get("behaviors") or raw.get("cohorts"):
+        from .scope import parse_behavior_group, parse_cohorts
+        bg = parse_behavior_group(cat, raw, now, rq.time)
+        rq.behaviors = [bg] if bg else []
+        rq.cohorts = parse_cohorts(cat, raw.get("cohorts"), now, rq.time)
+    return rq
 
 
 def bucket_expr(unit: str, col: str = "e.time") -> str:
@@ -156,6 +164,10 @@ def retention_parts(rq: RetentionQuery, cat: Catalog | None = None, decision: An
     if rq.filters:
         common.append(group_sql(rq.filters, ctx))
     warnings: list[str] = []; row_filters: list[str] = []
+    if rq.behaviors:
+        from .scope import behavior_where
+        bconds, _, bw = behavior_where(rq.behaviors, rq.project, cat, decision)
+        common += bconds; warnings += bw
     if decision is not None:
         from .policy import inject
         row_filters, _, _, w = inject(decision, rq.as_query(), cat, ctx, [])
@@ -178,6 +190,9 @@ def retention_parts(rq: RetentionQuery, cat: Catalog | None = None, decision: An
 
 def compile_retention(rq: RetentionQuery, cat: Catalog | None = None, decision: Any = None, profile: str = "human") -> Compiled:
     cat = cat or Catalog()
+    if rq.cohorts:
+        from .scope import derive, with_cohorts
+        return with_cohorts(rq.cohorts, lambda c: compile_retention(derive(rq, c), cat, decision, profile), "cohort_name", ["cohort"] + (["g1"] if rq.group_by else []) + ["period"])
     parts = retention_parts(rq, cat, decision)
     gcols, ctx, warnings, row_filters, k = parts.gcols, parts.ctx, parts.warnings, parts.row_filters, parts.k
     P = rq.periods; lo = rq.lo
@@ -189,7 +204,8 @@ def compile_retention(rq: RetentionQuery, cat: Catalog | None = None, decision: 
     cols = gcols + ["period", "users", "retained", "rate"] + (["suppressed"] if k else [])
     fields = _fields(rq)
     lineage = ["dmp.events"] + (["dmp.users_dict"] if any(f.kind == "user_hot" for f in fields) else []) + (["dmp.users"] if ctx.cold else []) \
-        + (["dmp.segment_members"] if any(f.kind == "segment" for f in fields) else []) + [f"event:{b.event}" for b in (rq.initial, rq.ret) if b.event]
+        + (["dmp.segment_members"] if any(f.kind == "segment" for f in fields) else []) + [f"event:{b.event}" for b in (rq.initial, rq.ret) if b.event] \
+        + [f"event:{b.event}" for bs, _ in rq.behaviors for b in bs]
     return Compiled(sql=sql, layer="L0", columns=cols, settings=budget(profile), lineage=sorted(set(lineage)), warnings=warnings, k_anonymity=k, masked={}, row_filters=row_filters)
 
 
