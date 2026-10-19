@@ -474,6 +474,15 @@ paths:
   /v1/meta/dictionaries/{property}:
     put: { tags: [Meta], summary: '上傳字典（CSV 值→顯示名；mode=append|overwrite；只限文字／數值屬性；審計 dictionary.uploaded）', parameters: [{ name: property, in: path, required: true, schema: { type: string } }, { name: mode, in: query, schema: { type: string, enum: [append, overwrite], default: append } }], responses: { '200': { description: ok } } }
     get: { tags: [Meta], summary: '下載字典', parameters: [{ name: property, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/meta/templates/{kind}:
+    get: { tags: [Meta], summary: '下載範本（CSV，UTF-8 BOM，Excel 直接開）：kind=events 元事件、properties 事件屬性、user-properties 用戶表屬性。filled=false（預設）只有表頭與範例列（# 開頭，匯入時略過）；filled=true 附目前內容，改完可直接上傳；需 governance.view',
+           parameters: [{ name: kind, in: path, required: true, schema: { type: string, enum: [events, properties, user-properties] } }, { name: filled, in: query, schema: { type: boolean, default: false } }],
+           responses: { '200': { description: 'text/csv; charset=utf-8' } } }
+  /v1/meta/templates/{kind}/import:
+    post: { tags: [Meta], summary: '上傳範本：dry_run=true（預設）逐列預覽新增／更新／不變／錯誤，不寫入；dry_run=false 依既有規則套用（新事件建為草稿、上線事件改屬性建變更單、L4 拒絕、敏感等級只升、型別只放寬）；單次 ≤ 2,000 列、≤ 2 MB；需 governance.use；審計 meta.template.imported',
+            parameters: [{ name: kind, in: path, required: true, schema: { type: string, enum: [events, properties, user-properties] } }, { name: dry_run, in: query, schema: { type: boolean, default: true } }],
+            requestBody: { content: { application/json: { schema: { type: object, required: [csv], properties: { csv: { type: string, description: 'CSV 全文（UTF-8，可含 BOM）' } } } } } },
+            responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/TemplateImportResult' } } } }, '400': { description: 表頭不符或超過上限 } } }
   /v1/meta/virtual-properties:
     get: { tags: [Meta], summary: '虛擬屬性（表達式組合屬性與維度表欄位；查詢時計算）', responses: { '200': { description: ok } } }
     post: { tags: [Meta], summary: '建立虛擬屬性（名稱不可與既有屬性重複；表達式 ≤ 1024 字元；型別推斷與預覽）', responses: { '201': { description: created } } }
@@ -736,6 +745,14 @@ components:
         sample: { type: number, nullable: true, description: '預設 0.1（按用戶分桶）；null = 不抽樣' }
         top_n: { type: integer, default: 100, maximum: 1000 }
         time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string }, now: { type: string } } }
+    TemplateImportResult:
+      type: object
+      properties:
+        kind: { type: string }
+        applied: { type: boolean, description: false＝只是預覽 }
+        total: { type: integer }
+        summary: { type: object, properties: { create: { type: integer }, update: { type: integer }, unchanged: { type: integer }, error: { type: integer }, change_request: { type: integer } } }
+        rows: { type: array, items: { type: object, properties: { line: { type: integer, description: CSV 行號（含表頭）}, key: { type: string }, action: { type: string, enum: [create, update, unchanged, change_request, error] }, changes: { type: array, items: { type: string } }, errors: { type: array, items: { type: string } } } } }
     PathResult:
       type: object
       properties:
