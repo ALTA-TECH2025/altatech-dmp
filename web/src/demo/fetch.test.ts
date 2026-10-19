@@ -20,3 +20,14 @@ describe('示範：範本下載／上傳', () => {
     expect(r.rows).toEqual([{ line: 2, key: 'bond_order', action: 'unchanged', changes: [], errors: [] }, { line: 4, key: 'new_evt', action: 'create', changes: [], errors: [] }]);
   });
 });
+
+describe('示範：範例儀表板卡片用擷取的真實結果', () => {
+  it('固定儀表板的卡片資料不改成瀏覽器合成值', async () => {
+    const fx = (await import('./fixtures.json')).default as unknown as { routes: Record<string, unknown> };
+    const k = Object.keys(fx.routes).find((x) => /^POST \/v1\/dashboards\/d_[^/]+\/cards\/[^/]+\/data$/.test(x) && (fx.routes[x] as { card?: { kind?: string } }).card?.kind === 'events');
+    expect(k).toBeTruthy();
+    const url = k!.split(' ')[1];
+    const got = await (await demoFetch(url, { method: 'POST', body: '{}' })).json();
+    expect(got).toEqual(fx.routes[k!]);
+  });
+});

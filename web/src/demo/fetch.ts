@@ -54,7 +54,25 @@ const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj
 const now = () => new Date().toISOString().slice(0, 19) + 'Z';
 const me = (fx: Fixtures): string => String(((fx.roles[demoRole()] ?? fx.roles.admin) as { user: { id: string } }).user.id);
 const nid = (p: string) => `${p}_demo${Math.random().toString(36).slice(2, 7)}`;
+/** 同一個查詢在擷取時跑過（範例儀表板的卡片或書籤）→ 用擷取的真實結果。 */
+function capturedFor(fx: Fixtures, query: Obj): Obj | null {
+  const q = JSON.stringify(query);
+  for (const [k, v] of Object.entries(fx.routes)) {
+    const m = /^GET \/v1\/dashboards\/(d_[^/*]+)$/.exec(k);
+    for (const c of (m ? ((v as Obj).cards as Obj[] | undefined) ?? [] : [])) {
+      const hit = JSON.stringify(c.query) === q ? fx.routes[`POST /v1/dashboards/${m?.[1]}/cards/${String(c.id)}/data`] : undefined;
+      if (hit) return hit as Obj;
+    }
+  }
+  for (const bm of ((fx.routes['GET /v1/bookmarks'] as Obj[] | undefined) ?? [])) {
+    const hit = JSON.stringify(bm.query) === q ? fx.routes[`POST /v1/bookmarks/${String(bm.id)}/data`] : undefined;
+    if (hit) return hit as Obj;
+  }
+  return null;
+}
 function sampleData(fx: Fixtures, kind: string, query?: Obj): Obj | null {
+  const cap = query ? capturedFor(fx, query) : null;
+  if (cap) return cap;
   if (kind === 'events' && query) return synthEvents(query);
   if (kind === 'sql' && query) { const r = synthSql(fx, String(query.sql ?? '')); return { rows: r.rows, columns: r.columns, chart_spec: { type: 'auto' }, masked: {}, sql: r.sql_effective, lineage: r.lineage, cost: { ms: r.ms, rows: r.row_count, layer: 'L0' }, warnings: r.warnings }; }
   for (const [k, v] of Object.entries(fx.routes)) if (/^POST \/v1\/dashboards\/d_[^/]+\/cards\/[^/]+\/data$/.test(k) && (v as { card?: { kind?: string } }).card?.kind === kind) return v as Obj;
@@ -137,7 +155,7 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
     if (method === 'GET' && !id) { const fixed = (fx.routes['GET /v1/dashboards'] as Obj[] | undefined) ?? []; return { body: [...[...mem.dashboards.values()].map((x) => ({ ...x, cards: (x.cards as Obj[]).length })), ...fixed.filter((f) => !mem.dashboards.has(String(f.id)))] }; }
     if (method === 'POST' && !id) { const nd = newDash(String(b.name || '我的儀表板'), who, String((b.time as Obj | undefined)?.preset ?? '30d')); return { body: nd, status: 201 }; }
     if (!d) {
-      if (id && seg[3] === 'cards' && method === 'POST' && (fx.routes[`GET /v1/dashboards/${id}`] || fx.routes['GET /v1/dashboards/*'])) { const copy = seedCopy(fx, id); if (copy) { mem.dashboards.set(id, copy); return overlay(method, path, init, fx); } }
+      if (id && seg[3] === 'cards' && seg.length === 4 && method === 'POST' && (fx.routes[`GET /v1/dashboards/${id}`] || fx.routes['GET /v1/dashboards/*'])) { const copy = seedCopy(fx, id); if (copy) { mem.dashboards.set(id, copy); return overlay(method, path, init, fx); } }
       return null;
     }
     if (seg.length === 3 && method === 'GET') return { body: d };
