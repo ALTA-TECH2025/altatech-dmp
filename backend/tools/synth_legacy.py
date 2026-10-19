@@ -34,6 +34,7 @@ DAYS = 90
 HIST_DAYS = 30                            # deprecated 事件與流失用戶只出現在前 30 天
 SEED = 20261019
 ID_PREFIX = "v1_d"                        # 用戶 one_id 前綴（看起來像代碼化客戶代碼；重跑時以此刪除）
+# 熱門度：以冪次（2.4）偏斜到清單前段，台積電最多、VOO 最少
 SYMBOLS = [("2330", "台積電"), ("2317", "鴻海"), ("0050", "元大台灣50"), ("2454", "聯發科"), ("00878", "國泰永續高股息"), ("2881", "富邦金"),
            ("2603", "長榮"), ("2308", "台達電"), ("AAPL", "Apple"), ("NVDA", "NVIDIA"), ("TSLA", "Tesla"), ("VOO", "Vanguard S&P 500")]
 FLOWS = [   # (名稱, 步驟, 每步續行機率, 步距分鐘, 起點數占用戶數比例)
@@ -206,7 +207,7 @@ def events_sql(specs: list[dict], project: str, n_users: int, offset: int, count
             f"{_row_tail(project)} FROM (SELECT n, uidx, ev0, "
             f"if(PL[ev0][1] = '' AND uidx < {int(n_users * 0.8)} AND day >= {HIST_DAYS} AND has(LIVE, ev0) = 0, LIVE[1 + cityHash64(n, 9) % length(LIVE)], ev0) AS event, "
             f"toDateTime64(toDateTime({q(START_UTC)}, 'UTC') + day * 86400 + (HRS[1 + cityHash64(n, 4) % length(HRS)]) * 3600 + cityHash64(n, 5) % 3600, 3, 'UTC') AS t, "
-            f"PL[event][1 + cityHash64(n, 6) % length(PL[event])] AS PLAT, SYMS[1 + cityHash64(n, 102) % length(SYMS)] AS SYM, SYMNAMES[1 + cityHash64(n, 102) % length(SYMS)] AS SYMNAME, "
+            f"PL[event][1 + cityHash64(n, 6) % length(PL[event])] AS PLAT, SYMS[1 + toUInt32(floor(pow(cityHash64(n, 102) % 100000 / 100000., 2.4) * length(SYMS)))] AS SYM, SYMNAMES[1 + toUInt32(floor(pow(cityHash64(n, 102) % 100000 / 100000., 2.4) * length(SYMS)))] AS SYMNAME, "
             f"round(pow(10, 3 + 3.5 * {u(101)})) AS AMT "
             f"FROM (SELECT number AS n, toUInt64(floor(pow({u(1)}, 1.8) * {n_users})) AS uidx, BAG[1 + cityHash64(n, 2) % length(BAG)] AS ev0, "
             f"toUInt32(if(uidx >= {int(n_users * 0.8)} OR NOT has(LIVE, ev0), floor({u(3)} * {HIST_DAYS}), floor({u(3)} * {DAYS}))) AS day "
@@ -225,7 +226,7 @@ def flow_sql(specs: list[dict], project: str, n_users: int, flow: tuple, flow_no
            f"WITH {_maps(specs)}, [{', '.join(q(x) for x in steps)}] AS STEPS "
            f"{_row_tail(project)} FROM (SELECT {offset} + f * 10 + k AS n, uidx, STEPS[k + 1] AS event, "
            f"toDateTime64(toDateTime({q(START_UTC)}, 'UTC') + day * 86400 + 3600 + cityHash64(f, 5) % 50000 + k * {gap * 60} + cityHash64(f, k, 6) % {gap * 60}, 3, 'UTC') AS t, "
-           f"PL[event][1 + cityHash64(f, 6) % length(PL[event])] AS PLAT, SYMS[1 + cityHash64(f, 102) % length(SYMS)] AS SYM, SYMNAMES[1 + cityHash64(f, 102) % length(SYMS)] AS SYMNAME, "
+           f"PL[event][1 + cityHash64(f, 6) % length(PL[event])] AS PLAT, SYMS[1 + toUInt32(floor(pow(cityHash64(f, 102) % 100000 / 100000., 2.4) * length(SYMS)))] AS SYM, SYMNAMES[1 + toUInt32(floor(pow(cityHash64(f, 102) % 100000 / 100000., 2.4) * length(SYMS)))] AS SYMNAME, "
            f"round(pow(10, 3 + 3.5 * {u(101)})) AS AMT "
            f"FROM (SELECT number AS f, toUInt64(floor(pow({u(1)}, 1.5) * {int(n_users * 0.8)})) AS uidx, toUInt32(floor({u(3)} * {DAYS - 1})) AS day, "
            f"toUInt32(floor(log({u(7)} + 1e-9) / log({p}))) AS reach FROM numbers({starts})) ARRAY JOIN range(least(reach + 1, length(STEPS))) AS k)")

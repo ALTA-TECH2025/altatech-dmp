@@ -15,9 +15,11 @@ describe('事件分析序列', () => {
     expect(s[0].points.map((p) => p.x)).toEqual(['2026-10-01', '2026-10-02']);
     expect(s[1].points[0]).toEqual({ x: '2026-10-01', y: null, suppressed: true });
   });
-  it('total 粒度：x = 分組值', () => {
-    const s = toSeries(res([{ g1: 'A', m1: 1 }, { g1: 'B', m1: 2 }], ['g1', 'm1']), ['m1']);
-    expect(s.map((x) => x.points[0].x)).toEqual(['A', 'B']);
+  it('total 粒度：一個指標一條序列，分組值在類別軸、照結果順序（Top N）', () => {
+    const s = toSeries(res([{ g1: 'B', m1: 2 }, { g1: 'A', m1: 1 }], ['g1', 'm1']), ['m1', 'm2'], { m1: '次數' });
+    expect(s.map((x) => x.label)).toEqual(['次數', 'm2']);
+    expect(s[0].points.map((p) => [p.x, p.y])).toEqual([['B', 2], ['A', 1]]);
+    expect(toSeries(res([{ m1: 7 }], ['m1']), ['m1'])[0].points[0].x).toBe('合計');
   });
   it('類別色固定順序且不循環；刻度從 0 起算；數字格式', () => {
     expect(seriesColor(0)).toBe('var(--s1)'); expect(seriesColor(9)).toBe('var(--s8)');

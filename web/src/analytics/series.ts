@@ -9,21 +9,22 @@ export function groupLabel(r: EventsRow): string {
   return GROUP_COLS.filter((g) => g in r).map((g) => (r[g] === null || r[g] === undefined || r[g] === '' ? '（未填）' : String(r[g]))).join(' · ');
 }
 
-/** 指標別名 × 分組值 → 一條序列；x = bucket（total 粒度時 x = 分組值，一個點）。 */
+/** 有時間軸：指標 × 分組值 → 一條序列，x = bucket（依時間排序）。
+ *  合計粒度：一個指標一條序列，x = 分組值、照結果順序（Top N 由大到小），分組值放在類別軸而不是各自成一條序列。 */
 export function toSeries(res: EventsResult, metricAliases: string[], labels: Record<string, string> = {}): Series[] {
   const out = new Map<string, Series>();
   const hasBucket = res.columns.includes('bucket');
   for (const r of res.rows) {
     const g = groupLabel(r);
     for (const m of metricAliases) {
-      const key = `${m}|${g}`;
-      if (!out.has(key)) out.set(key, { key, label: [labels[m] ?? m, g].filter(Boolean).join(' · '), metric: m, group: g, points: [] });
+      const key = hasBucket ? `${m}|${g}` : m;
+      if (!out.has(key)) out.set(key, { key, label: hasBucket ? [labels[m] ?? m, g].filter(Boolean).join(' · ') : (labels[m] ?? m), metric: m, group: hasBucket ? g : '', points: [] });
       const v = r[m];
       const n = typeof v === 'number' ? v : v === null || v === undefined ? null : Number(v);
       out.get(key)!.points.push({ x: hasBucket ? String(r.bucket) : g || '合計', y: n === null || Number.isFinite(n) ? n : null, suppressed: Boolean(r.suppressed) });   // 遮罩後的分桶字串（≥5000000）畫不出數值 → 空點，請看表格
     }
   }
-  for (const s of out.values()) s.points.sort((a, b) => (a.x < b.x ? -1 : a.x > b.x ? 1 : 0));
+  if (hasBucket) for (const s of out.values()) s.points.sort((a, b) => (a.x < b.x ? -1 : a.x > b.x ? 1 : 0));
   return Array.from(out.values());
 }
 
