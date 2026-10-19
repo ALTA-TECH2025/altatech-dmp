@@ -42,8 +42,10 @@ FLOWS = [   # (名稱, 步驟, 每步續行機率, 步距分鐘, 起點數占用
     ("sip", ["viewProduct", "Purchase", "PurchaseSend", "PurchaseComfirm", "PurchaseComplete"], 0.6, 2, 0.12),
     ("gift_card", ["buy_now", "begin_checkout", "add_payment_info", "gift_card_purchase", "gift_card_payment"], 0.62, 2, 0.03),
     ("richclub", ["richclub_lesson_page_view", "richclub_register_click", "richclub_order_confirm", "richclub_register_confirm"], 0.55, 2, 0.04),
+    ("app_session", ["app_login_success", "$AppViewScreen", "hq_stockdetail_view", "$AppClick", "bond_order"], 0.75, 1, 0.5),   # 登入後的同一個會話（路徑分析）
 ]
 PLATFORM = {"JavaScript": "Web", "iOS": "iOS", "Android": "Android"}
+TRADE_CHANNEL = ("bond_order", "bond_deal")
 
 # ---- 屬性值產生碼（SQL 端以 multiIf 展開；h = cityHash64(n, 屬性序號, SEED)）----
 C_STR, C_AMT, C_QTY, C_PRICE, C_BOOL, C_DT, C_TOKEN, C_MARKET, C_SIDE, C_CCY, C_SYMBOL, C_BRANCH, C_BUTTON, C_PLATFORM, C_NUM, C_LIST, C_FEE, C_STOCKNAME, C_PRODUCT, C_POOL = range(20)
@@ -145,7 +147,9 @@ def event_specs(events: list[dict], props: dict[str, dict], types: dict[tuple[st
             keys.append((k, prop_code(k, types.get((e["name"], k), ""), dec)))
         src = e.get("source", ""); grp = e.get("group", ""); name = e["name"]
         plats = [PLATFORM[p] for p in str(e.get("platforms", "")).split(",") if p.strip() in PLATFORM]
-        if not src.startswith("GA360"):
+        if name in TRADE_CHANNEL:
+            plats = ["iOS", "Android", "Web", "iOS", "Android", ""]   # 委託／成交雖由數據中台批次導入，仍帶下單管道（空白＝營業員）
+        elif not src.startswith("GA360"):
             plats = [""]                                              # 批次／服務端／MA：沒有前端平台
         w = 2.0 if src.startswith("GA360") else 1.5 if src.startswith("MA") or src.startswith("LINE") else 1.0 if src == "業務系統" else 1.0
         w = {"$pageview": 60, "$AppViewScreen": 80, "$AppClick": 40, "$WebClick": 30, "$AppStart": 30, "$AppEnd": 25, "app_login_success": 25, "Login": 20,
@@ -184,7 +188,7 @@ def _row_tail(project: str) -> str:
             f"if(FL[event].3 = 'account', 'account', 'user') AS entity_type, '' AS entity_id, one_id AS distinct_id, concat(one_id, '_', toString(toDate(t, 'Asia/Taipei'))) AS session_id, "
             f"concat('sd', toString(n)) AS event_id, PLAT AS platform, '' AS app_id, if(FL[event].1 = 1, SYM, '') AS symbol, "
             f"if(event IN ('bond_order', 'bond_deal') OR FL[event].1 = 1, ['B', 'S'][1 + cityHash64(n, 77) % 2], '') AS side, "
-            f"multiIf(PLAT = 'Web', 'web', PLAT IN ('iOS', 'Android'), 'app', '') AS channel, if(FL[event].2 = 1, AMT, NULL) AS amount, "
+            f"multiIf(PLAT = 'Web', 'web', PLAT IN ('iOS', 'Android'), 'app', event IN {TRADE_CHANNEL}, 'agent', '') AS channel, if(FL[event].2 = 1, AMT, NULL) AS amount, "
             f"if(event IN ('$pageview', 'Login', 'app_login_success'), ['google', 'facebook', 'line', 'edm', '', '', ''][1 + cityHash64(n, 78) % 7], '') AS utm_source, '' AS utm_campaign, "
             f"{props}::JSON AS props, now64(3) AS ingest_time, 1 AS schema_version, 0 AS late, 'synth_sensors' AS batch_id")
 
@@ -314,6 +318,7 @@ def main() -> int:
     ap.add_argument("--users", type=int, default=1_000_000); ap.add_argument("--events", type=int, default=30_000_000)
     ap.add_argument("--project", default="sinopac_demo"); ap.add_argument("--sql", action="store_true")
     ap.add_argument("--compact", action="store_true", help="單機開檔數上限低時改用 compact part（只改本機表設定）")
+    ap.add_argument("--flows-only", default="", help="只追加指定流程（逗號分隔，例 app_session），不刪既有資料")
     a = ap.parse_args()
     if a.sql:
         events, props, types, users = load_inputs(); specs = event_specs(events, props, types)
@@ -323,6 +328,14 @@ def main() -> int:
         return 0
     from ..integration.runner import ClickHouseHTTP
     ch = ClickHouseHTTP(os.environ.get("CLICKHOUSE_URL", "http://127.0.0.1:8123"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), timeout=3600)
+    if a.flows_only:
+        events, props, types, _ = load_inputs(); specs = event_specs(events, props, types)
+        for i, fl in enumerate(f for f in FLOWS if f[0] in a.flows_only.split(",")):
+            sql, starts = flow_sql(specs, a.project, a.users, fl, i, 9_000_000_000 + i * 100_000_000)   # 與主流程的列號錯開（event_id 唯一）
+            ch.query(sql, settings={"allow_experimental_json_type": 1, "max_execution_time": 3600, "max_query_size": 50_000_000, "max_ast_elements": 5_000_000,
+                                    "max_expanded_ast_elements": 5_000_000, "max_insert_threads": 4})
+            print(f"flow {fl[0]} starts={starts:,}")
+        return 0
     print(json.dumps(run(ch, a.project, a.users, a.events, compact=a.compact), ensure_ascii=False))
     return 0
 

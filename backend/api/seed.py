@@ -153,7 +153,7 @@ def _put_dashboard(store: MemoryStore, owner: str, id_: str, name: str, descript
 
 def seed_dashboard(store: MemoryStore, owner: str) -> str:
     """範例看板：債券業務日報 + 四個情境看板。重跑 seed 會以程式裡的規格重建卡片（範例看板不保留使用者改動；自建看板不受影響）。回傳第一個 id。"""
-    specs = [("d_seed_bond", "債券業務日報（範例）", "黃金資料集（合成）：成交、漏斗、留存、路徑、歸因各一張；區間釘在 2026-10-01 … 10-16。", SAMPLE_CARDS)] + [(sd["id"], sd["name"], sd["description"], sd["cards"]) for sd in SCENARIO_DASHBOARDS]
+    specs = [("d_seed_bond", "債券業務日報（範例）", ("100 萬人模擬資料（依神策埋點規格合成）" if CARD_PROJECT != PROJECT else "黃金資料集（合成）") + "：成交、漏斗、留存、路徑、歸因各一張；區間釘在 2026-10-01 … 10-16。", SAMPLE_CARDS)] + [(sd["id"], sd["name"], sd["description"], sd["cards"]) for sd in SCENARIO_DASHBOARDS]
     for id_, name, desc, cards in specs:
         _put_dashboard(store, owner, id_, name, desc, cards)
     return "d_seed_bond"
