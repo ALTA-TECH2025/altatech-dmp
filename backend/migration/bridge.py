@@ -108,7 +108,9 @@ def build():
         src = ev.get('source', '')
         in_ga = src in GA_SOURCES
         g, kind, note = ga4_event(ev)
-        if src in HISTORY_ONLY_SOURCES:
+        if ev.get('status') == 'deprecated':     # 已停用／過期活動：不給 GA 導入商埋，只匯入神策歷史
+            kind, note = 'history_only', '已停用（status=deprecated）：不埋 GA，只匯入神策歷史'
+        elif src in HISTORY_ONLY_SOURCES:
             kind, note = 'history_only', f'來源「{src}」：新 MA 工具／LINE 不在本案範圍，只匯入神策歷史，T0 後無新資料'
         elif not in_ga:
             kind, note = 'not_ga', f'來源「{src}」不經 GA；由對應接入（數據中台／渠道回傳／短鏈）直接寫入正式事件名'
@@ -121,6 +123,7 @@ def build():
             params.append(f'{gp}' if pk == 'custom' else f'{p}→{gp}')
             if pk == 'custom' and len(gp) > LIMITS['param_name_len']:
                 issues.append((ev['name'], f'參數 {p} 轉換後超過 {LIMITS["param_name_len"]} 字元'))
+        in_ga = in_ga and kind != 'history_only'
         if in_ga and len([p for p in props if p not in PRESET_PROPS]) > LIMITS['params_per_event']:
             issues.append((ev['name'], f'自訂參數 > {LIMITS["params_per_event"]} 個，需合併或改 user property'))
         if in_ga:
@@ -183,6 +186,8 @@ def main():
     assert all(len(r['ga4_event']) <= LIMITS['event_name_len'] and re.fullmatch(r'[a-z][a-z0-9_]*', r['ga4_event']) for r in ga), '事件名不合 GA4 規則'
     assert len({r['ga4_event'] for r in ga}) == len(ga), 'GA4 事件名碰撞'
     assert not any(r['ga4_event'] in RESERVED_EVENTS and r['kind'] == 'custom' for r in ga)
+    dep = {e['name'] for e in yaml.safe_load(EVENTS_YAML.read_text(encoding='utf-8'))['events'] if e.get('status') == 'deprecated'}
+    assert all(r['kind'] == 'history_only' for r in rows if r['sensors_event'] in dep), '已停用事件不可列入 GA 埋點'
     if '--check' not in sys.argv:
         write(rows, up_rows, issues)
         print(f'wrote {OUT_CSV.relative_to(ROOT.parent)} and {OUT_YAML.relative_to(ROOT.parent)}')
