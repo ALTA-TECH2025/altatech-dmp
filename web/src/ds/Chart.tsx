@@ -1,15 +1,15 @@
-// 圖表：ECharts（Apache 軟體基金會治理，Apache-2.0）。只載入用到的圖型與元件（bar／line／sankey、grid／tooltip／legend）、SVG 渲染；配色與深淺色跟 app.css 的 token 走。
+// 圖表：ECharts（Apache 軟體基金會治理，Apache-2.0）。只載入用到的圖型與元件（bar／line／pie／sankey、grid／tooltip／legend）、SVG 渲染；配色與深淺色跟 app.css 的 token 走。
 import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts/core';
-import { BarChart, LineChart, SankeyChart } from 'echarts/charts';
+import { BarChart, LineChart, PieChart, SankeyChart } from 'echarts/charts';
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
 import { SVGRenderer } from 'echarts/renderers';
 import type { ComposeOption, ECharts } from 'echarts/core';
-import type { BarSeriesOption, LineSeriesOption, SankeySeriesOption } from 'echarts/charts';
+import type { BarSeriesOption, LineSeriesOption, PieSeriesOption, SankeySeriesOption } from 'echarts/charts';
 import type { GridComponentOption, LegendComponentOption, TooltipComponentOption } from 'echarts/components';
 
-echarts.use([BarChart, LineChart, SankeyChart, GridComponent, LegendComponent, TooltipComponent, SVGRenderer]);
-export type ChartOption = ComposeOption<BarSeriesOption | LineSeriesOption | SankeySeriesOption | GridComponentOption | LegendComponentOption | TooltipComponentOption>;
+echarts.use([BarChart, LineChart, PieChart, SankeyChart, GridComponent, LegendComponent, TooltipComponent, SVGRenderer]);
+export type ChartOption = ComposeOption<BarSeriesOption | LineSeriesOption | PieSeriesOption | SankeySeriesOption | GridComponentOption | LegendComponentOption | TooltipComponentOption>;
 export type ChartEvent = { componentType?: string; dataType?: string; name?: string; value?: unknown; data?: unknown; seriesName?: string; dataIndex?: number };
 
 export function cssVar(name: string, fallback = ''): string { if (typeof document === 'undefined') return fallback; const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim(); return v || fallback; }
