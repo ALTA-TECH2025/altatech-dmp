@@ -5,6 +5,7 @@ import { Alert, Box, Button, Code, Group, NativeSelect, Paper, SimpleGrid, Table
 import { api, ApiError } from '@/api/client';
 import { shareSeries } from '@/analytics/AttributionPage';
 import { FunnelChart } from '@/analytics/FunnelChart';
+import { summarize } from '@/analytics/funnel';
 import { LineChart } from '@/analytics/LineChart';
 import { PathChart } from '@/analytics/PathChart';
 import { RetentionMatrix } from '@/analytics/RetentionPage';
@@ -99,7 +100,8 @@ function CardBody({ card, data, k, labelOf }: { card: DashboardCard; data: CardD
   }
   if (card.kind === 'funnel') {
     const g = firstGroup(data.rows as unknown as FunnelRow[]);
-    return <>{g.groups > 1 && <Text size="sm" c="dimmed" mb="xs">共 {g.groups} 組，只顯示 {g.key}；完整請到漏斗分析。</Text>}<FunnelChart rows={g.rows} k={k} /></>;
+    const s = summarize(g.rows)[0];
+    return <>{g.groups > 1 && <Text size="sm" c="dimmed" mb="xs">共 {g.groups} 組，只顯示 {g.key}；完整請到漏斗分析。</Text>}{s && <Text size="sm" mb="xs">總轉化率 <b>{s.total_rate === null ? '—' : `${(s.total_rate * 100).toFixed(2)}%`}</b></Text>}<FunnelChart rows={s?.steps ?? []} k={k} maxDropStep={s?.max_drop_step} /></>;
   }
   if (card.kind === 'retention') {
     const rows = data.rows as unknown as RetentionRow[];

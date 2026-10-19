@@ -1,18 +1,22 @@
 // 漏斗分析：步驟（事件 + 篩選）、窗口、順序、關聯屬性（業務 ID）、口徑、分組、趨勢、時間 → POST /v1/analytics/funnel。
-// 圖：自繪 SVG 漏斗（每步一條橫柱，寬度 = 相對第一步）；表：人數、相對上一步、相對第一步；SQL 可展開；K 匿名抑制列以「< K」顯示。設計系統元件組合。
+// 結果：轉化步驟（總轉化率、每步到達／流失、最大流失標記、明細表）與轉化趨勢（總轉化率折線＋每桶明細）；每步可加多條件篩選；SQL 可展開；K 匿名抑制列以「< K」顯示。設計系統元件組合。
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ActionIcon, Alert, Badge, Button, Code, Group, List, NativeSelect, Paper, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Alert, Badge, Button, Code, Group, List, NativeSelect, Paper, SegmentedControl, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
 import { SaveCardButton } from '@/dashboards/SaveCardButton';
 import { useBookmarkOpen } from '@/dashboards/useBookmarkOpen';
-import { Mono, PageHeader, SectionTitle } from '@/ds';
+import { Mono, PageHeader, SectionTitle, StatTile } from '@/ds';
 import { DateRangeInput } from '@/ds/DateRange';
-import type { Segment } from '@/users/types';
+import { GroupEditor } from '@/users/RuleBuilder';
+import { emptyCond, eventFields, groupOk, pruneGroup, toGroup } from '@/users/rule';
+import type { CondGroup, Segment } from '@/users/types';
 import { filterFieldsOf } from './EventsPage';
+import { funnelCsv, pct, summarize, trend } from './funnel';
 import { FunnelChart } from './FunnelChart';
+import { LineChart } from './LineChart';
 import { ScopeEditor, cleanScope, scopeOk } from './ScopeEditor';
 import type { Catalog, FunnelQuery, FunnelResult, FunnelStep } from './types';
 
@@ -37,6 +41,8 @@ function FunnelInner() {
   const [sent, setSent] = useState<FunnelQuery | null>(null);
   const bm = useBookmarkOpen<typeof q>('funnel', setQ);
   const [segments, setSegments] = useState<{ id: string; name: string }[]>([]);
+  const [view, setView] = useState<'steps' | 'trend'>('steps');
+  const evFields = useMemo(() => eventFields(cat), [cat]);
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
   useEffect(() => { if (can('segments', 'view')) api.get<Segment[]>('/v1/segments').then((s) => setSegments(s.filter((x) => x.status === 'active' || x.status === 'draft').map((x) => ({ id: x.id, name: x.name })))).catch(() => setSegments([])); }, [can]);
   const scopeFields = useMemo(() => filterFieldsOf(cat), [cat]);
@@ -44,19 +50,24 @@ function FunnelInner() {
   const setStep = (i: number, s: Partial<FunnelStep>) => setQ({ ...q, steps: q.steps.map((x, j) => (j === i ? { ...x, ...s } : x)) });
   const run = async () => {
     setBusy(true); setErr(null);
-    try { const body = { ...q, ...cleanScope(q) }; setRes(await api.post<FunnelResult>('/v1/analytics/funnel', body)); setSent(body); }
+    try { const body = { ...q, steps: q.steps.map((s) => ({ ...s, filters: pruneGroup(toGroup(s.filters as CondGroup | undefined)) })), ...cleanScope(q) }; setRes(await api.post<FunnelResult>('/v1/analytics/funnel', body)); setSent(body); setView(q.trend ? 'trend' : 'steps'); }
     catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); }
     finally { setBusy(false); }
   };
   useEffect(() => { if (bm.pending && cat) { bm.done(); void run(); } // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bm.pending, cat]);
-  const ready = q.steps.length >= 2 && q.steps.every((s) => s.event) && scopeOk(q);
-  const groups = useMemo(() => {
-    if (!res) return [];
-    const keys = new Map<string, FunnelResult['rows']>();
-    for (const r of res.rows) { const k = `${r.cohort ?? ''}|${r.bucket ?? ''}|${r.g1 ?? ''}`; keys.set(k, [...(keys.get(k) ?? []), r]); }
-    return Array.from(keys.entries());
-  }, [res]);
+  const ready = q.steps.length >= 2 && q.steps.every((s) => s.event && groupOk(toGroup(s.filters as CondGroup | undefined))) && scopeOk(q);
+  const summaries = useMemo(() => (res ? summarize(res.rows) : []), [res]);
+  const trendRows = useMemo(() => (res && sent?.trend ? trend(res.rows) : []), [res, sent]);
+  const trendSeries = useMemo(() => Array.from(new Set(trendRows.map((t) => t.key))).map((key) => ({ key: key || 'all', label: key || '總轉化率', metric: 'rate', group: key, points: trendRows.filter((t) => t.key === key).map((t) => ({ x: t.bucket, y: t.total_rate === null ? null : t.total_rate * 100, suppressed: t.total_rate === null })) })), [trendRows]);
+  const copyCsv = () => {
+    if (!res) return;
+    const stepNames = (sent?.steps ?? q.steps).map((s, i) => s.alias || s.event || `步驟 ${i + 1}`);
+    const text = view === 'trend'
+      ? funnelCsv(['組', '時間', '總轉化率', ...stepNames.flatMap((n) => [n, `${n} 相對上一步`])], trendRows.map((t) => [t.key, t.bucket, t.total_rate, ...t.users.flatMap((u, i) => [u, t.rate_prev[i]])]))
+      : funnelCsv(['組', '步驟', '事件', '人數', '相對上一步', '相對第一步', '流失', '流失率'], summaries.flatMap((s) => s.steps.map((x) => [s.key, `${x.step}. ${x.alias}`, x.event, x.suppressed ? `< ${k}` : x.users, x.rate_prev, x.rate_first, x.lost, x.lost_rate])));
+    void navigator.clipboard?.writeText(text);
+  };
   const k = me?.scope.k_anonymity ?? 20;
   const dimOptions = dedupe(cat ? [...cat.event_columns.filter((c) => c.name !== 'amount' && c.name !== '$event_hour').map((c) => ({ v: c.name, cn: c.cn })), ...cat.dimensions.map((d) => ({ v: d.name, cn: d.cn })), ...cat.user_props.filter((u) => u.groupable).map((u) => ({ v: `user.${u.key}`, cn: `用戶：${u.cn}` }))] : []);
   const eventOpts = [opt('', '選事件…'), ...(cat?.events ?? []).map((ev) => opt(ev.name, `${ev.cn}（${ev.name}）`))];
@@ -71,13 +82,16 @@ function FunnelInner() {
                 <SectionTitle title="步驟" right={q.steps.length < 10 && <Button size="compact-sm" variant="subtle" onClick={() => setQ({ ...q, steps: [...q.steps, { event: '' }] })}>＋ 步驟</Button>} />
                 <Stack gap="xs">
                   {q.steps.map((s, i) => (
-                    <Group gap="xs" wrap="wrap" key={i}>
-                      <Badge color="brand" variant="filled" circle>{i + 1}</Badge>
-                      <NativeSelect style={{ flex: 1, minWidth: 200 }} value={s.event} onChange={(e) => setStep(i, { event: e.target.value })} aria-label={`第 ${i + 1} 步事件`} data={eventOpts} />
-                      <TextInput w={120} placeholder="別名" value={s.alias ?? ''} onChange={(e) => setStep(i, { alias: e.target.value })} />
-                      <StepFilter cat={cat} step={s} onChange={(f) => setStep(i, { filters: f })} />
-                      {q.steps.length > 2 && <ActionIcon color="red" aria-label={`刪除第 ${i + 1} 步`} onClick={() => setQ({ ...q, steps: q.steps.filter((_, j) => j !== i) })}>✕</ActionIcon>}
-                    </Group>
+                    <Stack gap={4} key={i}>
+                      <Group gap="xs" wrap="wrap">
+                        <Badge color="brand" variant="filled" circle>{i + 1}</Badge>
+                        <NativeSelect style={{ flex: 1, minWidth: 200 }} value={s.event} onChange={(e) => setStep(i, { event: e.target.value })} aria-label={`第 ${i + 1} 步事件`} data={eventOpts} />
+                        <TextInput w={120} placeholder="別名" value={s.alias ?? ''} onChange={(e) => setStep(i, { alias: e.target.value })} />
+                        {!toGroup(s.filters as CondGroup | undefined).items.length && <Button size="compact-sm" variant="subtle" onClick={() => setStep(i, { filters: { op: 'and', items: [emptyCond()] } })}>＋ 篩選</Button>}
+                        {q.steps.length > 2 && <ActionIcon color="red" aria-label={`刪除第 ${i + 1} 步`} onClick={() => setQ({ ...q, steps: q.steps.filter((_, j) => j !== i) })}>✕</ActionIcon>}
+                      </Group>
+                      {toGroup(s.filters as CondGroup | undefined).items.length > 0 && <Paper p="xs" radius="md" shadow="none" bg="var(--soft)" ml={28} className="rb"><GroupEditor g={toGroup(s.filters as CondGroup | undefined)} fields={evFields} cat={cat} label={`第 ${i + 1} 步篩選 `} onChange={(ng) => setStep(i, { filters: ng })} /></Paper>}
+                    </Stack>
                   ))}
                 </Stack>
               </div>
@@ -111,22 +125,49 @@ function FunnelInner() {
         {res && (
           <>
             {res.warnings.length > 0 && <Text size="sm" c="dimmed">{res.warnings.join('；')}</Text>}
-            {groups.map(([key, rows]) => (
-              <Paper key={key}>
-                <SectionTitle title={key.split('|').filter(Boolean).join(' · ') || '整體'}><Text size="xs" c="dimmed">{res.cost.ms} ms · {res.cost.layer}</Text></SectionTitle>
-                <FunnelChart rows={rows} k={k} />
-                <Table.ScrollContainer minWidth={560} mt="sm">
+            <Group gap="xs" wrap="wrap">
+              <SegmentedControl size="xs" value={view} onChange={(v) => setView(v as 'steps' | 'trend')} data={[{ value: 'steps', label: '轉化步驟' }, { value: 'trend', label: '轉化趨勢', disabled: !sent?.trend }]} />
+              <Button size="compact-xs" variant="subtle" onClick={copyCsv}>複製 CSV</Button>
+              <Text size="xs" c="dimmed">{res.cost.ms} ms · {res.cost.layer}{sent?.trend ? '' : ' · 要看轉化趨勢請在「趨勢」選按日／週／月'}</Text>
+            </Group>
+            {view === 'steps' && summaries.map((s) => (
+              <Paper key={s.key}>
+                <SectionTitle title={s.key || '整體'} />
+                <SimpleGrid cols={{ base: 2, sm: 4 }} mb="sm">
+                  <StatTile label="總轉化率" value={s.total_rate === null ? '—' : `${(s.total_rate * 100).toFixed(2)}%`} hint={`第 1 步 → 第 ${s.steps.length} 步`} />
+                  <StatTile label={q.metric === 'times' ? '進入流程數' : '進入人數'} value={s.steps[0]?.suppressed ? `< ${k}` : (s.steps[0]?.users ?? 0).toLocaleString()} />
+                  <StatTile label="最終到達" value={s.steps[s.steps.length - 1]?.suppressed ? `< ${k}` : (s.steps[s.steps.length - 1]?.users ?? 0).toLocaleString()} />
+                  <StatTile label="最大流失" value={s.max_drop_step === null ? '—' : pct(s.max_drop_rate)} hint={s.max_drop_step === null ? undefined : `第 ${s.max_drop_step - 1} → ${s.max_drop_step} 步`} />
+                </SimpleGrid>
+                <FunnelChart rows={s.steps} k={k} maxDropStep={s.max_drop_step} />
+                <Table.ScrollContainer minWidth={640} mt="sm">
                   <Table>
-                    <Table.Thead><Table.Tr><Table.Th>步驟</Table.Th><Table.Th>事件</Table.Th><Table.Th ta="right">{q.metric === 'times' ? '流程數' : '用戶數'}</Table.Th><Table.Th ta="right">相對上一步</Table.Th><Table.Th ta="right">相對第一步</Table.Th>{can('users', 'use') && <Table.Th>用戶</Table.Th>}</Table.Tr></Table.Thead>
-                    <Table.Tbody>{rows.map((r) => (
-                      <Table.Tr key={r.step}><Table.Td>{r.step}. {r.alias}</Table.Td><Table.Td><Text size="xs" c="dimmed" ff="monospace">{r.event}</Text></Table.Td>
+                    <Table.Thead><Table.Tr><Table.Th>步驟</Table.Th><Table.Th>事件</Table.Th><Table.Th ta="right">{q.metric === 'times' ? '流程數' : '到達人數'}</Table.Th><Table.Th ta="right">相對上一步</Table.Th><Table.Th ta="right">相對第一步</Table.Th><Table.Th ta="right">流失</Table.Th><Table.Th ta="right">流失率</Table.Th>{can('users', 'use') && <Table.Th>用戶</Table.Th>}</Table.Tr></Table.Thead>
+                    <Table.Tbody>{s.steps.map((r) => (
+                      <Table.Tr key={r.step} style={s.max_drop_step === r.step ? { background: 'var(--mantine-color-red-light)' } : undefined}><Table.Td>{r.step}. {r.alias}</Table.Td><Table.Td><Text size="xs" c="dimmed" ff="monospace">{r.event}</Text></Table.Td>
                         <Table.Td ta="right"><Mono>{r.suppressed ? `< ${k}` : (r.users ?? 0).toLocaleString()}</Mono></Table.Td>
                         <Table.Td ta="right"><Mono>{pct(r.rate_prev)}</Mono></Table.Td><Table.Td ta="right"><Mono>{pct(r.rate_first)}</Mono></Table.Td>
-                        {can('users', 'use') && <Table.Td><Group gap={4}>{(['reached', 'lost'] as const).filter((m) => m === 'reached' || r.step > 1).map((m) => <Button key={m} size="compact-sm" variant="subtle" onClick={() => nav('/users', { state: { source: { type: 'funnel', query: q, step: r.step, reached: m === 'reached', bucket: r.bucket, group: r.g1, label: `漏斗「${q.steps.map((st) => st.alias || st.event).join(' → ')}」第 ${r.step} 步${m === 'reached' ? '到達' : '流失'}${r.bucket ? `（${r.bucket}）` : ''}${r.g1 != null ? ` · ${r.g1}` : ''}` } } })}>{m === 'reached' ? '到達' : '流失'}</Button>)}</Group></Table.Td>}</Table.Tr>))}</Table.Tbody>
+                        <Table.Td ta="right"><Mono>{r.lost === null ? '—' : r.lost.toLocaleString()}</Mono></Table.Td><Table.Td ta="right"><Mono>{pct(r.lost_rate)}</Mono></Table.Td>
+                        {can('users', 'use') && <Table.Td><Group gap={4}>{(['reached', 'lost'] as const).filter((m) => m === 'reached' || r.step > 1).map((m) => <Button key={m} size="compact-sm" variant="subtle" onClick={() => nav('/users', { state: { source: { type: 'funnel', query: { ...q, trend: undefined, cohorts: undefined }, step: r.step, reached: m === 'reached', group: s.key.includes(' · ') ? s.key.split(' · ').pop() : (q.group_by?.length ? s.key : undefined), label: `漏斗「${q.steps.map((st) => st.alias || st.event).join(' → ')}」第 ${r.step} 步${m === 'reached' ? '到達' : '流失'}${s.key ? ` · ${s.key}` : ''}` } } })}>{m === 'reached' ? '到達' : '流失'}</Button>)}</Group></Table.Td>}</Table.Tr>))}</Table.Tbody>
                   </Table>
                 </Table.ScrollContainer>
               </Paper>
             ))}
+            {view === 'trend' && (
+              <Paper>
+                <SectionTitle title="總轉化率趨勢"><Text size="xs" c="dimmed">每桶 = 該期間做第一步的用戶，之後在窗口內走到最後一步的比例</Text></SectionTitle>
+                <LineChart series={trendSeries} kind="line" format="pct2" height={260} />
+                <Table.ScrollContainer minWidth={720} mt="sm">
+                  <Table>
+                    <Table.Thead><Table.Tr>{trendRows.some((t) => t.key) && <Table.Th>組</Table.Th>}<Table.Th>時間</Table.Th><Table.Th ta="right">總轉化率</Table.Th>{(sent?.steps ?? q.steps).map((st, i) => <Table.Th key={i} ta="right">{i + 1}. {st.alias || st.event}{i > 0 ? '（相對上一步）' : ''}</Table.Th>)}</Table.Tr></Table.Thead>
+                    <Table.Tbody>{trendRows.map((t) => (
+                      <Table.Tr key={`${t.key}|${t.bucket}`}>{trendRows.some((x) => x.key) && <Table.Td>{t.key}</Table.Td>}<Table.Td><Mono>{t.bucket}</Mono></Table.Td><Table.Td ta="right"><Mono>{pct(t.total_rate, 2)}</Mono></Table.Td>
+                        {t.users.map((u, i) => <Table.Td key={i} ta="right"><Mono>{u === null ? `< ${k}` : u.toLocaleString()}</Mono>{i > 0 && <Text size="xs" c="dimmed" ta="right">{pct(t.rate_prev[i])}</Text>}</Table.Td>)}
+                      </Table.Tr>))}</Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
+              </Paper>
+            )}
             {showSql && <Paper><SectionTitle title="SQL"><Text size="xs" c="dimmed">{res.lineage.join(' · ')}</Text></SectionTitle><Code block>{res.sql}</Code></Paper>}
           </>
         )}
@@ -138,18 +179,3 @@ function FunnelInner() {
 /** 事件欄位與 dimensions.yaml 可能指到同一欄（platform、channel、symbol）：以第一個為準。 */
 export function dedupe<T extends { v: string }>(xs: T[]): T[] { const seen = new Set<string>(); return xs.filter((x) => (seen.has(x.v) ? false : (seen.add(x.v), true))); }
 
-const pct = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${(v * 100).toFixed(1)}%`);
-
-function StepFilter({ cat, step, onChange }: { cat: Catalog | null; step: FunnelStep; onChange: (f: FunnelStep['filters']) => void }) {
-  const f = step.filters?.[0];
-  const fields = dedupe(cat ? [...cat.event_columns.map((c) => ({ v: c.name, cn: c.cn, type: c.type ?? 'string' })), ...cat.dimensions.map((d) => ({ v: d.name, cn: d.cn, type: d.type }))] : []);
-  const cur = fields.find((x) => x.v === f?.field);
-  const ops = cat ? cat.ops[cur?.type === 'number' ? 'number' : 'string'] : [];
-  return (
-    <Group gap={4} wrap="wrap">
-      <NativeSelect w={140} value={f?.field ?? ''} aria-label="篩選欄位" data={[opt('', '無篩選'), ...fields.map((x) => opt(x.v, x.cn))]} onChange={(e) => onChange(e.target.value ? [{ field: e.target.value, op: 'eq', value: '' }] : undefined)} />
-      {f && <NativeSelect w={100} value={f.op} aria-label="運算子" data={ops.map((o) => opt(o, o))} onChange={(e) => onChange([{ ...f, op: e.target.value }])} />}
-      {f && !['set', 'nset'].includes(f.op) && <TextInput w={110} aria-label="值" value={String(f.value ?? '')} onChange={(e) => onChange([{ ...f, value: cur?.type === 'number' ? Number(e.target.value) : e.target.value }])} />}
-    </Group>
-  );
-}

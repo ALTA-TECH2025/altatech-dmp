@@ -8,7 +8,7 @@ export type FilterTree = Cond[] | { op: 'and' | 'or'; items: unknown[] };
 export interface Cohort { name: string; filters?: FilterTree; segment?: string; behaviors?: UsersBehavior[]; behaviors_op?: 'and' | 'or' }
 /** 行為篩選與對照組：事件分析、漏斗、留存共用。 */
 export interface Scope { behaviors?: UsersBehavior[]; behaviors_op?: 'and' | 'or'; cohorts?: Cohort[] }
-export interface FunnelStep { event: string; alias?: string; filters?: Cond[] }
+export interface FunnelStep { event: string; alias?: string; filters?: FilterTree }
 export interface FunnelQuery extends Scope {
   project?: string;
   steps: FunnelStep[];
