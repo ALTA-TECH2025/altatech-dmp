@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from ..security.policy import Subject, authorize
 from ..semantic.compiler import Catalog
 from .analytics import RUNNERS, Executor, compile_kind, execute_kind
-from .dashboards import CHARTS, _shared, apply_time, editable, visible
+from .dashboards import CHARTS, _format, _shared, apply_time, editable, visible
 from .store import Store
 
 KIND = "bookmark"
@@ -59,6 +59,8 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
             b["chart"] = str(body.get("chart") or "auto")
             if b["chart"] not in CHARTS:
                 raise HTTPException(400, f"chart 只能是 {sorted(CHARTS)}")
+        if "format" in body or cur is None:
+            b["format"] = _format(body)
         if "shared" in body or cur is None: b["shared"] = _shared(body.get("shared"))
         b.setdefault("description", "")
         return b
@@ -87,7 +89,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
                 raise HTTPException(403, f"看板 {did} 不存在或不可編輯")
             if len(d.get("cards") or []) >= 24:
                 raise HTTPException(400, f"看板 {d['name']} 已達 24 張卡片")
-            c = {"id": "c_" + secrets.token_hex(4), "bookmark": b["id"], "title": b["name"], "kind": b["kind"], "query": b["query"], "chart": b["chart"], "width": int(body.get("width") or 1) if int(body.get("width") or 1) in (1, 2) else 1, "note": "", "created_by": subject.user_id, "created_at": _now()}
+            c = {"id": "c_" + secrets.token_hex(4), "bookmark": b["id"], "title": b["name"], "kind": b["kind"], "query": b["query"], "chart": b["chart"], "format": b.get("format", "auto"), "width": int(body.get("width") or 1) if int(body.get("width") or 1) in (1, 2) else 1, "note": "", "created_by": subject.user_id, "created_at": _now()}
             d["cards"] = [*(d.get("cards") or []), c]; d["updated_at"] = _now(); store.put_item("dashboard", d)
             store.audit("dashboard.card.added", {"user": subject.user_id, "dashboard": did, "card": c["id"], "kind": c["kind"], "bookmark": b["id"]}); added.append({"dashboard": did, "name": d["name"]})
         return {**out(b, subject), "added_to": added}
@@ -130,6 +132,6 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
         res = execute_kind(b["kind"], store, ch, cat, subject, q, module="bookmark", extra={"bookmark": id_})
-        return {**res, "bookmark": {"id": b["id"], "kind": b["kind"], "chart": b["chart"], "name": b["name"]}, "time": q.get("time")}
+        return {**res, "bookmark": {"id": b["id"], "kind": b["kind"], "chart": b["chart"], "format": b.get("format", "auto"), "name": b["name"]}, "time": q.get("time")}
 
     return r

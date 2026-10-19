@@ -16,7 +16,15 @@ from .dashboard_share import DashboardShare, resolve_card
 from .store import Store
 
 KIND = "dashboard"
-CHARTS = {"auto", "line", "bar", "stat", "table"}
+CHARTS = {"auto", "line", "area", "bar", "stacked", "pie", "percent", "stat", "table"}
+FORMATS = {"auto", "int", "dec2", "pct0", "pct2", "twd0", "twd2"}   # 數值格式（與前端 fmtValue 同一組）
+
+
+def _format(raw: dict[str, Any], default: str = "auto") -> str:
+    f = str(raw.get("format") or default)
+    if f not in FORMATS:
+        raise HTTPException(400, f"format 只能是 {sorted(FORMATS)}")
+    return f
 PRESETS = {"7d": 7, "14d": 14, "30d": 30, "90d": 90}
 
 
@@ -62,7 +70,7 @@ def _card(raw: dict[str, Any], subject: Subject, cat: Catalog, store: Store | No
         b = next((x for x in (store.items("bookmark") if store else []) if x["id"] == raw["bookmark"]), None)
         if not b or not visible(b, subject):
             raise HTTPException(404, "書籤不存在或你沒有檢視權")
-        raw = {**raw, "kind": b["kind"], "query": b["query"], "title": raw.get("title") or b["name"], "chart": raw.get("chart") or b.get("chart", "auto")}
+        raw = {**raw, "kind": b["kind"], "query": b["query"], "title": raw.get("title") or b["name"], "chart": raw.get("chart") or b.get("chart", "auto"), "format": raw.get("format") or b.get("format", "auto")}
     kind = str(raw.get("kind") or "")
     if kind not in RUNNERS:
         raise HTTPException(400, f"kind 只能是 {sorted(RUNNERS)}")
@@ -76,7 +84,7 @@ def _card(raw: dict[str, Any], subject: Subject, cat: Catalog, store: Store | No
     if width not in (1, 2):
         raise HTTPException(400, "width 只能是 1 或 2")
     compile_kind(kind, subject, q, cat)                       # 存之前先以建立者身分編譯一次：查詢格式錯就 400、沒權限就 403
-    return {"id": raw.get("id") or "c_" + secrets.token_hex(4), "title": str(raw.get("title") or "")[:80] or "未命名卡片", "kind": kind, "query": q, "chart": chart, "width": width,
+    return {"id": raw.get("id") or "c_" + secrets.token_hex(4), "title": str(raw.get("title") or "")[:80] or "未命名卡片", "kind": kind, "query": q, "chart": chart, "format": _format(raw), "width": width,
             "note": str(raw.get("note") or "")[:400], "created_by": subject.user_id, "created_at": _now(), **({"bookmark": str(raw["bookmark"])} if raw.get("bookmark") else {})}
 
 
@@ -153,7 +161,10 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
                 old = by_id.get(str(c.get("id")))
                 if not old:
                     raise HTTPException(400, f"卡片 {c.get('id')} 不存在；新增卡片請用 POST /cards")
-                cards.append({**old, "title": str(c.get("title") or old["title"])[:80], "width": int(c.get("width") or old["width"]), "chart": str(c.get("chart") or old["chart"]), "note": str(c.get("note") if c.get("note") is not None else old.get("note", ""))[:400]})
+                chart = str(c.get("chart") or old["chart"])
+                if chart not in CHARTS:
+                    raise HTTPException(400, f"chart 只能是 {sorted(CHARTS)}")
+                cards.append({**old, "title": str(c.get("title") or old["title"])[:80], "width": int(c.get("width") or old["width"]), "chart": chart, "format": _format(c, str(old.get("format") or "auto")), "note": str(c.get("note") if c.get("note") is not None else old.get("note", ""))[:400]})
             d["cards"] = cards
         d["updated_at"] = _now()
         store.put_item(KIND, d)
@@ -208,7 +219,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
             raise HTTPException(400, str(e)) from None
         res = execute_kind(kind, store, ch, cat, subject, q, module="dashboard", extra={"dashboard": id_, "card": card_id, "bookmark": c.get("bookmark")})
         if warn: res["warnings"] = [*res.get("warnings", []), warn]
-        return {**res, "card": {"id": c["id"], "kind": kind, "chart": c["chart"], "title": c["title"], "bookmark": c.get("bookmark")}, "time": q.get("time")}
+        return {**res, "card": {"id": c["id"], "kind": kind, "chart": c["chart"], "format": c.get("format", "auto"), "title": c["title"], "bookmark": c.get("bookmark")}, "time": q.get("time")}
 
     # ---- 進階（docs/30）：解讀、HTML 看板、定時寄送；沒有注入 share（舊測試）就 501 ----
     def svc() -> DashboardShare:
