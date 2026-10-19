@@ -27,6 +27,16 @@ from .runner import ClickHouseHTTP
 
 ROOT = Path(__file__).resolve().parents[1]
 DROP_PROPS = {"$ip", "$ip_isp", "$ip_country", "$latitude", "$longitude"}   # 不入倉
+
+
+def ops_drop_props() -> set[str]:
+    """屬性字典裡 decision=drop_ops 的欄位（(X) 維護欄、IP 類、加密金鑰材料），預處理時跟 L4 一起丟。"""
+    import csv
+    p = ROOT / "migration" / "sensors_properties.csv"
+    if not p.exists():
+        return set()
+    with p.open(encoding="utf-8-sig", newline="") as f:
+        return {r["property"] for r in csv.DictReader(f) if r["decision"] == "drop_ops"}
 PROFILE_TYPES = {"profile_set": "set", "profile_set_once": "set_once", "profile_increment": "increment", "profile_unset": "unset", "profile_append": "append"}
 
 RAW_DDL = """CREATE TABLE IF NOT EXISTS dmp.raw_sensors
@@ -150,7 +160,7 @@ FROM dmp.raw_sensors WHERE batch_id = '{batch_id}' AND type = 'track_signup' AND
         user_files_dir.mkdir(parents=True, exist_ok=True)
         staged = user_files_dir / f"{src.stem}.staged.jsonl"; quarantine = user_files_dir / f"{src.stem}.quarantine.jsonl"
         up = yaml.safe_load((ROOT / "semantic" / "user_properties.yaml").read_text(encoding="utf-8"))
-        st = stage(src, staged, quarantine, key_ref, up.get("forbidden_l4", []))
+        st = stage(src, staged, quarantine, key_ref, set(up.get("forbidden_l4", [])) | ops_drop_props())
         raw = self.load_raw(staged, batch_id, via_http=via_http)
         counts = self.normalize(batch_id)
         return {"stage": st.__dict__ | {"bad_samples": st.bad_samples}, "raw": raw, **counts,

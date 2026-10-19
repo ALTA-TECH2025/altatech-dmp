@@ -3605,3 +3605,39 @@ user_tag_zdseahznjyl3000w,string,tag_result,L1,import_tag,標籤引擎（匯入�
 user_tag_zeahz,string,tag_result,L1,import_tag,標籤引擎（匯入標籤值）,神策標籤回寫欄位：匯入標籤引擎
 user_tag_zqvkh2025202603,string,tag_result,L1,import_tag,標籤引擎（匯入標籤值）,神策標籤回寫欄位：匯入標籤引擎
 user_tag_zrkh_2,string,tag_result,L1,import_tag,標籤引擎（匯入標籤值）,神策標籤回寫欄位：匯入標籤引擎
+strweb,string,design_only,L1,confirm,—（神策用戶表無此欄）,規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 L1 處理
+b27_short_selling_credit_limit,string,design_only,L2,confirm,—（神策用戶表無此欄）,規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 L2 處理
+b27_margin_credit_limit,string,design_only,L2,confirm,—（神策用戶表無此欄）,規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 L2 處理
+any_no_return,string,design_only,L2,skip_dup,b27_overdue_any_loan_balance,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+any_amount,string,design_only,L2,skip_dup,b27_any_loan_balance,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+any_limit,string,design_only,L2,skip_dup,b27_any_loan_credit_limit,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+any_open,string,design_only,L2,skip_dup,b27_any_loan_contracts,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+slb_tse_amount,string,design_only,L2,skip_dup,b27_securities_lending_center_balance,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+nlb_amount,string,design_only,L2,skip_dup,b27_securities_lending_balance,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+nlb_limit,string,design_only,L2,skip_dup,b27_securities_lending_limit,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+adv_no_return,string,design_only,L2,skip_dup,b27_overdue_loan_balance,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+adv_amount,string,design_only,L2,skip_dup,b27_loan_balance,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+adv_limit,string,design_only,L2,skip_dup,b27_loan_credit_limit,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+adv_open,string,design_only,L2,skip_dup,b27_loan_contracts,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+nlb_open,string,design_only,L2,skip_dup,b27_ln_acc,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+tot_amount,string,design_only,L2,skip_dup,b27_highest_daily_trading_limit,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+stk_amount,string,design_only,L2,skip_dup,b27_short_selling_balance,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+cpt_amount,string,design_only,L2,skip_dup,b27_margin_balance,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+break,string,design_only,L2,skip_dup,b27_default_status,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+d_trade_open,string,design_only,L2,skip_dup,b27_day_trading_acc,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+credit_open,string,design_only,L2,skip_dup,b27_mt_acc,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+fut_open,string,design_only,L2,skip_dup,b27_fu_acc,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+normal_open,string,design_only,L2,skip_dup,b27_st_acc,數據中台原始字串欄，與 b27_* 清洗版重複：不遷移
+b27_name,string,design_only,L4,drop_l4,—,可識別個資：不入用戶表（forbidden_l4）
+broker_no4,string,design_only,L2,confirm,—（神策用戶表無此欄）,規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 L2 處理
+ivkey,string,design_only,L3,drop_ops,—,加密金鑰材料：不入用戶表、不送 GA
+hashkey,string,design_only,L3,drop_ops,—,加密金鑰材料：不入用戶表、不送 GA
+svid,string,design_only,L3,drop_ops,—,加密金鑰材料：不入用戶表、不送 GA
+newacc_flag,string,design_only,L1,confirm,—（神策用戶表無此欄）,規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 L1 處理
+ec_sub_acc_mobile,string,design_only,L4,drop_l4,—,可識別個資：不入用戶表（forbidden_l4）
+ec_sub_acc_no,string,design_only,L3,confirm,—（神策用戶表無此欄）,規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 L3 處理
+dd,string,design_only,L1,confirm,—（神策用戶表無此欄）,規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 L1 處理
+e_mail_mark,string,design_only,L1,confirm,—（神策用戶表無此欄）,規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 L1 處理
+sub_last_asset_date,timestamp,design_only,L2,confirm,—（神策用戶表無此欄）,規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 L2 處理
+st_last_asset_date,timestamp,design_only,L2,confirm,—（神策用戶表無此欄）,規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 L2 處理
+$device_id_list,array<string>,design_only,L3,confirm,—（神策用戶表無此欄）,規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 L3 處理

@@ -48,8 +48,8 @@ L4_NAMES = {   # 顯示名無法辨識、但屬性名本身就是個資的
 }
 L4_DISPLAY = re.compile(r'姓名|手機|電話|信箱|E_MAIL|生日|收件人|入扣帳帳號|收益帳號|信託帳號|分戶帳帳戶|^帳號\d$')
 L3_NAMES = {'UUID', 'S_IDNO', 'PART_IDNO', 'member_id', 'gift_card_recipient', 'gift_card_recipient_acno', 'gift_card_recipient_unicode',
-            '$device_id', '$track_signup_original_id', 'hashKey', 'ivKey', 'svid', '_latest_hashKey', '_latest_ivKey', '_latest_svid',
-            'ANTE_BNK_ACC', 'HAA11'}
+            '$device_id', '$track_signup_original_id', 'ANTE_BNK_ACC', 'HAA11', 'BROKERNO3_SACNO', 'BROKERNO4_SACNO'}   # 分公司代碼＋證券帳號
+KEY_MATERIAL = {'hashKey', 'ivKey', 'svid', '_latest_hashKey', '_latest_ivKey', '_latest_svid'}   # 短網址／開戶驗證的加密參數：不入倉、不送 GA
 L3_DISPLAY = re.compile(r'客戶帳號|信用戶帳號|匯出帳號|去識別化ID|客戶ID|員編|工號|員工編號|員工代號|營業員代號|審核員工編號|推介行員代號|交割員代碼|設備ID|關聯匿名ID|兌換人ID|會員帳號')
 L2_DISPLAY = re.compile(r'金額|手續費|費$|費\(|費率|稅|餘額|額度|價金|價格|價位|價$|價\(|成本|匯率|利息|保證金|擔保品|融資|融券|借券|借貸|股數|數量|單位|面額|折扣|'
                         r'KYC|風險|VIP|美國人|內部員工|員工戶|客戶性質|身分|性別|自然人|大戶|交割|帳務|違約|戶數|契約數|委託|成交|申購|抽籤|買賣|'
@@ -61,8 +61,18 @@ DROP_OPS_DISPLAY = re.compile(r'IP位址|IP$')   # IP 一律不入倉（sensors_
 
 
 UP_L4 = re.compile(r'mail|phone|mobile|mtel|cuadm|name$|birth|^openact')          # 信箱、手機、姓名、生日（含社群登入信箱、通知手機、虛擬生日）
-UP_L3 = re.compile(r'^(id|first_id|second_id|s_idno|uuid|line_uuid|ec_sec_acc_no)$')   # 神策內部 ID、匿名／登入 ID、去識別化 ID、LINE ID、帳號
-UP_L2 = re.compile(r'amt|balance|limit|asset|acc\b|_acc$|_acc_|acct|trade|odate|trans|status|loan|margin|lending|contracts|'
+UP_NOT_L4 = re.compile(r'^is_\w+_push$|snslogintype|_mark$')                       # 推播許可、登入類別、來源註記：名稱含 mail 但不是個資
+UP_L3 = re.compile(r'^(id|first_id|second_id|s_idno|uuid|line_uuid|ec_se[cb]_acc_no|ec_sub_acc_no|\$device_id_list)$')   # 神策內部 ID、匿名／登入 ID、去識別化 ID、LINE ID、帳號、裝置清單
+UP_KEY_MATERIAL = {'ivkey', 'hashkey', 'svid'}
+# 規格表裡數據中台 ODS 原始字串欄（B27 查詢結果），與 b27_* 清洗版（數值）重複：不遷移
+UP_ODS_DUP = {'any_no_return': 'b27_overdue_any_loan_balance', 'any_amount': 'b27_any_loan_balance', 'any_limit': 'b27_any_loan_credit_limit',
+              'any_open': 'b27_any_loan_contracts', 'slb_tse_amount': 'b27_securities_lending_center_balance', 'nlb_amount': 'b27_securities_lending_balance',
+              'nlb_limit': 'b27_securities_lending_limit', 'adv_no_return': 'b27_overdue_loan_balance', 'adv_amount': 'b27_loan_balance',
+              'adv_limit': 'b27_loan_credit_limit', 'adv_open': 'b27_loan_contracts', 'nlb_open': 'b27_ln_acc', 'tot_amount': 'b27_highest_daily_trading_limit',
+              'stk_amount': 'b27_short_selling_balance', 'cpt_amount': 'b27_margin_balance', 'break': 'b27_default_status', 'd_trade_open': 'b27_day_trading_acc',
+              'credit_open': 'b27_mt_acc', 'fut_open': 'b27_fu_acc', 'normal_open': 'b27_st_acc'}
+PLAN_USERS_CSV = ROOT / 'migration' / 'sensors_plan_user_properties.csv'   # 神策埋點規格表的用戶表（只有欄位定義）
+UP_L2 = re.compile(r'amt|balance|limit|asset|acc\b|_acc$|_acc_|acct|trade|odate|trans|status|loan|margin|lending|contracts|broker|'
                    r'^b27_|^s_age|^gender|s_sex|emp_flag|otype|user_type|cuaa|cuaf|default|match_dt|category')
 UP_MAP = {'s_idno': 'customer_code', 'gender': 'gender', '$dimension_dict_s_sex': 'gender', 's_age': 'age_band（分桶）', 'st_last_asset_amt': 'aum',
           'st_first_odate': 'signup_date', 'first_odate': 'signup_date', 'last_login_date_dt': 'last_active_at', 'emp_flag': 'is_staff（新增）',
@@ -79,7 +89,11 @@ def classify_user(name: str, typ: str) -> tuple[str, str, str, str, str]:
         base = name[len('$dimension_dict_'):]
     else:
         base = name
-    if UP_L4.search(base) and not re.search(r'^is_\w+_push$|snslogintype', base):
+    if base in UP_KEY_MATERIAL:
+        return 'core', 'L3', 'drop_ops', '—', '加密金鑰材料：不入用戶表、不送 GA'
+    if base in UP_ODS_DUP:
+        return 'core', 'L2', 'skip_dup', UP_ODS_DUP[base], '數據中台原始字串欄，與 b27_* 清洗版重複：不遷移'
+    if UP_L4.search(base) and not UP_NOT_L4.search(base):
         return 'core', 'L4', 'drop_l4', '—', '可識別個資：不入用戶表（forbidden_l4）'
     if UP_L3.match(base):
         return 'core', 'L3', 'hash', UP_MAP.get(name, 'one_id／id_map'), '代碼化識別：進 id_map 或 token 後存'
@@ -88,12 +102,31 @@ def classify_user(name: str, typ: str) -> tuple[str, str, str, str, str]:
     return 'core', 'L1', 'keep', UP_MAP.get(name, '登記 user_properties.yaml（L1）'), '行為／偏好屬性'
 
 
-def build_users(rows: list[tuple[str, str]]) -> list[dict]:
+def build_users(rows: list[tuple[str, str]], plan: list[tuple[str, str]] | None = None) -> list[dict]:
+    """rows＝神策用戶屬性導出；plan＝埋點規格表的用戶表。規格表有、導出沒有的欄位附在後面（family=design_only）：
+    神策裡不存在就導不出來，請客戶確認是否已停用；個資與重複欄的決定照舊（出現了也要擋）。"""
     out = []
     for name, typ in rows:
         fam, lvl, dec, tgt, rule = classify_user(name, typ)
         out.append({'property': name, 'type': typ, 'family': fam, 'sensitivity': lvl, 'decision': dec, 'dmp_target': tgt, 'rule': rule})
+    have = {n.lower() for n, _ in rows}
+    for name, typ in plan or []:
+        key = name.lower()
+        if key in have or f'$dimension_dict_{key}' in have:      # 神策維度字典欄（代碼 → 名稱）以 $dimension_dict_ 前綴導出
+            continue
+        have.add(key)
+        _, lvl, dec, tgt, rule = classify_user(key, typ)
+        if dec in ('keep', 'hash'):
+            dec, tgt, rule = 'confirm', '—（神策用戶表無此欄）', f'規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 {lvl} 處理'
+        out.append({'property': key, 'type': typ, 'family': 'design_only', 'sensitivity': lvl, 'decision': dec, 'dmp_target': tgt, 'rule': rule})
     return out
+
+
+def read_plan_users() -> list[tuple[str, str]]:
+    if not PLAN_USERS_CSV.exists():
+        return []
+    with PLAN_USERS_CSV.open(encoding='utf-8-sig', newline='') as f:
+        return [(r['property'].strip(), r['type'].strip()) for r in csv.DictReader(f) if r['property'].strip()]
 
 
 def domain_of(name: str, display: str) -> str:
@@ -111,6 +144,8 @@ def classify(name: str, display: str) -> tuple[str, str, str, str]:
     """→ (domain, sensitivity, decision, rule)。規則由嚴到寬，先中先贏。"""
     dom = domain_of(name, display)
     tag = TAG_RE.match(display)
+    if name in KEY_MATERIAL:
+        return dom, 'L3', 'drop_ops', '加密金鑰材料：不入倉、不送 GA'
     if (tag and tag.group(1) == 'X') or name in DROP_OPS_NAMES or DROP_OPS_DISPLAY.search(display):
         return dom, 'L1', 'drop_ops', '(X) 維護／清理欄位或 IP 類：不入倉'
     if name in L4_NAMES or L4_DISPLAY.search(display):
@@ -187,15 +222,21 @@ def selftest() -> None:
     for (n, t), want in ucases.items():
         got = classify_user(n, t)
         assert (got[0], got[2]) == want, (n, got, want)
+    assert classify_user('ivkey', 'string')[2] == 'drop_ops' and classify_user('any_amount', 'string')[2:4] == ('skip_dup', 'b27_any_loan_balance')
+    assert classify_user('e_mail_mark', 'string')[2] == 'keep' and classify_user('ec_sub_acc_no', 'string')[2] == 'hash' and classify_user('broker_no4', 'string')[1] == 'L2'
+    assert classify('ivKey', '静默创建_ivKey')[2] == 'drop_ops' and classify('BROKERNO4_SACNO', 'BROKERNO4_SACNO')[1:3] == ('L3', 'hash')
+    bu = build_users([('s_idno', 'string'), ('$dimension_dict_cuaa1', 'string')], [('S_IDNO', 'string'), ('CUAA1', 'string'), ('B27_NAME', 'string'), ('newacc_flag', 'string')])
+    assert [(x['property'], x['family'], x['decision']) for x in bu[2:]] == [('b27_name', 'design_only', 'drop_l4'), ('newacc_flag', 'design_only', 'confirm')], bu
     assert classify_user('st_last_asset_amt', 'double')[1] == 'L2' and classify_user('$utm_source', 'string')[1] == 'L1' and classify_user('gender', 'string')[1] == 'L2'
 
 
 def run_users(src: pathlib.Path, check: bool, forbidden: set[str]) -> int:
     with src.open(encoding='utf-8-sig', newline='') as f:
         r = csv.reader(f); hdr = next(r)
-        rows = [(a.strip(), b.strip()) for a, b, *_ in r if a.strip()]
+        fam = hdr.index('family') if 'family' in hdr else None          # 重算已產出檔時跳過規格表補的列，避免重複
+        rows = [(x[0].strip(), x[1].strip()) for x in r if x and x[0].strip() and (fam is None or x[fam] != 'design_only')]
     assert hdr[0] == 'property' or hdr[0] == 'name', hdr
-    out = build_users(rows)
+    out = build_users(rows, read_plan_users())
     c = collections.Counter((o['family'], o['sensitivity'], o['decision']) for o in out)
     print(f'user_properties={len(out)} ' + ' '.join(f'{a}/{b}/{d}={v}' for (a, b, d), v in sorted(c.items())))
     missing = sorted(o['property'] for o in out if o['decision'] == 'drop_l4' and o['property'] not in forbidden)

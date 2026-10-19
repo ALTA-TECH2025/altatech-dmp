@@ -1,0 +1,185 @@
+﻿property,type,display,setting
+UUID,string,UUID,SENSORS_CUSTOMER_NEW導入
+strWeb,string,strWeb,
+PROCESS_DT,timestamp,(C)#資料導入時間,CDP導入
+latest_order_email,string,訂購人信箱(最近一次),股票禮品卡訂購人信箱更新
+latest_member_email,string,會員信箱(最近一次),會員信箱
+latest_member_phone,string,會員電話(最近一次),會員電話
+FIRST_TRADE_ODATE_ST_LNA,timestamp,(C)#首次交易日(不限用途款項借貸),-
+FIRST_TRADE_ODATE_SUB_BOND,timestamp,(C)#首次交易日(複委託債券),-
+FIRST_TRADE_ODATE_ST_SS,string,(C)#首次交易日(借券),-
+FIRST_TRADE_ODATE_SUB_SUB,timestamp,(C)#首次交易日(複委託證券),-
+FIRST_TRADE_ODATE_ST_SIP,timestamp,(C)#首次交易日(豐台股),-
+FIRST_TRADE_ODATE_FU_IBF,timestamp,(C)#首次交易日(國內期貨),-
+FIRST_TRADE_ODATE_FU,timestamp,(C)#首次交易日(期貨),-
+B27_OVERDUE_ANY_LOAN_BALANCE,double,(C)#B27不限用途款項借貸屆期未清償餘額萬元,-
+B27_ANY_LOAN_BALANCE,double,(C)#B27不限用途款項借貸總餘額萬元,-
+B27_ANY_LOAN_CREDIT_LIMIT,double,(C)#B27不限用途款項借貸授信額度萬元,-
+B27_ANY_LOAN_CONTRACTS,double,(C)#B27不限用途款項借貸契約數,-
+B27_DEFAULT_DESCRIPTION,string,(C)#B27有無違約說明,-
+B27_DAY_TRADING_ACC,double,(C)#B27當沖戶數,-
+B27_SECURITIES_LENDING_CENTER_BALANCE,double,(C)#B27借券中心借券餘額仟,-
+B27_SECURITIES_LENDING_BALANCE,double,(C)#B27證券借貸借券餘額仟,-
+B27_SECURITIES_LENDING_LIMIT,double,(C)#B27證券借貸可借券總額度萬,-
+B27_OVERDUE_LOAN_BALANCE,double,(C)#B27借貸款項屆期未清償餘額萬,-
+B27_LOAN_BALANCE,double,(C)#B27借貸款項融通總餘額萬,-
+B27_LOAN_CREDIT_LIMIT,double,(C)#B27借貸款項融通授信額度萬,-
+B27_LOAN_CONTRACTS,double,(C)#B27借貸款項契約數,-
+B27_HIGHEST_DAILY_TRADING_LIMIT,double,(C)#B27單日買賣最高額度萬元,-
+B27_SHORT_SELLING_BALANCE,double,(C)#B27融券總餘額萬元,-
+B27_MARGIN_BALANCE,double,(C)#B27融資總餘額萬元,-
+B27_DEFAULT_STATUS,string,(C)#B27有無違約,-
+B27_FU_ACC,double,(C)#B27期貨戶數,-
+B27_LN_ACC,double,(C)#B27借貸戶數,-
+B27_MT_ACC,double,(C)#B27信用戶數,-
+B27_ST_ACC,double,(C)#B27證券戶數,-
+B27_STATUS,string,(C)#B27查找狀態,-
+B27_DATE,string,(C)#B27日期,資料來源: B27_ID01_000
+FIRST_TRADE_ODATE_OF_OF,timestamp,(C)#首次交易日(集保基金),-
+FIRST_TRADE_ODATE_SUB_SFP,timestamp,(C)#首次交易日(豐美股),-
+FIRST_TRADE_ODATE_SUB,string,(C)#首次交易日(複委託),-
+FIRST_TRADE_ODATE_WF_WF,timestamp,(C)#首次交易日(信託基金),-
+FIRST_TRADE_ODATE_ST_SUBSCR,timestamp,(C)#首次交易日(申購),-
+FIRST_TRADE_ODATE_ST_ST,timestamp,(C)#首次交易日(證券),-
+FIRST_TRADE_ODATE_ST,timestamp,(C)#首次交易日(現貨),-
+FIRST_TRADE_ODATE,timestamp,(C)#首次交易日期,-
+FIRST_TRADE_CATEGORY,string,(C)#首次交易商品類別,-
+ALL_STATIC_STATUS,string,(C)#綜合商品靜止狀態,-
+FU_STATIC_STATUS,string,(C)#期貨靜止狀態,-
+OF_STATIC_STATUS,string,(C)#集保基金靜止狀態,-
+WF_STATIC_STATUS,string,(C)#信託基金靜止狀態,-
+SUB_STATIC_STATUS,string,(C)#複委託靜止狀態,-
+ST_STATIC_STATUS,string,(C)# 現貨靜止狀態,-
+FIRST_ODATE,timestamp,(C)#首次開戶日,-
+B27_SHORT_SELLING_CREDIT_LIMIT,string,(C)#B27融券總授信額度,-
+B27_MARGIN_CREDIT_LIMIT,string,(C)#B27融資總授信額度,-
+LACK_CUS_MTEL,string,(ODS)帳號通知手機號碼,T+1缺款通知手機號碼 (資料來源: ST_SETTLEMENT_LACK)
+ANY_NO_RETURN,string,(ODS)B27不限用途款項借貸屆期未清償餘額萬元,資料來源: B27_ID02_000
+ANY_AMOUNT,string,(ODS)B27不限用途款項借貸總餘額萬元,資料來源: B27_ID02_000
+ANY_LIMIT,string,(ODS)B27不限用途款項借貸授信額度萬元,資料來源: B27_ID02_000
+ANY_OPEN,string,(ODS)B27不限用途款項借貸契約數,資料來源: B27_ID02_000
+SLB_TSE_AMOUNT,string,(ODS)B27借券中心借券餘額仟,資料來源: B27_ID02_000
+NLB_AMOUNT,string,(ODS)B27證券借貸借券餘額仟,資料來源: B27_ID02_000
+NLB_LIMIT,string,(ODS)B27證券借貸可借券總額度萬,資料來源: B27_ID02_000
+ADV_NO_RETURN,string,(ODS)B27借貸款項屆期未清償餘額萬,資料來源: B27_ID02_000
+ADV_AMOUNT,string,(ODS)B27借貸款項融通總餘額萬,資料來源: B27_ID02_000
+ADV_LIMIT,string,(ODS)B27借貸款項融通授信額度萬,資料來源: B27_ID02_000
+ADV_OPEN,string,(ODS)B27借貸款項契約數,資料來源: B27_ID02_000
+NLB_OPEN,string,(ODS)B27借貸戶數,資料來源: B27_ID02_000
+TOT_AMOUNT,string,(ODS)B27單日買賣最高額度萬元,資料來源: B27_ID01_000
+STK_AMOUNT,string,(ODS)B27融券總餘額萬元,資料來源: B27_ID01_000
+CPT_AMOUNT,string,(ODS)B27融資總餘額萬元,資料來源: B27_ID01_000
+BREAK,string,(ODS)B27有無違約,資料來源: B27_ID01_000
+D_TRADE_OPEN,string,(ODS)B27當沖戶數,資料來源: B27_ID01_000
+CREDIT_OPEN,string,(ODS)B27信用戶數,資料來源: B27_ID01_000
+FUT_OPEN,string,(ODS)B27期貨戶數,資料來源: B27_ID01_000
+NORMAL_OPEN,string,(ODS)B27證券戶數,資料來源: B27_ID01_000
+B27_NAME,string,(ODS)B27姓名,資料來源: B27_ID01_000
+BROKER_NO4,string,(ODS)B27分公司代碼,資料來源: B27_ID01_000
+ivKey,string,ivKey,
+hashKey,string,hashKey,
+svid,string,svid,
+CUAF9,string,人(ODS)是否理三,判斷是否理三 (資料來源: ST_CUSTOMER)
+CUAA4,string,人(ODS)是否可簡訊行銷,原始欄位名稱: 簡訊行銷 (資料來源: ST_CUSTOMER)
+CUAA3,string,人(ODS)是否可EMAIL行銷,原始欄位名稱: E-MAIL行銷 (資料來源: ST_CUSTOMER)
+CUAA2,string,人(ODS)是否可DM行銷,原始欄位名稱: DM行銷 (資料來源: ST_CUSTOMER)
+CUAA1,string,人(ODS)是否可電話行銷,原始欄位名稱: 電話行銷 (資料來源: ST_CUSTOMER)
+CUADM,string,人(ODS)EMAIL,原始欄位名稱: E_MAIL 位址 (資料來源: ST_CUSTOMER)
+CUS_MTEL,string,人(ODS)手機電話,資料來源: ST_CUSTOMER
+S_SEX,string,人(ODS)性別,資料來源: ST_CUSTOMER
+S_BIRTH,string,人(ODS)出生/設立日期,原始欄位名稱: 出生日／公司成立日 (資料來源: ST_CUSTOMER)
+S_NAME,string,人(ODS)客戶戶名,原始欄位名稱: 個人姓名／公司簡稱 (資料來源: ST_CUSTOMER)
+richclub_order_phone,string,豐雲學堂otp手機,後端有簡訊驗證結果時觸發
+richclub_order_email,string,豐雲學堂訂購email,「訂單確認頁」點擊「立即享受」或點擊「確認付款」後觸發
+yield_increase3,string,即將下架(I)殖利率增加TOP3,殖利率增加TOP3：(1)最新殖利率貼標為高 (2)殖利率7日變動量增加量No.3，填入值為公司名+股號(例：台積電2330)
+yield_increase2,string,即將下架(I)殖利率增加TOP2,殖利率增加TOP2：(1)最新殖利率貼標為高 (2)殖利率7日變動量增加量No.2，填入值為公司名+股號(例：台積電2330)
+yield_increase1,string,即將下架(I)殖利率增加TOP1,殖利率增加TOP1：(1)最新殖利率貼標為高 (2)殖利率7日變動量增加量No.1，填入值為公司名+股號(例：台積電2330)
+group_tag,array<string>,(C)客戶標籤,"依應用科提供之標籤填入值為「行銷_當沖客,行銷_波段客,行銷_鉅額交易客,行銷_存股族,行銷_有庫存無交易,行銷_其它」"
+ref_flag,string,(C)共銷註記,依客戶帳號檔內產品別為現貨之介紹單位填入值為「永豐銀、保險、信用卡、內部單位、板信銀、台中二信、無、待查」
+newacc_flag,string,(C)新戶註記,依客戶帳號檔內產品別為現貨之新戶註記填入值為「現貨新戶」
+ec_sub_acc_email,string,即將下架(C)理三科複委託Email,開戶完成後且該客戶有任一帳戶歸屬為理財三科由內部匯入；若該帳戶銷戶或無任何帳戶歸屬為理財三科 則為空值
+ec_sub_acc_mobile,string,(C)理三科複委託手機,開戶完成後且該客戶有任一帳戶歸屬為理財三科由內部匯入；若該帳戶銷戶或無任何帳戶歸屬為理財三科 則為空值
+ec_sub_acc_no,string,即將下架(C)理三科複委託帳號,開戶完成後且該客戶有任一帳戶歸屬為理財三科由內部匯入；若該帳戶銷戶或無任何帳戶歸屬為理財三科 則為空值
+ec_sec_acc_email,string,即將下架(C)理三科證券Email,開戶完成後且該客戶有任一帳戶歸屬為理財三科由內部匯入；若該帳戶銷戶或無任何帳戶歸屬為理財三科 則為空值
+ec_sec_acc_mobile,string,即將下架(C)理三科證券手機,開戶完成後且該客戶有任一帳戶歸屬為理財三科由內部匯入；若該帳戶銷戶或無任何帳戶歸屬為理財三科 則為空值
+ec_sec_acc_no,string,即將下架(C)理三科證券帳號,開戶完成後且該客戶有任一帳戶歸屬為理財三科由內部匯入；若該帳戶銷戶或無任何帳戶歸屬為理財三科 則為空值
+SUB_LAST_ASSET_STK_AMT,double,(C)#複委託最近持有庫存市值,
+ST_LAST_ASSET_STK_AMT,double,(C)#現貨最近持有庫存市值,
+SUB_LAST_ASSET_DT,timestamp,(C)複委託最近持有庫存日,
+ST_LAST_ASSET_DT,timestamp,(C)現貨最近持有庫存日,
+NoticeMobile,string,#通知手機,通知事件產生
+dd,string,dd,第一次激活时
+SleepyCust_EMAIL,string,即將下架(C)#沉睡用戶信箱,
+SleepyCust_MOBILE,string,即將下架(C)#沉睡用戶手機,
+SleepyCust_GROUP,string,(C)#喚醒分潤註記,
+E_MAIL_Mark,string,即將下架(C)#信箱來源註記,
+EMAIL,string,即將下架(C)#客戶信箱(對帳單/開戶),
+MOBILE,string,即將下架(C)#客戶手機,用戶表歸戶手機，以最後開戶日留存資料填入
+IS_TextMsg_Push,bigint,(C)#可否簡訊推播,
+IS_PHONE_Push,bigint,(C)#可否電話推播,
+IS_EMAIL_Push,bigint,(C)#可否信箱推播,
+IS_DM_Push,bigint,(C)#可否DM推播,
+SUB_LAST_ASSET_AMT,double,(C)複委託最近持有庫存市值,
+SUB_LAST_ASSET_DATE,timestamp,(C)#複委託最近持有庫存日,
+ST_LAST_ASSET_AMT,double,即將下架((C)現貨最近持有庫存市值,
+ST_LAST_ASSET_DATE,timestamp,(C)#現貨最近持有庫存日,
+LAST_LOGIN_DATE_DT,timestamp,(C)#最後登入日,
+ST_FXD_ACC,bigint,(C)#是否為固收客戶,
+ST_LN5_ACC,bigint,(C)#是否5日型戶,
+ST_ANY_LN_ACC,bigint,(C)#是否不限用途借貸戶,
+ST_BR_ACC,bigint,(C)#是否股票借入戶,
+ST_LN_ACC,bigint,(C)#是否股票出借戶,
+ST_MT_ACC,bigint,(C)#是否信用戶,
+ST_EB_ACC,bigint,(C)#是否為電子戶,
+OTYPE,bigint,(C)#是否為大戶投,
+LAST_TRANS_SFP_DT,timestamp,(C)#豐存美股最後交易時間,
+LAST_TRANS_SIP_DT,timestamp,(C)#豐存台股最後交易時間,
+LAST_TRANS_FUND_DT,timestamp,(C)#基金最後交易時間,
+LAST_TRANS_FU_DT,timestamp,(C)#期貨最後交易時間,
+LAST_TRANS_SUB_DT,timestamp,(C)#複委託最後交易時間,
+LAST_TRANS_ST_DT,timestamp,(C)#現貨最後交易時間,
+FU_EXIST_ACCT,double,(C)#期貨有效帳戶數,
+SUB_EXIST_ACCT,double,(C)#複委託有效帳戶數,
+OF_EXIST_ACCT,double,(C)#集保基金有效帳戶數,
+WF_EXIST_ACCT,double,(C)#信託基金有效帳戶數,
+ST_EXIST_ACCT,double,(C)#現貨有效帳戶數,
+WF_FIRST_ODATE,timestamp,(C)#信託基金最早開戶日,
+OF_FIRST_ODATE,timestamp,(C)#集保基金最早開戶日,
+FU_FIRST_ODATE,timestamp,(C)#期貨最早開戶日,
+SUB_FIRST_ODATE,timestamp,(C)#複委託最早開戶日,
+ST_FIRST_ODATE,timestamp,(C)#現貨最早開戶日,
+EMP_FLAG,bigint,(C)#是否為員工,
+BIRTH_DT,timestamp,(C)#生日/設立日期,
+GENDER,string,(C)#客戶性別,
+USER_TYPE,string,(C)#是否為自然人,
+S_IDNO,string,#去識別化ID,#去識別化ID
+OpenActMail,array<string>,#開戶信箱(歷史),開戶信箱清單
+latest_OpenActMail,string,#開戶信箱(最近一次),開戶信箱
+latest_OpenActName,string,#開戶姓名(最近一次),開戶姓名
+OpenActName,array<string>,#開戶姓名(歷史),開戶姓名清單
+latest_OpenActMobile,string,#開戶手機(最近一次),開戶手機
+OpenActMobile,array<string>,#開戶手機(歷史),開戶手機清單
+latest_SNSLoginType,string,#社群登入類別(最近一次),社群登入別
+SNSLoginType,array<string>,#社群登入別(歷史),社群登入別(歷史)
+latest_AppleLoginMail,string,#APPLE登入帳號(最近一次),最新APPLE登入帳號
+FBLoginMail,array<string>,#FB登入帳號(歷史),FB登入帳號(歷史)
+AppleLoginMail,array<string>,#APPLE登入帳號(歷史),APPLE登入帳號(歷史)
+latest_FBLoginMail,string,#FB登入帳號(最近一次),最新FB登入帳號
+LINE_UUID,string,#LINE_UUID,LINE_UUID
+latest_GoogleLoginMail,string,#Google登入帳號(最近一次),最新GOOGLE登入帳號
+GoogleLoginMail,array<string>,#GOOGLE登入帳號(歷史),GOOGLE登入帳號(歷史)
+$utm_content,string,utm_content 内容(首次),首次廣告系列内容
+$utm_term,string,utm_term 關鍵字(首次),首次廣告系列字詞
+$utm_source,string,utm_source 來源(首次),首次廣告系列來源
+$first_referrer,string,推薦連結(首次),首次前向地址
+$first_search_keyword,string,搜索引擎關鍵字(首次),首次搜索引擎關鍵字
+$first_browser_charset,string,瀏覽器編碼(首次),首次瀏覽器字符類型
+$first_traffic_source_type,string,流量來源類型(首次),首次流量來源類型
+$utm_campaign,string,utm_campaign 活動(首次),首次廣告系列名稱
+$first_referrer_host,string,推薦連結網域(首次),首次前向域名
+$first_browser_language,string,瀏覽器語言,瀏覽器語言
+$utm_medium,string,utm_medium 媒介(首次),首次廣告系列媒介
+$first_visit_time,timestamp,首次訪問時間,首次訪問時間
+$update_time,double,用户更新時間,用户更新時間
+$is_deleted,bigint,是否删除,是否删除
+$device_id_list,array<string>,關聯設備 ID,關聯設備 ID

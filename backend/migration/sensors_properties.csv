@@ -325,9 +325,9 @@ ORD_NO,委託書編號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶�
 task_mail,#活動登錄-信箱,#,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
 task_mobile,#活動登錄-手機,#,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
 page_type,跟風潮股下載頁面類型,,ga,L1,keep,page_type,行為屬性
-ivKey,静默创建_ivKey,,ga,L3,hash,iv_key,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
-hashKey,静默创建_hashKey,,ga,L3,hash,hash_key,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
-svid,静默创建_svid,,ga,L3,hash,svid,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+ivKey,静默创建_ivKey,,ga,L3,drop_ops,,加密金鑰材料：不入倉、不送 GA
+hashKey,静默创建_hashKey,,ga,L3,drop_ops,,加密金鑰材料：不入倉、不送 GA
+svid,静默创建_svid,,ga,L3,drop_ops,,加密金鑰材料：不入倉、不送 GA
 form_subject_number,form_subject_number,,ga,L1,keep,form_subject_number,行為屬性
 form_subject_answer_list,form_subject_answer_list,,ga,L2,keep,form_subject_answer_list,敏感業務：按角色遮罩／分桶，匯出降一級
 form_subject_answer,form_subject_answer,,ga,L2,keep,form_subject_answer,敏感業務：按角色遮罩／分桶，匯出降一級
@@ -339,9 +339,9 @@ form_id,form_id,,ga,L1,keep,form_id,行為屬性
 form_submit_time,form_submit_time,,ga,L1,keep,form_submit_time,行為屬性
 form_status,form_status,,ga,L1,keep,form_status,行為屬性
 form_title,問卷名稱 form_title,,ga,L1,keep,form_title,行為屬性
-_latest_ivKey,最新一次_ivKey,,ga,L3,hash,latest_iv_key,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
-_latest_hashKey,最新一次_hashKey,,ga,L3,hash,latest_hash_key,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
-_latest_svid,最新一次_svid,,ga,L3,hash,latest_svid,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+_latest_ivKey,最新一次_ivKey,,ga,L3,drop_ops,,加密金鑰材料：不入倉、不送 GA
+_latest_hashKey,最新一次_hashKey,,ga,L3,drop_ops,,加密金鑰材料：不入倉、不送 GA
+_latest_svid,最新一次_svid,,ga,L3,drop_ops,,加密金鑰材料：不入倉、不送 GA
 $sf_qrcode_channel_id,公众号二维码渠道 ID,,ma,L1,keep,,神策智能運營事件屬性：只匯入歷史
 $sf_mark_tag_name,标记受众名称,,ma,L1,keep,,神策智能運營事件屬性：只匯入歷史
 $sf_mark_action_type,标记操作类型,,ma,L1,keep,,神策智能運營事件屬性：只匯入歷史
@@ -394,7 +394,7 @@ OPEN_SOC,(O)客戶開戶來源別,O,batch,L2,keep,,敏感業務：按角色遮�
 CUST_SOC,(O)客戶來源別(複委託),O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
 CNAME,(O)姓名,O,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
 BROKER_NO4,(O)券商代號,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
-BROKERNO4_SACNO,BROKERNO4_SACNO,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BROKERNO4_SACNO,BROKERNO4_SACNO,,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
 REF_DEPT,(O)分行單位代號,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
 REF_BUS,(O)介紹單位,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
 CUADM,(O)E_MAIL 位址,O,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
@@ -407,7 +407,7 @@ BROKER_NO3,(O)公司代號(3碼),O,batch,L2,keep,,敏感業務：按角色遮罩
 S_ACNO,#客戶帳號,#,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
 BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
 etl_version,ETL事件版本,,ga,L1,keep,etl_version,行為屬性
-BROKERNO3_SACNO,BROKERNO3_SACNO,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BROKERNO3_SACNO,BROKERNO3_SACNO,,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
 order_phone,豐雲學堂訂購人手機號碼,,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
 lesson_title,課程標題,,ga,L1,keep,lesson_title,行為屬性
 lesson_id,課程ID,,ga,L1,keep,lesson_id,行為屬性

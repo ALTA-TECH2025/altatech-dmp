@@ -79,12 +79,12 @@ event,$hdfs_import_batch_name,—,捨棄,客戶標 (X) 數據清理用
 event,$kafka_offset,—,捨棄,同上
 event,strWeb,—,待取捨,「静默创建」屬性：神策自動建立，含義請客戶確認；若是開戶來源可由 (C)WebCn 取代
 event,_latest_strWeb,—,待取捨,「最新一次」版本；DMP 可用最近規則重算
-event,ivKey,—,待取捨,静默创建；疑為開戶／驗證用金鑰，L3 代碼化
-event,hashKey,—,待取捨,同上
-event,svid,—,待取捨,同上
-event,_latest_ivKey,—,待取捨,最新一次版本
-event,_latest_hashKey,—,待取捨,
-event,_latest_svid,—,待取捨,
+event,ivKey,—,捨棄,静默创建；短網址／開戶驗證的加密參數，不入倉、不送 GA（sensors_properties.csv drop_ops）
+event,hashKey,—,捨棄,同上
+event,svid,—,捨棄,同上
+event,_latest_ivKey,—,捨棄,最新一次版本
+event,_latest_hashKey,—,捨棄,
+event,_latest_svid,—,捨棄,
 event,dd,—,待取捨,静默创建；含義待確認
 event,_latest_dd,—,待取捨,
 event,$sf_qrcode_channel_id,—,只匯歷史,神策智能運營欄位；新 MA 工具與 LINE 不在本案
@@ -161,6 +161,9 @@ user,id,OneID one_id,身分對應,神策內部數字 ID 不遷，id_map 另給
 user,first_id,user_pseudo_id,身分對應,匿名 ID → $identity_cookie_id／$identity_device_id
 user,second_id,user_id（HMAC 客戶代碼）,身分對應,登入 ID → $identity_login_id
 user,$is_deleted,DSAR 刪除流程,DMP 推導,
+user,svid,—,捨棄,規格表用戶表才有（導出無）；加密金鑰材料，不入用戶表
+user,dd,—,待取捨,規格表用戶表才有（導出無）；静默创建、第一次激活時寫入，含義待客戶確認
+user,$device_id_list,id_map（$identity_device_id）,DMP 推導,規格表用戶表才有（導出無）；關聯裝置清單由 OneID 的 id_map 推導，不另存
 user,$update_time,users.updated_at,DMP 推導,
 user,$first_visit_time,user_first_touch_timestamp,直接對應,
 user,$utm_source,traffic_source.source,直接對應,用戶級首次來源
