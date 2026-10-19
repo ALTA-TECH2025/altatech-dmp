@@ -61,3 +61,5 @@ DMP_SEED_PASSWORD=… deploy/quickstart/run_local.sh seed
 DMP_LOCAL_ACCOUNTS=~/dmp-local/accounts.json DMP_SEED_PASSWORD=… python3 -m backend.tools.demo_fill && python3 -m backend.tools.demo_capture
 cd web && npm run build:demo
 ```
+
+部署：push 到 main 會觸發 Vercel 自動部署（專案 altatech-dmp-demo）。commit 作者信箱必須是 Vercel 團隊成員已驗證的 GitHub 信箱，否則部署會停在 BLOCKED；此時可在 Vercel 以該 commit 手動部署。
