@@ -62,7 +62,7 @@ function CardBody({ card, data, k, labelOf }: { card: DashboardCard; data: CardD
     const res = data as unknown as EventsResult;
     const spec = String(data.chart_spec.type ?? 'line');
     const bucketed = data.rows.length > 0 && aliases.some((a) => data.rows.every((r) => r[a] === null || (typeof r[a] === 'string' && !Number.isFinite(Number(r[a])))));   // 遮罩分桶（例：金額 ≥5000000）→ 自動改表格
-    const chart = card.chart === 'auto' ? (bucketed ? 'table' : spec) : card.chart;
+    const chart = bucketed ? 'table' : card.chart === 'auto' ? spec : card.chart;        // 分桶字串畫不出長條／折線，不管卡片設定一律表格
     if (chart === 'table') return <DataTable data={data} labels={labels} />;
     if (chart === 'stat') {
       const r = data.rows[0] as Record<string, unknown> | undefined;
