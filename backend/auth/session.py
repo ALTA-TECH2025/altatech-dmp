@@ -67,15 +67,19 @@ class MemoryStore:
 
 class SessionManager:
     def __init__(self, cfg: dict[str, Any], store: SessionStore, audit: Callable[[str, dict[str, Any]], None], now: Callable[[], float] = time.time,
-                 admin_requires: dict[str, Any] | None = None):
-        """cfg = idp.yaml 的 session 段；admin_requires = role_mapping.admin_requires（admin 需 MFA 且認證夠新）。"""
+                 admin_requires: dict[str, Any] | None = None, assignments: Callable[[], list[dict[str, Any]]] | None = None,
+                 base_roles_of: Callable[[Session], list[str] | None] | None = None):
+        """cfg = idp.yaml 的 session 段；admin_requires = role_mapping.admin_requires（admin 需 MFA 且認證夠新）。
+        assignments／base_roles_of 給了就每次請求重算有效授權（見 effective）；不給則沿用登入快照（單元測試用）。"""
         self.cfg, self.store, self.audit, self.now = cfg, store, audit, now
         self.admin_requires = admin_requires or {}
+        self.assignments, self.base_roles_of = assignments, base_roles_of
 
     def create(self, *, user_id: str, username: str, name: str, email: str, provider: str, roles: list[str], groups: list[str], amr: list[str], auth_time: int,
-               scope: dict[str, Any] | None = None, ip: str = "") -> Session:
+               scope: dict[str, Any] | None = None, ip: str = "", base_roles: list[str] | None = None) -> Session:
         t = self.now()
-        s = Session(secrets.token_urlsafe(32), user_id, username, name, email, provider, roles, groups, amr, auth_time, t, t, secrets.token_urlsafe(24), scope or {}, attrs={"ip": ip})
+        s = Session(secrets.token_urlsafe(32), user_id, username, name, email, provider, roles, groups, amr, auth_time, t, t, secrets.token_urlsafe(24), scope or {},
+                    attrs={"ip": ip, **({"base_roles": list(base_roles)} if base_roles is not None else {})})
         olds = self.store.list_user(user_id)
         for old in olds[: max(0, len(olds) + 1 - int(self.cfg.get("concurrent_sessions", 3)))]:     # 超過同時 session 上限 → 踢最舊的
             self.store.delete(old.sid); self.audit("auth.session.evicted", {"user": user_id, "sid": old.sid[:8]})
@@ -113,16 +117,30 @@ class SessionManager:
             return [("Set-Cookie", f"{c['name']}=;{base}; HttpOnly{kill}"), ("Set-Cookie", f"{cs['cookie']}=;{base}{kill}")]
         return [("Set-Cookie", f"{c['name']}={s.sid}{base}; HttpOnly"), ("Set-Cookie", f"{cs['cookie']}={s.csrf}{base}")]
 
+    def effective(self, s: Session) -> tuple[list[str], dict[str, Any]]:
+        """目前有效的角色與範圍（每個請求都算，不用登入快照）：基底角色（登入時的群組映射；本機帳號則重讀帳號，停用／改角色即時生效）
+        + 現在的本機指派疊加（新增、撤銷、到期、deny、scope 變更都立刻反映）。沒接 assignments 時（單元測試）才沿用 session 快照。"""
+        from .mapping import overlay_assignments
+        base = list(s.attrs.get("base_roles", s.roles))
+        if self.base_roles_of is not None:
+            b = self.base_roles_of(s)
+            if b is None:                                             # 帳號已停用／鎖定／刪除：沒有任何角色
+                return [], {}
+            base = list(b)
+        if self.assignments is None:
+            return list(s.roles), dict(s.scope or {})
+        roles, scope, _ = overlay_assignments((s.user_id, s.username), base, self.assignments(), self.now())
+        return roles, scope
+
     def subject(self, s: Session) -> Subject:
-        """Session → Policy Engine 的 Subject（admin 需 MFA 且認證夠新，否則 admin 角色暫時拿掉）。"""
-        roles = list(s.roles)
+        """Session → Policy Engine 的 Subject：有效角色（effective）再套 admin 條件（需 MFA 且認證夠新，否則 admin 角色暫時拿掉）。"""
+        roles, sc = self.effective(s)
         req = self.admin_requires
         if "admin" in roles and req:
             fresh = self.now() - max(s.auth_time, s.step_up_at) <= int(req.get("max_auth_age_s", 900))
             mfa_ok = not req.get("amr") or set(req["amr"]) & set(s.amr)
             if not (fresh and mfa_ok):
                 roles.remove("admin")
-        sc = s.scope or {}
         return Subject(s.user_id, roles, branches=list(sc.get("branches", [])), agents=list(sc.get("agents", [])))
 
 

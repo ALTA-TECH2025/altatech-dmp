@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from ..security.policy import Subject, authorize
 from .ldap import LdapError, LdapProvider
 from .local import LocalError, LocalProvider
-from .mapping import map_roles, me_payload
+from .mapping import base_roles, map_roles, me_payload
 from .oidc import LoginState, OIDCError, OIDCProvider
 from .session import ApiTokens, Session, SessionManager
 
@@ -43,7 +43,7 @@ class AuthService:
         roles, scope, applied = map_roles(ident, self.cfg["role_mapping"], self.assignments(), now=self.sessions.now())
         self.sessions.audit("iam.role_mapping.applied", {"user": f"{ident.provider}:{ident.subject}", "rules": applied, "roles": roles})
         return self.sessions.create(user_id=f"{ident.provider}:{ident.subject}", username=ident.username, name=ident.name, email=ident.email, provider=ident.provider,
-                                    roles=roles, groups=ident.groups, amr=ident.amr, auth_time=ident.auth_time, scope=scope, ip=ip)
+                                    roles=roles, groups=ident.groups, amr=ident.amr, auth_time=ident.auth_time, scope=scope, ip=ip, base_roles=base_roles(ident, self.cfg["role_mapping"]))
 
 
 def _set(resp: Response, headers: list[tuple[str, str]]) -> None:
@@ -156,7 +156,8 @@ def build_router(svc: AuthService) -> APIRouter:
     def me(req: Request) -> dict[str, Any]:
         s = current_session(svc, req)
         subj = svc.sessions.subject(s)
-        return me_payload(subj, s, s.roles, svc.mode, step_up_needed="admin" in s.roles and "admin" not in subj.roles)
+        roles_full, _ = svc.sessions.effective(s)                     # 目前有效角色（指派撤銷／到期即時反映），不是登入快照
+        return me_payload(subj, s, roles_full, svc.mode, step_up_needed="admin" in roles_full and "admin" not in subj.roles)
 
     @r.post("/auth/token")
     def token(req: Request) -> dict[str, Any]:

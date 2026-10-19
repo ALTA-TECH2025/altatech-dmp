@@ -86,6 +86,7 @@ Keycloak ──302 code──► 後端 /auth/callback ──換 token、驗 ID 
 - 內建五種角色各對應一個群組（DMP-Admins／DMP-Marketing／DMP-Analysts／DMP-DigitalOps／DMP-IT）；Entra 用 Object ID、AD／Keycloak 用群組名。
 - 不在任何群組 → 登入成功但無角色 → `/no-access` 頁 + 審計 `auth.login.no_role`。
 - 本地指派（`/v1/iam/assignments`）疊加：自訂角色（`custom_*`）、範圍（專案／分群／回溯天數）、到期、拒絕某角色；到期自動失效。
+- 有效授權每個請求重算（`SessionManager.effective`）：session 只存登入時的基底角色（群組映射／本機帳號），指派在每次請求當下再疊；新增、撤銷、到期、deny、scope 變更不用重新登入就生效；本機帳號每次請求重讀帳號（停用／鎖定／改角色即時生效）。SSO 群組變更仍要重新登入（基底角色來自 IdP）。背景排程（看板定時寄送、資料輸出）以擁有者「現在」的有效角色跑。
 - `GET /v1/iam/me` 回：使用者、角色（含 active 標記）、grants（模組 → 動作聯集）、masking（欄位 → 策略，取最嚴格）、scope、session（idp_mode、amr、step_up_needed、csrf_header）。
 
 ### 2.5 審計事件

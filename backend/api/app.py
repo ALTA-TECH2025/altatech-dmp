@@ -4,6 +4,7 @@ create_app(auth_service, store, ch) 讓測試能注入假 IdP／假 ClickHouse�
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from ..activation.service import httpx_transport as _httpx_transport
 from ..approvals import ApprovalService, ExportService, RevealService
 from ..auth.api import AuthService, subject_from_request
 from ..auth.api import build_router as auth_router
+from ..auth.mapping import overlay_assignments
 from ..integration.runner import LocalRunner
 from ..integration.scheduler import Scheduler
 from ..ops import metrics as _metrics
@@ -25,6 +27,7 @@ from ..segments import SegmentService
 from ..semantic.compiler import Catalog
 from . import activation, analytics, ask, bookmarks, dashboards, exports, iam, integration, meta, migration, ops, output, segments, sql, sysadmin, tags, users
 from .store import Store
+from .sysadmin import member_directory
 
 
 def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_service: SegmentService | None = None, export_dir: Any | None = None, approval_service: ApprovalService | None = None,
@@ -46,18 +49,40 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
 
     # auth 的審計寫進同一個 store（SessionManager 建立時已綁 audit callable；這裡只補 store 的 audit 給 iam／analytics）
     auth.assignments = store.assignments
-    app.include_router(auth_router(auth))
     local_provider = auth.providers.get("local")
     accounts = getattr(local_provider, "accounts", None)
+
+    def base_roles_of(s: Any) -> list[str] | None:
+        """每個請求的基底角色：本機帳號重讀帳號（停用／鎖定／刪除 → None＝沒有角色；改角色即時生效）；SSO 沿用登入時的群組映射。"""
+        if s.provider == "local" and accounts is not None:
+            acc = next((a for a in accounts.list() if a["subject"] == s.user_id.split(":", 1)[-1]), None)
+            if acc is None or acc.get("disabled") or acc.get("locked"): return None
+            return [r for r in acc["roles"] if accounts.role_allowed(r)]
+        return list(s.attrs.get("base_roles", s.roles))
+
+    auth.sessions.assignments = store.assignments                          # 有效授權每個請求重算（R07）：指派新增／撤銷／到期／deny 立刻反映
+    auth.sessions.base_roles_of = base_roles_of
+    app.include_router(auth_router(auth))
+
+    def owner_roles(user_id: str) -> list[str] | None:
+        """背景排程以擁有者「現在」的權限跑：身分來源與登入相同（本機帳號的角色／SSO 最近一次登入映射到的角色）+ 本機指派疊加（deny、到期）；找不到或已停用 → None（不跑）。"""
+        m = next((x for x in member_directory(store, accounts, auth.sessions.store) if x["id"] == user_id), None)
+        if m is None or m.get("status") in ("disabled", "locked"): return None
+        base = list(m.get("roles") or [])                                   # 成員目錄：SSO＝最近一次登入映射到的角色；本機＝帳號角色
+        if m.get("source") == "local" and accounts is not None:
+            acc = next((a for a in accounts.list() if f"local:{a['subject']}" == user_id), None)
+            if acc is None or acc.get("disabled") or acc.get("locked"): return None
+            base = list(acc["roles"])
+        roles, _, _ = overlay_assignments((user_id, m.get("username") or user_id), base, store.assignments(), time.time())   # 再疊一次：deny／到期即時生效
+        return roles
     app.include_router(iam.build_router(store, get_subject, approvals))
     app.include_router(sysadmin.build_router(store, get_subject, accounts, auth.sessions.store, auth.cfg, approvals))
     app.include_router(analytics.build_router(store, get_subject, ch))
     import tempfile
 
     from .dashboard_share import DashboardShare
-    from .sysadmin import member_directory
     share = DashboardShare(store, ch, Catalog(), Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports", approvals, mailer,
-                           recipients=lambda roles: [m["email"] for m in member_directory(store, accounts, auth.sessions.store) if m.get("email") and set(m.get("roles") or []) & set(roles)],
+                           recipients=lambda roles: [m["email"] for m in member_directory(store, accounts, auth.sessions.store) if m.get("email") and set(m.get("roles") or []) & set(roles)], roles_of=owner_roles,
                            mail_domains=mail_domains, render_key=render_key, base_url=base_url, llm=llm)
     app.state.dashboard_share = share
     app.include_router(ask.build_router(store, get_subject, share.cat, llm))
