@@ -1,6 +1,6 @@
 # 單機測試環境（真的能登入操作）
 
-一台機器跑完整系統：**ClickHouse → API（同源提供前端）→ 本機帳號登入（密碼 + TOTP）→ 分析／分群／審批／數據整合／儀表板**，以及資料匯入驗證：**神策查詢 API → 代碼化／去個資 → ClickHouse → 對帳**。適合筆電或一台 GCP VM（e2-standard-4，4 vCPU／16 GB，Ubuntu 22.04 或 Rocky 9）。不是正式部署（正式走 `deploy/helm`：Keycloak／Entra ID 登入、PostgreSQL 控制面、密鑰庫、TLS）。
+一台機器跑完整系統：**ClickHouse → API（同源提供前端）→ 本機帳號登入（密碼 + TOTP）→ 分析／分群／審批／數據整合／儀表板**，以及資料匯入驗證：**舊平台查詢 API → 代碼化／去個資 → ClickHouse → 對帳**。適合筆電或一台 GCP VM（e2-standard-4，4 vCPU／16 GB，Ubuntu 22.04 或 Rocky 9）。不是正式部署（正式走 `deploy/helm`：Keycloak／Entra ID 登入、PostgreSQL 控制面、密鑰庫、TLS）。
 
 ```bash
 sudo apt-get install -y python3-pip nodejs npm curl       # 或 dnf
@@ -33,24 +33,24 @@ deploy/quickstart/run_local.sh code admin                  # 沒有手機驗證�
 | 密鑰 | `secrets.json` 空檔、代碼化金鑰用環境變數明文 | 密鑰庫 secret_ref |
 | 前端 | API 同源提供 `web/dist`（`DMP_WEB_DIST`） | nginx／Ingress 在前面（快取、壓縮、TLS） |
 
-給團隊共用的 VM：`DMP_BIND=0.0.0.0 deploy/quickstart/run_local.sh up`，前面放 TLS（Caddy／nginx）後把 `DMP_COOKIE_SECURE` 拿掉；VM 的好處是常駐、網路能到客戶內網（客戶的神策是私有化，只有內網或 VPN 能到）。
+給團隊共用的 VM：`DMP_BIND=0.0.0.0 deploy/quickstart/run_local.sh up`，前面放 TLS（Caddy／nginx）後把 `DMP_COOKIE_SECURE` 拿掉；VM 的好處是常駐、網路能到客戶內網（客戶的舊平台是私有化，只有內網或 VPN 能到）。
 
 ## 資料匯入驗證
 
 ```bash
 deploy/quickstart/run_local.sh e2e                         # 合成資料端到端（查詢編譯器黃金測試、同步排程、API）
-export SA_BASE_URL=https://sn3.data-di.com SA_PROJECT=taipei_uat SA_API_SECRET='（從神策開放 API 金鑰頁複製）'
+export LEGACY_BASE_URL=https://sn3.data-di.com LEGACY_PROJECT=taipei_uat LEGACY_API_SECRET='（從舊平台開放 API 金鑰頁複製）'
 deploy/quickstart/run_local.sh import --date 2026-10-01    # 連線測試 → 導出該日 → 代碼化 → 載入 → 對帳
 deploy/quickstart/run_local.sh status | down
 ```
 
 | 目的 | 需要什麼 |
 |---|---|
-| 只驗證神策 API 連得上、金鑰有效、欄位與筆數 | 不需要 VM：任何能連到神策主機的電腦跑 `python3 -m backend.integration.sensors_api test/inventory/columns` |
-| 驗證導出檔格式與代碼化（不進 ClickHouse） | 不需要 VM：`sensors_api export` + `sensors_format.stage` 在本機跑 |
+| 只驗證舊平台 API 連得上、金鑰有效、欄位與筆數 | 不需要 VM：任何能連到舊平台主機的電腦跑 `python3 -m backend.integration.legacy_api test/inventory/columns` |
+| 驗證導出檔格式與代碼化（不進 ClickHouse） | 不需要 VM：`legacy_api export` + `legacy_format.stage` 在本機跑 |
 | 完整匯入驗證（進 ClickHouse、對帳、前端查） | 一台機器：筆電或 GCP VM 都可以 |
 
-神策連線鑑權兩種都支援：舊版 `?token=`（專案設定 › 查詢 API 的 API Secret）與 SBP「開放 API 金鑰」（HTTP header `sensorsdata-token`）。`test` 會先用設定的模式，失敗自動試另一種並告訴你該改哪個。金鑰只能放環境變數 `SA_API_SECRET`（正式環境是 secret_ref），不要寫進命令列或設定檔。
+舊平台連線鑑權兩種都支援：舊版 `?token=`（專案設定 › 查詢 API 的 API Secret）與 SBP「開放 API 金鑰」（HTTP header `sensorsdata-token`）。`test` 會先用設定的模式，失敗自動試另一種並告訴你該改哪個。金鑰只能放環境變數 `LEGACY_API_SECRET`（正式環境是 secret_ref），不要寫進命令列或設定檔。
 
 ## 常見問題
 

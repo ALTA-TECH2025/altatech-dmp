@@ -1,0 +1,682 @@
+﻿property,display,tag,domain,sensitivity,decision,ga4_param,rule
+dwf_appclick_name_,大戶豐點擊名稱(新),,ga,L2,keep,dwf_appclick_name_new,敏感業務：按角色遮罩／分桶，匯出降一級
+dwf_appclick_tag_,大戶豐點擊標籤(新),,ga,L2,keep,dwf_appclick_tag_new,敏感業務：按角色遮罩／分桶，匯出降一級
+dwf_appclick_content_,大戶豐點擊內容(新),,ga,L2,keep,dwf_appclick_content_new,敏感業務：按角色遮罩／分桶，匯出降一級
+INOUT_AMT_2_CY,收付幣別2,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FOP_DATE,集保傳送日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HG109,交易序號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HG108,有價證券類別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HG107,交易代號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FOP_QTY,異動股數,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HG105,匯出帳號,,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+HG104,匯出券商,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+eventtime,事件發生時間,,ga,L1,keep,eventtime,行為屬性
+open_time,當日首次開信時間,,ga,L1,keep,open_time,行為屬性
+send_date,EDM寄發日期,,ga,L1,keep,send_date,行為屬性
+dwf_appclick_content,大戶豐點擊內容,,ga,L2,keep,dwf_appclick_content,敏感業務：按角色遮罩／分桶，匯出降一級
+dwf_appclick_tag,大戶豐點擊標籤,,ga,L2,keep,dwf_appclick_tag,敏感業務：按角色遮罩／分桶，匯出降一級
+dwf_appclick_name,大戶豐點擊名稱,,ga,L2,keep,dwf_appclick_name,敏感業務：按角色遮罩／分桶，匯出降一級
+birthdt_evlogin,#活動登錄-生日,#,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+gift_card_recipient,#兌換人ID,#,ga,L3,hash,gift_card_recipient,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+gift_card_use_status,#禮券狀態,#,ga,L2,keep,gift_card_use_status,敏感業務：按角色遮罩／分桶，匯出降一級
+transaction_status,#訂單狀態,#,ga,L2,keep,transaction_status,敏感業務：按角色遮罩／分桶，匯出降一級
+gift_card_recipient_unicode,#兌換通用碼,#,ga,L3,hash,gift_card_recipient_unicode,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+gift_card_recipient_acno,#兌換帳號,#,ga,L3,hash,gift_card_recipient_acno,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+gift_card_recipient_brokerid,#兌換分公司,#,ga,L2,keep,gift_card_recipient_brokerid,敏感業務：按角色遮罩／分桶，匯出降一級
+gift_card_serial_number,#禮券序號,#,ga,L2,keep,gift_card_serial_number,敏感業務：按角色遮罩／分桶，匯出降一級
+dwt_appclick_tag,大戶投點擊標籤_,,ga,L2,keep,dwt_appclick_tag,敏感業務：按角色遮罩／分桶，匯出降一級
+dwt_appclick_content,大戶投點擊內容_,,ga,L2,keep,dwt_appclick_content,敏感業務：按角色遮罩／分桶，匯出降一級
+dwt_appclick_name,大戶投點擊名稱,,ga,L2,keep,dwt_appclick_name,敏感業務：按角色遮罩／分桶，匯出降一級
+dwt_applick_content,大戶投點擊內容,,ga,L2,keep,dwt_applick_content,敏感業務：按角色遮罩／分桶，匯出降一級
+dwt_applick_tag,大戶投點擊標籤,,ga,L2,keep,dwt_applick_tag,敏感業務：按角色遮罩／分桶，匯出降一級
+NET_BACK,網路申購回覆碼,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+NET_NO,網路申購流水號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FAIL_TO_R6,扣款不足上傳R6註記,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FAIL_CANCEL,扣款不足刪除註記,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FAIL_DATE,扣款不足日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FAIL_CODE,扣款不足註記,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ORD_TO_R6,委託上傳R6註記,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ORD_CANCEL,委託刪除註記,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ORD_TYPE,委託方式,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BA_DATE,抽籤日,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+_latest_strWeb,最新一次_strWeb,,ga,L1,keep,latest_str_web,行為屬性
+strWeb,静默创建_strWeb,,ga,L1,keep,str_web,行為屬性
+TAG_DATE,標籤基準日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+PROCESS_DT,資料更新日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TAG_NAME,標籤名稱,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TAG_TYPE,標籤類型,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TAG_OWNER,標籤擁有者,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+UUID,UUID,,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+transaction_id,#訂單編號,#,ga,L2,keep,transaction_id,敏感業務：按角色遮罩／分桶，匯出降一級
+cart_number,#購物車編號,#,ga,L2,keep,cart_number,敏感業務：按角色遮罩／分桶，匯出降一級
+transaction_denominations,#訂單面額,#,ga,L2,keep,transaction_denominations,敏感業務：按角色遮罩／分桶，匯出降一級
+transaction_price,#訂單金額,#,ga,L2,keep,transaction_price,敏感業務：按角色遮罩／分桶，匯出降一級
+cart_price,#商品總額,#,ga,L1,keep,cart_price,行為屬性
+item_denominations,#商品面額,#,ga,L2,keep,item_denominations,敏感業務：按角色遮罩／分桶，匯出降一級
+item_quantity,#商品數量,#,ga,L2,keep,item_quantity,敏感業務：按角色遮罩／分桶，匯出降一級
+item_name,#商品名稱,#,ga,L1,keep,item_name,行為屬性
+item_id,#商品編號,#,ga,L1,keep,item_id,行為屬性
+item_price,#商品金額,#,ga,L2,keep,item_price,敏感業務：按角色遮罩／分桶，匯出降一級
+mid_status,MID驗證結果,,ga,L1,keep,mid_status,行為屬性
+latest_member_phone,會員手機(最近一次),,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+latest_member_email,會員信箱(最近一次),,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+msg,備註,,ga,L2,keep,msg,敏感業務：按角色遮罩／分桶，匯出降一級
+login_time,登入時間,,ga,L1,keep,login_time,行為屬性
+login_date,登入日期,,ga,L1,keep,login_date,行為屬性
+LACK,不足金額,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+SETTLEMENT_MOUNT,交割金額,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BATCHNOTIFY,通知批次,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+OPEN_SOURCE,客戶開戶來源平台,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MT_OP_NO,信用戶開戶序號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MT_ODATE,信用戶開戶日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MT_ACNO,信用戶帳號,,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+BROKERNO3_MT_ACNO,(Item_id) 分公司+信用戶帳號,Item_id,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+license,永久授權,,ga,L1,keep,license,行為屬性
+group,分群,,ga,L1,keep,group,行為屬性
+edm,訂閱電子報,,ga,L1,keep,edm,行為屬性
+industry_tag,喜好標籤,,ga,L1,keep,industry_tag,行為屬性
+sinomember,永豐金客戶,,ga,L1,keep,sinomember,行為屬性
+mid_fail_reason,MID失敗原因,,ga,L1,keep,mid_fail_reason,行為屬性
+mid_success,MID是否成功,,ga,L1,keep,mid_success,行為屬性
+member_id,會員帳號,,ga,L3,hash,member_id,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+member_phone,會員手機,,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+member_email,會員信箱,,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+companycode,公司代碼,,ga,L2,keep,companycode,敏感業務：按角色遮罩／分桶，匯出降一級
+companyname,公司名稱,,ga,L2,keep,companyname,敏感業務：按角色遮罩／分桶，匯出降一級
+st_platform,平台,,ga,L1,keep,st_platform,行為屬性
+normal,原實體發放,,ga,L1,keep,normal,行為屬性
+unlimited,無領取限制,,ga,L1,keep,unlimited,行為屬性
+evoting,電子投票,,ga,L1,keep,evoting,行為屬性
+birthDT_ConfirmID,#生日_驗證ID,#,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+STOCK_NAME,商品名稱,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EX_NAME,交易所名稱,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+COMMISSION_CURR,上手手續費幣別(OSU),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FEE_CURR,客戶手續費幣別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BOND_TYPE,債券商品類別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+IS_STAFF,內部員工,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+KYC_RANK_CODE,KYC,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+IS_US,美國人,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DVP,DVP,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+PI,PI,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DOM_DWELLER,本國居民,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CUS_TYPE,客戶性質,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HOSTING_TYPE,託管類型,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+INVESTOR_PRO,商品限專業投資人,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+NET_FEE_ORG,淨收手費,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+NET_FEE_CURR,淨收手費收入幣別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BE_EMP_NAME,介紹人姓名,,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+BE_EMP_NO,介紹人工號,,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+SALE_EMP_NAME,營業員姓名,,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+INOUT_CURR,應收付金額幣別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+OTHER_FEE,其它費用,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+OTHER_FEE_CURR,其它費用幣別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+RATE_USD,匯率(美元),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+RATE_DATE,匯率日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+RATE_TW,匯率(台幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ANTE_NAME,上手名稱,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+S_IDNO,去識別化ID,,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+NET_FEE_TW,淨手續費 (約當台幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+COMMI_INOUT_DATE,上手收付日,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+STOCKIN_EFFEC_DATE,庫存生效日,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DIAL_DATE,撥客戶日,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DEBIT_DATE,DEBIT_DATE,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+COMMI_IN_DATE,上手匯入日,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EXCH_DATE,匯上手日,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+APPLY_REP_DATE,申請匯回日,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FEE_CHG_DATE,手續費轉自有日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+INOUT_DATE,收付日,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+REBATE,REBATE,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TOTAL_FEE,手續費總額,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+PLUS_FEE,外加手續費,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+STOCK_TYPE,商品類型,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HANDLE_COMMI,上手應付金額_OSU,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HANDLE_CUS,客戶應付金額_OSU,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MANAGE,管理費,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+SERVE,服務費,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+SETTLE,結算費,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EXG,交收費,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DELIVERY_WAY,交割方式,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DELIVERY_TYPE,客戶交割戶類別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DATA_S,資料次類別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DATA_D,資料明細類別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DATA_M,資料主類別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+PAY_TYPE,款項別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BE_BUSS_GROUP,歸屬事業群,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ANTE_BNK_ACC,上手保銀帳號,,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+ANTE_BNK_CODE,上手保銀代號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MAKET_FLAG,市場,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TRADE_FLAG,交易單類別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+STOCK_FLAG,商品別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ACC_TYPE,帳務別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TDCC_CODE,結構債TDCC CODE,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+STOCK_RISK_LEVEL,商品風險等級,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+REBATE_DATE,REBATE實際撥扣日,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+Bankact,#分戶帳帳戶,#,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+dwt_feedback_notgood,#再加油送出鍵,#,ga,L1,keep,dwt_feedback_notgood,行為屬性
+dwt_feedback_excellent,#很棒呦送出鍵,#,ga,L1,keep,dwt_feedback_excellent,行為屬性
+dwt_flashorder_number,#網路單號,#,ga,L1,keep,dwt_flashorder_number,行為屬性
+dwt_flashorder_successful,#閃電下單委託是否錯誤,#,ga,L2,keep,dwt_flashorder_successful,敏感業務：按角色遮罩／分桶，匯出降一級
+dwt_flashorder_ordrectimer,#閃電下單委託到委回持續時間,#,ga,L2,keep,dwt_flashorder_ordrectimer,敏感業務：按角色遮罩／分桶，匯出降一級
+dwt_flashorder_ip,#閃電下單IP,#,ga,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+nps_trade_record,點擊_交易紀錄_行為數據,,ga,L1,keep,nps_trade_record,行為屬性
+discount,折扣金額,,ga,L2,keep,discount,敏感業務：按角色遮罩／分桶，匯出降一級
+order_price,折扣前訂單金額,,ga,L2,keep,order_price,敏感業務：按角色遮罩／分桶，匯出降一級
+user_coupon_id,用戶折扣碼ID,,ga,L2,keep,user_coupon_id,敏感業務：按角色遮罩／分桶，匯出降一級
+analytics_label,分析標籤,,ga,L1,keep,analytics_label,行為屬性
+coupon_name,折扣碼名稱,,ga,L2,keep,coupon_name,敏感業務：按角色遮罩／分桶，匯出降一級
+coupon_code,折扣碼序號,,ga,L2,keep,coupon_code,敏感業務：按角色遮罩／分桶，匯出降一級
+coupon_id,折扣碼ID,,ga,L2,keep,coupon_id,敏感業務：按角色遮罩／分桶，匯出降一級
+coupon_email,領券人信箱,,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+ERROR_CODE,ERROR_CODE,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HOUR_TIME,HOUR_TIME,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CHANNEL,CHANNEL,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DATE_TIME,DATE_TIME,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BANK_ACNO_1,帳號1,,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+BANK_BRANCE_1,分行1,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BANK_1,銀行1,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BANK_ACNO_2,帳號2,,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+BANK_BRANCE_2,分行2,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BANK_2,銀行2,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ANTE_MATCH_NO,上手成交單號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+OPEN_BELONG,開戶所屬分公司,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MARKET_NO,市場代碼,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BUY_SALE,買賣別 B/S,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_STOCK,成交股數(豐美股),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+WEB_NO,WEB 流水序號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ORDER_NO,委託單日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TAX_SETTLE,交收稅,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TAX_MTH,交易稅,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TAX_STAMP,印花稅TAX_STAMP,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_MONEY,成交金額 MTH_MONEY,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_NO,成交單號 MTH_NO,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+US_DELIVERY,美股交割方式,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CIRCLE_BANK,圈存銀行別(豐美股),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EX_RATE,平均匯率,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ALLOCA_PRICE,分配成交價金(豐美股),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ALLOCA_STOCK,分配股數(豐美股),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TRAN_NO,交易所代碼,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BANK_REPLY,銀行回覆錯誤代碼BANK_REPLY,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+SEQNO,序號SEQNO,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BATCH,處理批次BATCH,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MAIN_DATE,(X)維護MAIN_DATE,X,batch,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+MAIN_USER,(X)維護者MAIN_USER,X,batch,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+PAY_MONEY,客戶應付金額,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CLOSE_PRICE,收盤價,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ALLOCA_PER,分配比率ALLOCA_PER,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DUE_STOCK,扣款股數,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CIRCLE_MONEY,實際圈存金額,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+INVEST,投資標的,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CIRCLE_DATE,豐美股圈存日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+COMP_SOURCE,來源公司,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FEE_O,手續費(原幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TFDATE,轉檔日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+COMMISSION_OTH_TW,上手其他費用(台幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+COMMISSION_TAX_TW,上手交易稅(台幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_TW_MINUS_TW,贖回扣款(台幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MA_AMT_TW,保管費(台幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TAX_TW,交易稅(台幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MUSR,(X)維護者MUSR,X,batch,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+MPGM,(X)維護MPGM,X,batch,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+MTIME,(X)維護MTIME,X,batch,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+EX_ITEM,預留欄位,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_COST_TW,成本金額(台幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_COST_O,成本金額(原幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ID_TYPE,身分種類,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CUS_PRICE,客戶價,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HQ_FEE,總公司手續費,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BR_FEE,分公司手續費,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HOLD_COM,保管機構,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+PO_BANK_ACNO,收益帳號,,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+PO_BANK_NAME,收益銀行,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DELIVERY_DATE,交割日期 DELIVERY_DATE,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FEE_RATE_2,應收手續費率,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FEE_RATE_1,實收手續費率,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TRUST_ACNO,信託帳號,,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+CARRY_AMT_DATE,撥款日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CURRENT_TYPE,委託業務別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CARRY_BROKER,入帳分公司,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ORD_TYPE_2,"下單方式(個人,集體)",,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ORD_TYPE_1,"下單方式(初級,次級)",,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+IO_BANK_ACNO,入扣帳帳號,,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+IO_BANK_NAME,入扣帳銀行,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CURR_RATE,台幣匯率,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+INOUT_AMT_TW,應收付金額(台幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+INOUT_AMT_O,應收付金額(原幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EX_INTEREST,前手息,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+COMMISSION_OTH_O,上手其他費用(原幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+COMMISSION_TAX_O,上手交易稅(原幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+COMMISSION_O,上手手續費(原幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_O_MINUS,贖回扣款(原幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MA_AMT_O,保管費(原幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TAX_O,交易稅(原幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_O_QTY,成交或贖回單位,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_AMT_O,成交金額(原幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_O_AMT,成交或贖回面額,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_YMD,分配日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+SINO_EMP_NO,理財專員工號,,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+SALE_EMP_BELONG,業績歸屬營業員員工代號,,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+SALE_EMP_NO,營業員,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+COMMISSION_TW,上手手續費(台幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+COMMISSION,上手手續費,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FEE_TW,手續費(台幣),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TRN37,最近平倉日,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TRN36,平倉數量,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TRN35,使用額度,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+O_INOUT_AMT_2,收付金額2,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+O_INOUT_AMT_1,收付金額1,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CBT_DATE,交割日期(複委託),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ANTE_ID,上手編號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ANTE_FEE_CY,上手手續費幣別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+INOUT_AMT_2,應收付金額2,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+INOUT_AMT_1,應收付金額1,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FEE_CY,手續費幣別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EXPENSE3,匯費,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EXPENSE2,交所費,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EXPENSE1,印花稅,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ORD_DATE,委託日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MATCH_NO,成交單號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_AMT_TW,(O)成交金額(台幣),O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EX_CODE,交易所代號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ALLOCA_ORD_NO,分配後新委託書號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BNK_NO,銀行代號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BNK_CREDIT,圈存銀行別(豐台股),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+AMT,分配成交價金(豐台股),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ALLOCA_QTY,分配股數(豐台股),,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BNK_ERRO,銀行回覆錯誤代碼,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BNK_SNO,序號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BNK_PROC,處理批次,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MDATE,(X)維護MDATE,X,batch,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+MUSER,(X)維護者MUSER,X,batch,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+PRICE,成交價位,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ALLOCA_RATIO,分配比率,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CREDIT_AMT,圈存金額,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DATE_YMD,日期,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+PART_IDNO,11碼客戶ID之後三碼,,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+PRJ_CODE2,優惠代碼,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+PRJ_CODE1,專案代碼,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CARRY_AMT_TYPE,撥款註記,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+$lib_detail,埋点细节,,ga,L1,keep,lib_detail,行為屬性
+$sat_has_installed_app,互动事件是否为激活事件触发,,ga,L1,keep,sat_has_installed_app,行為屬性
+PROC_DATE,資料處理日,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+AREA_NO_EX,(O)區別,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA48,預留,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA47,原始委託書編號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA46,收足款券或全額碼,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA45,(O)代理碼,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA43,(O)保證品碼,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA42,保證品折合價金,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA41,保證金,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA40,擔保品金額,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA38,代扣利息稅款,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA37,借券費,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA35,退還保證金,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA34,退還擔保品金額,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MP_RE_AMT,償還融資金額,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MP_OWN_AMT,融資自備款,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MP_AMT,融資金額,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA27,逾期違約金,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+VIP_GROUP,VIP GROUP,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+VIP_CODE,VIP 代號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+RVINT,債息,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA11,(O)交割員代碼,O,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+HAA10,劃撥方式,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_PRICE,成交價格,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ORD_NO,委託書編號,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+task_mail,#活動登錄-信箱,#,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+task_mobile,#活動登錄-手機,#,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+page_type,跟風潮股下載頁面類型,,ga,L1,keep,page_type,行為屬性
+ivKey,静默创建_ivKey,,ga,L3,drop_ops,,加密金鑰材料：不入倉、不送 GA
+hashKey,静默创建_hashKey,,ga,L3,drop_ops,,加密金鑰材料：不入倉、不送 GA
+svid,静默创建_svid,,ga,L3,drop_ops,,加密金鑰材料：不入倉、不送 GA
+form_subject_number,form_subject_number,,ga,L1,keep,form_subject_number,行為屬性
+form_subject_answer_list,form_subject_answer_list,,ga,L2,keep,form_subject_answer_list,敏感業務：按角色遮罩／分桶，匯出降一級
+form_subject_answer,form_subject_answer,,ga,L2,keep,form_subject_answer,敏感業務：按角色遮罩／分桶，匯出降一級
+form_subject_type,form_subject_type,,ga,L1,keep,form_subject_type,行為屬性
+form_subject_otheranswer,form_subject_otheranswer,,ga,L2,keep,form_subject_otheranswer,敏感業務：按角色遮罩／分桶，匯出降一級
+form_subject_title,問卷題目 form_subject_title,,ga,L1,keep,form_subject_title,行為屬性
+form_label,form_label,,ga,L1,keep,form_label,行為屬性
+form_id,form_id,,ga,L1,keep,form_id,行為屬性
+form_submit_time,form_submit_time,,ga,L1,keep,form_submit_time,行為屬性
+form_status,form_status,,ga,L1,keep,form_status,行為屬性
+form_title,問卷名稱 form_title,,ga,L1,keep,form_title,行為屬性
+_latest_ivKey,最新一次_ivKey,,ga,L3,drop_ops,,加密金鑰材料：不入倉、不送 GA
+_latest_hashKey,最新一次_hashKey,,ga,L3,drop_ops,,加密金鑰材料：不入倉、不送 GA
+_latest_svid,最新一次_svid,,ga,L3,drop_ops,,加密金鑰材料：不入倉、不送 GA
+$sf_qrcode_channel_id,公众号二维码渠道 ID,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_mark_tag_name,标记受众名称,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_mark_action_type,标记操作类型,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_msg_recipient,收件人,,ma,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+$sf_template_id,通道模板 ID,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_exit_reason,退出原因,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_channel_task_id,通道返回任务ID,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+rec_banner_id,智能运营 资源位 轮播策略ID,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+strategy_id,智能运营 资源位 列表策略ID,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+section_id,智能运营 资源位 ID,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_section_id,智能运营 弹窗资源位 ID,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_relevance_properties_value,关联属性值,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+IS_SW,(O)永豐發行權證,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+IS_W,(O)權證,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EX_CREDIT_FLAG,(O)信用註記,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EX_CORP_FLAG,(O)組織註記,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EX_MAKET_FLAG,(O)(舊)市場註記,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EX_TRADE_FLAG,(O)委託管道類別,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+WEB_ID,WEB_ID 委單管道別/舊:#觸發平台,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+SALE_EMP_BELON,(O)業績歸屬營業員工號,O,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+SALE_NO_BELONG,(O)業績歸屬營業員代號,O,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+HAA44,銀行別,,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+INT_E_DATE,(O)訖息日,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+INT_B_DATE,(O)起息日,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+EX_CTRADE_FLAG,(O)附屬代號,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+NET,(O)淨收付金額-淨收入,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA20,(O)網路傳統,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+VALUE_DAY,(O)交割日期VALUE_DAY,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+IO_AMT,(O)應收付金額,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TAX,(O)代扣稅款/交易稅,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA12,(O)沖消方式,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+SS_FEE,(O)融券手續費,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+SS_OUT_AMT,(O)應付利息,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MP_IN_AMT,(O)融資利息,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BS_STATUS,(O)買賣別/舊:#交易買賣,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TRADE_KIND1,(O)交易票別/舊:交易類別,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FEE,(O)手續費/舊:手續費,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_AMT,(O)成交金額,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_QTY,(O)成交股數/舊:交易數量,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+HAA09,(O)市場註記/舊:市場別,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TRADE_KIND2,(O)交易種類,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MTH_DATE,(O)成交日期/舊:委託日期,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+STOCK_NO,(O)商品代號/舊:商品代號,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+O_MM_EMP_NO,(O)推介行員代號,O,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+O_MM_BRANCH,(O)推介分行別,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+O_MM_CORP,(O)推介單位,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BANK3_NO,(O)分行代號,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ONLINE_CUS,(O)線上開戶(複委託),O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+OPEN_SOC,(O)客戶開戶來源別,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CUST_SOC,(O)客戶來源別(複委託),O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CNAME,(O)姓名,O,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+BROKER_NO4,(O)券商代號,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+BROKERNO4_SACNO,BROKERNO4_SACNO,,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+REF_DEPT,(O)分行單位代號,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+REF_BUS,(O)介紹單位,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CUADM,(O)E_MAIL 位址,O,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+CUS_MTEL,(O)手機電話,O,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+CUAER,(O)客戶來源別(證券)/舊:開戶來源(數位/指定),O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CUADL,(O)線上開戶註記 / 舊:開戶來源(線上/臨櫃),O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+S_ODATE,(O)開戶日期,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+S_NAME,(O)個人姓名/公司簡稱,O,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+BROKER_NO3,(O)公司代號(3碼),O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+S_ACNO,#客戶帳號,#,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,O,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+etl_version,ETL事件版本,,ga,L1,keep,etl_version,行為屬性
+BROKERNO3_SACNO,BROKERNO3_SACNO,,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+order_phone,豐雲學堂訂購人手機號碼,,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+lesson_title,課程標題,,ga,L1,keep,lesson_title,行為屬性
+lesson_id,課程ID,,ga,L1,keep,lesson_id,行為屬性
+lesson_type,課程類型,,ga,L1,keep,lesson_type,行為屬性
+permission_enddate,權限截止日,,ga,L1,keep,permission_enddate,行為屬性
+permission_startdate,權限起始日,,ga,L1,keep,permission_startdate,行為屬性
+permission_id,權限ID,,ga,L1,keep,permission_id,行為屬性
+fail_reason,失敗原因,,ga,L1,keep,fail_reason,行為屬性
+order_email,訂購人信箱,,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+order_id,訂單編號,,ga,L2,keep,order_id,敏感業務：按角色遮罩／分桶，匯出降一級
+order_amount,訂單金額,,ga,L2,keep,order_amount,敏感業務：按角色遮罩／分桶，匯出降一級
+plan_name,方案名稱,,ga,L1,keep,plan_name,行為屬性
+plan_id,方案ID,,ga,L1,keep,plan_id,行為屬性
+product_title,商品標題,,ga,L1,keep,product_title,行為屬性
+product_id,商品ID,,ga,L1,keep,product_id,行為屬性
+button_type,點擊按鈕類型,,ga,L1,keep,button_type,行為屬性
+recomType,#推薦類型,#,ga,L1,keep,recom_type,行為屬性
+tab,#推薦分類,#,ga,L1,keep,tab,行為屬性
+testGroup,#分群,#,ga,L1,keep,test_group,行為屬性
+$sf_event_receive_time,(SF)回執事件上報時間,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_enter_strategy_unit_time,(SF)進入畫布策略時間,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_from_component_id,(SF)上一個畫布節點 ID,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_send_time,(SF)訊息發送時間,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_project_id,(SF)項目ID,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_not_send_reason,(SF)訊息未發送原因,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_component_id,(SF)組件 ID,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_plan_version,(SF)畫布版本,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_conversion_attribution,(SF)目標轉化歸因類型,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$channel_link_id,管道連結 ID,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+jointime,#活動登錄-時間,#,ga,L1,keep,jointime,行為屬性
+endpoint,類型,,ga,L1,keep,endpoint,行為屬性
+callback,完成回呼連結設定,,ga,L1,keep,callback,行為屬性
+redirect,轉至指定銀行app,,ga,L2,keep,redirect,敏感業務：按角色遮罩／分桶，匯出降一級
+quoteType,連線機制,,ga,L1,keep,quote_type,行為屬性
+$sf_send_fail_code,(SF)通道發送失敗錯誤碼,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_send_id,(SF)推播訊息發送 ID,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$create_time,$create_time,,ga,L1,keep,create_time,行為屬性
+$sf_keyword,(SF)回覆訊息命中的關鍵詞,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_keyword_rule_id,(SF)回覆訊息關鍵詞命名規則,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_msg_status,(SF)推播訊息狀態,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_close_type,(SF)關閉按鈕類型,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_msg_action_id,(SF)推播訊息點擊行為 ID,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_platform_tag,(SF)端類型標籤,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+subplatfromCn,(C)#加開戶來源,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+create_date,(C)建立日期,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+sign_date,(C)簽核日期,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+flow_type,(C)審核狀態,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+om_user_nm,(C)審核員工姓名,C,batch,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+om_user_id,(C)審核員工編號,C,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+crm_level,(C)審核階段,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+om_flow_seq_no,(C)簽核序號,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+om_flow_apply_no,(C)申請件號,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+om_new_sino_no,(C)申請案號,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+subscribe_type,#訂閱類別,#,ga,L1,keep,subscribe_type,行為屬性
+subscribe_channel,#訂閱頻道,#,ga,L1,keep,subscribe_channel,行為屬性
+code,(L)邀請碼,L,ga,L2,keep,code,敏感業務：按角色遮罩／分桶，匯出降一級
+fault_reason,#失敗原因,#,ga,L1,keep,fault_reason,行為屬性
+outcome_status,#交易狀態,#,ga,L1,keep,outcome_status,行為屬性
+balanceOverDoue,(B)#借貸款項屆期未清償餘額萬,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+borrowLoanBalance,(B)#融券總餘額萬元,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+borrowLoanCredit,(B)#融券總授信額度,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+centerLoanBlance,(B)#借券中心借券餘額仟,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+financingBalance,(B)#借貸款項融通總餘額萬,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+financingCredit,(B)#借貸款項融通授信額度萬,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+futuresOpen,(B)#期貨戶數,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+loanAcc,(B)#借貸戶數,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+loanContract,(B)#借貸款項契約數,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+marginLoanBalance,(B)#融資總餘額萬元,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+marginLoanCredit,(B)#融資總授信額度,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+stockBorrowLoanBalance,(B)#證券借貸借券餘額仟,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+stockMarginLoanBalance,(B)#證券借貸可借券總額度萬,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+tradingLimit,(B)#單日買賣最高額度萬元,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+violate,(B)#有無違約,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+AccStat,(C)#帳戶狀態,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+AllTradeLimit,(C)#本公司總歸戶單日買賣額度,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DayECTradeLimit,(C)#本公司電子單日買賣額度,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+DayTradeLimit,(C)#本公司單日買賣額度,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+FinalTradeDate,(C)#最後交易日,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+QryStat,(B)#查找狀態,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+baseOpen,(B)#證券戶數,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ceditOpen,(B)#信用戶數,B,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+CancelDate,(C)#銷戶日期,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+$referrer_title,前頁WebTitle,,ga,L1,keep,referrer_title,行為屬性
+BatchStep,#通知批次,#,ga,L1,keep,batch_step,行為屬性
+DeptName,(C)#隸屬分公司部門,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MissMoney,#不足金額,#,ga,L2,keep,miss_money,敏感業務：按角色遮罩／分桶，匯出降一級
+NoticeName,#通知項目,#,ga,L1,keep,notice_name,行為屬性
+SettleAmt,#交割金額,#,ga,L2,keep,settle_amt,敏感業務：按角色遮罩／分桶，匯出降一級
+purchaset_date,#申購日期(L),#,ga,L2,keep,purchaset_date,敏感業務：按角色遮罩／分桶，匯出降一級
+dd,静默创建_dd,,ga,L1,keep,dd,行為屬性
+_latest_dd,最新一次_dd,,ga,L1,keep,latest_dd,行為屬性
+section_type,#版位類型,#,ga,L1,keep,section_type,行為屬性
+author_dep,#內容單位,#,ga,L2,keep,author_dep,敏感業務：按角色遮罩／分桶，匯出降一級
+menu,#目錄,#,ga,L1,keep,menu,行為屬性
+signup_type,#註冊帳號類別,#,ga,L1,keep,signup_type,行為屬性
+sub_menu,#子目錄,#,ga,L1,keep,sub_menu,行為屬性
+DataDate,(C)#資料日期,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MatchDiffODays,(C)#成交日距開戶完成天數,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TradeFees,(C)#手續費,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MarchBStkAmt,(C)#資券當沖金額約當台幣,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MarchNStkAmt,(C)#現股當沖金額約當台幣,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+$matching_key_list,渠道匹配关键字列表,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$utm_matching_type,渠道追踪匹配模式,,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+bounce_code,#EDM退件原因代碼,#,ga,L1,keep,bounce_code,行為屬性
+bounce_reason,#EDM退件原因,#,ga,L1,keep,bounce_reason,行為屬性
+bounce_type,#EDM退件類別,#,ga,L1,keep,bounce_type,行為屬性
+button_code,#EDM原始碼(CTA),#,ga,L1,keep,button_code,行為屬性
+sf_plan_name,(SF)EDM 推播計劃名稱,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+sf_strategy_unit_name,(SF)#流程畫布條件名稱,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+target_url,#點擊連結 Click Url,#,ga,L1,keep,target_url,行為屬性
+unsubscribe_reason,#EDM取消訂閱原因,#,ga,L1,keep,unsubscribe_reason,行為屬性
+bounce_subtype,#EDM退件子類別,#,ga,L1,keep,bounce_subtype,行為屬性
+short_url_key,(X)#縮網址 key,X,ga,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+Bank_Digital,(C)#銀行大戶註記,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+E_EMP,(C)#是否為員工戶,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+E_Gender,(C)#客戶性別,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+E_NP,(C)#是否為自然人,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+E_OTYPE,(C)#是否為大戶投,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+ORG_TYPE,(C)#客戶身分說明,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+OpenSureDate,(C)#開戶完成日期,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+SALE_NO,(C)#營業員員編,C,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+WebCategoryCn,(C)#進件來源子項,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+WebCn,(C)#開戶來源(數位/指定),C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+WebMCategoryCn,(C)#進件來源主項 strWeb,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+WebOpactCN,(C)#進件來源(數位/指定),C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+WebPlatformCn,(C)#開戶來源(線上/臨櫃),C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+WebProjectCn,(C)#進件專案 strProd,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+Label_Name,(C)#標籤名稱,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+Label_Value,(C)#標籤值,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+is_digital,#是否為數位引流,#,ga,L1,keep,is_digital,行為屬性
+Currency,(C)#幣別代碼,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MarchAmt,(C)#合計成交約當台幣金額,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MarchLStkAmt,(C)#融券成交金額約當台幣,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MarchLoanAmt,(C)#融資成交金額約當台幣,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+MarchOAmt,(C)#合計成交原幣金額,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+SettleBankAcc3No,(C)#交割帳號(前三碼),C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+TxCode,(C)#交易類別,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+AccountNo,(C)#客戶帳號,C,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+MatchStatus,(C)#成交狀態,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+OrderDate,(C)#委託日期,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+SubProduct,#子產品別,#,ga,L1,keep,sub_product,行為屬性
+ProductNo,#產品別,#,ga,L1,keep,product_no,行為屬性
+Is_AccFirstTrade,(C)#是否為此帳號首日交易,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+is_background,(C)#是否內部資料,C,batch,L2,keep,,敏感業務：按角色遮罩／分桶，匯出降一級
+$short_url_target,縮網址 到達網頁 Click Url,,ga,L1,keep,short_url_target,行為屬性
+$short_url_key,縮網址 Key,,ga,L1,keep,short_url_key,行為屬性
+$app_remote_config,(X)远程控制配置信息,X,ga,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+$lib_plugin_version,SDK 擴充元件版本,,ga,L1,keep,lib_plugin_version,行為屬性
+$lib_method,埋點類型(預設/自訂義),,ga,L1,keep,lib_method,行為屬性
+MarketingAgree,#是否共同行銷,#,ga,L1,keep,marketing_agree,行為屬性
+strProd,(X)#開戶專案 strProd,X,ga,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+section,#區塊目錄,#,ga,L1,keep,section,行為屬性
+$idmap_reason,關聯結果原因,,ga,L1,keep,idmap_reason,行為屬性
+ProjName,(N)節點名稱,N,ga,L1,keep,proj_name,行為屬性
+RecommendProj,(N)推薦項目清單,N,ga,L1,keep,recommend_proj,行為屬性
+Feedback,(N)問卷意見,N,ga,L2,keep,feedback,敏感業務：按角色遮罩／分桶，匯出降一級
+NpsScore,(N)NPS分數,N,ga,L1,keep,nps_score,行為屬性
+ProjScore,(N)節點滿意度,N,ga,L1,keep,proj_score,行為屬性
+$viewport_height,可見高度,,ga,L1,keep,viewport_height,行為屬性
+$viewport_position,已瀏覽頁面長度,,ga,L1,keep,viewport_position,行為屬性
+LoginTime,(X)#登入時間,X,ga,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+$utm_content,utm_content 内容,,ga,L1,keep,utm_content,行為屬性
+$utm_term,utm_term 關鍵字,,ga,L1,keep,utm_term,行為屬性
+$referrer_host,前頁Domain,,ga,L1,keep,referrer_host,行為屬性
+$referrer,前頁URL,,ga,L1,keep,referrer,行為屬性
+$utm_campaign,utm_campaign 活動,,ga,L1,keep,utm_campaign,行為屬性
+$utm_source,utm_source 來源(即時),,ga,L1,keep,utm_source,行為屬性
+$deeplink_url,深層連結 Deeplink Url,,ga,L1,keep,deeplink_url,行為屬性
+$utm_medium,utm_medium 媒介,,ga,L1,keep,utm_medium,行為屬性
+$resume_from_background,是否從背景啟動,,ga,L1,keep,resume_from_background,行為屬性
+$is_first_time,是否首次觸發,,ga,L1,keep,is_first_time,行為屬性
+PriceCost,#交易價格(委託/申購),#,ga,L2,keep,price_cost,敏感業務：按角色遮罩／分桶，匯出降一級
+Review2020_btnCount,(X)#頒獎按鈕__數位回顧2020,X,ga,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+$sf_fail_reason,(SF)推播失敗原因,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+Review2020_groupCount,(X)#用戶分組__數位回顧2020,X,ga,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+$sf_convert_id,(SF)推播轉換ID(設置的目標順序),SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+DownloadType,#下載檔案類型,#,ga,L1,keep,download_type,行為屬性
+Account,#開戶帳號類別,#,ga,L2,keep,account,敏感業務：按角色遮罩／分桶，匯出降一級
+$bot_name,爬蟲名稱,,ga,L1,keep,bot_name,行為屬性
+is_login,(X)#是否登入,X,ga,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+$element_target_url,元素點擊網址 Click Url,,ga,L1,keep,element_target_url,行為屬性
+EMail,#開戶信箱,#,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+$element_class_name,元素類型 Element Class,,ga,L1,keep,element_class_name,行為屬性
+$element_name,元素名稱 Element Name,,ga,L1,keep,element_name,行為屬性
+Name,#開戶姓名,#,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+$viewport_width,可見寬度,,ga,L1,keep,viewport_width,行為屬性
+$sf_enter_plan_time,(SF)推播發送時間,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_msg_id,(SF)推播內容ID,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_msg_content,(SF)推播內容,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_audience_id,(SF)推播群組ID,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_succeed,(SF)是否推播成功,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_channel_category,(SF)推播管道類型,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_channel_service_name,(SF)推播管道廠商,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_plan_type,(SF)推播計畫類型,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_channel_id,(SF)推播管道ID,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+Mobile,#開戶手機,#,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+$sf_plan_strategy_id,(SF)對照組ID,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+ADNO,#營業員員編,#,batch,L3,hash,,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+BrokerName,#分公司名稱,#,ga,L2,keep,broker_name,敏感業務：按角色遮罩／分桶，匯出降一級
+ADNO_Name,#營業員姓名,#,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+AssignType,(X)#指定營業員,X,ga,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+$url_path,page path 網頁根目錄,,ga,L1,keep,url_path,行為屬性
+page_url_path,(X)#網頁網址 page url,X,ga,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+BrokerID,#分公司代碼,#,ga,L2,keep,broker_id,敏感業務：按角色遮罩／分桶，匯出降一級
+$latest_utm_content,utm_content 内容(最近一次),,ga,L1,keep,latest_utm_content,行為屬性
+SNSLoginEmail,#社群登入帳號,#,ga,L4,drop_l4,,可識別個資：接入預處理丟棄（forbidden_l4）
+$latest_utm_term,utm_term 關鍵字(最近一次),,ga,L1,keep,latest_utm_term,行為屬性
+is_first_login,#是否首次登入,#,ga,L1,keep,is_first_login,行為屬性
+$latest_traffic_source_type,站外流量來源類型(最近一次),,ga,L1,keep,latest_traffic_source_type,行為屬性
+SharesUnit,#交易單位,#,ga,L2,keep,shares_unit,敏感業務：按角色遮罩／分桶，匯出降一級
+StockID,#商品代號,#,ga,L2,keep,stock_id,敏感業務：按角色遮罩／分桶，匯出降一級
+LoginType,#登入帳號類別,#,ga,L1,keep,login_type,行為屬性
+Pricetype,#申購類別,#,ga,L2,keep,pricetype,敏感業務：按角色遮罩／分桶，匯出降一級
+Market,#市場別,#,ga,L2,keep,market,敏感業務：按角色遮罩／分桶，匯出降一級
+$browser,瀏覽器名稱,,ga,L1,keep,browser,行為屬性
+StockName,#標的名稱,#,ga,L2,keep,stock_name,敏感業務：按角色遮罩／分桶，匯出降一級
+is_success,是否成功,,ga,L1,keep,is_success,行為屬性
+$url_host,page host 網頁主域,,ga,L1,keep,url_host,行為屬性
+$latest_referrer,推薦連結(最近一次),,ga,L1,keep,latest_referrer,行為屬性
+$url,page url 網頁網址,,ga,L1,keep,url,行為屬性
+Qty,#交易數量,#,ga,L2,keep,qty,敏感業務：按角色遮罩／分桶，匯出降一級
+Kind,#商品別,#,ga,L2,keep,kind,敏感業務：按角色遮罩／分桶，匯出降一級
+$latest_search_keyword,搜索關鍵字(最近一次),,ga,L1,keep,latest_search_keyword,行為屬性
+PurchaseCost,#申購金額,#,ga,L2,keep,purchase_cost,敏感業務：按角色遮罩／分桶，匯出降一級
+ButtonName,#按鈕名稱,#,ga,L1,keep,button_name,行為屬性
+platform,#觸發平台,#,ga,L1,keep,platform,行為屬性
+PurchasetDate,#申購日期,#,ga,L2,keep,purchaset_date,敏感業務：按角色遮罩／分桶，匯出降一級
+BuyOrSell,#交易買賣,#,ga,L2,keep,buy_or_sell,敏感業務：按角色遮罩／分桶，匯出降一級
+$browser_version,瀏覽器版本,,ga,L1,keep,browser_version,行為屬性
+$brand,裝置品牌(僅安卓),,ga,L1,keep,brand,行為屬性
+$screen_orientation,螢幕方向,,ga,L1,keep,screen_orientation,行為屬性
+$element_selector,元素篩選器 CSS選擇器,,ga,L1,keep,element_selector,行為屬性
+$element_path,元素根目錄 Element Path,,ga,L1,keep,element_path,行為屬性
+$latest_utm_source,utm_source 來源(最近一次非即時),,ga,L1,keep,latest_utm_source,行為屬性
+$latest_utm_campaign,utm_campaign 活動(最近一次),,ga,L1,keep,latest_utm_campaign,行為屬性
+$latest_utm_medium,utm_medium 媒介(最近一次),,ga,L1,keep,latest_utm_medium,行為屬性
+$element_id,元素ID Element  ID,,ga,L1,keep,element_id,行為屬性
+$element_position,元素位置,,ga,L1,keep,element_position,行為屬性
+$title,頁面標題,,ga,L1,keep,title,行為屬性
+$element_content,元素內容 Element Text,,ga,L1,keep,element_content,行為屬性
+$screen_name,APP 頁面名稱,,ga,L1,keep,screen_name,行為屬性
+$manufacturer,裝置品牌,,ga,L1,keep,manufacturer,行為屬性
+$app_id,APP ID,,ga,L1,keep,app_id,行為屬性
+$timezone_offset,時區偏移量,,ga,L1,keep,timezone_offset,行為屬性
+$province,省份,,ga,L1,keep,province,行為屬性
+$app_name,APP名稱,,ga,L1,keep,app_name,行為屬性
+$device_id,設備ID first id,,ga,L3,hash,device_id,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+$event_duration,事件時長,,ga,L1,keep,event_duration,行為屬性
+$country,國家,,ga,L1,keep,country,行為屬性
+$app_version,APP版本,,ga,L1,keep,app_version,行為屬性
+$screen_height,螢幕高度,,ga,L1,keep,screen_height,行為屬性
+$network_type,網路類型,,ga,L1,keep,network_type,行為屬性
+$wifi,是否使用WIFI,,ga,L1,keep,wifi,行為屬性
+$ip,IP位址,,ga,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+$screen_width,螢幕寬度,,ga,L1,keep,screen_width,行為屬性
+$os,作業系統,,ga,L1,keep,os,行為屬性
+$element_type,元素類別 Element Type,,ga,L1,keep,element_type,行為屬性
+$model,裝置型號,,ga,L1,keep,model,行為屬性
+$city,城市,,ga,L1,keep,city,行為屬性
+$os_version,作業系統版本,,ga,L1,keep,os_version,行為屬性
+$carrier,電信公司,,ga,L2,keep,carrier,敏感業務：按角色遮罩／分桶，匯出降一級
+$is_login_id,是否登入,,ga,L1,keep,is_login_id,行為屬性
+$track_signup_original_id,關聯匿名ID,,ga,L3,hash,track_signup_original_id,代碼化識別：入倉前 token_v1，查詢尾碼遮罩
+$hdfs_import_batch_name,(X)數據清理用 2,X,ga,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+$lib_version,SDK 版本,,ga,L1,keep,lib_version,行為屬性
+$lib,SDK 類型,,ga,L1,keep,lib,行為屬性
+$update_time,物品檔 更新時間,,ga,L1,keep,update_time,行為屬性
+$is_first_day,是否首次發生,,ga,L1,keep,is_first_day,行為屬性
+$receive_time,寫入資料庫時間,,ga,L1,keep,receive_time,行為屬性
+$kafka_offset,(X)數據清理用 1,X,ga,L1,drop_ops,,(X) 維護／清理欄位或 IP 類：不入倉
+$sf_plan_id,(SF)推播計劃 Plan ID,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史
+$sf_strategy_unit_id,(SF)流程畫布策略器名稱,SF,ma,L1,keep,,舊平台智能運營事件屬性：只匯入歷史

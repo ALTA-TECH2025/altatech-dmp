@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""神策事件屬性字典（客戶匯出的「批量修改資訊檔」：屬性名／顯示名）→ 敏感等級、入倉決定、GA4 參數名。
+"""舊平台事件屬性字典（客戶匯出的「批量修改資訊檔」：屬性名／顯示名）→ 敏感等級、入倉決定、GA4 參數名。
 
-用法：python3 backend/migration/properties.py [client.csv]            # 自測 + 讀客戶事件屬性字典、寫 sensors_properties.csv
-     python3 backend/migration/properties.py --users [users.csv]     # 讀客戶用戶屬性導出（name,type,comment）、寫 sensors_user_properties.csv
+用法：python3 backend/migration/properties.py [client.csv]            # 自測 + 讀客戶事件屬性字典、寫 legacy_properties.csv
+     python3 backend/migration/properties.py --users [users.csv]     # 讀客戶用戶屬性導出（name,type,comment）、寫 legacy_user_properties.csv
      python3 backend/migration/properties.py --check                  # 自測 + 兩個產出檔重算比對、forbidden_l4 一致
 
-用戶屬性（profile）另一套口徑：user_group_*／user_tag_* 是神策分群與標籤的回寫欄位（每個分群一欄，共三千多欄），不當用戶屬性遷移，
+用戶屬性（profile）另一套口徑：user_group_*／user_tag_* 是舊平台分群與標籤的回寫欄位（每個分群一欄，共三千多欄），不當用戶屬性遷移，
 改以 /v1/segments/import 匯入快照、標籤進標籤引擎；其餘 core 屬性依同一套 L1–L4 規則分級，L1／L2 要登記進 semantic/user_properties.yaml 才能查。
 
-輸入 CSV 兩欄：property（神策屬性名，不可改）、display（顯示名）。預設路徑 migration/sensors_properties_client.csv。
+輸入 CSV 兩欄：property（舊平台屬性名，不可改）、display（顯示名）。預設路徑 migration/legacy_properties_client.csv。
 輸出 CSV：property, display, tag, domain, sensitivity, decision, ga4_param, rule
 
 分級與決定（docs/10 §欄位等級、docs/22 §3.3）：
@@ -19,7 +19,7 @@
 - L2 敏感業務（金額、費用、稅、餘額、額度、交割、KYC、信用、身分類別，以及數據中台交易／帳務／開戶欄位預設）→ keep，按角色遮罩／分桶。
 - L1 行為（頁面、元素、UTM、裝置、App、課程、問卷、推播計畫等）→ keep。
 - 顯示名以 (X) 開頭的維護／清理欄位與 $ip 類 → drop_ops，不入倉。
-domain：ga（App／Web 埋點，經 GA360 上報，給 ga4_param）、batch（數據中台批次：交易／帳務／開戶／CRM，不經 GA）、ma（神策智能運營 SF 事件，只匯入歷史）。
+domain：ga（App／Web 埋點，經 GA360 上報，給 ga4_param）、batch（數據中台批次：交易／帳務／開戶／CRM，不經 GA）、ma（舊平台智能運營 SF 事件，只匯入歷史）。
 """
 from __future__ import annotations
 
@@ -35,10 +35,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from bridge import LIMITS, snake
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-CLIENT_CSV = ROOT / 'migration' / 'sensors_properties_client.csv'
-OUT_CSV = ROOT / 'migration' / 'sensors_properties.csv'
-USERS_CSV = ROOT / 'migration' / 'sensors_user_properties_client.csv'
-OUT_USERS_CSV = ROOT / 'migration' / 'sensors_user_properties.csv'
+CLIENT_CSV = ROOT / 'migration' / 'legacy_properties_client.csv'
+OUT_CSV = ROOT / 'migration' / 'legacy_properties.csv'
+USERS_CSV = ROOT / 'migration' / 'legacy_user_properties_client.csv'
+OUT_USERS_CSV = ROOT / 'migration' / 'legacy_user_properties.csv'
 USER_PROPS_YAML = ROOT / 'semantic' / 'user_properties.yaml'
 
 TAG_RE = re.compile(r'^\((O|C|B|N|X|L|SF|Item_id)\)')   # 客戶顯示名前綴：(O) 舊欄位 (C) CRM／開戶 (B) 借貸 (N) NPS (X) 維護 (L) 學堂 (SF) 智能運營
@@ -57,12 +57,12 @@ L2_DISPLAY = re.compile(r'金額|手續費|費$|費\(|費率|稅|餘額|額度|�
                         r'折扣碼|邀請碼|訂單|購物車|禮券|兌換|幣別|權證|信用註記|公司|備註|意見|answer')   # 公司名／自由文字可能帶個資，按 L2 遮罩
 MA_PREFIX = ('$sf_', 'sf_', 'rec_banner_id', 'strategy_id', 'section_id', '$channel_link_id', '$matching_key_list', '$utm_matching_type')
 DROP_OPS_NAMES = {'$ip', '$ip_isp', '$ip_country', '$latitude', '$longitude', '$hdfs_import_batch_name', '$kafka_offset', '$app_remote_config'}
-DROP_OPS_DISPLAY = re.compile(r'IP位址|IP$')   # IP 一律不入倉（sensors_format.DROP_PROPS 同口徑）
+DROP_OPS_DISPLAY = re.compile(r'IP位址|IP$')   # IP 一律不入倉（legacy_format.DROP_PROPS 同口徑）
 
 
 UP_L4 = re.compile(r'mail|phone|mobile|mtel|cuadm|name$|birth|^openact')          # 信箱、手機、姓名、生日（含社群登入信箱、通知手機、虛擬生日）
 UP_NOT_L4 = re.compile(r'^is_\w+_push$|snslogintype|_mark$')                       # 推播許可、登入類別、來源註記：名稱含 mail 但不是個資
-UP_L3 = re.compile(r'^(id|first_id|second_id|s_idno|uuid|line_uuid|ec_se[cb]_acc_no|ec_sub_acc_no|\$device_id_list)$')   # 神策內部 ID、匿名／登入 ID、去識別化 ID、LINE ID、帳號、裝置清單
+UP_L3 = re.compile(r'^(id|first_id|second_id|s_idno|uuid|line_uuid|ec_se[cb]_acc_no|ec_sub_acc_no|\$device_id_list)$')   # 舊平台內部 ID、匿名／登入 ID、去識別化 ID、LINE ID、帳號、裝置清單
 UP_KEY_MATERIAL = {'ivkey', 'hashkey', 'svid'}
 # 規格表裡數據中台 ODS 原始字串欄（B27 查詢結果），與 b27_* 清洗版（數值）重複：不遷移
 UP_ODS_DUP = {'any_no_return': 'b27_overdue_any_loan_balance', 'any_amount': 'b27_any_loan_balance', 'any_limit': 'b27_any_loan_credit_limit',
@@ -71,7 +71,7 @@ UP_ODS_DUP = {'any_no_return': 'b27_overdue_any_loan_balance', 'any_amount': 'b2
               'adv_limit': 'b27_loan_credit_limit', 'adv_open': 'b27_loan_contracts', 'nlb_open': 'b27_ln_acc', 'tot_amount': 'b27_highest_daily_trading_limit',
               'stk_amount': 'b27_short_selling_balance', 'cpt_amount': 'b27_margin_balance', 'break': 'b27_default_status', 'd_trade_open': 'b27_day_trading_acc',
               'credit_open': 'b27_mt_acc', 'fut_open': 'b27_fu_acc', 'normal_open': 'b27_st_acc'}
-PLAN_USERS_CSV = ROOT / 'migration' / 'sensors_plan_user_properties.csv'   # 神策埋點規格表的用戶表（只有欄位定義）
+PLAN_USERS_CSV = ROOT / 'migration' / 'legacy_plan_user_properties.csv'   # 舊平台埋點規格表的用戶表（只有欄位定義）
 UP_L2 = re.compile(r'amt|balance|limit|asset|acc\b|_acc$|_acc_|acct|trade|odate|trans|status|loan|margin|lending|contracts|broker|'
                    r'^b27_|^s_age|^gender|s_sex|emp_flag|otype|user_type|cuaa|cuaf|default|match_dt|category')
 UP_MAP = {'s_idno': 'customer_code', 'gender': 'gender', '$dimension_dict_s_sex': 'gender', 's_age': 'age_band（分桶）', 'st_last_asset_amt': 'aum',
@@ -82,9 +82,9 @@ UP_MAP = {'s_idno': 'customer_code', 'gender': 'gender', '$dimension_dict_s_sex'
 def classify_user(name: str, typ: str) -> tuple[str, str, str, str, str]:
     """用戶屬性 → (family, sensitivity, decision, dmp_target, rule)。"""
     if name.startswith('user_group_'):
-        return 'segment_result', 'L1', 'import_segment', '/v1/segments/import（神策分群快照）', '神策分群回寫欄位：一個分群一欄，不當屬性遷移'
+        return 'segment_result', 'L1', 'import_segment', '/v1/segments/import（舊平台分群快照）', '舊平台分群回寫欄位：一個分群一欄，不當屬性遷移'
     if name.startswith('user_tag_'):
-        return 'tag_result', 'L1', 'import_tag', '標籤引擎（匯入標籤值）', '神策標籤回寫欄位：匯入標籤引擎'
+        return 'tag_result', 'L1', 'import_tag', '標籤引擎（匯入標籤值）', '舊平台標籤回寫欄位：匯入標籤引擎'
     if name.startswith('$dimension_dict_'):
         base = name[len('$dimension_dict_'):]
     else:
@@ -103,8 +103,8 @@ def classify_user(name: str, typ: str) -> tuple[str, str, str, str, str]:
 
 
 def build_users(rows: list[tuple[str, str]], plan: list[tuple[str, str]] | None = None) -> list[dict]:
-    """rows＝神策用戶屬性導出；plan＝埋點規格表的用戶表。規格表有、導出沒有的欄位附在後面（family=design_only）：
-    神策裡不存在就導不出來，請客戶確認是否已停用；個資與重複欄的決定照舊（出現了也要擋）。"""
+    """rows＝舊平台用戶屬性導出；plan＝埋點規格表的用戶表。規格表有、導出沒有的欄位附在後面（family=design_only）：
+    舊平台裡不存在就導不出來，請客戶確認是否已停用；個資與重複欄的決定照舊（出現了也要擋）。"""
     out = []
     for name, typ in rows:
         fam, lvl, dec, tgt, rule = classify_user(name, typ)
@@ -112,12 +112,12 @@ def build_users(rows: list[tuple[str, str]], plan: list[tuple[str, str]] | None 
     have = {n.lower() for n, _ in rows}
     for name, typ in plan or []:
         key = name.lower()
-        if key in have or f'$dimension_dict_{key}' in have:      # 神策維度字典欄（代碼 → 名稱）以 $dimension_dict_ 前綴導出
+        if key in have or f'$dimension_dict_{key}' in have:      # 舊平台維度字典欄（代碼 → 名稱）以 $dimension_dict_ 前綴導出
             continue
         have.add(key)
         _, lvl, dec, tgt, rule = classify_user(key, typ)
         if dec in ('keep', 'hash'):
-            dec, tgt, rule = 'confirm', '—（神策用戶表無此欄）', f'規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 {lvl} 處理'
+            dec, tgt, rule = 'confirm', '—（舊平台用戶表無此欄）', f'規格表有、用戶屬性導出無：請客戶確認是否已停用；若仍在用依 {lvl} 處理'
         out.append({'property': key, 'type': typ, 'family': 'design_only', 'sensitivity': lvl, 'decision': dec, 'dmp_target': tgt, 'rule': rule})
     return out
 
@@ -153,7 +153,7 @@ def classify(name: str, display: str) -> tuple[str, str, str, str]:
     if name in L3_NAMES or L3_DISPLAY.search(display):
         return dom, 'L3', 'hash', '代碼化識別：入倉前 token_v1，查詢尾碼遮罩'
     if dom == 'ma':
-        return dom, 'L1', 'keep', '神策智能運營事件屬性：只匯入歷史'
+        return dom, 'L1', 'keep', '舊平台智能運營事件屬性：只匯入歷史'
     if dom == 'batch' or L2_DISPLAY.search(display):
         return dom, 'L2', 'keep', '敏感業務：按角色遮罩／分桶，匯出降一級'
     return dom, 'L1', 'keep', '行為屬性'
@@ -246,7 +246,7 @@ def run_users(src: pathlib.Path, check: bool, forbidden: set[str]) -> int:
         with OUT_USERS_CSV.open(encoding='utf-8-sig', newline='') as f:
             cur = [dict(x) for x in csv.DictReader(f)]
         if cur != out:
-            print('ISSUE sensors_user_properties.csv 與規則產出不一致，請重跑 --users'); return 1
+            print('ISSUE legacy_user_properties.csv 與規則產出不一致，請重跑 --users'); return 1
         return 1 if missing else 0
     with OUT_USERS_CSV.open('w', newline='', encoding='utf-8-sig') as f:
         w = csv.DictWriter(f, fieldnames=list(out[0].keys())); w.writeheader(); w.writerows(out)
@@ -281,11 +281,11 @@ def main() -> int:
         print('ISSUE forbidden_l4 缺：' + ', '.join(missing))
     if check:
         if not OUT_CSV.exists():
-            print('ISSUE 尚未產出 sensors_properties.csv'); return 1
+            print('ISSUE 尚未產出 legacy_properties.csv'); return 1
         with OUT_CSV.open(encoding='utf-8-sig', newline='') as f:
             cur = [dict(r) for r in csv.DictReader(f)]
         if cur != rows:
-            print('ISSUE sensors_properties.csv 與規則產出不一致，請重跑 python3 backend/migration/properties.py'); return 1
+            print('ISSUE legacy_properties.csv 與規則產出不一致，請重跑 python3 backend/migration/properties.py'); return 1
         if missing:
             return 1
         if OUT_USERS_CSV.exists() and run_users(OUT_USERS_CSV, True, forbidden):

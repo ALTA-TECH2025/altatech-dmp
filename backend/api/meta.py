@@ -51,10 +51,10 @@ def _rows(ch: Executor | None, sql: str) -> list[dict[str, Any]]:
         return []
 
 
-def sensors_names() -> dict[str, dict[str, str]]:
-    """屬性 → 客戶神策舊名與顯示名（backend/migration/sensors_properties.csv；docs/28）。"""
+def legacy_names() -> dict[str, dict[str, str]]:
+    """屬性 → 客戶舊平台舊名與顯示名（backend/migration/legacy_properties.csv；docs/28）。"""
     out: dict[str, dict[str, str]] = {}
-    p = MIGRATION / "sensors_properties.csv"
+    p = MIGRATION / "legacy_properties.csv"
     if not p.exists():
         return out
     with p.open(encoding="utf-8-sig") as f:
@@ -91,7 +91,7 @@ def check_event(e: dict[str, Any], existing: set[str], forbidden: set[str], is_n
 def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catalog | None = None) -> APIRouter:
     r = APIRouter()
     cat = cat or Catalog()
-    sa_names = sensors_names()
+    sa_names = legacy_names()
 
     def need(subject: Subject, action: str) -> None:
         d = authorize(subject, action, "governance")
@@ -372,7 +372,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
     def user_properties(subject: Subject = Depends(get_subject)) -> dict[str, Any]:
         need(subject, "view")
         cov = coverage(); ov = overlay("user_property")
-        up_sa = sensors_names()
+        up_sa = legacy_names()
         total = _rows(ch, "SELECT count() AS n FROM dmp.users FINAL")
         items = []
         for k, p in cat.user_props.items():

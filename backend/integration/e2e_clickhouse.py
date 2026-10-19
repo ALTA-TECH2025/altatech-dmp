@@ -164,7 +164,7 @@ def main() -> int:
             same_ids = ch.scalar("SELECT count() FROM dmp.events e INNER JOIN dmp.events_sql s ON e.event_id = s.event_id AND e.event = s.event")
             assert same_ids == n_ev, (same_ids, n_ev)   # Python 路徑的每一筆都能在 SQL 路徑找到同 event_id 同事件名
             print(f"compile_sql path: {n_sql} rows (superset before enum/range cleansing); event_id/event match with python path: {same_ids}/{n_ev}")
-            sensors_stage(ch, work, int(os.environ.get("E2E_SENSORS_LINES", "200000")), via_http=proc is None)   # 現成伺服器讀不到本機 user_files
+            legacy_stage(ch, work, int(os.environ.get("E2E_SENSORS_LINES", "200000")), via_http=proc is None)   # 現成伺服器讀不到本機 user_files
             ga4_stage(ch, work, int(os.environ.get("E2E_GA4_PER_TICK", "20000")))
             dbapi_stage(ch, work, all_rows)
             if os.environ.get("E2E_USERS", "1") != "0":
@@ -191,11 +191,11 @@ def main() -> int:
 
 
 
-# ---------------------------------------------------------------- 神策格式檔（FormatImporter 的輸入）→ DMP；MSSQL（DB-API）排程抽取 → DMP
-def sensors_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3, via_http: bool = False) -> None:
+# ---------------------------------------------------------------- 舊平台格式檔（FormatImporter 的輸入）→ DMP；MSSQL（DB-API）排程抽取 → DMP
+def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3, via_http: bool = False) -> None:
     import time as _t
 
-    from .sensors_format import SensorsLoader
+    from .legacy_format import LegacyLoader
     rnd = random.Random(rnd_seed); src = work / "sa_20261016.jsonl"
     base = 1_792_000_000_000   # 2026-10-15 前後
     with src.open("w", encoding="utf-8") as f:
@@ -216,19 +216,19 @@ def sensors_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 
             else:
                 f.write(json.dumps({"type": "track_signup", "event": "$SignUp", "distinct_id": cust, "original_id": anon, "time": base + i * 10, "properties": {}}) + "\n")
     size_mb = src.stat().st_size / 1048576
-    loader = SensorsLoader(ch, local=True)
+    loader = LegacyLoader(ch, local=True)
     t0 = _t.perf_counter(); r = loader.run_file(src, work / "user_files", "sa_20261016", "k_idm", via_http=via_http); dt = _t.perf_counter() - t0
     st = r["stage"]
     assert r["recon_ok"], r
     assert st["bad"] == st["lines"] - st["ok"] and st["bad"] > 0
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND event IN ('order_submit','order_filled','quote_view','search_symbol')") == 0    # 別名已轉正式名
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND one_id LIKE 'C0%'") == 0                                                     # 登入 ID 全部代碼化
-    assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND one_id LIKE 'ck-%'") == ch.scalar("SELECT count() FROM dmp.raw_sensors WHERE batch_id='sa_20261016' AND type='track' AND is_login=0")  # 匿名保留
+    assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND one_id LIKE 'ck-%'") == ch.scalar("SELECT count() FROM dmp.raw_legacy WHERE batch_id='sa_20261016' AND type='track' AND is_login=0")  # 匿名保留
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND JSONHas(toString(props), '$ip')") == 0                                       # $ip 不入倉
     assert ch.scalar("SELECT count() FROM dmp.user_prop_log WHERE prop IN ('name','mobile')") == 0                                                                  # L4 不入倉
     assert r["id_map"] == r["signup_anon_ids"], (r["id_map"], r["signup_anon_ids"])   # 同一匿名 ID 多次綁定只留最新（ReplacingMergeTree by (id_type, id_hash)）
     by_ev = ch.query("SELECT event, count() FROM dmp.events WHERE batch_id='sa_20261016' GROUP BY event ORDER BY 2 DESC FORMAT TSV").strip().replace("\n", " | ")
-    print(f"sensors format: {st['lines']:,} lines / {size_mb:.0f} MB → ok {st['ok']:,} bad {st['bad']} tokenized {st['tokenized']:,} → raw {r['raw']:,} events {r['events']:,} prop_log {r['prop_log']:,} id_map {r['id_map']:,} in {dt:.1f}s "
+    print(f"legacy format: {st['lines']:,} lines / {size_mb:.0f} MB → ok {st['ok']:,} bad {st['bad']} tokenized {st['tokenized']:,} → raw {r['raw']:,} events {r['events']:,} prop_log {r['prop_log']:,} id_map {r['id_map']:,} in {dt:.1f}s "
           f"(≈ {3800 / max(size_mb, 1) * dt / 60:.0f} min per 3.8 GB)")
     print("  events by name:", by_ev)
 

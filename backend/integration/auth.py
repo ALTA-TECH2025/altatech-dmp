@@ -34,7 +34,7 @@ MASK = "••••••••"
 @dataclass
 class Connection:
     id: str
-    type: str                                   # mssql | postgresql | bigquery | sensorsdata | kafka | gcs
+    type: str                                   # mssql | postgresql | bigquery | legacydata | kafka | gcs
     auth_method: str                            # 見 connectors.yaml auth_methods
     fields: dict[str, Any]                      # 非機密欄位（host、database、project_id…）
     secret_refs: dict[str, str] = field(default_factory=dict)   # secret_field → secret_ref（永不放明文）

@@ -9,7 +9,7 @@
 #   deploy/quickstart/run_local.sh account list | add <帳號> --roles admin,... | reset-password <帳號> | reset-totp <帳號> | remove <帳號>
 #   deploy/quickstart/run_local.sh code <帳號>        # 印目前 TOTP 驗證碼（沒有手機驗證器時用；只在測試環境）
 #   deploy/quickstart/run_local.sh e2e                # 跑端到端（合成資料 + 黃金測試 + API）
-#   deploy/quickstart/run_local.sh import --date 2026-10-01   # 神策查詢 API 導出該日 → 代碼化 → 載入 → 對帳（需 SA_BASE_URL、SA_PROJECT、SA_API_SECRET）
+#   deploy/quickstart/run_local.sh import --date 2026-10-01   # 舊平台查詢 API 導出該日 → 代碼化 → 載入 → 對帳（需 LEGACY_BASE_URL、LEGACY_PROJECT、LEGACY_API_SECRET）
 #   deploy/quickstart/run_local.sh status | down
 #
 # 環境變數（都有預設）：DMP_WORK 工作目錄（~/dmp-local）、DMP_BIND 監聽位址（127.0.0.1；VM 給團隊用改 0.0.0.0 並在前面放 TLS）、DMP_PORT（8000）、
@@ -112,20 +112,20 @@ case "${1:-}" in
   import)
     shift; DATE=""; while [ $# -gt 0 ]; do case "$1" in --date) DATE="$2"; shift 2;; *) shift;; esac; done
     [ -n "$DATE" ] || { echo "需要 --date YYYY-MM-DD"; exit 2; }
-    : "${SA_BASE_URL:?設定 SA_BASE_URL}"; : "${SA_PROJECT:?設定 SA_PROJECT}"; : "${SA_API_SECRET:?設定 SA_API_SECRET（不要寫在命令列）}"
+    : "${LEGACY_BASE_URL:?設定 LEGACY_BASE_URL}"; : "${LEGACY_PROJECT:?設定 LEGACY_PROJECT}"; : "${LEGACY_API_SECRET:?設定 LEGACY_API_SECRET（不要寫在命令列）}"
     cd "$ROOT"
-    python3 -m backend.integration.sensors_api test --base-url "$SA_BASE_URL" --project "$SA_PROJECT" --auth "${SA_AUTH:-query_token}" --sample-date "$DATE"
-    python3 -m backend.integration.sensors_api export --base-url "$SA_BASE_URL" --project "$SA_PROJECT" --auth "${SA_AUTH:-query_token}" --date "$DATE" --out "$WORK/sa_$DATE.jsonl"
+    python3 -m backend.integration.legacy_api test --base-url "$LEGACY_BASE_URL" --project "$LEGACY_PROJECT" --auth "${LEGACY_AUTH:-query_token}" --sample-date "$DATE"
+    python3 -m backend.integration.legacy_api export --base-url "$LEGACY_BASE_URL" --project "$LEGACY_PROJECT" --auth "${LEGACY_AUTH:-query_token}" --date "$DATE" --out "$WORK/legacy_$DATE.jsonl"
     python3 - "$DATE" <<'PY'
 import os, sys
 from pathlib import Path
 from backend.integration import modeling
 from backend.integration.runner import ClickHouseHTTP
-from backend.integration.sensors_format import SensorsLoader
+from backend.integration.legacy_format import LegacyLoader
 day = sys.argv[1]; work = Path(os.environ.get("DMP_WORK", Path.home() / "dmp-local"))
 modeling.set_key("k_idm", os.environ.get("DMP_K_IDM", "local-test-key").encode())      # 正式環境從密鑰庫；本機測試用固定值
 ch = ClickHouseHTTP("http://127.0.0.1:8123", password=os.environ.get("CH_PASSWORD", "dmp-local"), timeout=1800)
-r = SensorsLoader(ch, local=True).run_file(work / f"sa_{day}.jsonl", work / "ch" / "user_files", f"sa_{day.replace('-', '')}", "k_idm")
+r = LegacyLoader(ch, local=True).run_file(work / f"legacy_{day}.jsonl", work / "ch" / "user_files", f"legacy_{day.replace('-', '')}", "k_idm")
 print(">> import:", {k: r[k] for k in ("raw", "events", "prop_log", "id_map", "recon_ok")}, "stage:", {k: r["stage"][k] for k in ("lines", "ok", "bad", "tokenized")})
 PY
     ;;

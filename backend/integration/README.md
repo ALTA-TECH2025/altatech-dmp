@@ -12,7 +12,7 @@
 | `runner.py` | `LocalRunner`：檔案來源 → 模型 → ClickHouse（JSONEachRow）→ 隔離區 `dmp.quarantine` → 對帳 `dmp.ingest_recon`；`local_ddl()` 把 schema.sql 轉單機版 |
 | `e2e_clickhouse.py` | 端到端：啟動單機 ClickHouse、建表、合成 2 萬筆委託 + 300 筆商品、排程器跑三個增量窗口、驗證筆數／隔離／對帳／水位／依賴／關聯屬性 JOIN／漏斗樣板，再以 `compile_sql` 路徑比對 event_id |
 | `cli.py` | 命令列：validate／preview／compile；sched add／tick／status／runs／run／enable／disable |
-| `sensors_format.py` | 神策資料格式檔（FormatImporter 的輸入）→ DMP：Python 串流預處理（登入 ID 代碼化、去 `$ip`／L4、壞行隔離）→ ClickHouse `file()` 讀入 `raw_sensors` → track → events（別名轉正式名）、profile_* → user_prop_log、track_signup → id_map；對帳 |
+| `legacy_format.py` | 舊平台資料格式檔（FormatImporter 的輸入）→ DMP：Python 串流預處理（登入 ID 代碼化、去 `$ip`／L4、壞行隔離）→ ClickHouse `file()` 讀入 `raw_legacy` → track → events（別名轉正式名）、profile_* → user_prop_log、track_signup → id_map；對帳 |
 | `ga4_source.py` | GA360 BigQuery 匯出 → events：三種表（intraday／fresh／daily）、三個任務（串流每 15 分鐘含 30 分鐘重疊窗口、日批到齊才跑、D-2／D-3 列數變了才重載）、GA4 schema 攤平（event_params、device／geo／app_info／流量來源、同意）、橋接表轉事件名、event_id 去重鍵；`BigQueryClient` 正式用、`FakeBigQuery` 測試用 |
 | `runner.read_dbapi` | DB-API 2.0 來源（MSSQL 用 pyodbc／pymssql、PostgreSQL 用 psycopg）：增量 `WHERE inc > 水位 ORDER BY inc`、fetchmany 串流；connect 工廠由部署注入 |
 
@@ -28,7 +28,7 @@ CLICKHOUSE_URL=http://127.0.0.1:8123 CLICKHOUSE_USER=e2e CLICKHOUSE_PASSWORD=...
 
 ## 設計要點
 
-- **正式事件名 = 神策事件名**：模型裡寫 `bond_order`、`bond_deal`；別名（`order_submit`）驗證時接受、落地時轉正式名。
+- **正式事件名 = 舊平台事件名**：模型裡寫 `bond_order`、`bond_deal`；別名（`order_submit`）驗證時接受、落地時轉正式名。
 - **身分一律代碼化**：`$identity_login_id` 用 `token_v1(k_idm)`（docs/20 的 `v1_` 客戶代碼），帳號 `fpe(k_acct)`；密鑰只以參照出現，執行時由 KMS 注入（`DMP_KEY_<ref>` 環境變數或 `set_key()`）。
 - **個資不落地**：`drop_fields` 的欄位不可映射；整列 `pii_scan` 命中直接拒絕，隔離區只記原因不記內容。
 - **三方對帳**：每批 `rows_in → rows_ok → rows_loaded`（以 `batch_id` 回查 ClickHouse），差異寫 `dmp.ingest_recon` 並告警。
@@ -49,11 +49,11 @@ e2e（假 BigQuery 餵 GA4 匯出 schema）：串流三個窗口讀入 119,595 �
 
 ## 交易資料的兩條導入路（都已在 e2e 驗證）
 
-**A. 神策格式檔（原本餵 FormatImporter 的每日 3.8 GB）**
+**A. 舊平台格式檔（原本餵 FormatImporter 的每日 3.8 GB）**
 
 ```python
-from backend.integration.sensors_format import SensorsLoader
-loader = SensorsLoader(ch)                                   # 建 raw_sensors
+from backend.integration.legacy_format import LegacyLoader
+loader = LegacyLoader(ch)                                   # 建 raw_legacy
 r = loader.run_file(Path('/stage/sa_20261016.jsonl'), user_files_dir, batch_id='sa_20261016', key_ref='k_idm')
 # r['recon_ok']、r['stage']（行數／通過／壞行／代碼化數／各型別）、r['raw']、r['events']、r['prop_log']、r['id_map']
 ```
@@ -83,10 +83,10 @@ e2e 以 sqlite 當 MSSQL 替身（同為 DB-API）：兩個 15 分鐘窗口各�
 | 現況表覆蓋（users_snapshot → users，200 萬列） | 70 s | INSERT 不 UPDATE |
 | users FINAL 篩選（aum_bucket + is_first_trade） | 0.34 s | 熱欄位 |
 | users FINAL 冷欄位分組（p120_enum） | 0.32 s | 不在 dictionary 的屬性也秒內 |
-| 屬性歷史查詢（兩天快照按 aum_bucket 分組） | 0.06 s | 神策沒有的能力 |
+| 屬性歷史查詢（兩天快照按 aum_bucket 分組） | 0.06 s | 舊平台沒有的能力 |
 | 即時微批合併（10 萬用戶 profile_set → users，300 欄） | 11.9 s | 每 10 分鐘一批綽綽有餘 |
 | dictionary 載入（15 個熱欄位 × 200 萬） | 16.8 s · 1.34 GB | 熱欄位 ≤ 50 時約 4 GB，正式機 32 GB 可承受；超過改 JOIN |
-| 事件 dictGet 分組（1,000 萬事件 × 用戶 aum_bucket） | 0.44 s | 等同神策查詢時 JOIN Kudu |
+| 事件 dictGet 分組（1,000 萬事件 × 用戶 aum_bucket） | 0.44 s | 等同舊平台查詢時 JOIN Kudu |
 | dictGet 篩選的漏斗（7 天窗口，三步） | 0.47 s | |
 | 事件 JOIN users FINAL 冷欄位 | 0.53 s | |
 | SAMPLE 1/10 一致性 | 比例 0.100，抽到的用戶事件 100% 在樣本內 | 按用戶分桶成立 |
@@ -102,16 +102,16 @@ e2e 以 sqlite 當 MSSQL 替身（同為 DB-API）：兩個 15 分鐘窗口各�
 Parquet／Trino／BigQuery 來源讀取器（現在只有 CSV／JSONL）、用戶模型的 upsert 路徑、Airflow DAG 包裝、`/v1/integration/*` 的 FastAPI router。
 
 
-## 神策查詢 API 直連（sensors_api.py）
+## 舊平台查詢 API 直連（legacy_api.py）
 
-`python3 -m backend.integration.sensors_api` 自測（假神策伺服器）；有金鑰時：
+`python3 -m backend.integration.legacy_api` 自測（假舊平台伺服器）；有金鑰時：
 
 ```bash
-export SA_API_SECRET='…'   # 只放環境變數
-python3 -m backend.integration.sensors_api test      --base-url https://sn3.data-di.com --project taipei_uat            # dns → tcp → tls → auth（自動試 query_token／header）→ privilege → sample_read → clock_skew
-python3 -m backend.integration.sensors_api inventory --base-url … --project … --from 2026-10-01 --to 2026-10-07     # 每事件每日筆數（docs/22 盤點）
-python3 -m backend.integration.sensors_api columns   --base-url … --project …                                        # events 欄位（屬性攤平）
-python3 -m backend.integration.sensors_api export    --base-url … --project … --date 2026-10-01 --out sa_2026-10-01.jsonl   # 按日分頁導出成 FormatImporter 格式
+export LEGACY_API_SECRET='…'   # 只放環境變數
+python3 -m backend.integration.legacy_api test      --base-url https://sn3.data-di.com --project taipei_uat            # dns → tcp → tls → auth（自動試 query_token／header）→ privilege → sample_read → clock_skew
+python3 -m backend.integration.legacy_api inventory --base-url … --project … --from 2026-10-01 --to 2026-10-07     # 每事件每日筆數（docs/22 盤點）
+python3 -m backend.integration.legacy_api columns   --base-url … --project …                                        # events 欄位（屬性攤平）
+python3 -m backend.integration.legacy_api export    --base-url … --project … --date 2026-10-01 --out sa_2026-10-01.jsonl   # 按日分頁導出成 FormatImporter 格式
 ```
 
-導出檔接 `sensors_format.SensorsLoader.run_file`（代碼化、去個資、載入、對帳），與線下格式檔同一條路。沒有 `$is_login_id` 欄位時預設把 distinct_id 視為登入 ID（寧可多代碼化）；`--anonymous-when-missing` 反轉。單機完整流程見 `deploy/quickstart/README.md`。
+導出檔接 `legacy_format.LegacyLoader.run_file`（代碼化、去個資、載入、對帳），與線下格式檔同一條路。沒有 `$is_login_id` 欄位時預設把 distinct_id 視為登入 ID（寧可多代碼化）；`--anonymous-when-missing` 反轉。單機完整流程見 `deploy/quickstart/README.md`。

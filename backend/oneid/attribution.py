@@ -1,6 +1,6 @@
 """OneID 歸戶：接入時逐筆決定事件屬於哪個用戶（參考實作，可直接執行自測）。
 
-對齊神策 IDM 3.0 的運作方式（docs/19）：
+對齊舊平台 IDM 3.0 的運作方式（docs/19）：
 - 一個 ID 同一時刻只屬於一個用戶；不自動合併兩個已存在的用戶。
 - 同一條資料多個 ID 分屬不同用戶 → 歸優先級最高的 ID 所屬用戶；可改綁（rebind=latest）的 ID 改綁到該用戶。
 - 純匿名用戶首次與「尚無用戶」的強 ID 共現 → 升級為該客戶（歷史匿名事件自動歸戶，不需改寫事件）。
@@ -11,9 +11,9 @@
 
 v1.2（docs/19、semantic/entities.yaml）：多主體與血緣
 - 每條 ID 關聯是一條有來源、證據、時間、信心、狀態的邊（dmp.id_edges）；血緣圖與衝突清單從邊來。
-- 弱 ID（裝置／cookie／匿名）不自動改綁（神策 IDM 2.0／3.0 實證：第二個客戶在同裝置登入 → 關聯失敗、事件歸登入客戶、裝置留在原主人）；
-  弱 ID 屬匿名用戶時整個匿名用戶併入客戶並改寫近 7 天事件（神策方案三）。共用裝置（嘗試關聯 ≥ 門檻個客戶）：邊記 conflict、信心打折。
-- 傳遞性映射（VeCDP 式信心門檻）保留為選項，預設關閉。
+- 弱 ID（裝置／cookie／匿名）不自動改綁（舊平台 IDM 2.0／3.0 實證：第二個客戶在同裝置登入 → 關聯失敗、事件歸登入客戶、裝置留在原主人）；
+  弱 ID 屬匿名用戶時整個匿名用戶併入客戶並改寫近 7 天事件（舊平台方案三）。共用裝置（嘗試關聯 ≥ 門檻個客戶）：邊記 conflict、信心打折。
+- 傳遞性映射（V-CDP 式信心門檻）保留為選項，預設關閉。
 - 人工合併／拆分／撤銷：前後快照寫 oneid_merge_log，需審批角色；事件改寫筆數記錄。
 """
 from __future__ import annotations
@@ -98,7 +98,7 @@ class OneIDService:
         u.bind_order.setdefault(key, []).append(value)
         limit = ID_SPEC[key].get("max_count")
         if limit and ID_SPEC[key].get("over_limit", "rolling_unbind") == "rolling_unbind" and len(u.ids[key]) > limit:
-            oldest = u.bind_order[key].pop(0)                       # 神策超限策略「滾動解綁」：刪除最早的標識，新的繼續關聯
+            oldest = u.bind_order[key].pop(0)                       # 舊平台超限策略「滾動解綁」：刪除最早的標識，新的繼續關聯
             u.ids[key].discard(oldest); self.index.pop((key, oldest), None)
             self.audit.append({"event": "oneid.rolling_unbound", "one_id": u.one_id, "key": key, "value": oldest, "limit": limit})
         if SUBJECT_OF.get(key) == "device" and u.is_identified:
@@ -170,7 +170,7 @@ class OneIDService:
         if value in u.bind_order.get(key, []): u.bind_order[key].remove(value)
 
     def _would_exceed(self, u: User, key: str) -> bool:
-        """超限策略 intercept：多值 ID 已達上限 → 這筆資料的新 ID 不綁、記 conflict（神策「數據攔截」：整條數據攔截，已關聯的標識不變）"""
+        """超限策略 intercept：多值 ID 已達上限 → 這筆資料的新 ID 不綁、記 conflict（舊平台「數據攔截」：整條數據攔截，已關聯的標識不變）"""
         limit = ID_SPEC[key].get("max_count")
         return bool(limit) and ID_SPEC[key].get("over_limit") == "intercept" and len(u.ids.get(key, ())) >= limit
 
@@ -272,7 +272,7 @@ class OneIDService:
             policy = ID_SPEC[k]["rebind"]
             prev = self.users[cur]
             if policy in ("latest", "never_auto") and not prev.is_identified and winner.is_identified and RULES["anonymous_user"].get("merge_into_existing_customer", True):
-                # 弱 ID 屬匿名用戶、資料帶已存在的客戶 → 整個匿名用戶併入客戶（神策方案三），所有弱 ID 跟著走，近 7 天事件改寫
+                # 弱 ID 屬匿名用戶、資料帶已存在的客戶 → 整個匿名用戶併入客戶（舊平台方案三），所有弱 ID 跟著走，近 7 天事件改寫
                 for mk, mvs in list(prev.ids.items()):
                     for mv in list(mvs):
                         if winner.has_slot(mk, mv):
@@ -288,7 +288,7 @@ class OneIDService:
                 self._unbind(prev, k, v); self._bind(winner, k, v); rebound.append((k, v, cur))
             elif policy == "never_auto":
                 # 弱 ID 已屬另一個已識別客戶：關聯失敗，事件仍歸 winner（登入客戶）；裝置留在原主人；記 conflict（共用裝置）
-                conflicts.append(f"{k}={v} 已屬 {cur}（已識別客戶），關聯失敗：事件歸 {winner.one_id}，裝置不改綁（神策 IDM 同）")
+                conflicts.append(f"{k}={v} 已屬 {cur}（已識別客戶），關聯失敗：事件歸 {winner.one_id}，裝置不改綁（舊平台 IDM 同）")
                 e = self._edge((k, v), ids[0], cur, status="conflict"); e["conflict_kind"] = "shared_device"
                 if SUBJECT_OF.get(k) == "device" and winner.is_identified:
                     self.device_customers.setdefault((k, v), set()).add(winner.one_id)
@@ -387,7 +387,7 @@ class OneIDService:
             u = self.users[oid]
             self._unbind(u, key, value)
             self.audit.append({"event": "oneid.unbound", "key": key, "one_id": oid, "by": by})
-            for ck, spec in ID_SPEC.items():                      # 父節點：父 ID 解綁時，子類型的 ID 一併解綁（神策「父節點」）
+            for ck, spec in ID_SPEC.items():                      # 父節點：父 ID 解綁時，子類型的 ID 一併解綁（舊平台「父節點」）
                 if spec.get("parent") == key:
                     for cv in list(u.ids.get(ck, ())):
                         self._unbind(u, ck, cv); self.audit.append({"event": "oneid.unbound", "key": ck, "one_id": oid, "by": by, "cascade_from": key})
@@ -412,15 +412,15 @@ if __name__ == "__main__":
     assert [e["one_id"] for e in svc.events if e["distinct_id"] == "C2"] == [u2.one_id, a.one_id, a.one_id, a.one_id]   # 9 天前那筆留在 U2
     assert not svc.users[u2.one_id].ids["$identity_cookie_id"]   # U2 失去 C2；7 天外的歷史仍是 U2 的
     # S3 共用裝置：B 在同一台（C2，已屬已識別客戶 A）登入 → 關聯失敗：事件歸 B、C2 留在 A、記 conflict；
-    #    C2 上已歸 A 的事件不會被改寫到 B（神策 IDM 2.0「關聯失敗，事件歸 login_id 對應用戶」、IDM 3.0「小米 1 和 A2 無法關聯，行為歸 A2」）
+    #    C2 上已歸 A 的事件不會被改寫到 B（舊平台 IDM 2.0「關聯失敗，事件歸 login_id 對應用戶」、IDM 3.0「小米 1 和 A2 無法關聯，行為歸 A2」）
     svc.track("ga.page_view", T0 + 1 * DAY, {"$identity_cookie_id": "C2"})     # A 登入後、登出前的事件 → 歸 A（最新綁定者）
     d = svc.track("ga.login", T0 + 2 * DAY, {"$identity_cookie_id": "C2", "$identity_login_id": "cust_B"})
     assert d.created and d.one_id not in (a.one_id, u2.one_id), d                       # B 另建用戶，事件歸 B（登入事件以客戶代碼為準）
-    assert svc.index[("$identity_cookie_id", "C2")] == a.one_id and d.conflicts, d      # C2 留在 A：關聯失敗、記 conflict（神策 IDM 2.0／3.0 同）
+    assert svc.index[("$identity_cookie_id", "C2")] == a.one_id and d.conflicts, d      # C2 留在 A：關聯失敗、記 conflict（舊平台 IDM 2.0／3.0 同）
     assert d.backfilled == 0 and "cust_A" in svc.users[a.one_id].ids["$identity_login_id"]
     assert all(e["one_id"] == a.one_id for e in svc.events if e["distinct_id"] == "C2" and T0 <= e["time"] < T0 + 2 * DAY)
     assert any(e.get("conflict_kind") == "shared_device" for e in svc.edges.values())
-    # S4 之後 C2 上的匿名事件（B 登出後）→ 歸首次關聯者 A（神策的已知限制：舊手機送人後，未登入的操作仍歸原主人）
+    # S4 之後 C2 上的匿名事件（B 登出後）→ 歸首次關聯者 A（舊平台的已知限制：舊手機送人後，未登入的操作仍歸原主人）
     e = svc.resolve({"$identity_cookie_id": "C2"}); assert e.one_id == a.one_id and not e.created
     # S5 交易事件只帶帳號（尚未綁定）→ 先以帳號建立用戶；CRM 綁定 {login_id, account_no} 到達 → 該用戶升級為客戶 A（帳號歸 A）
     f = svc.resolve({"$identity_account_no": "ACC9"}); assert f.created
@@ -465,17 +465,17 @@ if __name__ == "__main__":
     u12 = sv.index[("$identity_cookie_id", "C12")]; assert not sv.users[u12].is_identified
     r = sv.track("app_login_success", T + 10_000, {"$identity_device_id": "D12", "$identity_login_id": "cust_F"})
     assert r.one_id == f.one_id and ("$identity_device_id", "D12", u12) in r.rebound
-    assert sv.index[("$identity_cookie_id", "C12")] == f.one_id, "匿名用戶 U 整個併入 F，C12 一起過去（神策方案三）"
+    assert sv.index[("$identity_cookie_id", "C12")] == f.one_id, "匿名用戶 U 整個併入 F，C12 一起過去（舊平台方案三）"
     assert any(x["event"] == "oneid.anonymous_merged" and x["from"] == u12 and x["to"] == f.one_id for x in sv.audit)
     assert all(ev["one_id"] == f.one_id for ev in sv.events if ev["distinct_id"] == "C12")        # 8 筆匿名事件改寫到 F（近 7 天）
     assert not sv.users[u12].ids.get("$identity_cookie_id") and not sv.users[u12].is_identified   # U 清空（tombstone）
-    # S13 匿名用戶併入不看共現信心：C13 與 D13 只共現 1 次（0.6）→ D13 首次關聯到 G 時，C13 也跟著整個匿名用戶併入 G（神策同；VeCDP 式信心門檻是可選項，預設關）
+    # S13 匿名用戶併入不看共現信心：C13 與 D13 只共現 1 次（0.6）→ D13 首次關聯到 G 時，C13 也跟著整個匿名用戶併入 G（舊平台同；V-CDP 式信心門檻是可選項，預設關）
     g = sv.resolve({"$identity_login_id": "cust_G"}, time_ms=T)
     sv.track("$pageview", T, {"$identity_cookie_id": "C13", "$identity_device_id": "D13"})
     r = sv.track("app_login_success", T + 5000, {"$identity_device_id": "D13", "$identity_login_id": "cust_G"})
     assert sv.index[("$identity_device_id", "D13")] == g.one_id and sv.index[("$identity_cookie_id", "C13")] == g.one_id
     # S14 共用裝置：D14 首次關聯 H1；H2、H3 再登入 → 關聯失敗（D14 留在 H1，事件各歸 H2、H3）；嘗試過的客戶 ≥ 3 → 視為共用裝置；
-    #     D14 上未登入的事件歸 H1（首次關聯者，神策的已知限制），分析端可用 conflict 清單把共用裝置的匿名事件排除
+    #     D14 上未登入的事件歸 H1（首次關聯者，舊平台的已知限制），分析端可用 conflict 清單把共用裝置的匿名事件排除
     h1 = sv.track("app_login_success", T, {"$identity_device_id": "D14", "$identity_login_id": "cust_H1"})
     for h in ("cust_H2", "cust_H3"):
         r = sv.track("app_login_success", T + 1, {"$identity_device_id": "D14", "$identity_login_id": h})

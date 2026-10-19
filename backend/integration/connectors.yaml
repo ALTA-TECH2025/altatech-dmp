@@ -16,13 +16,13 @@ connection_test:   # 逐步診斷，哪一步失敗就回哪一步的原因與�
   timeout_seconds: 15
   audit_event: integration.connection.tested
 connectors:
-  - type: sensors_export                            # 神策歷史資料（一次性遷移；docs/22 §3）：查詢 API、或私有化 Impala／HDFS 直讀
-    cn: 神策歷史資料導出（查詢 API／Impala JDBC／HDFS Parquet）
+  - type: legacy_export                            # 舊平台歷史資料（一次性遷移；docs/22 §3）：查詢 API、或私有化 Impala／HDFS 直讀
+    cn: 舊平台歷史資料導出（查詢 API／Impala JDBC／HDFS Parquet）
     versions: ["SA 2.x（私有化）", "SA 雲（查詢 API）"]
     auth: [impala_kerberos, api_token]              # 建議順序：私有化直讀 Impala／HDFS（快、完整）> 查詢 API（按日切片、受併發與列數限制）
     auth_methods:
       impala_kerberos: { fields: [host, port, database, principal], secret_fields: [keytab], secret_ref_required: true, notes: "直讀 events／users／user_tag 等底層表；HDFS Parquet 可用 distcp 整段搬，最省時" }
-      api_token:       { fields: [base_url, project, auth_mode, header_name], secret_fields: [api_secret], secret_ref_required: true, rotation_days: 30, notes: "/api/sql/query（sensors_api.py）：auth_mode=query_token（?token=）或 header（SBP 開放 API 金鑰，sensorsdata-token）；SQL 按 date 切片、ORDER BY time LIMIT/OFFSET 分頁；遷移完成後撤銷 token" }
+      api_token:       { fields: [base_url, project, auth_mode, header_name], secret_fields: [api_secret], secret_ref_required: true, rotation_days: 30, notes: "/api/sql/query（legacy_api.py）：auth_mode=query_token（?token=）或 header（SBP 開放 API 金鑰，sensorsdata-token）；SQL 按 date 切片、ORDER BY time LIMIT/OFFSET 分頁；遷移完成後撤銷 token" }
     tls: { required: true, min_version: "1.2", verify_server_cert: true, ca_bundle_ref: optional }
     network: { private_ip: true, source_ip_allowlist: "Cloud NAT 固定 IP / 機房出口 IP", port_default: 443 }
     least_privilege:
@@ -94,17 +94,17 @@ connectors:
     driver: { name: spark-bigquery-connector, license: Apache-2.0 }
     network: private_google_access
     presets: [ga4_export]
-  - type: sensorsdata
-    cn: 神策 SensorsData（歷史事件，一次性匯入）
+  - type: legacydata
+    cn: 舊平台（歷史事件，一次性匯入）
     auth: [api_token]
     auth_methods:
-      api_token: { fields: [base_url, project], secret_fields: [api_secret], secret_ref_required: true, rotation_days: 180, notes: "神策查詢 API token；一次性匯入完成後即撤銷" }
+      api_token: { fields: [base_url, project], secret_fields: [api_secret], secret_ref_required: true, rotation_days: 180, notes: "舊平台查詢 API token；一次性匯入完成後即撤銷" }
     tls: { required: true }
     least_privilege: ["專案唯讀分析帳號（可查詢、不可管理）"]
     capabilities: { batch: sql_query_api_or_parquet, cdc: none, schema_discovery: "events/properties via API" }
     mode: one_time_import              # 匯入完成後行為事件全部來自 GA360；不接增量、不寫回
-    protocol: sensors_json            # type/event/distinct_id/identities/properties/time
-    mapping_preset: sensors_native     # 幾乎 1:1 映射；事件名對照到 GA 命名（$pageview ↔ ga.page_view）
+    protocol: legacy_json            # type/event/distinct_id/identities/properties/time
+    mapping_preset: legacy_native     # 幾乎 1:1 映射；事件名對照到 GA 命名（$pageview ↔ ga.page_view）
   - type: kafka
     cn: Apache Kafka
     auth: [mtls, sasl_scram, sasl_oauthbearer]

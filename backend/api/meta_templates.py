@@ -15,7 +15,7 @@ MAX_BYTES = 2 * 1024 * 1024
 KINDS = ("events", "properties", "user-properties")
 
 COLUMNS: dict[str, list[tuple[str, str]]] = {
-    "events": [("name", "事件名（小寫英數 _ .；神策原名可含大寫與 $，只能更新不能新建）"), ("cn", "顯示名"), ("group", "業務線"), ("entity", "主體 user／account／item"),
+    "events": [("name", "事件名（小寫英數 _ .；舊平台原名可含大寫與 $，只能更新不能新建）"), ("cn", "顯示名"), ("group", "業務線"), ("entity", "主體 user／account／item"),
                ("source", "來源"), ("kind", "類別 behavior／business／trade／marketing"), ("platforms", "平台（逗號分隔）"), ("owner", "負責人"),
                ("properties", "屬性：key:type:sensitivity[:optional]，以 ; 分隔"), ("status", "新事件狀態 draft／live（既有事件忽略，改狀態請用狀態轉移）"), ("note", "備註")],
     "properties": [("key", "屬性名（小寫英數 _ .，可 $ 開頭）"), ("cn", "顯示名"), ("type", "型別 string／number／bool／datetime／date／list／enum"),

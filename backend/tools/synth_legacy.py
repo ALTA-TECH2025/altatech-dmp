@@ -1,4 +1,4 @@
-"""模擬資料：100 萬人 × 事件，依神策埋點規格（事件字典 events.yaml、用戶屬性分級 sensors_user_properties.csv）產生，全部在 ClickHouse 端以 numbers() 合成。
+"""模擬資料：100 萬人 × 事件，依舊平台埋點規格（事件字典 events.yaml、用戶屬性分級 legacy_user_properties.csv）產生，全部在 ClickHouse 端以 numbers() 合成。
 
 用途：示範站與單機環境要有「看起來像永豐」的量體與欄位，而不是黃金測試那 6 種事件。資料完全合成：
 不讀任何客戶資料；個資欄（L4）、加密參數與維護欄位不產生；代碼化欄位（L3）只產生 v1_ 開頭的假代碼。
@@ -9,8 +9,8 @@
   另注入五條有先後順序與流失的流程（看盤→委託→成交、線上開戶、豐存股申購、股票禮品卡、豐雲學堂報名），讓漏斗與路徑有意義。
 - 活躍度：用戶依序號冪次分布（少數人很活躍）；序號後 20% 的用戶只在前 30 天有事件（沉睡／流失）。
 
-用法：CLICKHOUSE_URL=http://127.0.0.1:8123 CLICKHOUSE_PASSWORD=… python3 -m backend.tools.synth_sensors [--users 1000000] [--events 30000000] [--project sinopac_demo]
-     python3 -m backend.tools.synth_sensors --sql      # 只印 SQL 長度與事件權重摘要，不連 ClickHouse
+用法：CLICKHOUSE_URL=http://127.0.0.1:8123 CLICKHOUSE_PASSWORD=… python3 -m backend.tools.synth_legacy [--users 1000000] [--events 30000000] [--project sinopac_demo]
+     python3 -m backend.tools.synth_legacy --sql      # 只印 SQL 長度與事件權重摘要，不連 ClickHouse
      --compact：單機開檔數上限低時（屬性多、JSON 子欄位多）把 events／users 改成 compact part
 可重跑：先刪同 project 的事件與同前綴（v1_d）的用戶再寫入。
 """
@@ -79,14 +79,14 @@ def q(s: str) -> str:
 
 def load_inputs() -> tuple[list[dict], dict[str, dict], dict[tuple[str, str], str], list[dict]]:
     events = yaml.safe_load((ROOT / "semantic" / "events.yaml").read_text(encoding="utf-8"))["events"]
-    with (ROOT / "migration" / "sensors_properties.csv").open(encoding="utf-8-sig") as f:
+    with (ROOT / "migration" / "legacy_properties.csv").open(encoding="utf-8-sig") as f:
         props = {r["property"]: r for r in csv.DictReader(f)}
     types: dict[tuple[str, str], str] = {}
-    p = ROOT / "migration" / "sensors_plan_event_properties.csv"
+    p = ROOT / "migration" / "legacy_plan_event_properties.csv"
     if p.exists():
         with p.open(encoding="utf-8-sig") as f:
             types = {(r["event"], r["property"]): r["type"] for r in csv.DictReader(f)}
-    with (ROOT / "migration" / "sensors_user_properties.csv").open(encoding="utf-8-sig") as f:
+    with (ROOT / "migration" / "legacy_user_properties.csv").open(encoding="utf-8-sig") as f:
         users = [r for r in csv.DictReader(f) if r["family"] == "core"]
     return events, props, types, users
 
@@ -184,13 +184,13 @@ def _row_tail(project: str) -> str:
     """共用：由 event／uidx／t／n 推出其餘欄位與 props（SELECT 子句；需要 PM/PL/FL/SYMS 等 WITH 常數）。"""
     props = ("concat('{', arrayStringConcat(arrayMap((x, i) -> concat(toJSONString(x.1), ':', "
              + value_sql("x.2", "x.1", "i") + "), PM[event], arrayEnumerate(PM[event])), ','), '}')")
-    return (f"SELECT {q(project)} AS project, t AS time, event, 'sensors' AS source, {uid_sql('uidx')} AS one_id, "
+    return (f"SELECT {q(project)} AS project, t AS time, event, 'legacy' AS source, {uid_sql('uidx')} AS one_id, "
             f"if(FL[event].3 = 'account', 'account', 'user') AS entity_type, '' AS entity_id, one_id AS distinct_id, concat(one_id, '_', toString(toDate(t, 'Asia/Taipei'))) AS session_id, "
             f"concat('sd', toString(n)) AS event_id, PLAT AS platform, '' AS app_id, if(FL[event].1 = 1, SYM, '') AS symbol, "
             f"if(event IN ('bond_order', 'bond_deal') OR FL[event].1 = 1, ['B', 'S'][1 + cityHash64(n, 77) % 2], '') AS side, "
             f"multiIf(PLAT = 'Web', 'web', PLAT IN ('iOS', 'Android'), 'app', event IN {TRADE_CHANNEL}, 'agent', '') AS channel, if(FL[event].2 = 1, AMT, NULL) AS amount, "
             f"if(event IN ('$pageview', 'Login', 'app_login_success'), ['google', 'facebook', 'line', 'edm', '', '', ''][1 + cityHash64(n, 78) % 7], '') AS utm_source, '' AS utm_campaign, "
-            f"{props}::JSON AS props, now64(3) AS ingest_time, 1 AS schema_version, 0 AS late, 'synth_sensors' AS batch_id")
+            f"{props}::JSON AS props, now64(3) AS ingest_time, 1 AS schema_version, 0 AS late, 'synth_legacy' AS batch_id")
 
 
 def events_sql(specs: list[dict], project: str, n_users: int, offset: int, count: int) -> str:

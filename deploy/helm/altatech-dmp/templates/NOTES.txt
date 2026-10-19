@@ -1,4 +1,4 @@
 AltaTech DMP {{ .Chart.AppVersion }} 已部署到 {{ .Release.Namespace }}。
 Web:        https://{{ ((.Values.ingress | default dict).host) | default "dmp.local" }}
-Collector:  https://{{ ((.Values.ingress | default dict).host) | default "dmp.local" }}/v1/events  (神策相容: /sa)
+Collector:  https://{{ ((.Values.ingress | default dict).host) | default "dmp.local" }}/v1/events  (舊平台相容: /sa)
 煙霧測試:   make smoke NAMESPACE={{ .Release.Namespace }}

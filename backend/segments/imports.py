@@ -1,9 +1,9 @@
 """導入名單（openapi /v1/segments/imports；docs/21 §1.1）。
 
-第一步：上傳客戶代碼或 one_id 清單 → 客戶代碼以 token_v1(k_idm)（與神策登入 ID、GA user_id 同一把金鑰）轉成 one_id → 去重 → 寫 dmp.segment_imports。
+第一步：上傳客戶代碼或 one_id 清單 → 客戶代碼以 token_v1(k_idm)（與舊平台登入 ID、GA user_id 同一把金鑰）轉成 one_id → 去重 → 寫 dmp.segment_imports。
         原始代碼只在記憶體裡轉換，不寫入 ClickHouse、store 或審計；回總數／去重後數／對到用戶表的人數。
 第二步：以 kind=import 建分群（rule.source = {type: import, import_id}），計算時從 dmp.segment_imports 取人，照樣與資料權限交集。
-標籤版（神策標籤快照）：一人一個標籤值，寫 dmp.tag_imports。
+標籤版（舊平台標籤快照）：一人一個標籤值，寫 dmp.tag_imports。
 """
 from __future__ import annotations
 

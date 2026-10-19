@@ -40,8 +40,8 @@ class BigQueryLike(Protocol):
 
 
 def _bridge() -> dict[str, str]:
-    p = ROOT / "semantic" / "sensors_ga4_bridge.yaml"
-    return yaml.safe_load(p.read_text(encoding="utf-8")).get("ga4_to_sensors", {}) if p.exists() else {}
+    p = ROOT / "semantic" / "legacy_ga4_bridge.yaml"
+    return yaml.safe_load(p.read_text(encoding="utf-8")).get("ga4_to_legacy", {}) if p.exists() else {}
 
 
 def _params(ev: dict[str, Any]) -> dict[str, Any]:

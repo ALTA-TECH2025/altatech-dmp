@@ -132,7 +132,7 @@ class TagService:
         elif kind == "import":
             iid = str(body.get("import_id") or x.get("import_id") or "")
             imp = next((i for i in self.store.items("segment_import") if i["id"] == iid), None)
-            if imp is None or imp.get("table") != "dmp.tag_imports": raise ValueError("import 標籤需 import_id（帶標籤值的導入，例如神策標籤快照）")
+            if imp is None or imp.get("table") != "dmp.tag_imports": raise ValueError("import 標籤需 import_id（帶標籤值的導入，例如舊平台標籤快照）")
             x["import_id"] = iid; values = []; sql = ""; spec = {}; ups.add("dmp.tag_imports")
         elif kind == "sql":
             if not sql.strip(): raise ValueError("SQL 標籤需 sql")

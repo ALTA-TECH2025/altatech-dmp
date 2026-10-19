@@ -4,7 +4,7 @@
 環境變數同 backend.api.main：CLICKHOUSE_URL／CLICKHOUSE_PASSWORD、DMP_STORE_PATH、DMP_LOCAL_ACCOUNTS、DMP_LOCAL_ALLOWED_ROLES。
   DMP_SEED_PASSWORD   五個帳號共用的初始密碼（≥14 字；之後用 python3 -m backend.auth.local reset-password 改）
   DMP_SEED_USERS      要建立的帳號（預設 admin,marketing,analyst,ops,it）；已存在的略過
-環境變數 DMP_DEMO_PROJECT：範例儀表板卡片查詢的 project（預設 golden；載入 backend.tools.synth_sensors 的模擬資料後設 sinopac_demo）
+環境變數 DMP_DEMO_PROJECT：範例儀表板卡片查詢的 project（預設 golden；載入 backend.tools.synth_legacy 的模擬資料後設 sinopac_demo）
 選項：--no-data 不載資料、--no-accounts 不建帳號、--no-dashboard 不建儀表板、--no-migration 不建遷移並行期樣本（project=migration_demo，不影響分析資料）
 """
 from __future__ import annotations
@@ -58,12 +58,12 @@ PARALLEL = [("$pageview", 620, 0.96), ("$AppViewScreen", 910, 0.99), ("app_login
 
 
 def seed_migration(ch: ClickHouseHTTP, days: int = 14, seed: int = 7) -> dict[str, int]:
-    """並行期樣本（docs/22 T5／T6 對帳頁用）：同一事件每日 神策 vs GA360 兩個來源、登入用戶 95% 兩邊同代碼；另寫 ingest_recon 當 T2 筆數對帳。
+    """並行期樣本（docs/22 T5／T6 對帳頁用）：同一事件每日 舊平台 vs GA360 兩個來源、登入用戶 95% 兩邊同代碼；另寫 ingest_recon 當 T2 筆數對帳。
     放在 project=migration_demo，分析查詢預設 project 不會看到。"""
     rng = random.Random(seed)
     end = datetime(2026, 10, 16, tzinfo=UTC)
     users = [f"v1_{rng.getrandbits(80):020x}" for _ in range(600)]
-    both = users[:570]; only_sa = users[570:]                       # 30 人只在神策（切換後未再出現）
+    both = users[:570]; only_legacy = users[570:]                       # 30 人只在舊平台（切換後未再出現）
     ing = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.000")
     ev: list[dict[str, Any]] = []; recon: list[dict[str, Any]] = []
     ch.query("ALTER TABLE dmp.events DELETE WHERE project = 'migration_demo'", settings={"mutations_sync": 2})
@@ -73,14 +73,14 @@ def seed_migration(ch: ClickHouseHTTP, days: int = 14, seed: int = 7) -> dict[st
         for name, base, ratio in PARALLEL:
             n_sa = int(base * wk * (0.9 + rng.random() * 0.2) / 3) + 1
             n_ga = int(n_sa * ratio * (0.98 + rng.random() * 0.04))
-            for src, n in (("sensors", n_sa), ("ga360", n_ga)):
-                pool = both + only_sa if src == "sensors" else both
+            for src, n in (("legacy", n_sa), ("ga360", n_ga)):
+                pool = both + only_legacy if src == "legacy" else both
                 for i in range(n):
                     t = day + timedelta(seconds=rng.randrange(0, 86400))
                     ev.append({"project": "migration_demo", "time": t.strftime("%Y-%m-%d %H:%M:%S.000"), "event": name, "source": src, "one_id": rng.choice(pool), "distinct_id": "", "event_id": f"{src[:2]}_{d}_{name}_{i}",
                                "platform": rng.choice(["iOS", "Android", "Web"]), "channel": "app", "utm_source": "", "symbol": "", "amount": 0, "props": {}, "ingest_time": ing, "schema_version": 1, "batch_id": f"mig_{src}_{day.strftime('%Y%m%d')}"})
-            if d < days - 2:                                              # T2：神策 → 載入筆數（兩天還沒載）
-                recon.append({"task_id": "mig_exp_events", "batch_id": f"mig_sensors_{day.strftime('%Y%m%d')}", "at": (day + timedelta(hours=18)).strftime("%Y-%m-%d %H:%M:%S.000"), "rows_in": n_sa, "rows_ok": n_sa, "rows_quarantined": 0, "rows_rejected": 0, "rows_loaded": n_sa - (1 if rng.random() < 0.15 else 0)})
+            if d < days - 2:                                              # T2：舊平台 → 載入筆數（兩天還沒載）
+                recon.append({"task_id": "mig_exp_events", "batch_id": f"mig_legacy_{day.strftime('%Y%m%d')}", "at": (day + timedelta(hours=18)).strftime("%Y-%m-%d %H:%M:%S.000"), "rows_in": n_sa, "rows_ok": n_sa, "rows_quarantined": 0, "rows_rejected": 0, "rows_loaded": n_sa - (1 if rng.random() < 0.15 else 0)})
     for i in range(0, len(ev), 20_000):
         ch.insert_json("dmp.events", ev[i:i + 20_000])
     ch.query("ALTER TABLE dmp.ingest_recon DELETE WHERE task_id = 'mig_exp_events'", settings={"mutations_sync": 2})
@@ -153,7 +153,7 @@ def _put_dashboard(store: MemoryStore, owner: str, id_: str, name: str, descript
 
 def seed_dashboard(store: MemoryStore, owner: str) -> str:
     """範例看板：債券業務日報 + 四個情境看板。重跑 seed 會以程式裡的規格重建卡片（範例看板不保留使用者改動；自建看板不受影響）。回傳第一個 id。"""
-    specs = [("d_seed_bond", "債券業務日報（範例）", ("100 萬人模擬資料（依神策埋點規格合成）" if CARD_PROJECT != PROJECT else "黃金資料集（合成）") + "：成交、漏斗、留存、路徑、歸因各一張；區間釘在 2026-10-01 … 10-16。", SAMPLE_CARDS)] + [(sd["id"], sd["name"], sd["description"], sd["cards"]) for sd in SCENARIO_DASHBOARDS]
+    specs = [("d_seed_bond", "債券業務日報（範例）", ("100 萬人模擬資料（依舊平台埋點規格合成）" if CARD_PROJECT != PROJECT else "黃金資料集（合成）") + "：成交、漏斗、留存、路徑、歸因各一張；區間釘在 2026-10-01 … 10-16。", SAMPLE_CARDS)] + [(sd["id"], sd["name"], sd["description"], sd["cards"]) for sd in SCENARIO_DASHBOARDS]
     for id_, name, desc, cards in specs:
         _put_dashboard(store, owner, id_, name, desc, cards)
     return "d_seed_bond"

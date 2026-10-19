@@ -199,7 +199,7 @@ def main(store: Any | None = None) -> None:
     assert c.post("/v1/users/list", json={**uq, "page_size": 1000}).status_code == 400
     assert c.post("/v1/users/list", json={**uq, "columns": ["customer_code"]}).status_code == 400
     assert c.post("/v1/users/estimate", json={"filters": [{"field": "platform", "op": "eq", "value": "iOS"}]}).status_code == 400
-    # 神策式規則：巢狀且／或屬性樹、行為指標（金額合計、活躍天數）與比較、近 N 天、屬性塊「或」行為塊
+    # 舊平台式規則：巢狀且／或屬性樹、行為指標（金額合計、活躍天數）與比較、近 N 天、屬性塊「或」行為塊
     sc = {"combine": "or", "filters": {"op": "or", "items": [{"field": "user.tier", "op": "eq", "value": "P1"}, {"op": "and", "items": [{"field": "user.churn_score", "op": "gte", "value": 70}, {"field": "user.has_margin", "op": "false"}]}]},
           "behaviors": [{"event": "bond_deal", "measure": {"agg": "sum", "field": "amount"}, "cmp": {"op": "gt", "value": 500000}, "time": {"last_days": 16}}, {"event": "app_login_success", "measure": {"agg": "days"}, "cmp": {"op": "between", "value": [2, 5]}, "time": {"last_days": 7}}], "time": {"now": "2026-10-16"}}
     sq = c.post("/v1/users/estimate", json=sc); assert sq.status_code == 200, sq.text
@@ -625,58 +625,58 @@ def main(store: Any | None = None) -> None:
     assert c.post("/v1/meta/virtual-properties", json={"name": "v.bad", "expr": "dictGet('dim_nope', 'x', symbol)"}).status_code == 422
     assert c.post("/v1/meta/virtual-properties", json={"name": "v.fund_cat", "cn": "基金類型", "expr": "dictGet('dim_fund', 'category', fund_code)"}).json()["uses"] == ["dim_fund"]
     assert {x["event"] for x in store.audit_tail(300)} >= {"meta.event.drafted", "meta.event.published", "meta.event.change_requested", "meta.change_request.decided", "meta.event.deprecated", "meta.property.registered", "meta.virtual_event.created", "meta.oneid.rules_changed", "meta.dimension_table.created", "dictionary.uploaded", "meta.virtual_property.created"}
-    # 5e. 神策遷移：盤點（計畫 + 假神策 API 盤點結果）→ 橋接表（events.yaml 產生）→ 導出任務（假神策 API：分片導出；無 ClickHouse 載入 → exported）→ 重跑門檻 → 對帳（假 CH 回空 → 結構正確）
+    # 5e. 舊平台遷移：盤點（計畫 + 假舊平台 API 盤點結果）→ 橋接表（events.yaml 產生）→ 導出任務（假舊平台 API：分片導出；無 ClickHouse 載入 → exported）→ 重跑門檻 → 對帳（假 CH 回空 → 結構正確）
     login(c, sm, ["marketing"], "mkt"); assert c.get("/v1/migration/inventory").status_code == 403
     login(c, sm, ["it_admin"], "it")
     inv = c.get("/v1/migration/inventory").json(); assert len(inv["items"]) == 7 and inv["items"][0]["id"] == "metadata" and inv["items"][0]["status"] == "done" and inv["timeline"][-1]["id"] == "END"
-    assert c.post("/v1/migration/inventory/refresh", json={}).status_code == 503                                      # 自測 app 沒接神策
-    br = c.get("/v1/migration/bridge").json(); assert br["total"] >= 117 and br["via_ga"] > 50 and any(x["sensors_event"] == "$pageview" and x["ga4_event"] == "page_view" and x["kind"] == "auto" for x in br["items"])
-    assert c.get("/v1/migration/bridge", params={"kind": "history_only"}).json()["items"] and any(x["sensors_event"] == "bond_order" and x["aliases"] == "order_submit" for x in c.get("/v1/migration/bridge", params={"q": "bond_order"}).json()["items"])
+    assert c.post("/v1/migration/inventory/refresh", json={}).status_code == 503                                      # 自測 app 沒接舊平台
+    br = c.get("/v1/migration/bridge").json(); assert br["total"] >= 117 and br["via_ga"] > 50 and any(x["legacy_event"] == "$pageview" and x["ga4_event"] == "page_view" and x["kind"] == "auto" for x in br["items"])
+    assert c.get("/v1/migration/bridge", params={"kind": "history_only"}).json()["items"] and any(x["legacy_event"] == "bond_order" and x["aliases"] == "order_submit" for x in c.get("/v1/migration/bridge", params={"q": "bond_order"}).json()["items"])
     ex = c.post("/v1/migration/exports", json={"dataset": "events", "date_from": "2026-10-01", "date_to": "2026-10-03", "method": "api"}).json()
     assert ex["status"] == "blocked" and ex["blocked_reason"] and ex["slices"] == 3, ex                                 # 沒有 SA_* → blocked，不假裝成功
     assert c.post("/v1/migration/exports", json={"dataset": "nope", "date_from": "2026-10-01", "date_to": "2026-10-01"}).status_code == 400
     assert c.get("/v1/migration/exports").json()["items"][0]["id"] == ex["id"] and c.get(f"/v1/migration/exports/{ex['id']}").json()["slices"][0]["status"] == "blocked"
     assert c.get("/v1/migration/reconcile").json()["t6"]["rate"] is None and c.get("/v1/migration/reconcile", params={"days": 7}).json()["t5"]["items"] == []
-    # 注入假神策 API 的執行器：導出成功、未載入（假 ClickHouse 沒有 insert_json）
+    # 注入假舊平台 API 的執行器：導出成功、未載入（假 ClickHouse 沒有 insert_json）
     import tempfile as _tf
     from pathlib import Path as _P2
 
-    from ..integration.sensors_api import FakeSensors, SensorsQueryAPI
+    from ..integration.legacy_api import FakeLegacy, LegacyQueryAPI
     from .migration import ExportRunner
     from .migration import build_router as _mig_router
-    app2 = create_app(AuthService(cfg, {}, sm, None), store, ch, migration_runner=ExportRunner(SensorsQueryAPI("https://sa.test", "taipei_uat", "good", http=FakeSensors()), ch, _P2(_tf.mkdtemp(prefix="dmp-mig-")), None))
+    app2 = create_app(AuthService(cfg, {}, sm, None), store, ch, migration_runner=ExportRunner(LegacyQueryAPI("https://sa.test", "taipei_uat", "good", http=FakeLegacy()), ch, _P2(_tf.mkdtemp(prefix="dmp-mig-")), None))
     c2 = TestClient(app2, base_url="https://dmp.internal"); c2.cookies.set("dmp_sid", c.cookies["dmp_sid"]); c2.cookies.set("dmp_csrf", c.cookies["dmp_csrf"]); c2.headers["X-CSRF-Token"] = c.cookies["dmp_csrf"]
     rf = c2.post("/v1/migration/inventory/refresh", json={"date_from": "2026-10-01", "date_to": "2026-10-01"}).json(); assert rf["users"] == 7 and rf["datasets"]["events"]["rows"] == 53 and rf["by_event"][0]["rows"] == 18, rf
-    assert c2.get("/v1/migration/inventory").json()["items"][3]["rows_sensors"] == 53 and c2.get("/v1/migration/inventory").json()["sensors_configured"]
+    assert c2.get("/v1/migration/inventory").json()["items"][3]["rows_legacy"] == 53 and c2.get("/v1/migration/inventory").json()["legacy_configured"]
     ex2 = c2.post("/v1/migration/exports", json={"dataset": "events", "date_from": "2026-10-01", "date_to": "2026-10-02"}).json()
     assert ex2["status"] == "ok" and ex2["done"] == 2 and ex2["rows_exported"] == 106 and ex2["rows_loaded"] == 0, ex2       # 假 CH 無法載入：只導出
     assert c2.get(f"/v1/migration/exports/{ex2['id']}").json()["slices"][0]["note"]
     assert c2.post(f"/v1/migration/exports/{ex2['id']}/rerun", json={"days": ["2026-10-01"]}).json()["rerun_days"] == ["2026-10-01"]
     assert c2.post("/v1/migration/exports", json={"dataset": "events", "date_from": "2026-10-05", "date_to": "2026-10-01"}).status_code == 400
     _ = _mig_router
-    # 神策分群／標籤遷移：未接神策 → 清單空、掃描 503；掃描（user_group_*／user_tag_*）→ 快照（登入 ID 轉 one_id、原始 ID 不落地）→ 409 重複 → 標籤快照 → 略過需原因 → 連到重建的分群 → 權限
+    # 舊平台分群／標籤遷移：未接舊平台 → 清單空、掃描 503；掃描（user_group_*／user_tag_*）→ 快照（登入 ID 轉 one_id、原始 ID 不落地）→ 409 重複 → 標籤快照 → 略過需原因 → 連到重建的分群 → 權限
     def sync() -> None:
         c2.cookies.set("dmp_sid", c.cookies["dmp_sid"]); c2.cookies.set("dmp_csrf", c.cookies["dmp_csrf"]); c2.headers["X-CSRF-Token"] = c.cookies["dmp_csrf"]
     login(c, sm, ["admin"], "adm"); sync()
-    assert c.get("/v1/migration/sensors-groups").json()["items"] == [] and c.post("/v1/migration/sensors-groups/scan").status_code == 503
-    sg_ = c2.post("/v1/migration/sensors-groups/scan").json(); by = {x["name"]: x for x in sg_["items"]}
+    assert c.get("/v1/migration/legacy-groups").json()["items"] == [] and c.post("/v1/migration/legacy-groups/scan").status_code == 503
+    sg_ = c2.post("/v1/migration/legacy-groups/scan").json(); by = {x["name"]: x for x in sg_["items"]}
     assert set(by) == {"user_group_vip_active", "user_group_old_campaign", "user_tag_risk_level"} and sg_["summary"]["pending"] == 3 and sg_["scanned_at"], sg_
     assert by["user_group_vip_active"]["users"] == 4 and by["user_group_vip_active"]["cn"] == "vip_active" and by["user_tag_risk_level"]["values"] == 3 and by["user_tag_risk_level"]["users"] == 6, by
-    sn = c2.post("/v1/migration/sensors-groups/user_group_vip_active/snapshot", json={"dmp_name": "神策：活躍 VIP"}); assert sn.status_code == 200, sn.text
+    sn = c2.post("/v1/migration/legacy-groups/user_group_vip_active/snapshot", json={"dmp_name": "舊平台：活躍 VIP"}); assert sn.status_code == 200, sn.text
     sn = sn.json(); assert sn["status"] == "snapshot" and sn["dmp"]["type"] == "segment" and sn["dmp"]["users"] == 3 and sn["dmp"]["diff_pct"] == -0.25, sn
     ins = [x for x in ch.sqls if x.startswith("INSERT INTO dmp.segment_imports")][-1]; assert ins.count("'v1_") == 4 and "C0001" not in ins, ins
     snap_seg = c.get(f"/v1/segments/{sn['dmp']['id']}").json(); assert snap_seg["kind"] == "import" and snap_seg["update"]["mode"] == "manual" and snap_seg["latest"]["status"] == "success", snap_seg
-    assert c2.post("/v1/migration/sensors-groups/user_group_vip_active/snapshot", json={}).status_code == 409
-    tn = c2.post("/v1/migration/sensors-groups/user_tag_risk_level/snapshot", json={}).json(); assert tn["status"] == "snapshot" and tn["dmp"]["type"] == "tag" and tn["dmp"]["users"] == 120 and tn["dmp"]["name"] == "神策：risk_level", tn
+    assert c2.post("/v1/migration/legacy-groups/user_group_vip_active/snapshot", json={}).status_code == 409
+    tn = c2.post("/v1/migration/legacy-groups/user_tag_risk_level/snapshot", json={}).json(); assert tn["status"] == "snapshot" and tn["dmp"]["type"] == "tag" and tn["dmp"]["users"] == 120 and tn["dmp"]["name"] == "舊平台：risk_level", tn
     tins = [x for x in ch.sqls if x.startswith("INSERT INTO dmp.tag_imports")][-1]; assert "'R1'" in tins and "'dev0000'" in tins and "C0002" not in tins, tins      # C0000 沒有登入 ID → first_id
     assert any("FROM dmp.tag_imports WHERE import_id = " in x for x in ch.sqls if x.startswith("INSERT INTO dmp.user_tags"))
-    assert c2.post("/v1/migration/sensors-groups/user_group_old_campaign/skip", json={"note": ""}).status_code == 400
-    assert c2.post("/v1/migration/sensors-groups/user_group_old_campaign/skip", json={"note": "2025 活動已結束"}).json()["status"] == "skipped"
-    assert c2.post("/v1/migration/sensors-groups/user_group_old_campaign/link", json={"type": "segment", "id": "sg_nope"}).status_code == 404
-    lk = c2.post("/v1/migration/sensors-groups/user_group_old_campaign/link", json={"type": "segment", "id": sn["dmp"]["id"]}).json(); assert lk["status"] == "rebuilt" and lk["dmp"]["diff_pct"] == 0.5, lk
-    s2 = c2.get("/v1/migration/sensors-groups").json()["summary"]; assert s2 == {"total": 3, "pending": 0, "snapshot": 2, "rebuilt": 1, "skipped": 0}, s2
-    login(c, sm, ["data_analyst"], "ana"); sync(); assert c2.get("/v1/migration/sensors-groups").status_code == 200 and c2.post("/v1/migration/sensors-groups/scan").status_code == 403
-    login(c, sm, ["it_admin"], "it"); sync(); assert c2.post("/v1/migration/sensors-groups/user_group_old_campaign/snapshot", json={}).status_code == 403      # 資訊管理沒有 segments.use
+    assert c2.post("/v1/migration/legacy-groups/user_group_old_campaign/skip", json={"note": ""}).status_code == 400
+    assert c2.post("/v1/migration/legacy-groups/user_group_old_campaign/skip", json={"note": "2025 活動已結束"}).json()["status"] == "skipped"
+    assert c2.post("/v1/migration/legacy-groups/user_group_old_campaign/link", json={"type": "segment", "id": "sg_nope"}).status_code == 404
+    lk = c2.post("/v1/migration/legacy-groups/user_group_old_campaign/link", json={"type": "segment", "id": sn["dmp"]["id"]}).json(); assert lk["status"] == "rebuilt" and lk["dmp"]["diff_pct"] == 0.5, lk
+    s2 = c2.get("/v1/migration/legacy-groups").json()["summary"]; assert s2 == {"total": 3, "pending": 0, "snapshot": 2, "rebuilt": 1, "skipped": 0}, s2
+    login(c, sm, ["data_analyst"], "ana"); sync(); assert c2.get("/v1/migration/legacy-groups").status_code == 200 and c2.post("/v1/migration/legacy-groups/scan").status_code == 403
+    login(c, sm, ["it_admin"], "it"); sync(); assert c2.post("/v1/migration/legacy-groups/user_group_old_campaign/snapshot", json={}).status_code == 403      # 資訊管理沒有 segments.use
     assert not any("C0001" in repr(x) for x in store.audit_tail(300))
     assert {x["event"] for x in store.audit_tail(300)} >= {"migration.export.created", "migration.inventory.refreshed", "migration.export.rerun", "migration.groups.scanned", "migration.group.snapshot", "migration.group.skipped", "migration.group.linked", "segment.import.created"}
     login(c, sm, ["marketing"], "mkt")
@@ -770,7 +770,7 @@ def main(store: Any | None = None) -> None:
     login(c, sm, ["admin"], "adm")
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake sensors api)+bookmarks+sql sandbox+tags+activation(push/deliveries)+ops(pipeline/query-perf/batch-jobs/alerts/metrics/series/notify email+line+alertmanager)+ask(rules)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake legacy api)+bookmarks+sql sandbox+tags+activation(push/deliveries)+ops(pipeline/query-perf/batch-jobs/alerts/metrics/series/notify email+line+alertmanager)+ask(rules)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":

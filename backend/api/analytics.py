@@ -92,7 +92,7 @@ class _Retention(_Run):
 class _Path(_Run):
     kind, module = "path", "path"
     def compile(self, body: dict[str, Any], d: Any, cat: Catalog) -> tuple[Compiled, Any]:
-        raw = {**body, "sample": body["sample"] if "sample" in body else 0.1}          # 路徑預設抽樣 1/10（與神策同）；明確給 null 才不抽樣
+        raw = {**body, "sample": body["sample"] if "sample" in body else 0.1}          # 路徑預設抽樣 1/10（與舊平台同）；明確給 null 才不抽樣
         pq = parse_path(raw, cat); return compile_path(pq, cat, d, str(body.get("profile") or "human")), pq
     def shape(self, rows: list[dict[str, Any]], pq: Any, c: Compiled) -> dict[str, Any]:
         return {**sankey(rows, pq), "sampled": pq.sample, "chart_spec": {"type": "sankey", "direction": pq.direction, "steps": pq.steps, "anchor": pq.anchor}}

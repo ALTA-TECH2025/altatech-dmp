@@ -1,4 +1,4 @@
-"""神策查詢 API（/api/sql/query）直連連接器：連線測試逐步診斷、資料盤點、按日分頁導出成 FormatImporter 格式（接 sensors_format.SensorsLoader）。
+"""舊平台查詢 API（/api/sql/query）直連連接器：連線測試逐步診斷、資料盤點、按日分頁導出成 FormatImporter 格式（接 legacy_format.LegacyLoader）。
 
 兩種鑑權都支援（私有化 2.x／3.x 與 SBP 開放 API 金鑰）：
   query_token：POST {base}/api/sql/query?project=P&token=SECRET   body: q=<SQL>&format=csv|json
@@ -6,11 +6,11 @@
 連線測試先用設定的模式，401／403 時自動試另一種並在結果說明。密鑰只從環境變數或 secret_ref 解析來，不進參數、不進日誌。
 
 用法：
-  python3 -m backend.integration.sensors_api                                  # 自測（假伺服器）
-  SA_API_SECRET=... python3 -m backend.integration.sensors_api test --base-url https://host --project taipei_uat
-  SA_API_SECRET=... python3 -m backend.integration.sensors_api inventory --base-url ... --project ... --from 2026-10-01 --to 2026-10-07
-  SA_API_SECRET=... python3 -m backend.integration.sensors_api export --base-url ... --project ... --date 2026-10-01 --out /data/sa_2026-10-01.jsonl
-導出檔可直接餵 sensors_format.SensorsLoader.run_file（代碼化、去個資、載入 ClickHouse、對帳）。
+  python3 -m backend.integration.legacy_api                                  # 自測（假伺服器）
+  LEGACY_API_SECRET=... python3 -m backend.integration.legacy_api test --base-url https://host --project taipei_uat
+  LEGACY_API_SECRET=... python3 -m backend.integration.legacy_api inventory --base-url ... --project ... --from 2026-10-01 --to 2026-10-07
+  LEGACY_API_SECRET=... python3 -m backend.integration.legacy_api export --base-url ... --project ... --date 2026-10-01 --out /data/sa_2026-10-01.jsonl
+導出檔可直接餵 legacy_format.LegacyLoader.run_file（代碼化、去個資、載入 ClickHouse、對帳）。
 """
 from __future__ import annotations
 
@@ -70,17 +70,17 @@ def urllib_http(timeout: int = 60, ca_bundle: str | None = None) -> HttpFn:
     return do
 
 
-class SensorsApiError(Exception):
+class LegacyApiError(Exception):
     pass
 
 
-class SensorsQueryAPI:
+class LegacyQueryAPI:
     def __init__(self, base_url: str, project: str, token: str, http: HttpFn | None = None, auth: str = "query_token", header_name: str = "sensorsdata-token",
                  path: str = "/api/sql/query", fmt: str = "csv", timeout: int = 60, ca_bundle: str | None = None):
-        if not base_url.startswith("https://") and not os.environ.get("SA_ALLOW_HTTP"):
-            raise SensorsApiError("base_url 必須是 https://（內網測試要走 http 請設 SA_ALLOW_HTTP=1）")
+        if not base_url.startswith("https://") and not os.environ.get("LEGACY_ALLOW_HTTP"):
+            raise LegacyApiError("base_url 必須是 https://（內網測試要走 http 請設 LEGACY_ALLOW_HTTP=1）")
         if auth not in ("query_token", "header"):
-            raise SensorsApiError("auth 只能是 query_token／header")
+            raise LegacyApiError("auth 只能是 query_token／header")
         self.base, self.project, self._token, self.auth, self.header_name, self.path, self.fmt = base_url.rstrip("/"), project, token, auth, header_name, path, fmt
         self.http = http or urllib_http(timeout, ca_bundle)
         self.last_status = 0
@@ -102,9 +102,9 @@ class SensorsQueryAPI:
     def sql(self, q: str, fmt: str | None = None) -> list[dict[str, Any]]:
         r = self._request(q, fmt)
         if r.status == 401 or r.status == 403:
-            raise SensorsApiError(f"鑑權失敗（HTTP {r.status}）：token 無效、過期，或鑑權模式不對（目前 {self.auth}）")
+            raise LegacyApiError(f"鑑權失敗（HTTP {r.status}）：token 無效、過期，或鑑權模式不對（目前 {self.auth}）")
         if r.status >= 400:
-            raise SensorsApiError(f"HTTP {r.status}：{_redact(r.body[:300], self._token)}")
+            raise LegacyApiError(f"HTTP {r.status}：{_redact(r.body[:300], self._token)}")
         return parse_rows(r.body, fmt or self.fmt)
 
     # ---- 連線測試（逐步診斷，哪一步失敗就回該步修法）----
@@ -144,8 +144,8 @@ class SensorsQueryAPI:
             if r2.status < 400:
                 self.auth = other
                 return f"設定的模式失敗（HTTP {r.status}），改用 {other} 通過；請把 connectors 設定的 auth 改成 {other}"
-            raise SensorsApiError(f"HTTP {r.status}／{r2.status}：{_redact(r.body[:120], self._token)}")
-        if not timed("auth", auth, "在神策「專案設定 › 查詢 API」或 SBP「開放 API 金鑰」重新產生金鑰並確認專案名稱；SBP 金鑰用 header 模式"):
+            raise LegacyApiError(f"HTTP {r.status}／{r2.status}：{_redact(r.body[:120], self._token)}")
+        if not timed("auth", auth, "在舊平台「專案設定 › 查詢 API」或 SBP「開放 API 金鑰」重新產生金鑰並確認專案名稱；SBP 金鑰用 header 模式"):
             return out
         timed("privilege", lambda: f"events 可讀，欄位 {len(self.columns('events'))} 個", "金鑰對應的帳號需有該專案 events／users 的查詢權")
         d = sample_date or (datetime.now(TPE) - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -186,9 +186,9 @@ class SensorsQueryAPI:
             offset += batch
 
 
-# ---- 列轉 FormatImporter 格式（接 sensors_format.stage）----
+# ---- 列轉 FormatImporter 格式（接 legacy_format.stage）----
 def to_format_record(row: dict[str, Any], project: str, assume_login: bool = True) -> dict[str, Any]:
-    """神策 SQL 的 events 一列（屬性攤平成欄位）→ {"type":"track","event","distinct_id","time"(ms),"properties":{…}}。
+    """舊平台 SQL 的 events 一列（屬性攤平成欄位）→ {"type":"track","event","distinct_id","time"(ms),"properties":{…}}。
     $is_login_id 欄位不存在時依 assume_login 決定（預設視為登入 ID → 會被代碼化；寧可多代碼化不可漏）。"""
     props: dict[str, Any] = {}
     for k, v in row.items():
@@ -204,7 +204,7 @@ def to_format_record(row: dict[str, Any], project: str, assume_login: bool = Tru
     return {"type": "track", "event": row.get("event", ""), "distinct_id": str(row.get("distinct_id", "")), "time": _to_ms(row.get("time")), "project": project, "properties": props}
 
 
-def export_to_file(client: SensorsQueryAPI, day: str, out: Path, batch: int = 20_000, assume_login: bool = True, events: list[str] | None = None) -> dict[str, int]:
+def export_to_file(client: LegacyQueryAPI, day: str, out: Path, batch: int = 20_000, assume_login: bool = True, events: list[str] | None = None) -> dict[str, int]:
     n = 0
     with out.open("w", encoding="utf-8") as f:
         for row in client.export_day(day, batch, events):
@@ -259,15 +259,15 @@ def load_token(env: str) -> str:
     return t
 
 
-# ---- 自測：假神策伺服器 ----
-class FakeSensors:
+# ---- 自測：假舊平台伺服器 ----
+class FakeLegacy:
     def __init__(self, token: str = "good", mode: str = "query_token", header_name: str = "sensorsdata-token", limit_rows: int | None = None):
         self.token, self.mode, self.header_name, self.limit_rows = token, mode, header_name, limit_rows
         self.calls: list[str] = []
         base = datetime(2026, 10, 1, 9, 0, 0, tzinfo=TPE)
         self.rows = [{"event": ["$pageview", "bond_order", "bond_deal"][i % 3], "distinct_id": f"C{i % 7:04d}", "time": (base + timedelta(seconds=i * 37)).strftime("%Y-%m-%d %H:%M:%S.000"),
                       "date": "2026-10-01", "user_id": str(100 + i % 7), "$lib": "iOS", "$is_login_id": "true" if i % 7 else "false", "symbol": "2330", "amount": 1000 + i, "name": "王小明"} for i in range(53)]
-        # users 表：神策分群 = user_group_* 欄（0／1）、標籤 = user_tag_* 欄；C0000 沒有登入 ID（只有 first_id）
+        # users 表：舊平台分群 = user_group_* 欄（0／1）、標籤 = user_tag_* 欄；C0000 沒有登入 ID（只有 first_id）
         self.users = [{"id": str(i), "first_id": f"dev{i:04d}", "second_id": f"C{i:04d}" if i else "", "user_group_vip_active": "1" if 1 <= i <= 4 else "0",
                        "user_group_old_campaign": "1" if i <= 1 else "0", "user_tag_risk_level": f"R{i % 3 + 1}" if i < 6 else ""} for i in range(7)]
 
@@ -316,9 +316,9 @@ class FakeSensors:
 
 def selftest() -> None:
     import tempfile
-    os.environ["SA_ALLOW_HTTP"] = "1"
-    fake = FakeSensors()
-    c = SensorsQueryAPI("http://sa.test:8107", "taipei_uat", "good", http=fake)
+    os.environ["LEGACY_ALLOW_HTTP"] = "1"
+    fake = FakeLegacy()
+    c = LegacyQueryAPI("http://sa.test:8107", "taipei_uat", "good", http=fake)
     assert c.sql("SELECT 1") == [{"1": "1"}] and "token=good" in fake.calls[-1] or True
     # 盤點、欄位、導出分頁（53 筆、batch 20 → 3 次）、FormatImporter 轉換（$is_login_id 沿用、time 轉毫秒、name 仍在 → 由 stage 丟）
     inv = c.inventory("2026-10-01", "2026-10-01"); assert sum(int(r["cnt"]) for r in inv) == 53 and {r["event"] for r in inv} == {"$pageview", "bond_order", "bond_deal"}
@@ -330,44 +330,44 @@ def selftest() -> None:
         recs = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
         assert recs[0]["type"] == "track" and recs[0]["time"] == int(datetime(2026, 10, 1, 9, 0, 0, tzinfo=TPE).timestamp() * 1000) and recs[1]["properties"]["$is_login_id"] is True and recs[0]["properties"]["$is_login_id"] is False
         assert "name" in recs[0]["properties"] and "distinct_id" not in recs[0]["properties"] and recs[0]["properties"]["amount"] == "1000"   # csv 全是字串；json 格式保留型別
-        # 接 sensors_format.stage：登入 ID 代碼化、name（L4）丟掉
-        from . import modeling, sensors_format
+        # 接 legacy_format.stage：登入 ID 代碼化、name（L4）丟掉
+        from . import legacy_format, modeling
         modeling.set_key("k_idm", b"t")
-        st = sensors_format.stage(out, Path(d) / "staged.jsonl", Path(d) / "q.jsonl", "k_idm", ["name", "mobile"])
+        st = legacy_format.stage(out, Path(d) / "staged.jsonl", Path(d) / "q.jsonl", "k_idm", ["name", "mobile"])
         staged = [json.loads(l) for l in (Path(d) / "staged.jsonl").read_text(encoding="utf-8").splitlines()]
         assert st.ok == 53 and st.tokenized == 53 - 8 and all("name" not in s["properties"] for s in staged) and staged[1]["distinct_id"].startswith("v1_"), (st.ok, st.tokenized)
     # json 格式保留型別
-    cj = SensorsQueryAPI("http://sa.test:8107", "taipei_uat", "good", http=fake, fmt="json")
+    cj = LegacyQueryAPI("http://sa.test:8107", "taipei_uat", "good", http=fake, fmt="json")
     assert cj.sql("SELECT * FROM events LIMIT 2")[0]["amount"] == 1000
     # 鑑權：錯 token → 明確錯誤且訊息不含 token；header 模式伺服器 + query_token 設定 → test() 自動切換
-    bad = SensorsQueryAPI("http://sa.test:8107", "taipei_uat", "wrongsecret", http=fake)
+    bad = LegacyQueryAPI("http://sa.test:8107", "taipei_uat", "wrongsecret", http=fake)
     try: bad.sql("SELECT 1"); raise AssertionError("應 401")
-    except SensorsApiError as e: assert "鑑權失敗" in str(e) and "wrongsecret" not in str(e)
-    fh = FakeSensors(mode="header")
-    ch = SensorsQueryAPI("http://sa.test:8107", "taipei_uat", "good", http=fh, auth="query_token")
+    except LegacyApiError as e: assert "鑑權失敗" in str(e) and "wrongsecret" not in str(e)
+    fh = FakeLegacy(mode="header")
+    ch = LegacyQueryAPI("http://sa.test:8107", "taipei_uat", "good", http=fh, auth="query_token")
     steps = ch.test(sample_date="2026-10-01")
     by = {s.name: s for s in steps}
     assert by["dns"].ok is False or by["auth"].ok, [(s.name, s.ok, s.detail[:40]) for s in steps]     # 假主機 DNS 解不到就停在 dns；解得到才驗 auth 切換
     if by.get("auth"):
         assert "改用 header" in by["auth"].detail and ch.auth == "header"
     # https 強制
-    os.environ.pop("SA_ALLOW_HTTP")
-    try: SensorsQueryAPI("http://sa.test", "p", "t", http=fake); raise AssertionError("http 應被擋")
-    except SensorsApiError: pass
+    os.environ.pop("LEGACY_ALLOW_HTTP")
+    try: LegacyQueryAPI("http://sa.test", "p", "t", http=fake); raise AssertionError("http 應被擋")
+    except LegacyApiError: pass
     # SQL 錯誤與列數上限
-    os.environ["SA_ALLOW_HTTP"] = "1"
+    os.environ["LEGACY_ALLOW_HTTP"] = "1"
     try: c.sql("SELECT nope"); raise AssertionError("500")
-    except SensorsApiError as e: assert "HTTP 500" in str(e)
-    print(f"sensors_api self-test ok: auth(query_token/header, redact) inventory columns export(53 rows/3 batches) → stage(tokenized {53 - 8}, L4 dropped) json/csv")
+    except LegacyApiError as e: assert "HTTP 500" in str(e)
+    print(f"legacy_api self-test ok: auth(query_token/header, redact) inventory columns export(53 rows/3 batches) → stage(tokenized {53 - 8}, L4 dropped) json/csv")
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="神策查詢 API 連接器")
+    ap = argparse.ArgumentParser(description="舊平台查詢 API 連接器")
     sub = ap.add_subparsers(dest="cmd")
     for name in ("test", "inventory", "columns", "export", "users"):
         s = sub.add_parser(name)
         s.add_argument("--base-url", required=True); s.add_argument("--project", required=True)
-        s.add_argument("--token-env", default="SA_API_SECRET"); s.add_argument("--auth", default="query_token", choices=["query_token", "header"])
+        s.add_argument("--token-env", default="LEGACY_API_SECRET"); s.add_argument("--auth", default="query_token", choices=["query_token", "header"])
         s.add_argument("--header-name", default="sensorsdata-token"); s.add_argument("--path", default="/api/sql/query"); s.add_argument("--format", default="csv", choices=["csv", "json"])
         s.add_argument("--ca-bundle"); s.add_argument("--timeout", type=int, default=60)
         if name == "test": s.add_argument("--sample-date")
@@ -378,7 +378,7 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     if not a.cmd:
         selftest(); return 0
-    c = SensorsQueryAPI(a.base_url, a.project, load_token(a.token_env), auth=a.auth, header_name=a.header_name, path=a.path, fmt=a.format, timeout=a.timeout, ca_bundle=a.ca_bundle)
+    c = LegacyQueryAPI(a.base_url, a.project, load_token(a.token_env), auth=a.auth, header_name=a.header_name, path=a.path, fmt=a.format, timeout=a.timeout, ca_bundle=a.ca_bundle)
     if a.cmd == "test":
         steps = c.test(a.sample_date)
         for s in steps:
@@ -395,7 +395,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"# {len(rows)} 列，共 {total:,} 筆"); return 0
     if a.cmd == "export":
         r = export_to_file(c, a.date, Path(a.out), a.batch, assume_login=not a.anonymous_when_missing, events=a.events.split(",") if a.events else None)
-        print(f"{a.date}: {r['rows']:,} 筆 / {r['batches']} 批 → {a.out}（下一步：sensors_format.SensorsLoader.run_file 代碼化並載入）"); return 0
+        print(f"{a.date}: {r['rows']:,} 筆 / {r['batches']} 批 → {a.out}（下一步：legacy_format.LegacyLoader.run_file 代碼化並載入）"); return 0
     return 2
 
 

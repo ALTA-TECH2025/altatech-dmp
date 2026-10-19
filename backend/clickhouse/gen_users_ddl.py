@@ -42,7 +42,7 @@ def ddl(local: bool = False) -> str:
     eng = (lambda name, ver: f"ReplacingMergeTree({ver})" if local else f"ReplicatedReplacingMergeTree('/ch/{{shard}}/dmp.{name}', '{{replica}}', {ver})")
     col_lines = ",\n".join(f"    {k:<20} {t}" for k, t, _ in cols)
     out = [BEGIN,
-           "-- 用戶表（對應神策 Kudu 用戶表；docs/23 §4.1）：每個屬性一個實體欄位（由 user_properties.yaml 產生），未登記屬性放 props_extra。",
+           "-- 用戶表（對應舊平台 Kudu 用戶表；docs/23 §4.1）：每個屬性一個實體欄位（由 user_properties.yaml 產生），未登記屬性放 props_extra。",
            "-- 更新分兩路：日批整份快照（users_snapshot → users，INSERT 不 UPDATE）；即時零星更新走 user_prop_log 每 10 分鐘微批合併。",
            "CREATE TABLE IF NOT EXISTS dmp.users_snapshot\n(\n    snapshot_date        Date,\n    one_id               String,\n    one_id_uint          UInt64 DEFAULT cityHash64(one_id),\n"
            + col_lines + ",\n    props_extra          JSON,\n    loaded_at            DateTime64(3, 'UTC') DEFAULT now64(3)\n)\n"

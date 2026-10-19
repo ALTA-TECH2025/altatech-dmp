@@ -1,5 +1,5 @@
-# 神策歷史資料盤點（docs/22 §3.1）：資料集、神策位置、導出方式、目標、處理規則。
-# 這裡只有「計畫」欄位；筆數、範圍、進度由 /v1/migration 從導出任務與神策查詢 API 盤點結果填入（沒有連線時顯示「待盤點」）。
+# 舊平台歷史資料盤點（docs/22 §3.1）：資料集、舊平台位置、導出方式、目標、處理規則。
+# 這裡只有「計畫」欄位；筆數、範圍、進度由 /v1/migration 從導出任務與舊平台查詢 API 盤點結果填入（沒有連線時顯示「待盤點」）。
 version: 1
 datasets:
   - { id: events, cn: 事件明細, location: "Impala · events（Kudu 近期 + HDFS Parquet 歷史）", method: "HDFS Parquet 直讀（distcp）；查詢 API 只做抽樣校驗", target: "dmp.events 歷史分區（36 個月）", order: 3,
@@ -11,7 +11,7 @@ datasets:
   - { id: segments, cn: 分群結果, location: "用戶分群結果表（按 basetime 版本）", method: "查詢 API", target: "分群（規則重建 / 匯入成員快照）", order: 4,
       rule: "規則能對到 DMP 規則類型的重建為規則分群；其餘匯入成員快照並標示「不再更新」" }
   - { id: tags, cn: 標籤, location: "user_tag_*（含歷史版本）", method: "Impala JDBC", target: "標籤（匯入型）+ 例行計算在 DMP 重建", order: 5, rule: "保留最近 N 版" }
-  - { id: metadata, cn: 元數據, location: "事件／屬性字典、虛擬事件、概覽、書籤", method: "元數據 API", target: "events.yaml v4（已完成）、sensors_properties.csv（屬性分級，docs/28）、概覽依必留清單重建", order: 0,
+  - { id: metadata, cn: 元數據, location: "事件／屬性字典、虛擬事件、概覽、書籤", method: "元數據 API", target: "events.yaml v4（已完成）、legacy_properties.csv（屬性分級，docs/28）、概覽依必留清單重建", order: 0,
       rule: "事件 × 屬性矩陣待客戶匯出；概覽／書籤數量盤點後決定重建範圍", done: true, note: "事件 117（客戶清單 112 + CDC 補充）· 屬性 681 · 用戶屬性 3,606（含 user_group／user_tag）" }
   - { id: ma, cn: 智能運營（SF）／LINE 歷史, location: "計畫／旅程定義、觸達紀錄、LINE 事件", method: "HDFS Parquet 直讀", target: "events（$Plan*／$Journey*／LINE 歷史，標示僅歷史）", order: 6,
       rule: "歷史事件照搬；新計畫在新 MA 工具，T0 後無新資料" }
@@ -21,12 +21,12 @@ export_rules:
   rerun_threshold: 0.001          # 差異 > 0.1% 的分片自動重跑；三次仍差標記待人工
   max_auto_rerun: 3
 recon_thresholds: { t2_count: 0.001, t5_parallel: 0.05, t6_user_bridge: 0.95 }
-timeline:                         # docs/22 §6；T0 = 神策停止寫入
+timeline:                         # docs/22 §6；T0 = 舊平台停止寫入
   - { id: M1, date: "2026-11-20", cn: "盤點、橋接表定稿交 GA360 導入商" }
   - { id: M2, date: "2026-12-18", cn: "歷史資料載入測試環境；T1–T4" }
   - { id: M3, date: "2027-01-22", cn: "GA360 上線，並行期開始；T5–T6" }
   - { id: M4, date: "2027-02-26", cn: "交易結合與營運；T7–T9" }
   - { id: M5, date: "2027-03-26", cn: "內部驗收、切換演練" }
   - { id: UAT, date: "2027-06-30", cn: "客戶驗收 T1–T9 與結合分析案例" }
-  - { id: PD, date: "2027-09-30", cn: "正式上線 = T0；神策停止寫入；4 週內最終增量與對帳" }
-  - { id: END, date: "2027-10-31", cn: "神策到期：撤銷 Impala／HDFS 權限與 token" }
+  - { id: PD, date: "2027-09-30", cn: "正式上線 = T0；舊平台停止寫入；4 週內最終增量與對帳" }
+  - { id: END, date: "2027-10-31", cn: "舊平台到期：撤銷 Impala／HDFS 權限與 token" }

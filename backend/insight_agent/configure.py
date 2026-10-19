@@ -1,4 +1,4 @@
-"""analysis.configure：自然語言 → 既有分析模型的配置卡（docs/30 §1；神策 Copilot「在分析模型上做選擇題」的做法）。
+"""analysis.configure：自然語言 → 既有分析模型的配置卡（docs/30 §1；舊平台 Copilot「在分析模型上做選擇題」的做法）。
 
 兩個解析器產同一份結構：
 - RulesParser：關鍵字規則（分析類型、事件同義詞、指標、分組、時間），離線可用、確定性、示範站也用（web/src/demo/ask.ts 是同構的 TS 版）。

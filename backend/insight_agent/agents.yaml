@@ -44,7 +44,7 @@ agents:
     identity: svc-insight-readonly
     tools: [metric.query, funnel.run, retention.run, semantic.describe]
     budget: { scan_bytes: 40e9, llm_tokens: 10000 }
-  # ---- v0.2 新增（對標神策 Copilot / AI 智能分析師 / 智能體閉環）----
+  # ---- v0.2 新增（對標舊平台 Copilot / AI 智能分析師 / 智能體閉環）----
   - id: analyst-copilot
     cn: 分析 Copilot
     skill: skills/analyst-copilot.md

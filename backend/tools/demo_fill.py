@@ -18,7 +18,7 @@ from ..auth.local import LocalAccounts, totp_code
 
 API = os.environ.get("DMP_API", "http://127.0.0.1:8000")
 DEMO_PROJECT = os.environ.get("DMP_DEMO_PROJECT", "golden")   # 示範資料查哪個 project（sinopac_demo＝100 萬人模擬資料）
-# 神策式規則：用戶屬性樹（且）× 行為（近 N 天以計算日回推、指標比較、事件屬性）
+# 舊平台式規則：用戶屬性樹（且）× 行為（近 N 天以計算日回推、指標比較、事件屬性）
 UQ = {"project": DEMO_PROJECT, "filters": {"op": "and", "items": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}]},
       "behaviors": [{"event": "bond_deal", "measure": {"agg": "count"}, "cmp": {"op": "gte", "value": 3}, "time": {"last_days": 30}}]}
 
@@ -149,7 +149,7 @@ def main() -> None:
     # 7a. 書籤：分析師存三個書籤（分享給行銷），其中兩個放進「行銷週報」看板
     if not ana.call("GET", "/v1/bookmarks"):
         T2 = {"from": "2026-10-01", "to": "2026-10-16", "grain": "day"}
-        b1 = ana.call("POST", "/v1/bookmarks", {"name": "成交筆數（日）", "description": "bond_deal 每日總次數，口徑同神策『成交』", "kind": "events", "chart": "line", "shared": {"roles": ["marketing", "digital_ops"]},
+        b1 = ana.call("POST", "/v1/bookmarks", {"name": "成交筆數（日）", "description": "bond_deal 每日總次數，口徑同舊平台『成交』", "kind": "events", "chart": "line", "shared": {"roles": ["marketing", "digital_ops"]},
                                                "query": {"project": DEMO_PROJECT, "metrics": [{"event": "bond_deal", "agg": "total", "alias": "deals"}], "time": T2}, "new_dashboard": "行銷週報", "width": 2})
         wid = b1["added_to"][0]["dashboard"]
         ana.call("POST", "/v1/bookmarks", {"name": "看盤 → 委託 → 成交（7 天窗）", "kind": "funnel", "shared": {"roles": ["marketing"]}, "add_to": [wid],
@@ -165,7 +165,7 @@ def main() -> None:
         for e in cat["examples"]:
             with contextlib.suppress(RuntimeError):
                 ana.call("POST", "/v1/sql/query", {"sql": e["sql"]})
-        ana.call("POST", "/v1/sql/saved", {"name": "每日成交筆數（近 14 天）", "group": "交易", "description": "口徑同神策『成交』事件", "sql": cat["examples"][0]["sql"], "shared": {"roles": ["digital_ops"]}})
+        ana.call("POST", "/v1/sql/saved", {"name": "每日成交筆數（近 14 天）", "group": "交易", "description": "口徑同舊平台『成交』事件", "sql": cat["examples"][0]["sql"], "shared": {"roles": ["digital_ops"]}})
         ana.call("POST", "/v1/sql/saved", {"name": "各平台成交金額（參數：天數）", "group": "交易", "sql": "SELECT platform, count() AS deals, sum(amount) AS amount\nFROM dmp.events\nWHERE event = 'bond_deal' AND event_date >= today() - {{days}}\nGROUP BY platform ORDER BY amount DESC", "params_default": {"days": 7}, "shared": {"roles": ["digital_ops"]}})
     if not it.call("GET", "/v1/sql/mid-tables"):
         it.call("POST", "/v1/sql/mid-tables", {"name": "mid_deals_daily", "note": "每日成交彙總，供看板與 SQL 直接查", "sql": "SELECT event_date, platform, count() AS deals, uniq(one_id_uint) AS users\nFROM dmp.events WHERE event = 'bond_deal' GROUP BY event_date, platform"})

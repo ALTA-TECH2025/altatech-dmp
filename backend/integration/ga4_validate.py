@@ -1,6 +1,6 @@
 """GA4 匯出格式驗證（docs/31 §4.1-2）：拿 Google 公開的 GA4 BigQuery 匯出樣本跑一次我們的接入，確認
   1. schema：樣本表的欄位都認得（ga4_source.flatten 用到的欄位都在；多出來的欄位列出來決定要不要接）
-  2. 轉名：GA4 事件名經神策橋接表轉回正式事件名的比例；轉不到的（ga. 前綴）列出來
+  2. 轉名：GA4 事件名經舊平台橋接表轉回正式事件名的比例；轉不到的（ga. 前綴）列出來
   3. 身分：user_id／user_pseudo_id 的有值比例、同意欄位、one_id 落在登入或匿名
   4. T1 對帳：BigQuery 端每個 event_name 的筆數 == 載入 ClickHouse 後的筆數（event_id 去重後）
   5. 金額：電商事件的金額在 ecommerce 結構而不在 event_params.amount → 有沒有被接到
