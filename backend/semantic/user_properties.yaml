@@ -18,9 +18,9 @@ user_properties:
   - { key: is_first_trade, cn: 是否首次交易, type: bool, source: tag_engine.rule, update: "daily 06:00", sensitivity: L1, filterable: true, groupable: true }
   - { key: last_active_at, cn: 最近活躍, type: datetime, source: event.derived, update: realtime, sensitivity: L1, filterable: true, groupable: false }
 write_protocol: [profile_set, profile_set_once, profile_increment, profile_append, profile_unset]
-# L4 永不入倉：通用名（本系統欄位）＋客戶神策屬性字典（backend/migration/sensors_properties.csv decision=drop_l4，由 properties.py --check 比對）
+# L4 永不入倉：通用名（本系統欄位）＋客戶舊平台屬性字典（backend/migration/legacy_properties.csv decision=drop_l4，由 properties.py --check 比對）
 forbidden_l4: [name, id_no, mobile, email, full_account_no, birth_date, address,
-  # 客戶神策屬性：姓名
+  # 客戶舊平台屬性：姓名
   CNAME, S_NAME, Name, BE_EMP_NAME, SALE_EMP_NAME, ADNO_Name, om_user_nm,
   # 手機／電話
   CUS_MTEL, Mobile, member_phone, latest_member_phone, task_mobile, order_phone,
@@ -30,10 +30,10 @@ forbidden_l4: [name, id_no, mobile, email, full_account_no, birth_date, address,
   birthdt_evlogin, birthDT_ConfirmID,
   # 客戶銀行／信託／分戶帳帳號（完整帳號）
   BANK_ACNO_1, BANK_ACNO_2, IO_BANK_ACNO, PO_BANK_ACNO, TRUST_ACNO, Bankact,
-  # 客戶神策用戶屬性（用戶屬性導出，sensors_user_properties.csv decision=drop_l4）：姓名、生日、手機、信箱（含社群登入信箱、通知手機）
+  # 客戶舊平台用戶屬性（用戶屬性導出，legacy_user_properties.csv decision=drop_l4）：姓名、生日、手機、信箱（含社群登入信箱、通知手機）
   s_name, openactname, latest_openactname, birth_dt, s_birth, s_birth_virtual,
   cus_mtel, lack_cus_mtel, remove_sym_cus_mtel, openactmobile, latest_openactmobile, noticemobile, sleepycust_mobile, ec_sec_acc_mobile, richclub_order_phone,
   cuadm, openactmail, latest_openactmail, googleloginmail, latest_googleloginmail, fbloginmail, latest_fbloginmail, appleloginmail, latest_appleloginmail,
   sleepycust_email, ec_sec_acc_email, ec_sub_acc_email, richclub_order_email, latest_order_email,
-  # 神策埋點規格表有、用戶屬性導出無的個資欄（sensors_plan_user_properties.csv）：出現了也要擋
+  # 舊平台埋點規格表有、用戶屬性導出無的個資欄（legacy_plan_user_properties.csv）：出現了也要擋
   b27_name, ec_sub_acc_mobile]

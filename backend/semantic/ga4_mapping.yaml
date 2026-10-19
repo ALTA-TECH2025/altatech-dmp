@@ -1,5 +1,5 @@
 # GA360 BigQuery Export → DMP 事件映射（日批 events_ 與串流 events_intraday_ 共用；GA360 是行為事件的唯一 GA 來源，無雙寫）
-event_name: { to: event, transform: "lookup:sensors_ga4_bridge.ga4_to_sensors", fallback: "prefix:ga.", keep_registered: true }   # GA 事件名轉回神策正式事件名（docs/22 §2），對不上的保留 ga. 前綴進隔離區登記
+event_name: { to: event, transform: "lookup:legacy_ga4_bridge.ga4_to_legacy", fallback: "prefix:ga.", keep_registered: true }   # GA 事件名轉回舊平台正式事件名（docs/22 §2），對不上的保留 ga. 前綴進隔離區登記
 event_timestamp: { to: time, transform: "us_to_ms" }
 user_pseudo_id:
   web: { to: identities.$identity_cookie_id }

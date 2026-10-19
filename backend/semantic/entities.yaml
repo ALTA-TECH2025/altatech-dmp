@@ -1,9 +1,9 @@
-# 主體（entities）與 ID 映射的血緣設計（對齊 VeCDP「多主體 ID Mapping + 可視化血緣」；docs/19 v1.2）
+# 主體（entities）與 ID 映射的血緣設計（對齊 V-CDP「多主體 ID Mapping + 可視化血緣」；docs/19 v1.2）
 # 原則：
 #   1. 只有一個錨點主體：客戶（customer），錨 ID = 客戶代碼（$identity_login_id）。其他主體的 ID 都是「掛在客戶下的關係」，
 #      不讓裝置或帳戶變成第二個錨點，合併規則才不會互相打架。
 #   2. 每一條 ID 關聯（edge）都有來源、證據（event_id／bind 指令）、首次與最近出現時間、信心值；血緣圖就從 edge 畫出來。
-#   3. 傳遞性映射有深度與信心門檻；低於門檻只記 edge 不歸戶。衝突永遠記錄、不自動解（金融業保守做法，與神策 IDM 3.0 一致）。
+#   3. 傳遞性映射有深度與信心門檻；低於門檻只記 edge 不歸戶。衝突永遠記錄、不自動解（金融業保守做法，與舊平台 IDM 3.0 一致）。
 #   4. 合併／拆分是人工工具：前後快照寫 oneid_merge_log，可回溯、可撤銷。
 version: 1
 anchor: { subject: customer, id: $identity_login_id }
@@ -12,7 +12,7 @@ subjects:
   - key: customer
     cn: 客戶
     anchor: true
-    ids: [$identity_login_id, $identity_mobile_hash, $identity_email_hash]   # 客戶自己的 ID（代碼、手機、Email），單值，順序同神策預置
+    ids: [$identity_login_id, $identity_mobile_hash, $identity_email_hash]   # 客戶自己的 ID（代碼、手機、Email），單值，順序同舊平台預置
     attributes_table: dmp.users
   - key: account
     cn: 交易帳戶
@@ -22,7 +22,7 @@ subjects:
   - key: device
     cn: 裝置／瀏覽器
     ids: [$identity_device_id, $identity_cookie_id, $identity_anonymous_id]
-    relation: { to: customer, cardinality: "N:N", rebind: never_auto, note: 首次關聯固定（神策 IDM 2.0／3.0 同）；第二個客戶在同裝置登入 → 關聯失敗、記 conflict、事件歸登入客戶；要改綁走人工解綁 }
+    relation: { to: customer, cardinality: "N:N", rebind: never_auto, note: 首次關聯固定（舊平台 IDM 2.0／3.0 同）；第二個客戶在同裝置登入 → 關聯失敗、記 conflict、事件歸登入客戶；要改綁走人工解綁 }
     shared_threshold: 3                                       # 一個裝置 ID 在 90 天內見過 ≥ 3 個客戶 → 視為共用裝置，信心降、不做傳遞映射
   - key: channel
     cn: 觸達渠道
@@ -32,15 +32,15 @@ subjects:
 
 edge:                                                         # dmp.id_edges 一列 = 一條關聯
   fields: [id_type_a, id_a, id_type_b, id_b, source, evidence_event_id, first_seen, last_seen, seen_count, confidence, status]
-  sources: [ga360.login, ga360.cooccur, sensors.track_signup, sensors.cooccur, crm.bind, account_open, manual.merge, manual.bind]
+  sources: [ga360.login, ga360.cooccur, legacy.track_signup, legacy.cooccur, crm.bind, account_open, manual.merge, manual.bind]
   status: [active, superseded, conflict, unbound]
   confidence:
-    base: { crm.bind: 1.0, account_open: 1.0, sensors.track_signup: 0.95, ga360.login: 0.95, ga360.cooccur: 0.6, sensors.cooccur: 0.6, manual.merge: 1.0, manual.bind: 1.0 }
+    base: { crm.bind: 1.0, account_open: 1.0, legacy.track_signup: 0.95, ga360.login: 0.95, ga360.cooccur: 0.6, legacy.cooccur: 0.6, manual.merge: 1.0, manual.bind: 1.0 }
     shared_device_penalty: 0.4                                # 共用裝置上的 cooccur／login edge 信心乘以 (1 − 0.4)
     repeat_bonus_per_seen: 0.05                               # 同一 edge 每再出現一次 +0.05，上限 0.95（cooccur 類）
 
-transitive:                                                   # 傳遞性映射（VeCDP 式）：預設關閉。神策的作法是「匿名用戶整個併入客戶」，不看信心；
-  enabled: false                                              # 本系統同神策（oneid_rules.anonymous_user.merge_into_existing_customer）。此段保留給第二階段評估
+transitive:                                                   # 傳遞性映射（V-CDP 式）：預設關閉。舊平台的作法是「匿名用戶整個併入客戶」，不看信心；
+  enabled: false                                              # 本系統同舊平台（oneid_rules.anonymous_user.merge_into_existing_customer）。此段保留給第二階段評估
   max_hops: 2                                                 # 裝置 → cookie → 登入，最多兩跳
   min_confidence: 0.8                                         # 沿路 edge 信心相乘 ≥ 0.8 才歸戶
   follow_on_rebind: true                                      # 弱 ID 改綁到新客戶時，同匿名用戶下與它高信心共現的其他弱 ID 一起跟過去
@@ -61,7 +61,7 @@ lineage:                                                      # 表級血緣（�
   table: dmp.lineage_edges
   fields: [from_kind, from_name, to_kind, to_name, via, model_id, updated_at]
   kinds: [source_table, raw_table, target_table, id_map, users, segment, tag, destination]
-  emit_from: [integration.runner, sensors_format, ga4_source, oneid.service]
+  emit_from: [integration.runner, legacy_format, ga4_source, oneid.service]
 
 visualization:                                                # 原型「用戶細查 › 身分圖」與「數據治理 › 資料流」要畫的東西
   identity_graph: { nodes: [customer, account, device, channel 的 ID], edges: dmp.id_edges, node_click: 屬性與事件數, edge_click: 證據事件與時間, timeline: [bind, rebind, backfill, merge, split] }

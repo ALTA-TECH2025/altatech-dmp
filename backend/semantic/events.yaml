@@ -1,9 +1,9 @@
 # 事件字典（語意層）— agent 與 UI 共用。新增事件只需在此登記。
 # 交易／帳務事件不直連交易主機：來源是數據中台／CDP 的事實表（批次導入，每 15 分鐘增量；若數據中台提供 Kafka 則流任務）。
-# v4：事件命名對齊客戶神策專案（sbp_family）的模擬事件清單（112 個），另含本系統交易／帳務 CDC 補充事件；aliases 為本專案文件中的舊名（查詢時等價）。
+# v4：事件命名對齊客戶舊平台專案（sbp_family）的模擬事件清單（112 個），另含本系統交易／帳務 CDC 補充事件；aliases 為本專案文件中的舊名（查詢時等價）。
 version: 4
 project: altatech_dmp
-naming: { client_list: sensors_sbp_family_2026-10-15, alias_resolution: true }
+naming: { client_list: legacy_sbp_family_2026-10-15, alias_resolution: true }
 events:
   - name: "PlanEDMClick"
     cn: "EDM郵件點擊"
@@ -1094,7 +1094,7 @@ events:
     platforms: "JavaScript"
     required: []
     trigger: "數位回顧2020_未登入跳轉至開戶"
-    note: "神策埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史"
+    note: "舊平台埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史"
   - name: "om_open_acct_flow"
     cn: "(C)開_07 開戶審核"
     group: "開戶"
@@ -1105,7 +1105,7 @@ events:
     platforms: "其它"
     required: ["BrokerID", "BrokerName", "E_NP", "E_OTYPE", "ProductNo", "WebCategoryCn", "WebMCategoryCn", "WebOpactCN", "WebProjectCn", "create_date", "crm_level", "flow_type", "om_flow_apply_no", "om_flow_seq_no", "om_new_sino_no", "om_user_id", "sign_date"]
     trigger: "線上開戶進件完成後進入開戶審核流程直到寫入開戶完成事件前這段期間內每一審核流程關卡及審核狀態的行為紀錄"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "richclub_get_coupon"
     cn: "領取優惠券"
     group: "豐雲學堂"
@@ -1116,7 +1116,7 @@ events:
     platforms: "服務端"
     required: ["analytics_label", "coupon_code", "coupon_id", "coupon_name", "fail_reason", "is_success"]
     trigger: "優惠券頁點擊立即領取後，跳出彈窗時觸發"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "etlMatch_SUB_SMP"
     cn: "(ODS) 成交事件(複委託定期定額_成交分配)"
     group: "證券（數據中台）"
@@ -1127,7 +1127,7 @@ events:
     platforms: "其它"
     required: ["ALLOCA_PER", "ALLOCA_PRICE", "ALLOCA_STOCK", "BANK_REPLY", "BATCH", "BROKERNO4_SACNO", "BROKER_NO3", "BROKER_NO4", "BROKER_NO4_EX", "CIRCLE_BANK", "CIRCLE_DATE", "CIRCLE_MONEY", "CLOSE_PRICE", "COMP_SOURCE", "Currency", "DUE_STOCK", "FEE", "INVEST", "PAY_MONEY", "ProductNo", "SALE_EMP_BELONG", "SALE_NO", "SEQNO", "S_ACNO", "SubProduct", "TRAN_NO", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "etlMatch_ST_SIP"
     cn: "(ODS) 成交事件(台股定期定額)"
     group: "證券（數據中台）"
@@ -1138,7 +1138,7 @@ events:
     platforms: "其它"
     required: ["ALLOCA_ORD_NO", "ALLOCA_QTY", "ALLOCA_RATIO", "AMT", "BNK_CREDIT", "BNK_ERRO", "BNK_NO", "BNK_PROC", "BNK_SNO", "BROKERNO3_SACNO", "BROKER_NO3", "BROKER_NO4_EX", "CREDIT_AMT", "DATE_YMD", "FEE", "IO_AMT", "Market", "PRICE", "ProductNo", "Qty", "SALE_NO", "STOCK_NO", "S_ACNO", "SubProduct", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "richclub_register_click"
     cn: "點擊立即報名"
     group: "豐雲學堂"
@@ -1149,7 +1149,7 @@ events:
     platforms: "JavaScript"
     required: ["lesson_id", "lesson_title", "lesson_type"]
     trigger: "在課程頁面點擊「立即報名」時觸發"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "event_login"
     cn: "#活動登錄"
     group: "活動"
@@ -1160,7 +1160,7 @@ events:
     platforms: "JavaScript,Android,iOS"
     required: ["S_IDNO", "gift_card_serial_number", "jointime", "platform"]
     trigger: "用戶登錄活動報名成功時(由資訊定時上傳)"
-    note: "神策埋點規格表（2026-10）；規格表另有 3 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 3 個個資／維護欄位不遷移"
   - name: "richclub_register_confirm"
     cn: "確認報名（免費）"
     group: "豐雲學堂"
@@ -1170,8 +1170,8 @@ events:
     status: live
     platforms: "服務端"
     required: ["order_id", "plan_id", "plan_name", "product_id", "product_title"]
-    trigger: "「訂單確認頁」點擊「立即享受」後觸發 同部調用sensors.setProfile()接口傳入用戶填入之「email」，到「richclub_order_email」用戶屬性上更新該字段"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    trigger: "「訂單確認頁」點擊「立即享受」後觸發 同步呼叫 SDK setProfile()接口傳入用戶填入之「email」，到「richclub_order_email」用戶屬性上更新該字段"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "ChoiceBankact"
     cn: "開_01-3-1 選擇交割戶"
     group: "開戶"
@@ -1182,7 +1182,7 @@ events:
     platforms: "JavaScript"
     required: ["ButtonName", "platform"]
     trigger: "證券開戶選擇其他銀行"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "ShortageNoticeEvent"
     cn: "(X)券差通知"
     group: "通知"
@@ -1193,7 +1193,7 @@ events:
     platforms: "其它,服務端"
     required: ["AccountNo", "BatchStep", "BrokerID", "DeptName", "MissMoney", "NoticeName", "ProductNo", "SettleAmt"]
     trigger: "券差通知，一天2個批次"
-    note: "神策埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史；規格表另有 1 個個資／維護欄位不遷移"
   - name: "dwt_acclist"
     cn: "開啟帳務列表"
     group: "大戶投 App"
@@ -1204,7 +1204,7 @@ events:
     platforms: "Android,iOS"
     required: []
     trigger: "開啟台股帳務列表"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "gift_card_purchase"
     cn: "03_訂單成立"
     group: "股票禮品卡／會員"
@@ -1215,7 +1215,7 @@ events:
     platforms: "JavaScript"
     required: ["Currency", "cart_number", "item_denominations", "item_id", "item_name", "item_price", "item_quantity", "transaction_id", "transaction_price"]
     trigger: "股票禮品卡進入[結帳流程]中跳轉到第三步[付款資訊]時觸發"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "article_click"
     cn: "#文章點擊"
     group: "資訊與資源位"
@@ -1226,7 +1226,7 @@ events:
     platforms: "iOS,Android,JavaScript"
     required: ["ButtonName", "author_dep", "menu", "platform", "section", "sub_menu"]
     trigger: "當使用者點擊大戶投APP中投顧任一文章/策略時"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "etlMatch_ST_SUBSCR"
     cn: "(ODS) 成交事件(申購)"
     group: "證券（數據中台）"
@@ -1237,7 +1237,7 @@ events:
     platforms: "其它"
     required: ["BA_DATE", "BROKERNO3_SACNO", "BROKER_NO3", "BROKER_NO4_EX", "FAIL_CANCEL", "FAIL_CODE", "FAIL_DATE", "FAIL_TO_R6", "FEE", "NET_BACK", "NET_NO", "ORD_CANCEL", "ORD_DATE", "ORD_NO", "ORD_TO_R6", "ORD_TYPE", "ProductNo", "SALE_EMP_BELONG", "SALE_NO_BELONG", "STOCK_NO", "S_ACNO", "SubProduct", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "Sensors_Mail_Open"
     cn: "#Webhhok-EDM開信"
     group: "智能運營（MA）"
@@ -1247,7 +1247,7 @@ events:
     status: live
     platforms: "服務端"
     required: ["sf_plan_name", "sf_strategy_unit_name"]
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "gift_card_uniocde_replenish"
     cn: "06_儲值通用碼"
     group: "股票禮品卡／會員"
@@ -1258,7 +1258,7 @@ events:
     platforms: "JavaScript,其它"
     required: ["S_IDNO", "gift_card_recipient_acno", "gift_card_recipient_brokerid", "gift_card_recipient_unicode", "gift_card_serial_number", "item_price"]
     trigger: "儲值通用碼時觸發"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "etlMatch_SUB_SFP"
     cn: "(ODS) 成交事件(複委託定期定股_成交分配)"
     group: "證券（數據中台）"
@@ -1269,7 +1269,7 @@ events:
     platforms: "其它"
     required: ["ALLOCA_PER", "ALLOCA_PRICE", "ALLOCA_STOCK", "BANK_REPLY", "BATCH", "BROKERNO4_SACNO", "BROKER_NO3", "BROKER_NO4", "BROKER_NO4_EX", "CIRCLE_BANK", "CIRCLE_DATE", "CIRCLE_MONEY", "CLOSE_PRICE", "COMP_SOURCE", "Currency", "DUE_STOCK", "EX_RATE", "FEE", "INVEST", "PAY_MONEY", "ProductNo", "SALE_EMP_BELONG", "SALE_NO", "SEQNO", "S_ACNO", "SubProduct", "TRAN_NO", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "event_dailynews"
     cn: "開啟庫存日報EDM"
     group: "活動"
@@ -1280,7 +1280,7 @@ events:
     platforms: "iOS,Android,JavaScript"
     required: ["eventtime", "open_time", "send_date"]
     trigger: "使用者當天首次開信"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "egift_booking"
     cn: "預約電子紀念品"
     group: "股務服務"
@@ -1291,7 +1291,7 @@ events:
     platforms: "JavaScript"
     required: ["evoting", "normal", "unlimited", "companycode", "companyname", "st_platform"]
     trigger: "使用者申請任一家發行公司線上紀念品"
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "etlMatch_SUB_SMP_S"
     cn: "(ODS) 成交事件(複委託定期定額_賣出)"
     group: "證券（數據中台）"
@@ -1302,7 +1302,7 @@ events:
     platforms: "其它"
     required: ["BROKERNO4_SACNO", "BROKER_NO3", "BROKER_NO4", "BROKER_NO4_EX", "BUY_SALE", "Currency", "EX_RATE", "FEE", "INVEST", "MARKET_NO", "MTH_DATE", "MTH_MONEY", "MTH_NO", "MTH_PRICE", "MTH_STOCK", "ORDER_NO", "PAY_MONEY", "ProductNo", "SALE_EMP_BELONG", "S_ACNO", "SubProduct", "TAX_MTH", "TAX_SETTLE", "TAX_STAMP", "TRAN_NO", "US_DELIVERY", "WEB_NO", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "etlOpenAccountDone_ST_SS_N"
     cn: "(ODS)開戶事件(借券)"
     group: "開戶"
@@ -1313,7 +1313,7 @@ events:
     platforms: "其它"
     required: ["BROKERNO3_SACNO", "BROKER_NO3", "BROKER_NO4_EX", "OPEN_SOURCE", "ProductNo", "SALE_EMP_BELON", "SALE_NO_BELONG", "S_ACNO", "S_ODATE", "SubProduct", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "DeletePurchase"
     cn: "存_停扣 01觸發"
     group: "定期定額"
@@ -1324,7 +1324,7 @@ events:
     platforms: "JavaScript"
     required: ["purchaset_date", "$receive_time", "ButtonName", "BuyOrSell", "Kind", "Market", "StockID", "StockName", "platform"]
     trigger: "豐存股停止扣款流程第一步"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "dwt_acclist_cashdiv"
     cn: "開啟帳務股利查詢"
     group: "大戶投 App"
@@ -1335,7 +1335,7 @@ events:
     platforms: "Android,iOS"
     required: []
     trigger: "開啟台股股利查詢"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "gift_card_payment"
     cn: "04_付款完成"
     group: "股票禮品卡／會員"
@@ -1346,7 +1346,7 @@ events:
     platforms: "JavaScript"
     required: ["S_IDNO", "gift_card_serial_number", "gift_card_use_status", "item_denominations", "item_id", "item_name", "item_price", "transaction_denominations", "transaction_id", "transaction_price", "transaction_status"]
     trigger: "購買禮品卡並付款完成後"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "etlMatch_ST"
     cn: "(ODS) 成交事件(證券)"
     group: "證券（數據中台）"
@@ -1357,7 +1357,7 @@ events:
     platforms: "其它"
     required: ["AREA_NO_EX", "BROKERNO3_SACNO", "BROKER_NO3", "BROKER_NO4_EX", "BS_STATUS", "EX_CORP_FLAG", "EX_CREDIT_FLAG", "EX_CTRADE_FLAG", "EX_MAKET_FLAG", "EX_TRADE_FLAG", "FEE", "HAA09", "HAA10", "HAA11", "HAA12", "HAA20", "HAA27", "HAA34", "HAA35", "HAA37", "HAA38", "HAA40", "HAA41", "HAA42", "HAA43", "HAA44", "HAA45", "HAA46", "HAA47", "HAA48", "INT_B_DATE", "INT_E_DATE", "IO_AMT", "IS_SW", "IS_W", "MP_AMT", "MP_IN_AMT", "MP_OWN_AMT", "MP_RE_AMT", "MTH_AMT", "MTH_DATE", "MTH_PRICE", "MTH_QTY", "NET", "ORD_NO", "PROC_DATE", "ProductNo", "RVINT", "SALE_EMP_BELON", "SALE_NO", "SALE_NO_BELONG", "SS_FEE", "SS_OUT_AMT", "STOCK_NAME", "STOCK_NO", "S_ACNO", "SubProduct", "TAX", "TRADE_KIND1", "TRADE_KIND2", "VALUE_DAY", "VIP_CODE", "VIP_GROUP", "WEB_ID", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Sell"
     cn: "存_賣出 01"
     group: "定期定額"
@@ -1368,7 +1368,7 @@ events:
     platforms: "JavaScript"
     required: ["purchaset_date", "$receive_time", "ButtonName", "BuyOrSell", "Kind", "Market", "StockID", "StockName", "platform"]
     trigger: "豐存股(美)賣出流程第一步"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "OpenActEX"
     cn: "#線上加開"
     group: "開戶"
@@ -1379,7 +1379,7 @@ events:
     platforms: "iOS,Android,JavaScript"
     required: ["$receive_time", "Account", "ButtonName", "platform"]
     trigger: "點擊按鈕進入複委託線上開戶流程"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "dwt_acclist_pl"
     cn: "開啟帳務綜合損益"
     group: "大戶投 App"
@@ -1390,7 +1390,7 @@ events:
     platforms: "Android,iOS"
     required: []
     trigger: "開啟台股綜合損益"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "clickRecomProd"
     cn: "點擊主題推薦商品"
     group: "定期定額"
@@ -1401,7 +1401,7 @@ events:
     platforms: "JavaScript"
     required: ["StockID", "platform", "recomType", "tab", "testGroup"]
     trigger: "使用者於豐存股商品頁點擊主題推薦tab下方任一檔商品時"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "mgm_open_acct"
     cn: "MGM開立帳戶"
     group: "開戶"
@@ -1412,7 +1412,7 @@ events:
     platforms: "iOS,Android,其它"
     required: ["AccountNo", "BrokerID", "code"]
     trigger: "週間認列完成時觸發"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "etlOpenAccountDone_ST_SS"
     cn: "(ODS)開戶事件(借券)_O"
     group: "開戶"
@@ -1423,7 +1423,7 @@ events:
     platforms: "其它"
     required: ["BROKERNO3_SACNO", "BROKER_NO3", "BROKER_NO4_EX", "OPEN_SOURCE", "ProductNo", "SALE_EMP_BELON", "SALE_NO_BELONG", "S_ACNO", "S_ODATE", "SubProduct", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "PurchaseComplete"
     cn: "存_申購 04完成"
     group: "定期定額"
@@ -1434,7 +1434,7 @@ events:
     platforms: "JavaScript"
     required: ["BuyOrSell", "Kind", "Market", "Pricetype", "PurchaseCost", "PurchasetDate", "Qty", "SharesUnit", "StockID", "StockName", "fault_reason", "outcome_status", "platform"]
     trigger: "豐存股申購約定流程第四步"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "MatchGrade"
     cn: "(X)#月均成交金額分級"
     group: "證券（數據中台）"
@@ -1444,7 +1444,7 @@ events:
     status: deprecated
     platforms: "服務端,其它"
     required: ["AccountNo", "BrokerID", "BrokerName", "BuyOrSell", "Currency", "DataDate", "MarchAmt", "OrderDate", "ProductNo", "StockID", "StockName", "platform"]
-    note: "神策埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史"
+    note: "舊平台埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史"
   - name: "dwt_acclist_stock"
     cn: "開啟帳務庫存清單"
     group: "大戶投 App"
@@ -1455,7 +1455,7 @@ events:
     platforms: "Android,iOS"
     required: []
     trigger: "開啟台股庫存清單"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "star_member"
     cn: "01_開始註冊會員"
     group: "股票禮品卡／會員"
@@ -1466,7 +1466,7 @@ events:
     platforms: "JavaScript"
     required: ["ButtonName", "member_id", "platform", "st_platform"]
     trigger: "使用者於註冊頁輸入完資料按下一步"
-    note: "神策埋點規格表（2026-10）；規格表另有 4 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 4 個個資／維護欄位不遷移"
   - name: "Event_20230307"
     cn: "任務-投資不滅島(2023Q2)"
     group: "活動"
@@ -1477,7 +1477,7 @@ events:
     platforms: "服務端"
     required: ["jointime"]
     trigger: "點擊活動登錄時"
-    note: "神策埋點規格表（2026-10）；過期活動（2023）：只匯入歷史"
+    note: "舊平台埋點規格表（2026-10）；過期活動（2023）：只匯入歷史"
   - name: "buy_now"
     cn: "00-2_直接購買"
     group: "股票禮品卡／會員"
@@ -1488,7 +1488,7 @@ events:
     platforms: "JavaScript"
     required: ["Currency", "cart_price", "item_denominations", "item_id", "item_name", "item_price", "item_quantity"]
     trigger: "股票禮品卡[商品介紹頁]中點擊\"我要購買\""
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "richclub_lesson_watch"
     cn: "觀看課程"
     group: "豐雲學堂"
@@ -1499,7 +1499,7 @@ events:
     platforms: "JavaScript"
     required: ["lesson_id", "lesson_title", "lesson_type"]
     trigger: "播放（觀看）線上直播、影音講堂時觸發"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "ShareButton"
     cn: "#分享按鈕"
     group: "資訊與資源位"
@@ -1510,7 +1510,7 @@ events:
     platforms: "iOS,Android,JavaScript"
     required: ["$receive_time", "ButtonName", "platform"]
     trigger: "點擊分享按鈕"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "OpenAccountDone"
     cn: "(C)開_08 開戶完成"
     group: "開戶"
@@ -1521,7 +1521,7 @@ events:
     platforms: "服務端,其它"
     required: ["AccountNo", "Bank_Digital", "BrokerID", "BrokerName", "DeptName", "E_EMP", "E_Gender", "E_NP", "E_OTYPE", "ORG_TYPE", "OpenSureDate", "ProductNo", "SALE_NO", "WebCategoryCn", "WebCn", "WebMCategoryCn", "WebOpactCN", "WebPlatformCn", "WebProjectCn", "subplatfromCn"]
     trigger: "開戶完成資料(內部資料)"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "richclub_order_confirm"
     cn: "瀏覽訂單確認頁"
     group: "豐雲學堂"
@@ -1532,7 +1532,7 @@ events:
     platforms: "JavaScript"
     required: ["order_amount", "plan_id", "plan_name", "product_id", "product_title"]
     trigger: "瀏覽訂單確認頁時觸發"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "member_join"
     cn: "02_註冊會員成功"
     group: "股票禮品卡／會員"
@@ -1543,7 +1543,7 @@ events:
     platforms: "JavaScript"
     required: ["member_id", "mid_fail_reason", "mid_status", "mid_success", "platform", "sinomember", "st_platform"]
     trigger: "使用者完成註冊流程寫入"
-    note: "神策埋點規格表（2026-10）；規格表另有 4 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 4 個個資／維護欄位不遷移"
   - name: "AddBankact"
     cn: "開_01-3-2 綁定交割戶"
     group: "開戶"
@@ -1554,7 +1554,7 @@ events:
     platforms: "JavaScript"
     required: ["ButtonName", "platform"]
     trigger: "證券開戶銀行帳戶設定"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "ConfirmID"
     cn: "開_01 驗證ID"
     group: "開戶"
@@ -1565,7 +1565,7 @@ events:
     platforms: "JavaScript"
     required: ["ADNO", "BrokerID", "BrokerName", "ButtonName", "LoginType", "is_digital", "is_success", "platform"]
     trigger: "證複線上開戶_驗證ID"
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "uploadid"
     cn: "開_03 上傳證件"
     group: "開戶"
@@ -1576,7 +1576,7 @@ events:
     platforms: "JavaScript"
     required: ["ButtonName", "platform"]
     trigger: "證複線上開戶_上傳證件"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "ChangeComfirm"
     cn: "存_變更 03確認"
     group: "定期定額"
@@ -1587,7 +1587,7 @@ events:
     platforms: "JavaScript"
     required: ["purchaset_date", "$receive_time", "ButtonName", "BuyOrSell", "Kind", "Market", "Pricetype", "PurchaseCost", "PurchasetDate", "Qty", "SharesUnit", "StockID", "StockName", "platform"]
     trigger: "豐存股變更約定流程最後一步"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "meeting_reissue"
     cn: "補發開會通知書"
     group: "股務服務"
@@ -1598,7 +1598,7 @@ events:
     platforms: "JavaScript"
     required: ["companycode", "companyname", "platform", "st_platform"]
     trigger: "使用者申請任一家發行公司開會通知書"
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "richclub_pay_complete"
     cn: "購買結果"
     group: "豐雲學堂"
@@ -1609,7 +1609,7 @@ events:
     platforms: "服務端"
     required: ["coupon_code", "coupon_id", "coupon_name", "discount", "fail_reason", "is_success", "order_amount", "order_id", "order_price", "permission_enddate", "permission_id", "permission_startdate", "plan_id", "plan_name", "product_id", "product_title", "user_coupon_id"]
     trigger: "「訂單確認頁」點擊「立即購買」後，回到「商品頁」跳出彈窗時觸發"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Download"
     cn: "#下載檔案(APP/AP)"
     group: "資訊與資源位"
@@ -1620,7 +1620,7 @@ events:
     platforms: "JavaScript"
     required: ["$receive_time", "ButtonName", "DownloadType", "platform"]
     trigger: "點擊\"下載永豐金證券APP或AP\"按鈕"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "richclub_enjoy_click"
     cn: "點擊立即XX按鈕"
     group: "豐雲學堂"
@@ -1631,7 +1631,7 @@ events:
     platforms: "JavaScript"
     required: ["button_type", "plan_id", "plan_name", "product_id", "product_title"]
     trigger: "在商品頁點擊方案的「立即享受」或「立即購買」時觸發"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "B27Record"
     cn: "(B)#B27理三查詢記錄"
     group: "開戶"
@@ -1642,7 +1642,7 @@ events:
     platforms: "其它"
     required: ["CancelDate", "AccStat", "AccountNo", "AllTradeLimit", "BrokerID", "BrokerName", "DataDate", "DayECTradeLimit", "DayTradeLimit", "DeptName", "FinalTradeDate", "OpenSureDate", "ProductNo", "QryStat", "balanceOverDoue", "baseOpen", "borrowLoanBalance", "borrowLoanCredit", "ceditOpen", "centerLoanBlance", "financingBalance", "financingCredit", "futuresOpen", "loanAcc", "loanContract", "marginLoanBalance", "marginLoanCredit", "stockBorrowLoanBalance", "stockMarginLoanBalance", "tradingLimit", "violate"]
     trigger: "數業理三開戶完成導入"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Event_20240502"
     cn: "任務-投資特訓班(2024Q2)"
     group: "活動"
@@ -1653,7 +1653,7 @@ events:
     platforms: "服務端"
     required: ["jointime"]
     trigger: "點擊活動登錄時"
-    note: "神策埋點規格表（2026-10）；過期活動（2024）：只匯入歷史；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；過期活動（2024）：只匯入歷史；規格表另有 2 個個資／維護欄位不遷移"
   - name: "PurchaseSend"
     cn: "存_申購 02設定"
     group: "定期定額"
@@ -1664,7 +1664,7 @@ events:
     platforms: "JavaScript"
     required: ["purchaset_date", "$receive_time", "ButtonName", "BuyOrSell", "Kind", "Market", "Pricetype", "PurchaseCost", "PurchasetDate", "Qty", "SharesUnit", "StockID", "StockName", "platform"]
     trigger: "豐存股申購約定流程第二步"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "GoToSSP"
     cn: "#去豐存股"
     group: "定期定額"
@@ -1675,7 +1675,7 @@ events:
     platforms: "JavaScript"
     required: ["$receive_time", "ButtonName", "platform"]
     trigger: "點擊按鈕前往豐存股平台"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "review_start_2024"
     cn: "跟風潮股開始_2024"
     group: "活動"
@@ -1686,7 +1686,7 @@ events:
     platforms: "JavaScript"
     required: ["jointime", "platform"]
     trigger: "點擊測測即抽Button，取得抽獎資格"
-    note: "神策埋點規格表（2026-10）；過期活動（2024）：只匯入歷史"
+    note: "舊平台埋點規格表（2026-10）；過期活動（2024）：只匯入歷史"
   - name: "edm_stockaffairs"
     cn: "申請股務鬧鈴"
     group: "股務服務"
@@ -1697,7 +1697,7 @@ events:
     platforms: "JavaScript"
     required: ["companycode", "companyname", "license", "platform", "st_platform"]
     trigger: "使用者申請任一家發行公司股務鬧鈴"
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "richclub_register_complete"
     cn: "報名結果"
     group: "豐雲學堂"
@@ -1708,7 +1708,7 @@ events:
     platforms: "服務端"
     required: ["fail_reason", "is_success", "order_id", "permission_enddate", "permission_id", "permission_startdate", "plan_id", "plan_name", "product_id", "product_title"]
     trigger: "「訂單確認頁」點擊「立即享受」後，回到「商品頁」跳出彈窗時觸發"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "event_20260128"
     cn: "2026財運起步走"
     group: "活動"
@@ -1719,7 +1719,7 @@ events:
     platforms: "其它"
     required: []
     trigger: "點擊第一次活動登入時"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "subscribe"
     cn: "#學堂關注"
     group: "豐雲學堂"
@@ -1730,7 +1730,7 @@ events:
     platforms: "JavaScript"
     required: ["ButtonName", "platform", "subscribe_channel", "subscribe_type"]
     trigger: "當使用者點擊“關注”或“已關注”按鈕時紀錄事件"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Surveycake_formSubmit"
     cn: "Surveycake_formSubmit"
     group: "問卷"
@@ -1741,7 +1741,7 @@ events:
     platforms: "服務端"
     required: ["form_id", "form_status", "form_submit_time", "form_title"]
     trigger: "SurveyCake formSubmit"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "dwt_invnews"
     cn: "開啟投資早報"
     group: "大戶投 App"
@@ -1752,7 +1752,7 @@ events:
     platforms: "Android,iOS"
     required: []
     trigger: "開啟投資早報"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Sensors_Mail_Delivery"
     cn: "#Webhhok-EDM送達"
     group: "智能運營（MA）"
@@ -1762,7 +1762,7 @@ events:
     status: live
     platforms: "服務端"
     required: ["sf_plan_name", "sf_strategy_unit_name"]
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "dwt_intindpush"
     cn: "開啟國際指數推播"
     group: "大戶投 App"
@@ -1773,7 +1773,7 @@ events:
     platforms: "Android,iOS"
     required: []
     trigger: "開啟通知中心/手機推撥的國際指數"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Review2020_Award_Button"
     cn: "(X)頒獎按鈕點擊_數位回顧2020"
     group: "活動"
@@ -1784,7 +1784,7 @@ events:
     platforms: "JavaScript"
     required: []
     trigger: "數位回顧2020_頒獎按鈕點擊"
-    note: "神策埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史；規格表另有 2 個個資／維護欄位不遷移"
   - name: "st_inout_stock"
     cn: "股票匯撥"
     group: "證券（數據中台）"
@@ -1795,7 +1795,7 @@ events:
     platforms: "其它,服務端"
     required: ["BROKER_NO4", "FOP_DATE", "FOP_QTY", "HG104", "HG105", "HG107", "HG108", "HG109", "STOCK_NO", "S_ACNO"]
     trigger: "每日導入前一日資料"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "OrderMatch"
     cn: "(C)#成交交易(已下線)"
     group: "證券（數據中台）"
@@ -1805,7 +1805,7 @@ events:
     status: deprecated
     platforms: "服務端,其它"
     required: ["AccountNo", "BrokerID", "BrokerName", "BuyOrSell", "Currency", "DataDate", "Is_AccFirstTrade", "MarchAmt", "MarchBStkAmt", "MarchLStkAmt", "MarchLoanAmt", "MarchNStkAmt", "MarchOAmt", "Market", "MatchDiffODays", "MatchStatus", "OpenSureDate", "OrderDate", "ProductNo", "Qty", "SettleBankAcc3No", "StockID", "StockName", "SubProduct", "TradeFees", "TxCode", "is_digital", "platform"]
-    note: "神策埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史"
+    note: "舊平台埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史"
   - name: "Event_20240101"
     cn: "任務-紅包發起來(2024Q1)"
     group: "活動"
@@ -1816,7 +1816,7 @@ events:
     platforms: "服務端"
     required: ["jointime"]
     trigger: "點擊活動登錄時"
-    note: "神策埋點規格表（2026-10）；過期活動（2024）：只匯入歷史；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；過期活動（2024）：只匯入歷史；規格表另有 2 個個資／維護欄位不遷移"
   - name: "etlMatch_SUB_SFP_S"
     cn: "(ODS) 成交事件(複委託定期定股_賣出)"
     group: "證券（數據中台）"
@@ -1827,7 +1827,7 @@ events:
     platforms: "其它"
     required: ["BROKERNO4_SACNO", "BROKER_NO3", "BROKER_NO4", "BROKER_NO4_EX", "BUY_SALE", "Currency", "EX_RATE", "FEE", "INVEST", "MARKET_NO", "MTH_DATE", "MTH_MONEY", "MTH_NO", "MTH_PRICE", "MTH_STOCK", "ORDER_NO", "PAY_MONEY", "ProductNo", "SALE_EMP_BELONG", "S_ACNO", "SubProduct", "TAX_MTH", "TAX_SETTLE", "TAX_STAMP", "TRAN_NO", "US_DELIVERY", "WEB_NO", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "begin_checkout"
     cn: "01_開始結帳"
     group: "股票禮品卡／會員"
@@ -1838,7 +1838,7 @@ events:
     platforms: "JavaScript"
     required: ["Currency", "cart_number", "item_denominations", "item_id", "item_name", "item_price", "item_quantity", "transaction_denominations", "transaction_price"]
     trigger: "股票禮品卡進入[結帳流程]中第一步[品項確認]點擊\"立即購買\""
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "etlMatch_SUB"
     cn: "(ODS) 成交事件(複委託證券)"
     group: "證券（數據中台）"
@@ -1849,7 +1849,7 @@ events:
     platforms: "其它"
     required: ["ANTE_FEE_CY", "ANTE_ID", "ANTE_MATCH_NO", "BANK_1", "BANK_2", "BANK_BRANCE_1", "BANK_BRANCE_2", "BROKERNO4_SACNO", "BROKER_NO4", "BROKER_NO4_EX", "BS_STATUS", "CBT_DATE", "COMMISSION", "COMMISSION_TW", "Currency", "EXPENSE1", "EXPENSE2", "EXPENSE3", "EX_CODE", "FEE", "FEE_CY", "FEE_TW", "INOUT_AMT_1", "INOUT_AMT_2", "INOUT_AMT_2_CY", "MATCH_NO", "MTH_AMT", "MTH_AMT_TW", "MTH_DATE", "OPEN_BELONG", "ORD_DATE", "ORD_NO", "O_INOUT_AMT_1", "O_INOUT_AMT_2", "PRICE", "ProductNo", "Qty", "SALE_EMP_BELONG", "SALE_EMP_NO", "SINO_EMP_NO", "STOCK_NO", "S_ACNO", "SubProduct", "TAX", "TRN35", "TRN36", "TRN37", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "order"
     cn: "#下單 01"
     group: "資訊與資源位"
@@ -1860,7 +1860,7 @@ events:
     platforms: "JavaScript"
     required: ["ButtonName", "Market", "StockID", "StockName", "platform"]
     trigger: "當使用者點擊“下單”按鈕時紀錄事件"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "openact_assignbranch"
     cn: "開_01-2 分公司/營業員"
     group: "開戶"
@@ -1871,7 +1871,7 @@ events:
     platforms: "JavaScript"
     required: ["$receive_time", "ADNO", "BrokerID", "BrokerName", "ButtonName", "is_digital", "platform"]
     trigger: "證複線上開戶_分公司或營業員"
-    note: "神策埋點規格表（2026-10）；規格表另有 3 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 3 個個資／維護欄位不遷移"
   - name: "add_payment_info"
     cn: "02_訂單明細"
     group: "股票禮品卡／會員"
@@ -1882,7 +1882,7 @@ events:
     platforms: "JavaScript"
     required: ["Currency", "cart_number", "item_denominations", "item_id", "item_name", "item_price", "item_quantity", "transaction_denominations", "transaction_price"]
     trigger: "股票禮品卡進入[結帳流程]中第二步[明細核對]點擊\"前往結帳\""
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "ChangeSend"
     cn: "存_變更 02設定"
     group: "定期定額"
@@ -1893,7 +1893,7 @@ events:
     platforms: "JavaScript"
     required: ["purchaset_date", "$receive_time", "ButtonName", "BuyOrSell", "Kind", "Market", "Pricetype", "PurchaseCost", "PurchasetDate", "Qty", "SharesUnit", "StockID", "StockName", "platform"]
     trigger: "豐存股變更約定流程第二步"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "dwt_flashorder"
     cn: "大戶投閃電下單"
     group: "大戶投 App"
@@ -1904,7 +1904,7 @@ events:
     platforms: "Android,iOS"
     required: ["dwt_flashorder_number", "dwt_flashorder_ordrectimer", "dwt_flashorder_successful"]
     trigger: "閃電下單紀錄委託與委回時間"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "richclub_otp_result"
     cn: "豐雲學堂OTP驗證"
     group: "豐雲學堂"
@@ -1914,8 +1914,8 @@ events:
     status: live
     platforms: "服務端"
     required: ["fail_reason", "is_success"]
-    trigger: "後端有簡訊驗證結果時觸發， 同部調用sensors.setProfile()接口傳入用戶填入之「手機號」，到「richclub_order_phone」用戶屬性上更新該字段 範例： sa.profileSet(distinctId, { 'richclub_order_phone': '09xxxxxxx' });"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    trigger: "後端有簡訊驗證結果時觸發， 同步呼叫 SDK setProfile()接口傳入用戶填入之「手機號」，到「richclub_order_phone」用戶屬性上更新該字段 範例： sa.profileSet(distinctId, { 'richclub_order_phone': '09xxxxxxx' });"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "ConfirmID_fail"
     cn: "開_01 驗證ID_失敗"
     group: "開戶"
@@ -1926,7 +1926,7 @@ events:
     platforms: "JavaScript"
     required: ["ADNO", "BrokerID", "BrokerName", "ButtonName", "LoginType", "is_digital", "is_success", "platform"]
     trigger: "用戶驗證失敗時觸發"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "SellSend"
     cn: "存_賣出 02送出"
     group: "定期定額"
@@ -1937,7 +1937,7 @@ events:
     platforms: "JavaScript"
     required: ["purchaset_date", "$receive_time", "ButtonName", "BuyOrSell", "Kind", "Market", "PriceCost", "Pricetype", "Qty", "SharesUnit", "StockID", "StockName", "platform"]
     trigger: "豐存股(美)賣出流程第二步"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "review_download_2025"
     cn: "跟風潮股下載_2025"
     group: "活動"
@@ -1948,7 +1948,7 @@ events:
     platforms: "JavaScript"
     required: ["jointime", "platform"]
     trigger: "點擊活動下載時"
-    note: "神策埋點規格表（2026-10）；過期活動（2025）：只匯入歷史"
+    note: "舊平台埋點規格表（2026-10）；過期活動（2025）：只匯入歷史"
   - name: "openact_confirm_mobile"
     cn: "開_02 初次OTP"
     group: "開戶"
@@ -1959,7 +1959,7 @@ events:
     platforms: "JavaScript"
     required: ["ButtonName", "platform"]
     trigger: "線上開戶驗證ID完後初次OTP手機完成時"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "richclub_lesson_click"
     cn: "點擊課程"
     group: "豐雲學堂"
@@ -1970,7 +1970,7 @@ events:
     platforms: "JavaScript"
     required: ["lesson_id", "lesson_title", "lesson_type"]
     trigger: "在知識講堂列表頁點擊課程（實體講座、線上直播、影音講堂）時觸發"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "review_download_2023"
     cn: "跟風潮股下載_2023"
     group: "活動"
@@ -1981,7 +1981,7 @@ events:
     platforms: "服務端,JavaScript"
     required: ["LoginType", "jointime", "page_type", "platform"]
     trigger: "點擊下載Button，取得評析截圖"
-    note: "神策埋點規格表（2026-10）；過期活動（2023）：只匯入歷史"
+    note: "舊平台埋點規格表（2026-10）；過期活動（2023）：只匯入歷史"
   - name: "dwt_clickflashorder"
     cn: "開啟閃電下單"
     group: "大戶投 App"
@@ -1992,7 +1992,7 @@ events:
     platforms: "Android,iOS"
     required: []
     trigger: "開啟台股閃電下單"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "add_subscription_order"
     cn: "申購商品"
     group: "申購／競拍"
@@ -2003,7 +2003,7 @@ events:
     platforms: "iOS,Android,服務端"
     required: ["AccountNo", "BrokerID", "StockID", "callback", "redirect"]
     trigger: "APP用戶申購商品"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Event_20250502"
     cn: "任務-投資腦筋亮晶晶(2025Q2)"
     group: "活動"
@@ -2014,7 +2014,7 @@ events:
     platforms: "服務端"
     required: ["jointime"]
     trigger: "點擊活動登錄時"
-    note: "神策埋點規格表（2026-10）；過期活動（2025）：只匯入歷史；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；過期活動（2025）：只匯入歷史；規格表另有 2 個個資／維護欄位不遷移"
   - name: "add_to_cart"
     cn: "00-1_加入購物車"
     group: "股票禮品卡／會員"
@@ -2025,7 +2025,7 @@ events:
     platforms: "JavaScript"
     required: ["Currency", "cart_price", "item_denominations", "item_id", "item_name", "item_price", "item_quantity"]
     trigger: "股票禮品卡[商品介紹頁]中點擊\"加入購物車\""
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "ChangeComplete"
     cn: "存_變更 04完成"
     group: "定期定額"
@@ -2036,7 +2036,7 @@ events:
     platforms: "JavaScript"
     required: ["BuyOrSell", "Kind", "Market", "Pricetype", "PurchaseCost", "PurchasetDate", "Qty", "SharesUnit", "StockID", "StockName", "fault_reason", "outcome_status", "platform"]
     trigger: "豐存股變更約定流程第四步"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Login"
     cn: "#登入(客戶/社群)"
     group: "登入與導航"
@@ -2047,7 +2047,7 @@ events:
     platforms: "iOS,Android,JavaScript,其它"
     required: ["$receive_time", "ButtonName", "LoginType", "is_background", "is_first_login", "is_success", "platform"]
     trigger: "客戶登入時(證券客戶/社群登入)"
-    note: "神策埋點規格表（2026-10）；規格表另有 4 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 4 個個資／維護欄位不遷移"
   - name: "dwf_appclick"
     cn: "大戶豐點擊"
     group: "大戶投 App"
@@ -2058,7 +2058,7 @@ events:
     platforms: "Android,iOS"
     required: ["dwf_appclick_content", "dwf_appclick_content_", "dwf_appclick_name_", "dwf_appclick_tag_"]
     trigger: "大戶豐的點擊事件"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "viewProduct"
     cn: "瀏覽商品頁"
     group: "定期定額"
@@ -2069,7 +2069,7 @@ events:
     platforms: "JavaScript"
     required: ["platform", "recomType", "tab", "testGroup"]
     trigger: "使用者進入至豐存股商品頁內寫入"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Sensors_Mail_Unsubscribe"
     cn: "#Webhhok-EDM取消訂閱"
     group: "智能運營（MA）"
@@ -2079,7 +2079,7 @@ events:
     status: live
     platforms: "服務端"
     required: ["sf_plan_name", "unsubscribe_reason"]
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "etlMatch_SUB_BOND"
     cn: "(ODS) 成交事件(複委託債券)"
     group: "證券（數據中台）"
@@ -2090,7 +2090,7 @@ events:
     platforms: "其它"
     required: ["CARRY_AMT_TYPE", "PART_IDNO", "PRJ_CODE1", "PRJ_CODE2", "ANTE_ID", "BROKERNO4_SACNO", "BROKER_NO4", "BROKER_NO4_EX", "BR_FEE", "BS_STATUS", "CARRY_AMT_DATE", "CARRY_BROKER", "COMMISSION_O", "COMMISSION_OTH_O", "COMMISSION_OTH_TW", "COMMISSION_TAX_O", "COMMISSION_TAX_TW", "COMMISSION_TW", "CURRENT_TYPE", "CURR_RATE", "CUS_PRICE", "DELIVERY_DATE", "EX_INTEREST", "EX_ITEM", "FEE_O", "FEE_RATE_1", "FEE_RATE_2", "FEE_TW", "HOLD_COM", "HQ_FEE", "ID_TYPE", "INOUT_AMT_O", "INOUT_AMT_TW", "IO_BANK_NAME", "MATCH_NO", "MA_AMT_O", "MA_AMT_TW", "MTH_AMT_O", "MTH_AMT_TW", "MTH_COST_O", "MTH_COST_TW", "MTH_O_AMT", "MTH_O_MINUS", "MTH_O_QTY", "MTH_TW_MINUS_TW", "MTH_YMD", "ORD_DATE", "ORD_NO", "ORD_TYPE_1", "ORD_TYPE_2", "PO_BANK_NAME", "ProductNo", "SALE_EMP_BELONG", "SALE_EMP_NO", "STOCK_NO", "S_ACNO", "SubProduct", "TAX_O", "TAX_TW", "TFDATE", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）；規格表另有 7 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 7 個個資／維護欄位不遷移"
   - name: "SellComfirm"
     cn: "存_賣出 03確認"
     group: "定期定額"
@@ -2101,7 +2101,7 @@ events:
     platforms: "JavaScript"
     required: ["purchaset_date", "$receive_time", "ButtonName", "BuyOrSell", "Kind", "Market", "PriceCost", "Pricetype", "Qty", "SharesUnit", "StockID", "StockName", "fault_reason", "outcome_status", "platform"]
     trigger: "豐存股(美)賣出流程最後一步"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Credit"
     cn: "開_05 徵信資料"
     group: "開戶"
@@ -2112,7 +2112,7 @@ events:
     platforms: "JavaScript"
     required: ["ButtonName", "platform"]
     trigger: "證複線上開戶_徵信資料"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "dwt_appclick"
     cn: "大戶投點擊"
     group: "大戶投 App"
@@ -2123,7 +2123,7 @@ events:
     platforms: "iOS,Android"
     required: ["dwt_appclick_content", "dwt_appclick_name", "dwt_appclick_tag"]
     trigger: "大戶投的點擊事件"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Surveycake_formSubmitDetail"
     cn: "Surveycake_formSubmitDetail"
     group: "問卷"
@@ -2134,7 +2134,7 @@ events:
     platforms: "服務端"
     required: ["form_id", "form_label", "form_subject_answer", "form_subject_answer_list", "form_subject_number", "form_subject_otheranswer", "form_subject_title", "form_subject_type", "form_submit_time", "form_title"]
     trigger: "Surveycake_formSubmitDetail"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "richclub_lesson_page_view"
     cn: "瀏覽課程頁"
     group: "豐雲學堂"
@@ -2145,7 +2145,7 @@ events:
     platforms: "JavaScript"
     required: ["lesson_id", "lesson_title", "lesson_type"]
     trigger: "瀏覽課程（實體講座、線上直播、影音講堂）頁面時觸發"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "review_start_2025"
     cn: "跟風潮股開始_2025"
     group: "活動"
@@ -2156,7 +2156,7 @@ events:
     platforms: "JavaScript"
     required: ["jointime", "platform"]
     trigger: "點擊活動開始時"
-    note: "神策埋點規格表（2026-10）；過期活動（2025）：只匯入歷史"
+    note: "舊平台埋點規格表（2026-10）；過期活動（2025）：只匯入歷史"
   - name: "TradeLimit"
     cn: "(C)#數業理三變更額度"
     group: "開戶"
@@ -2167,7 +2167,7 @@ events:
     platforms: "其它"
     required: ["AccStat", "AccountNo", "AllTradeLimit", "BrokerID", "BrokerName", "DataDate", "DayECTradeLimit", "DayTradeLimit", "DeptName", "FinalTradeDate", "OpenSureDate", "ProductNo", "QryStat", "centerLoanBlance", "stockBorrowLoanBalance", "stockMarginLoanBalance"]
     trigger: "比對CUBE客戶帳號檔交易額度有異動時寫入經紀部理財三科事件資料"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "ads_section"
     cn: "#廣告版位"
     group: "資訊與資源位"
@@ -2178,7 +2178,7 @@ events:
     platforms: "JavaScript"
     required: ["ButtonName", "platform", "section_type"]
     trigger: "各平台廣告版位、學堂投資年度回顧"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "dwt_feedback"
     cn: "大戶投意見回饋"
     group: "大戶投 App"
@@ -2189,7 +2189,7 @@ events:
     platforms: "Android,iOS"
     required: ["dwt_feedback_excellent", "dwt_feedback_notgood"]
     trigger: "開啟意見回饋畫面"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Sensors_Mail_Click"
     cn: "#Webhhok-EDM點擊"
     group: "智能運營（MA）"
@@ -2199,7 +2199,7 @@ events:
     status: live
     platforms: "服務端"
     required: ["button_code", "sf_plan_name", "target_url"]
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "etlOpenAccountDone_ST_LNA"
     cn: "(ODS)開戶事件(不限用途)_O"
     group: "開戶"
@@ -2210,7 +2210,7 @@ events:
     platforms: "其它"
     required: ["BROKERNO3_SACNO", "BROKER_NO3", "BROKER_NO4_EX", "ProductNo", "SALE_EMP_BELON", "SALE_NO_BELONG", "S_ACNO", "S_ODATE", "SubProduct", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "event_20260701"
     cn: "2026投資解鎖賽"
     group: "活動"
@@ -2221,7 +2221,7 @@ events:
     platforms: "iOS,Android,JavaScript,服務端,其它"
     required: []
     trigger: "點擊第一次活動登入時"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "OpenAct"
     cn: "#線上開戶"
     group: "開戶"
@@ -2232,7 +2232,7 @@ events:
     platforms: "iOS,Android,JavaScript"
     required: ["$receive_time", "Account", "ButtonName", "platform"]
     trigger: "點擊按鈕進入線上開戶流程"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "Review2020_Share_Button"
     cn: "(X)享按鈕點擊_數位回顧2020"
     group: "活動"
@@ -2243,7 +2243,7 @@ events:
     platforms: "JavaScript"
     required: []
     trigger: "數位回顧2020_分享按鈕點擊"
-    note: "神策埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史；規格表另有 1 個個資／維護欄位不遷移"
   - name: "NoticeEvent"
     cn: "(C)#通知事件"
     group: "通知"
@@ -2254,7 +2254,7 @@ events:
     platforms: "服務端,其它"
     required: ["AccountNo", "BatchStep", "BrokerID", "DeptName", "MissMoney", "NoticeName", "ProductNo", "SettleAmt"]
     trigger: "有資料導入時"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "etl_Login"
     cn: "(TRAN) 登入事件"
     group: "登入與導航"
@@ -2265,7 +2265,7 @@ events:
     platforms: "其它"
     required: ["etl_version", "login_date", "login_time", "msg", "platform"]
     trigger: "TRAN資料導入CDP"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "dwt_event_page"
     cn: "開啟總覽活動頁"
     group: "大戶投 App"
@@ -2276,7 +2276,7 @@ events:
     platforms: "Android,iOS"
     required: []
     trigger: "開啟總覽頁中的活動版面"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Review2020_AiInvest"
     cn: "(X)未登入跳轉至豐存股_數位回顧2020"
     group: "活動"
@@ -2287,7 +2287,7 @@ events:
     platforms: "JavaScript"
     required: []
     trigger: "數位回顧2020_未登入跳轉至豐存股"
-    note: "神策埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史"
+    note: "舊平台埋點規格表（2026-10）；規格表標示 (X)／已下線：只匯入歷史"
   - name: "EnableAct"
     cn: "開_09帳戶啟用"
     group: "開戶"
@@ -2298,7 +2298,7 @@ events:
     platforms: "JavaScript"
     required: ["Account", "ButtonName", "platform"]
     trigger: "開戶完成且客戶完成帳戶啟用"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "view_gift"
     cn: "瀏覽紀念品"
     group: "股務服務"
@@ -2309,7 +2309,7 @@ events:
     platforms: "JavaScript"
     required: ["companycode", "companyname", "group", "platform", "st_platform"]
     trigger: "使用者瀏覽任一家發行公司紀念品資訊"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "etlOpenAccountDone_SUB"
     cn: "(ODS) 開戶事件(複委託)"
     group: "開戶"
@@ -2320,7 +2320,7 @@ events:
     platforms: "其它"
     required: ["BANK3_NO", "BROKERNO4_SACNO", "BROKER_NO3", "BROKER_NO4", "BROKER_NO4_EX", "CUST_SOC", "ONLINE_CUS", "OPEN_SOC", "O_MM_BRANCH", "O_MM_CORP", "O_MM_EMP_NO", "ProductNo", "S_ACNO", "S_ODATE", "SubProduct", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "Sensors_Mail_Complain"
     cn: "#Webhhok-EDM抱怨"
     group: "智能運營（MA）"
@@ -2330,7 +2330,7 @@ events:
     status: live
     platforms: "服務端"
     required: ["sf_plan_name"]
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "edm_sinopac"
     cn: "訂閱電子報"
     group: "股務服務"
@@ -2341,7 +2341,7 @@ events:
     platforms: "JavaScript"
     required: ["edm", "industry_tag", "platform", "st_platform"]
     trigger: "使用者同意訂閱永豐金電子報"
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "DailyLabel"
     cn: "(C)#標籤事件"
     group: "標籤"
@@ -2351,7 +2351,7 @@ events:
     status: live
     platforms: "服務端,其它"
     required: ["Label_Name", "Label_Value"]
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Purchase"
     cn: "存_申購 01觸發"
     group: "定期定額"
@@ -2362,7 +2362,7 @@ events:
     platforms: "JavaScript"
     required: ["$receive_time", "ButtonName", "BuyOrSell", "Kind", "Market", "StockID", "StockName", "platform"]
     trigger: "豐存股申購約定流程第一步"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "edm_stockaffairs_update"
     cn: "更新持股公司"
     group: "股務服務"
@@ -2373,7 +2373,7 @@ events:
     platforms: "JavaScript"
     required: ["companycode", "companyname", "platform", "st_platform"]
     trigger: "使用者登入完成"
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "dwt_acclist_th"
     cn: "開啟帳務交易紀錄"
     group: "大戶投 App"
@@ -2384,7 +2384,7 @@ events:
     platforms: "Android,iOS"
     required: []
     trigger: "開啟台股交易紀錄"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "get_subbrokerage_quote"
     cn: "複委託查詢報價"
     group: "交易（App）"
@@ -2395,7 +2395,7 @@ events:
     platforms: "iOS,Android,服務端"
     required: ["StockID", "StockName", "quoteType"]
     trigger: "複委託報價"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "TouchPriceX"
     cn: "(L)iLeader觸價單設定記錄"
     group: "證券（數據中台）"
@@ -2405,8 +2405,8 @@ events:
     status: live
     platforms: "其它"
     required: ["BatchStep", "NoticeName", "ProductNo", "SettleAmt"]
-    trigger: "由iLeader每日14:00提供T-1日iLeader觸價單設定記錄，於T日導入16:30神策"
-    note: "神策埋點規格表（2026-10）"
+    trigger: "由iLeader每日14:00提供T-1日iLeader觸價單設定記錄，於T日導入16:30舊平台"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "clickRecomTab"
     cn: "點擊主題推薦"
     group: "定期定額"
@@ -2417,7 +2417,7 @@ events:
     platforms: "JavaScript"
     required: ["platform", "recomType", "tab", "testGroup"]
     trigger: "使用者於豐存股商品頁點擊任一主題推薦tab時"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "openact_mobile"
     cn: "開_02 開戶手機"
     group: "開戶"
@@ -2428,7 +2428,7 @@ events:
     platforms: "JavaScript"
     required: ["$receive_time", "ButtonName", "platform"]
     trigger: "證複線上開戶_手機驗證"
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "Event_20230701"
     cn: "任務-旅遊金帶你飛(2023Q3)"
     group: "活動"
@@ -2439,7 +2439,7 @@ events:
     platforms: "服務端"
     required: ["jointime"]
     trigger: "點擊活動登錄時"
-    note: "神策埋點規格表（2026-10）；過期活動（2023）：只匯入歷史"
+    note: "舊平台埋點規格表（2026-10）；過期活動（2023）：只匯入歷史"
   - name: "FormSubmit"
     cn: "(N)問卷提交"
     group: "問卷"
@@ -2450,7 +2450,7 @@ events:
     platforms: "JavaScript,服務端"
     required: ["$receive_time", "Feedback", "NpsScore", "ProjName", "ProjScore", "RecommendProj"]
     trigger: "NPS回函"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Contract"
     cn: "開_06 契約簽署"
     group: "開戶"
@@ -2461,7 +2461,7 @@ events:
     platforms: "JavaScript"
     required: ["ButtonName", "platform"]
     trigger: "證複線上開戶_契約簽署"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Sensors_Mail_Bounce"
     cn: "#Webhhok-EDM退信"
     group: "智能運營（MA）"
@@ -2471,7 +2471,7 @@ events:
     status: live
     platforms: "服務端"
     required: ["bounce_code", "bounce_reason", "bounce_type", "sf_plan_name"]
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "PurchaseComfirm"
     cn: "存_申購 03確認"
     group: "定期定額"
@@ -2482,7 +2482,7 @@ events:
     platforms: "JavaScript"
     required: ["purchaset_date", "$receive_time", "ButtonName", "BuyOrSell", "Kind", "Market", "Pricetype", "PurchaseCost", "PurchasetDate", "Qty", "SharesUnit", "StockID", "StockName", "platform"]
     trigger: "豐存股申購約定流程最後一步"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "gift_card_redeemed"
     cn: "05_兌換完成"
     group: "股票禮品卡／會員"
@@ -2493,7 +2493,7 @@ events:
     platforms: "JavaScript"
     required: ["S_IDNO", "gift_card_recipient", "gift_card_recipient_acno", "gift_card_recipient_brokerid", "gift_card_recipient_unicode", "gift_card_serial_number", "gift_card_use_status", "item_denominations", "item_id", "item_name", "item_price", "transaction_denominations", "transaction_id", "transaction_price"]
     trigger: "禮品卡兌換完成"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "etlOpenAccountDone_ST_MT_N"
     cn: "(ODS) 開戶事件(信用)"
     group: "開戶"
@@ -2504,7 +2504,7 @@ events:
     platforms: "其它"
     required: ["BROKERNO3_MT_ACNO", "BROKER_NO3", "BROKER_NO4_EX", "MT_ACNO", "MT_ODATE", "MT_OP_NO", "ProductNo", "S_ACNO", "SubProduct", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "OpenBank"
     cn: "#銀行開戶"
     group: "開戶"
@@ -2515,7 +2515,7 @@ events:
     platforms: "JavaScript"
     required: ["$receive_time", "ButtonName", "platform"]
     trigger: "點擊按鈕前往永豐銀行開戶"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "OpenAccountSub"
     cn: "(C) 加開戶_開戶完成"
     group: "開戶"
@@ -2526,7 +2526,7 @@ events:
     platforms: "其它"
     required: ["AccountNo", "Bank_Digital", "BrokerID", "BrokerName", "DeptName", "E_EMP", "E_Gender", "E_NP", "E_OTYPE", "ORG_TYPE", "OpenSureDate", "ProductNo", "SALE_NO", "SubProduct", "WebCn", "WebMCategoryCn", "WebOpactCN", "WebPlatformCn", "WebProjectCn", "subplatfromCn"]
     trigger: "加開戶完成資料(內部資料)"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "SignUp"
     cn: "#註冊會員"
     group: "登入與導航"
@@ -2537,7 +2537,7 @@ events:
     platforms: "JavaScript,Android,iOS"
     required: ["$receive_time", "ButtonName", "menu", "platform", "section", "signup_type", "sub_menu"]
     trigger: "點擊進入證券投顧會員註冊流程"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "etl_Settlement_Lack"
     cn: "(ODS) 缺款通知"
     group: "通知"
@@ -2548,7 +2548,7 @@ events:
     platforms: "其它"
     required: ["BATCHNOTIFY", "BROKER_NO4", "DATE_YMD", "LACK", "SETTLEMENT_MOUNT", "S_ACNO", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "get_subbrokerage_api"
     cn: "複委託資料取得"
     group: "交易（App）"
@@ -2559,7 +2559,7 @@ events:
     platforms: "iOS,Android,服務端"
     required: ["endpoint"]
     trigger: "複委託資料取得"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "Change"
     cn: "存_變更 01觸發"
     group: "定期定額"
@@ -2570,7 +2570,7 @@ events:
     platforms: "JavaScript"
     required: ["purchaset_date", "$receive_time", "ButtonName", "BuyOrSell", "Kind", "Market", "Pricetype", "PurchaseCost", "PurchasetDate", "Qty", "SharesUnit", "StockID", "StockName", "platform"]
     trigger: "豐存股變更約定流程第一步"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "dwt_editoptcomb"
     cn: "編輯自選"
     group: "大戶投 App"
@@ -2581,7 +2581,7 @@ events:
     platforms: "Android,iOS"
     required: []
     trigger: "點擊個股報價頁星號加減組合"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "egift_take"
     cn: "領取電子紀念品"
     group: "股務服務"
@@ -2592,7 +2592,7 @@ events:
     platforms: "JavaScript"
     required: ["companycode", "companyname", "platform", "st_platform"]
     trigger: "使用者領取任一家發行公司線上紀念品"
-    note: "神策埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 2 個個資／維護欄位不遷移"
   - name: "etlOpenAccountDone_ST"
     cn: "(ODS) 開戶事件(證券)"
     group: "開戶"
@@ -2603,7 +2603,7 @@ events:
     platforms: "其它"
     required: ["BROKERNO3_SACNO", "BROKER_NO3", "BROKER_NO4_EX", "CUADL", "CUAER", "ProductNo", "REF_BUS", "REF_DEPT", "S_ACNO", "S_ODATE", "SubProduct", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）；規格表另有 3 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 3 個個資／維護欄位不遷移"
   - name: "openact_profile"
     cn: "開_04 基本資料"
     group: "開戶"
@@ -2614,7 +2614,7 @@ events:
     platforms: "JavaScript"
     required: ["$receive_time", "ButtonName", "MarketingAgree", "platform"]
     trigger: "證複線上開戶_基本資料"
-    note: "神策埋點規格表（2026-10）；規格表另有 4 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 4 個個資／維護欄位不遷移"
   - name: "etlOpenAccountDone_ST_LNA_N"
     cn: "(ODS)開戶事件(不限用途)"
     group: "開戶"
@@ -2625,7 +2625,7 @@ events:
     platforms: "其它"
     required: ["BROKERNO3_SACNO", "BROKER_NO3", "BROKER_NO4_EX", "ProductNo", "SALE_EMP_BELON", "SALE_NO_BELONG", "S_ACNO", "S_ODATE", "SubProduct", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "etlMatch_SUB_OSU"
     cn: "(ODS) 成交事件(複委託證券OSU)"
     group: "證券（數據中台）"
@@ -2636,7 +2636,7 @@ events:
     platforms: "其它"
     required: ["REBATE_DATE", "TDCC_CODE", "ACC_TYPE", "ANTE_BNK_ACC", "ANTE_BNK_CODE", "ANTE_ID", "ANTE_NAME", "APPLY_REP_DATE", "BE_BUSS_GROUP", "BE_EMP_NO", "BOND_TYPE", "BROKERNO4_SACNO", "BROKER_NO4", "BS_STATUS", "COMMISSION", "COMMISSION_CURR", "COMMI_INOUT_DATE", "COMMI_IN_DATE", "CUS_TYPE", "Currency", "DATA_D", "DATA_M", "DATA_S", "DEBIT_DATE", "DELIVERY_DATE", "DELIVERY_TYPE", "DELIVERY_WAY", "DIAL_DATE", "DOM_DWELLER", "DVP", "EXCH_DATE", "EXG", "EXPENSE1", "EX_CODE", "EX_INTEREST", "EX_NAME", "FEE", "FEE_CHG_DATE", "FEE_CURR", "FEE_TW", "HANDLE_COMMI", "HANDLE_CUS", "HOSTING_TYPE", "INOUT_CURR", "INOUT_DATE", "INVESTOR_PRO", "IS_STAFF", "IS_US", "KYC_RANK_CODE", "MAKET_FLAG", "MANAGE", "MATCH_NO", "MTH_AMT", "MTH_AMT_TW", "MTH_DATE", "NET_FEE_CURR", "NET_FEE_ORG", "NET_FEE_TW", "ORD_DATE", "ORD_NO", "OTHER_FEE", "OTHER_FEE_CURR", "PAY_TYPE", "PI", "PLUS_FEE", "PRICE", "PROC_DATE", "ProductNo", "Qty", "RATE_DATE", "RATE_TW", "RATE_USD", "REBATE", "SALE_EMP_BELONG", "SALE_EMP_NO", "SERVE", "SETTLE", "STOCKIN_EFFEC_DATE", "STOCK_FLAG", "STOCK_NAME", "STOCK_NO", "STOCK_TYPE", "S_ACNO", "S_IDNO", "SubProduct", "TAX", "TOTAL_FEE", "TRADE_FLAG", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）；規格表另有 3 個個資／維護欄位不遷移"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 3 個個資／維護欄位不遷移"
   - name: "review_download_2024"
     cn: "跟風潮股下載_2024"
     group: "活動"
@@ -2647,7 +2647,7 @@ events:
     platforms: "JavaScript"
     required: ["jointime", "page_type", "platform"]
     trigger: "點擊下載Button，取得評析截圖"
-    note: "神策埋點規格表（2026-10）；過期活動（2024）：只匯入歷史"
+    note: "舊平台埋點規格表（2026-10）；過期活動（2024）：只匯入歷史"
   - name: "richclub_pay_confirm"
     cn: "確認付款（付費）"
     group: "豐雲學堂"
@@ -2657,8 +2657,8 @@ events:
     status: live
     platforms: "服務端"
     required: ["coupon_code", "coupon_id", "coupon_name", "discount", "order_amount", "order_id", "order_price", "plan_id", "plan_name", "product_id", "product_title", "user_coupon_id"]
-    trigger: "「訂單確認頁」點擊「確認付款」後觸發 同部調用sensors.setProfile()接口傳入用戶填入之「email」，到「richclub_order_email」用戶屬性上更新該字段"
-    note: "神策埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
+    trigger: "「訂單確認頁」點擊「確認付款」後觸發 同步呼叫 SDK setProfile()接口傳入用戶填入之「email」，到「richclub_order_email」用戶屬性上更新該字段"
+    note: "舊平台埋點規格表（2026-10）；規格表另有 1 個個資／維護欄位不遷移"
   - name: "etlCustomer_Tag"
     cn: "客戶標籤"
     group: "標籤"
@@ -2669,7 +2669,7 @@ events:
     platforms: "其它"
     required: ["PROCESS_DT", "ProductNo", "TAG_DATE", "TAG_NAME", "TAG_OWNER", "TAG_TYPE", "UUID", "etl_version"]
     trigger: "客戶標籤線下資料導入"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "etlOpenAccountDone_ST_MT"
     cn: "(ODS) 開戶事件(信用)_O"
     group: "開戶"
@@ -2680,7 +2680,7 @@ events:
     platforms: "其它"
     required: ["BROKERNO3_MT_ACNO", "BROKER_NO3", "BROKER_NO4_EX", "MT_ACNO", "MT_ODATE", "MT_OP_NO", "ProductNo", "S_ACNO", "SubProduct", "etl_version"]
     trigger: "ODS線下資料直接導入CDP"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"
   - name: "DeletePurchaseComfirm"
     cn: "存_停扣 02確認"
     group: "定期定額"
@@ -2691,4 +2691,4 @@ events:
     platforms: "JavaScript"
     required: ["purchaset_date", "$receive_time", "ButtonName", "BuyOrSell", "Kind", "Market", "Pricetype", "PurchaseCost", "PurchasetDate", "Qty", "SharesUnit", "StockID", "StockName", "fault_reason", "outcome_status", "platform"]
     trigger: "豐存股停止扣款流程最後一步"
-    note: "神策埋點規格表（2026-10）"
+    note: "舊平台埋點規格表（2026-10）"

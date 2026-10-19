@@ -29,7 +29,7 @@ paths:
   /v1/events:
     post:
       tags: [Ingest]
-      summary: 寫入事件（神策相容超集）
+      summary: 寫入事件（舊平台相容超集）
       requestBody:
         required: true
         content:
@@ -113,7 +113,7 @@ paths:
   /v1/bookmarks:
     get:
       tags: [Dashboards]
-      summary: 書籤清單（神策「書籤」對應）：分析頁查詢存成可重用的書籤；我建立的 + 分享給我的角色或我的（admin 全看）；可依 kind 篩選；附被幾個看板引用
+      summary: 書籤清單（舊平台「書籤」對應）：分析頁查詢存成可重用的書籤；我建立的 + 分享給我的角色或我的（admin 全看）；可依 kind 篩選；附被幾個看板引用
       parameters: [{ name: kind, in: query, schema: { type: string, enum: [events, funnel, retention, path, attribution] } }]
       responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Bookmark' } } } } } }
     post:
@@ -289,7 +289,7 @@ paths:
   /v1/segments/estimate:
     post: { tags: [Segments], summary: '規則預估人數（預設 1/16 抽樣，比例可後台配置）', responses: { '200': { description: ok } } }
   /v1/segments/imports:
-    post: { tags: [Segments], summary: '導入名單（第一步）：上傳客戶代碼或 one_id 清單（前端讀 txt／csv，一列一個；≤ 200,000）。客戶代碼以與神策登入 ID 相同的金鑰（token_v1）轉成 one_id，原始代碼不落地；只存 one_id 於 dmp.segment_imports。回總數、去重後數、對到用戶表的人數與未對到數，再以 kind=import 建分群（第二步）；需 segments.use；審計 segment.import.created（只記數量）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SegmentImportCreate' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/SegmentImport' } } } }, '400': { description: 空清單、超過上限或 id_type 不支援 }, '503': { description: 未連接 ClickHouse 或未設定 token 金鑰 } } }
+    post: { tags: [Segments], summary: '導入名單（第一步）：上傳客戶代碼或 one_id 清單（前端讀 txt／csv，一列一個；≤ 200,000）。客戶代碼以與舊平台登入 ID 相同的金鑰（token_v1）轉成 one_id，原始代碼不落地；只存 one_id 於 dmp.segment_imports。回總數、去重後數、對到用戶表的人數與未對到數，再以 kind=import 建分群（第二步）；需 segments.use；審計 segment.import.created（只記數量）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SegmentImportCreate' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/SegmentImport' } } } }, '400': { description: 空清單、超過上限或 id_type 不支援 }, '503': { description: 未連接 ClickHouse 或未設定 token 金鑰 } } }
   /v1/segments/imports/{id}:
     get: { tags: [Segments], summary: '導入名單摘要（不回名單本身）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SegmentImport' } } } }, '404': { description: 不存在 } } }
   /v1/tags:
@@ -393,7 +393,7 @@ paths:
   /v1/iam/sessions/{sid}:
     delete: { tags: [IAM], summary: '強制登出一個 session（sid 前 8 碼；本人的任一個，或 iam.admin 對任何人）；審計 auth.session.revoked', parameters: [{ name: sid, in: path, required: true, schema: { type: string } }], responses: { '204': { description: revoked } } }
   /v1/iam/users:
-    get: { tags: [IAM], summary: '成員目錄（神策「成員管理」對應）：把登入審計（SSO 使用者）、本機帳號與本地指派合併成一張表：身分、來源、角色、狀態（啟用／停用／鎖定／到期／未登入）、最近登入、失敗登入、有效 session 數、指派數；需 iam.view', responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Member' } } } } } } }
+    get: { tags: [IAM], summary: '成員目錄（舊平台「成員管理」對應）：把登入審計（SSO 使用者）、本機帳號與本地指派合併成一張表：身分、來源、角色、狀態（啟用／停用／鎖定／到期／未登入）、最近登入、失敗登入、有效 session 數、指派數；需 iam.view', responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Member' } } } } } } }
     post: { tags: [IAM], summary: '建立本機帳號（外包／廠商；只能持有 allowed_roles 白名單角色、強制 TOTP、到期日）；回 otpauth URI 一次；需 iam.admin；審計 iam.user.created', requestBody: { content: { application/json: { schema: { type: object, required: [username, password, roles], properties: { username: { type: string }, password: { type: string }, roles: { type: array, items: { type: string } }, name: { type: string }, email: { type: string } } } } } }, responses: { '201': { description: created }, '501': { description: 此環境未啟用本機帳號 } } }
   /v1/iam/users/{id}:
     get: { tags: [IAM], summary: '成員詳情：指派、有效 session、最近 50 筆審計', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
@@ -510,28 +510,28 @@ paths:
   /v1/ops/alerts:
     get: { tags: [Ops], summary: '告警：依 backend/ops/alerts.yaml 的規則對當前指標評估（來源延遲、同步失敗、查詢 P95 超 SLA、交付進死信、目的地自動暫停、例行作業連續失敗、ClickHouse 表用量、隔離率）；回傳觸發中的告警與全部規則；通知管道（Email／LINE）第二階段，叢集內由 PrometheusRule 同規則送 Alertmanager；需 governance.view', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/OpsAlerts' } } } } } }
   /v1/migration/inventory:
-    get: { tags: [Migration], summary: '神策歷史資料盤點（資料集、來源表、日期範圍、筆數、導出方式、目標表、狀態；docs/22 §3）', responses: { '200': { description: ok } } }
+    get: { tags: [Migration], summary: '舊平台歷史資料盤點（資料集、來源表、日期範圍、筆數、導出方式、目標表、狀態；docs/22 §3）', responses: { '200': { description: ok } } }
   /v1/migration/inventory/refresh:
-    post: { tags: [Migration], summary: '以神策查詢 API 重新盤點（每事件每日筆數、用戶數；需 SA_BASE_URL／SA_PROJECT／SA_API_SECRET 於執行節點）；需 governance.use；審計 migration.inventory.refreshed', requestBody: { content: { application/json: { schema: { type: object, properties: { date_from: { type: string, format: date }, date_to: { type: string, format: date } } } } } }, responses: { '200': { description: ok }, '503': { description: 未設定神策連線 } } }
+    post: { tags: [Migration], summary: '以舊平台查詢 API 重新盤點（每事件每日筆數、用戶數；需 LEGACY_BASE_URL／LEGACY_PROJECT／LEGACY_API_SECRET 於執行節點）；需 governance.use；審計 migration.inventory.refreshed', requestBody: { content: { application/json: { schema: { type: object, properties: { date_from: { type: string, format: date }, date_to: { type: string, format: date } } } } } }, responses: { '200': { description: ok }, '503': { description: 未設定舊平台連線 } } }
   /v1/migration/bridge:
-    get: { tags: [Migration], summary: '神策 → GA4 埋點銜接表（由 events.yaml 產生：sensors_event、ga4_event、kind、參數、未解議題；可下載 CSV 給 360 導入商）', responses: { '200': { description: ok } } }
+    get: { tags: [Migration], summary: '舊平台 → GA4 埋點銜接表（由 events.yaml 產生：legacy_event、ga4_event、kind、參數、未解議題；可下載 CSV 給 360 導入商）', responses: { '200': { description: ok } } }
   /v1/migration/exports:
     get: { tags: [Migration], summary: '導出／載入任務（按日分片進度、筆數、校驗、重跑）', responses: { '200': { description: ok } } }
     post: { tags: [Migration], summary: '建立導出任務（資料集、日期範圍、方式 impala|api；需 governance.d；審計 migration.export.created）', responses: { '202': { description: accepted } } }
   /v1/migration/exports/{id}/rerun:
     post: { tags: [Migration], summary: '重跑指定日期分片（差異 > 0.1% 時）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '202': { description: accepted } } }
-  /v1/migration/sensors-groups:
-    get: { tags: [Migration], summary: '神策分群／標籤遷移清單：每個神策分群（users 表 user_group_* 欄）與標籤（user_tag_* 欄）的人數、處理方式（待處理／快照／已重建／略過）、對應的 DMP 分群或標籤與人數差異；需 governance.view', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SensorsGroupList' } } } } } }
-  /v1/migration/sensors-groups/scan:
-    post: { tags: [Migration], summary: '以神策查詢 API 掃描 users 表的 user_group_*／user_tag_* 欄位與人數（標籤另回值的種類數）；保留既有處理狀態；需 governance.use；審計 migration.groups.scanned', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SensorsGroupList' } } } }, '503': { description: 未設定神策連線 } } }
-  /v1/migration/sensors-groups/{name}/snapshot:
-    post: { tags: [Migration], summary: '快照：從神策取成員（登入 ID 以 token_v1 轉 one_id，匿名用 first_id）→ 導入名單 → 建 kind=import 的分群（分群）或標籤（標籤，每人一值）並計算一次；規則重建不了的用這個；需 governance.use 與 segments.use；審計 migration.group.snapshot', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { dmp_name: { type: string, maxLength: 60, description: '預設「神策：<名稱>」' } } } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SensorsGroup' } } } }, '409': { description: 已處理或名稱重複 }, '503': { description: 未設定神策連線或 ClickHouse } } }
-  /v1/migration/sensors-groups/{name}/link:
-    post: { tags: [Migration], summary: '標記已重建：連到分析師以規則建構器重建的 DMP 分群或標籤，之後比對人數差異；需 governance.use', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, required: [type, id], properties: { type: { type: string, enum: [segment, tag] }, id: { type: string } } } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SensorsGroup' } } } }, '404': { description: 分群或標籤不存在 } } }
-  /v1/migration/sensors-groups/{name}/skip:
+  /v1/migration/legacy-groups:
+    get: { tags: [Migration], summary: '舊平台分群／標籤遷移清單：每個舊平台分群（users 表 user_group_* 欄）與標籤（user_tag_* 欄）的人數、處理方式（待處理／快照／已重建／略過）、對應的 DMP 分群或標籤與人數差異；需 governance.view', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyGroupList' } } } } } }
+  /v1/migration/legacy-groups/scan:
+    post: { tags: [Migration], summary: '以舊平台查詢 API 掃描 users 表的 user_group_*／user_tag_* 欄位與人數（標籤另回值的種類數）；保留既有處理狀態；需 governance.use；審計 migration.groups.scanned', responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyGroupList' } } } }, '503': { description: 未設定舊平台連線 } } }
+  /v1/migration/legacy-groups/{name}/snapshot:
+    post: { tags: [Migration], summary: '快照：從舊平台取成員（登入 ID 以 token_v1 轉 one_id，匿名用 first_id）→ 導入名單 → 建 kind=import 的分群（分群）或標籤（標籤，每人一值）並計算一次；規則重建不了的用這個；需 governance.use 與 segments.use；審計 migration.group.snapshot', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { dmp_name: { type: string, maxLength: 60, description: '預設「舊平台：<名稱>」' } } } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyGroup' } } } }, '409': { description: 已處理或名稱重複 }, '503': { description: 未設定舊平台連線或 ClickHouse } } }
+  /v1/migration/legacy-groups/{name}/link:
+    post: { tags: [Migration], summary: '標記已重建：連到分析師以規則建構器重建的 DMP 分群或標籤，之後比對人數差異；需 governance.use', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, required: [type, id], properties: { type: { type: string, enum: [segment, tag] }, id: { type: string } } } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/LegacyGroup' } } } }, '404': { description: 分群或標籤不存在 } } }
+  /v1/migration/legacy-groups/{name}/skip:
     post: { tags: [Migration], summary: '略過（已停用、不再需要）；需附原因；需 governance.use', parameters: [{ name: name, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, required: [note], properties: { note: { type: string, maxLength: 200 } } } } } }, responses: { '200': { description: ok } } }
   /v1/migration/reconcile:
-    get: { tags: [Migration], summary: '新舊對帳（T2 每事件每日：神策筆數 vs 載入筆數；T5 並行期：神策 vs GA360 每日量與差異；T6 登入用戶銜接率；由 ClickHouse ingest_recon 與 events.source 計算）', parameters: [{ name: days, in: query, schema: { type: integer, default: 28 } }, { name: project, in: query, schema: { type: string } }], responses: { '200': { description: ok }, '503': { description: 未連接 ClickHouse } } }
+    get: { tags: [Migration], summary: '新舊對帳（T2 每事件每日：舊平台筆數 vs 載入筆數；T5 並行期：舊平台 vs GA360 每日量與差異；T6 登入用戶銜接率；由 ClickHouse ingest_recon 與 events.source 計算）', parameters: [{ name: days, in: query, schema: { type: integer, default: 28 } }, { name: project, in: query, schema: { type: string } }], responses: { '200': { description: ok }, '503': { description: 未連接 ClickHouse } } }
   /v1/integration/tables:
     get: { tags: [Integration], summary: '數據表管理：已登記的外部表（數據源、表、主鍵、增量欄位、欄位數、Schema 版本、變更、使用它的任務）', responses: { '200': { description: ok } } }
     post: { tags: [Integration], summary: '從數據源探索並登記表（讀 schema 與樣本；個資欄位標 L4 不可選；設主鍵與增量欄位）', responses: { '201': { description: created } } }
@@ -677,7 +677,7 @@ components:
       required: [id, type, auth_method, fields]
       properties:
         id: { type: string, pattern: '^[a-z][a-z0-9_]{2,31}$' }
-        type: { type: string, enum: [mssql, postgresql, bigquery, sensorsdata, kafka, gcs] }
+        type: { type: string, enum: [mssql, postgresql, bigquery, legacydata, kafka, gcs] }
         auth_method: { type: string, description: 見 /v1/integration/connectors 的 auth_methods }
         fields: { type: object, additionalProperties: true, description: 非機密欄位；API 會掃描疑似明文密鑰並拒絕 }
         secret_refs: { type: object, additionalProperties: { type: string }, description: 'secret_field → 密鑰庫參照（projects/…/secrets/…/versions/N、kv/data/dmp/…#key、secret://ns/name/key）' }
@@ -833,7 +833,7 @@ components:
         warnings: { type: array, items: { type: string } }
     UsersQuery:
       type: object
-      description: '用戶條件（用戶列表／分群／標籤值共用，神策式）：用戶屬性條件樹（且／或可巢狀）＋ 行為條件（做過／未做過某事件、指標＝總次數／某屬性總和／平均／最大／最小／有行為天數、比較運算、期間＝近 N 天或自訂）＋ 兩塊之間的且／或；例行計算時「近 N 天」以計算基準日為準（動態標籤）'
+      description: '用戶條件（用戶列表／分群／標籤值共用，舊平台式）：用戶屬性條件樹（且／或可巢狀）＋ 行為條件（做過／未做過某事件、指標＝總次數／某屬性總和／平均／最大／最小／有行為天數、比較運算、期間＝近 N 天或自訂）＋ 兩塊之間的且／或；例行計算時「近 N 天」以計算基準日為準（動態標籤）'
       properties:
         project: { type: string }
         combine: { type: string, enum: [and, or], default: and, description: 用戶屬性條件（filters／segment）與行為條件（behaviors）之間的組合 }
@@ -941,7 +941,7 @@ components:
       properties:
         name: { type: string, maxLength: 60 }
         description: { type: string }
-        kind: { type: string, enum: [rule, result, import], default: rule, description: 'result = 從分析結果點保存（rule.source 必填，規則不可再改）；import = 導入名單（rule.source = { type: import, import_id }，規則不可再改，更新方式固定手動；神策分群快照也用這種）' }
+        kind: { type: string, enum: [rule, result, import], default: rule, description: 'result = 從分析結果點保存（rule.source 必填，規則不可再改）；import = 導入名單（rule.source = { type: import, import_id }，規則不可再改，更新方式固定手動；舊平台分群快照也用這種）' }
         rule: { $ref: '#/components/schemas/UsersQuery' }
         update: { type: object, properties: { mode: { type: string, enum: [manual, routine], default: routine, description: '預設例行（動態分群：每日凌晨重算符合規則的受眾）' }, freq: { type: string, enum: [daily, weekly, monthly], default: daily }, earliest: { type: string, default: '02:00', description: 'HH:MM，最早計算時間' }, keep: { type: integer, minimum: 1, maximum: 100, default: 7, description: 例行版本保留數；手動固定 1 } } }
         tz: { type: string, default: Asia/Taipei }
@@ -1470,22 +1470,22 @@ components:
         firing: { type: array, items: { $ref: '#/components/schemas/OpsAlert' } }
         rules: { type: array, items: { $ref: '#/components/schemas/OpsAlert' } }
         notify: { type: array, items: { type: string }, description: 通知角色（第一階段只在頁面顯示） }
-    SensorsGroup:
+    LegacyGroup:
       type: object
       properties:
-        name: { type: string, description: 神策欄位名（user_group_xxx／user_tag_xxx） }
+        name: { type: string, description: 舊平台欄位名（user_group_xxx／user_tag_xxx） }
         kind: { type: string, enum: [segment, tag] }
         cn: { type: string, description: 顯示名（去掉前綴） }
-        users: { type: integer, description: 神策端人數 }
+        users: { type: integer, description: 舊平台端人數 }
         values: { type: integer, nullable: true, description: 標籤值種類數 }
         status: { type: string, enum: [pending, snapshot, rebuilt, skipped] }
-        dmp: { type: object, nullable: true, properties: { type: { type: string, enum: [segment, tag] }, id: { type: string }, name: { type: string }, users: { type: integer, nullable: true }, diff_pct: { type: number, nullable: true, description: '(DMP − 神策) ÷ 神策' } } }
+        dmp: { type: object, nullable: true, properties: { type: { type: string, enum: [segment, tag] }, id: { type: string }, name: { type: string }, users: { type: integer, nullable: true }, diff_pct: { type: number, nullable: true, description: '(DMP − 舊平台) ÷ 舊平台' } } }
         note: { type: string }
         updated_at: { type: string, format: date-time }
-    SensorsGroupList:
+    LegacyGroupList:
       type: object
       properties:
-        items: { type: array, items: { $ref: '#/components/schemas/SensorsGroup' } }
+        items: { type: array, items: { $ref: '#/components/schemas/LegacyGroup' } }
         scanned_at: { type: string, format: date-time, nullable: true }
         summary: { type: object, properties: { total: { type: integer }, pending: { type: integer }, snapshot: { type: integer }, rebuilt: { type: integer }, skipped: { type: integer } } }
     TagCreate:
@@ -1497,7 +1497,7 @@ components:
         directory: { type: string, description: 所屬目錄（客戶價值／交易偏好／風險／活躍／行銷…） }
         description: { type: string }
         dtype: { type: string, enum: [string, number, bool], default: string }
-        kind: { type: string, enum: [values, sql, metric, firstlast, rfm, import], description: 'import＝快照（目前只由神策標籤遷移建立：每人一個值存於 dmp.tag_imports，計算時照抄成新版本）；values＝自定義標籤值：每個值一條用戶規則（UsersQuery；最多 24 值）；sql＝SQL 標籤：SELECT one_id_uint, tag_value；metric＝基礎指標值（事件在窗口內的次數／總和／均值／最大／最小／有行為天數，可分桶）；firstlast＝首末次特徵（首次或末次某事件的日期、距今天數分桶、或當時某屬性值）；rfm＝RFM（最近一次距今 R、次數 F、金額 M 各分 n 級，輸出 R5F4M3 分數或八類客群）' }
+        kind: { type: string, enum: [values, sql, metric, firstlast, rfm, import], description: 'import＝快照（目前只由舊平台標籤遷移建立：每人一個值存於 dmp.tag_imports，計算時照抄成新版本）；values＝自定義標籤值：每個值一條用戶規則（UsersQuery；最多 24 值）；sql＝SQL 標籤：SELECT one_id_uint, tag_value；metric＝基礎指標值（事件在窗口內的次數／總和／均值／最大／最小／有行為天數，可分桶）；firstlast＝首末次特徵（首次或末次某事件的日期、距今天數分桶、或當時某屬性值）；rfm＝RFM（最近一次距今 R、次數 F、金額 M 各分 n 級，輸出 R5F4M3 分數或八類客群）' }
         values: { type: array, maxItems: 24, items: { type: object, required: [value, rule], properties: { value: { type: string }, rule: { $ref: '#/components/schemas/UsersQuery' } } } }
         sql: { type: string }
         import_id: { type: string, description: 'kind=import 的快照 id' }

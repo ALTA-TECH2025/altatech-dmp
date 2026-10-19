@@ -103,7 +103,7 @@ tools:
     input: { insight_ids: [string], audience: string }
     scope: read
 
-  # ---- v0.2：參考神策 Copilot / AI 智能分析師 / 智能體 新增 ----
+  # ---- v0.2：參考舊平台 Copilot / AI 智能分析師 / 智能體 新增 ----
   - name: analysis.configure
     description: 自然語言 → 分析模型配置卡（選擇題式：在既有分析模型與語意層指標上做選擇，不生成任意 SQL）。只回傳配置與信心度，不執行。
     input: { question: string, context: object }
