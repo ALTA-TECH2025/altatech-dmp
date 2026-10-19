@@ -166,6 +166,7 @@ def main() -> int:
             print(f"compile_sql path: {n_sql} rows (superset before enum/range cleansing); event_id/event match with python path: {same_ids}/{n_ev}")
             legacy_stage(ch, work, int(os.environ.get("E2E_SENSORS_LINES", "200000")), via_http=proc is None)   # 現成伺服器讀不到本機 user_files
             ga4_stage(ch, work, int(os.environ.get("E2E_GA4_PER_TICK", "20000")))
+            agg_stage(ch)
             dbapi_stage(ch, work, all_rows)
             if os.environ.get("E2E_USERS", "1") != "0":
                 main_users_bench(ch)
@@ -233,6 +234,39 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
     print("  events by name:", by_ev)
 
 
+def agg_stage(ch: ClickHouseHTTP) -> None:
+    """R12 回歸：同一事件直接寫兩次（繞過載入路徑）→ 底表 FINAL 1 筆、MV 彙總 2 筆（Codex 的重現）；重建該日分區後彙總回到 1。
+    再走載入路徑（LocalRunner GA4）重插同一事件：內容相同 → 不寫入，彙總不變；內容不同（utm 補齊）→ 寫入新版本 + 該日重建，彙總仍 = 1。"""
+    from .aggregates import dedupe, rebuild, verify
+    from .ga4_source import FakeBigQuery, ga4_row
+    row = {"project": "altatech_dmp", "time": "2026-09-01 01:00:00.000", "event": "bond_deal", "source": "e2e_dup", "one_id": "v1_dup", "entity_type": "", "entity_id": "", "distinct_id": "",
+           "session_id": "", "event_id": "agg-dup-1", "platform": "iOS", "app_id": "", "symbol": "2330", "side": "B", "channel": "app", "amount": 100.0, "utm_source": "", "utm_campaign": "",
+           "props": {}, "ingest_time": "2026-09-01 01:00:00.000", "schema_version": 1, "late": 0, "batch_id": "dup1"}
+    ch.insert_json("dmp.events", [row]); ch.insert_json("dmp.events", [{**row, "ingest_time": "2026-09-01 01:00:01.000", "batch_id": "dup2"}])
+    ch.query("OPTIMIZE TABLE dmp.events PARTITION '202609' FINAL")
+    v = verify(ch, "2026-09-01"); assert v["events_cnt"] == 1 and v["agg_cnt"] == 2, v                      # 修正前的狀態：MV 每次 INSERT 都累加
+    assert rebuild(ch, ["2026-09-01"]) == ["2026-09-01"]
+    v = verify(ch, "2026-09-01"); assert v["events_cnt"] == 1 and v["agg_cnt"] == 1 and v["agg_users"] == 1 and v["amount_diff"] < 1e-6, v
+    keep, skipped, rb = dedupe(ch, [row]); assert keep == [] and skipped == 1 and rb == set(), (keep, skipped, rb)          # 載入路徑：一模一樣 → no-op
+    keep, skipped, rb = dedupe(ch, [{**row, "utm_source": "google"}]); assert len(keep) == 1 and rb == {"2026-09-01"}, (skipped, rb)   # 內容變 → 新版本 + 重建
+    bq = FakeBigQuery(); runner = LocalRunner(ch, bq_clients={"bq": bq})
+    base_us = int(datetime(2026, 9, 2, 0, 0, tzinfo=UTC).timestamp() * 1_000_000)
+    bq.tables["ds.events_intraday_20260902"] = [ga4_row(i, base_us + i * 60_000_000, "kh_apply", uid="v1_abc") for i in range(50)]
+    task = {"id": "agg_ga4", "source": {"kind": "ga4", "connection": "bq", "dataset": "ds", "table_kind": "intraday"}}
+    now = datetime(2026, 9, 2, 1, 0, tzinfo=UTC); log: list[str] = []
+    r1 = runner.run(task, watermark=None, batch_id="g1", known_fields=None, now=now, log=log.append)
+    r2 = runner.run(task, watermark=None, batch_id="g2", known_fields=None, now=now + timedelta(minutes=15), log=log.append)   # 整批重讀（重試）
+    assert r1.rows_loaded == 50 and r2.rows_loaded == 50 and ch.scalar("SELECT count() FROM dmp.events WHERE batch_id = 'g2'") == 0, (r1, r2)   # 第二次一筆都沒寫
+    v = verify(ch, "2026-09-02"); assert v["events_cnt"] == v["agg_cnt"] == 50 and v["agg_users"] == 1, v
+    for ev in bq.tables["ds.events_intraday_20260902"]: ev["session_traffic_source_last_click"]["manual_campaign"]["source"] = "google"   # 內容變：utm_source 補齊
+    runner.run(task, watermark=None, batch_id="g3", known_fields=None, now=now + timedelta(minutes=30), log=log.append)
+    assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id = 'g3'") == 50 and "daily_agg rebuilt for ['2026-09-02']" in " ".join(log), log[-3:]
+    ch.query("OPTIMIZE TABLE dmp.events PARTITION '202609' FINAL")
+    v = verify(ch, "2026-09-02"); assert v["events_cnt"] == v["agg_cnt"] == 50 and v["agg_users"] == 1, v   # 新版本寫入、該日重建 → 彙總仍 = 去重後底表
+    assert ch.scalar("SELECT countMerge(cnt) FROM dmp.events_daily_agg WHERE event_date = toDate('2026-09-02') AND utm_source = 'google'") == 50
+    print("daily_agg idempotency: direct double insert → agg 2 vs base 1 → rebuild → 1; runner re-read → skipped 50; changed content → rebuilt → 50")
+
+
 def dbapi_stage(ch: ClickHouseHTTP | None, work: Path, rows: list[dict[str, Any]]) -> None:
     """MSSQL 的替身：sqlite（同樣是 DB-API 2.0）；正式環境 db_connections={'dwh_trade': lambda: pyodbc.connect(...)}。"""
     import sqlite3
@@ -278,6 +312,8 @@ def ga4_stage(ch: ClickHouseHTTP, work: Path, n_per_tick: int = 20000) -> None:
         r = s.tick(t0 + timedelta(minutes=15 * k)); assert [x["status"] for x in r] == ["success"], r
     runs = s.runs("ga360_intraday", 3)
     assert sum(x["rows_in"] for x in runs) > total                   # 重疊窗口有重讀
+    from .aggregates import verify
+    v = verify(ch, "2026-10-16"); assert v["agg_cnt"] == v["events_cnt"] and v["agg_users"] == v["events_users"] and v["amount_diff"] < 1e-6, v   # 重讀的列入倉前去重，日彙總沒有多算（R12）；同日還有 orders 階段的事件
     ch.query("OPTIMIZE TABLE dmp.events FINAL")
     n_intraday = ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_intraday'")
     assert n_intraday == total, (n_intraday, total)                  # 去重後 = 串流表筆數
@@ -294,6 +330,8 @@ def ga4_stage(ch: ClickHouseHTTP, work: Path, n_per_tick: int = 20000) -> None:
     n_daily_src = ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_daily'")
     assert n_day == total + 300 and n_daily_src == total + 300, (n_day, n_daily_src)     # 日批覆蓋了全部串流列（同 event_id，ingest_time 較新）
     assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_intraday'") == 0
+    v = verify(ch, "2026-10-16"); assert v["agg_cnt"] == v["events_cnt"] and v["agg_users"] == v["events_users"] and v["amount_diff"] < 1e-6, v   # 日批覆蓋（source 變了）→ 該日分區重建，彙總 = 去重後底表（修正前這裡 agg 會是底表的兩倍多）
+    assert "daily_agg rebuilt for ['2026-10-16']" in s.runs("ga360_daily", 1)[0]["log"], s.runs("ga360_daily", 1)[0]["log"][-400:]
     # 隔兩天 07:00：GA 重寫日表（+120 筆遲到）→ restate 偵測列數變化重載
     r = s.run_now("ga360_restate", t0 + timedelta(days=2)); assert r["status"] == "success" and s.runs("ga360_restate", 1)[0]["rows_in"] == total + 300
     bq.tables[daily] += [mk(total + 300 + i, base_us + 70 * 60_000_000 + i * 1000) for i in range(120)]
@@ -302,6 +340,8 @@ def ga4_stage(ch: ClickHouseHTTP, work: Path, n_per_tick: int = 20000) -> None:
     ch.query("OPTIMIZE TABLE dmp.events FINAL")
     assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_daily'") == total + 420
     assert ch.scalar("SELECT count() FROM (SELECT event_id FROM dmp.events FINAL WHERE source LIKE 'ga360%' GROUP BY event_id HAVING count() > 1)") == 0
+    v = verify(ch, "2026-10-16"); assert v["agg_cnt"] == v["events_cnt"] and v["agg_users"] == v["events_users"] and v["amount_diff"] < 1e-6, v   # 重寫重載（內容相同的列略過、新列照寫）後仍一致
+    assert "dedupe: skipped=" in s.runs("ga360_restate", 2)[-1]["log"]
     print(f"ga360 bigquery: intraday 3 ticks in={sum(x['rows_in'] for x in runs):,} (incl. overlap re-reads) → unique {n_intraday:,}; daily replaced all ({n_daily_src:,}); restate +120 → {total + 420:,}; dup event_id after FINAL: 0")
     print("  by source/event:", ch.query("SELECT event, count() FROM dmp.events FINAL WHERE source='ga360_daily' GROUP BY event ORDER BY 2 DESC FORMAT TSV").strip().replace("\n", " | "))
 

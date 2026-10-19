@@ -301,9 +301,45 @@ CREATE TABLE IF NOT EXISTS dmp.tag_imports
 ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.tag_imports', '{replica}')
 ORDER BY (import_id, tag_value, one_id_uint);
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS dmp.events_daily_agg
+-- 日彙總（查詢編譯器的 L1）：明確目標表 + MV TO，而不是 MV 自帶的 .inner 表——
+-- MV 是「每次 INSERT 都累加」，底表 ReplacingMergeTree 之後合併掉的重複列（GA4 重疊窗口重讀、日批覆蓋、重試）彙總不會回滾（R12）。
+-- 所以：(1) 載入路徑先去重（backend/integration/aggregates.dedupe：同 event_id 內容相同不再寫入）；
+--       (2) 內容不同的重插（日批覆蓋串流、時間更正）記下分區，載入後從 dmp.events FINAL 重算該日到暫存表，REPLACE PARTITION 原子換掉。
+-- 按 event_date 分區：一天一個分區，重建只動那一天。既有環境升版：DROP VIEW dmp.events_daily_agg 後建這三個物件，
+-- 再 `python3 -m backend.integration.aggregates rebuild --all` 回填。
+CREATE TABLE IF NOT EXISTS dmp.events_daily_agg
+(
+    project      LowCardinality(String),
+    event_date   Date,
+    event        LowCardinality(String),
+    platform     LowCardinality(String),
+    channel      LowCardinality(String),
+    utm_source   LowCardinality(String),
+    cnt          AggregateFunction(count),
+    users        AggregateFunction(uniq, String),
+    amount       AggregateFunction(sum, Float64)
+)
 ENGINE = ReplicatedAggregatingMergeTree('/ch/{shard}/dmp.events_daily_agg', '{replica}')
-ORDER BY (project, event_date, event, platform, channel, utm_source)
+PARTITION BY event_date
+ORDER BY (project, event_date, event, platform, channel, utm_source);
+
+CREATE TABLE IF NOT EXISTS dmp.events_daily_agg_stage
+(
+    project      LowCardinality(String),
+    event_date   Date,
+    event        LowCardinality(String),
+    platform     LowCardinality(String),
+    channel      LowCardinality(String),
+    utm_source   LowCardinality(String),
+    cnt          AggregateFunction(count),
+    users        AggregateFunction(uniq, String),
+    amount       AggregateFunction(sum, Float64)
+)
+ENGINE = ReplicatedAggregatingMergeTree('/ch/{shard}/dmp.events_daily_agg_stage', '{replica}')
+PARTITION BY event_date
+ORDER BY (project, event_date, event, platform, channel, utm_source);
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS dmp.events_daily_agg_mv TO dmp.events_daily_agg
 AS SELECT project, event_date, event, platform, channel, utm_source,
           countState() AS cnt, uniqState(one_id) AS users, sumState(coalesce(amount, 0)) AS amount
 FROM dmp.events GROUP BY project, event_date, event, platform, channel, utm_source;

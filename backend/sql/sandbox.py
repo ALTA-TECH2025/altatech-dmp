@@ -39,11 +39,15 @@ class SandboxError(ValueError):
     pass
 
 
+HIDDEN_TABLES = {"events_daily_agg", "events_daily_agg_stage"}   # 查詢編譯器的 L1 日彙總（AggregateFunction 狀態欄），不給自定義 SQL 直接查
+
+
 def schema_catalog() -> dict[str, list[dict[str, str]]]:
-    """schema.sql → {table: [{name, type}]}（跳過 MATERIALIZED VIEW）。"""
+    """schema.sql → {table: [{name, type}]}（跳過 MATERIALIZED VIEW 與 L1 彙總表）。"""
     text = (ROOT / "clickhouse" / "schema.sql").read_text(encoding="utf-8")
     out: dict[str, list[dict[str, str]]] = {}
     for m in re.finditer(r"CREATE TABLE IF NOT EXISTS dmp\.(\w+)\s*\((.*?)\n\)\s*\nENGINE", text, re.S):
+        if m.group(1) in HIDDEN_TABLES: continue
         cols = []
         for line in m.group(2).splitlines():
             line = line.split("--")[0].strip().rstrip(",")

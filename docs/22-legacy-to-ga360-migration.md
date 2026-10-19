@@ -69,7 +69,7 @@
 | 去重 | SDK 重送靠 `$track_id` | `event_bundle_sequence_id` | 各自去重；event_id 規則見 `ga4_mapping.yaml` |
 | 停留／時長 | `$WebStay`、`$event_duration` | `engagement_time_msec` | 分析口徑改 session |
 | 同意 | 無 | `privacy_info.analytics_storage` | 拒絕者不做 OneID 合併 |
-| 延遲 | 即時 | 串流匯出分鐘級（無回補、部分歸因欄位缺）、日批次日數小時內（GA 保證 72 小時，期間可能重寫）、360 Fresh daily 小時級 | 三個任務：串流每 15 分鐘（30 分鐘重疊窗口 + event_id 去重）、日批到齊才整天覆蓋、D-2／D-3 列數變了重載；`backend/integration/ga4_source.py` |
+| 延遲 | 即時 | 串流匯出分鐘級（無回補、部分歸因欄位缺）、日批次日數小時內（GA 保證 72 小時，期間可能重寫）、360 Fresh daily 小時級 | 三個任務：串流每 15 分鐘（30 分鐘重疊窗口 + event_id 去重）、日批到齊才整天覆蓋、D-2／D-3 列數變了重載；日彙總冪等：入倉前查同 event_id 的現有版本，內容相同不再寫入（重讀、重試不會讓 `events_daily_agg` 多算），內容不同（日批覆蓋、時間更正）寫新版本並重建該日分區（`backend/integration/aggregates.py`）；`backend/integration/ga4_source.py` |
 
 ### 2.4 交付物與驗收
 
