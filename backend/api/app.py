@@ -23,7 +23,7 @@ from ..ops.service import OpsService
 from ..security.policy import Subject
 from ..segments import SegmentService
 from ..semantic.compiler import Catalog
-from . import activation, analytics, ask, bookmarks, dashboards, exports, iam, integration, meta, migration, ops, segments, sql, sysadmin, tags, users
+from . import activation, analytics, ask, bookmarks, dashboards, exports, iam, integration, meta, migration, ops, output, segments, sql, sysadmin, tags, users
 from .store import Store
 
 
@@ -78,6 +78,11 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     app.include_router(users.build_router(store, get_subject, ch))
     exp = ExportService(store, ch, approvals, Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports", members_rule=seg_svc.members_rule)
     app.include_router(segments.build_router(store, get_subject, seg_svc))
+    from ..output import OutputService
+    out_svc = OutputService(store, ch, approvals, (Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports") / "output", share.cat, members_rule=seg_svc.members_rule, code_key=act_svc.code_key)
+    act_svc.uploader = out_svc.uploader
+    app.state.output = out_svc
+    app.include_router(output.build_router(store, get_subject, out_svc))   # 先掛：/v1/exports/tasks 不能被 /v1/exports/{id} 吃掉
     app.include_router(exports.build_router(store, get_subject, approvals, exp, reveals))
     sched = scheduler or Scheduler(Path(tempfile.gettempdir()) / "dmp-sched.db", LocalRunner(ch if hasattr(ch, "insert_json") and not ch.__class__.__name__.startswith("Fake") else None))
     app.include_router(integration.build_router(store, get_subject, sched, secret_writer))

@@ -151,7 +151,7 @@
 規則：
 - 建立即開審批單（type=`output_task` → 數位經營；目的地首次使用另需系統管理員），核可前 `pending_approval`；改輸出內容或目的地視同新任務重走審批。
 - 欄位：L3／L4 一律拒絕；L2 數值依匯出規則區間化；每列帶浮水印欄 `_wm`、manifest 帶申請單號／使用者／時間。單次執行列數上限 `limits.output_rows_per_run`（預設 10,000,000）。
-- 權限：建立需 `integration.use`；事件明細另需 `events.export`，用戶寬表／分群名單另需 `users.export`；清單 `integration.view`。
+- 權限：清單與建立都需 `integration.view`；事件明細另需 `events.export`，用戶寬表／分群名單另需 `users.export`（數據分析、數位經營；資訊管理只能看任務）。
 - 排程：daily 重用資料流的背景例行（scheduler），每天 `schedule.at` 跑前一天分區；暫停不補跑，缺的分區用 `run` 指定 `partition_date`。realtime 第一版只接 kafka／webhook、只接事件明細，單條 jsonl。
 - 審計：`output_task.created／previewed／updated／approved／rejected／run／paused／resumed／deleted`；實際送出走 `sync.delivered／failed／replayed`。
 - 前端：資料 › 數據整合 › 數據輸出：任務列表（名稱、類型、輸出內容、目的地、狀態、上次執行）＋ 右側抽屜表單三段（基本資訊／連接配置／數據管理：事件清單可批量添加、欄位與遮罩預覽）。

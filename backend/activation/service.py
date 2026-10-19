@@ -114,10 +114,24 @@ class ActivationService:
         if not 1 <= len(name) <= 60: raise ValueError("name 需 1–60 字")
         t = str(body.get("type") or x.get("type") or "webhook")
         if t not in TYPES: raise ValueError(f"type 只能是 {TYPES}")
-        if t != "webhook": raise ValueError("第一階段只開放 webhook 目的地；kafka／gcs 第二階段")
+        if t not in ("webhook", "sftp", "s3"): raise ValueError("目前開放 webhook（推送）與 sftp／s3（資料輸出）目的地；kafka／gcs 第二階段")
         url = str(body.get("url") or x.get("url") or "").strip()
-        if not re.fullmatch(r"https://[A-Za-z0-9.-]+(:\d+)?(/[^\s]*)?", url) and not re.fullmatch(r"http://(127\.0\.0\.1|localhost)(:\d+)?(/[^\s]*)?", url):
+        if t == "webhook" and not re.fullmatch(r"https://[A-Za-z0-9.-]+(:\d+)?(/[^\s]*)?", url) and not re.fullmatch(r"http://(127\.0\.0\.1|localhost)(:\d+)?(/[^\s]*)?", url):
             raise ValueError("url 須為 https://（本機測試可用 http://127.0.0.1）")
+        cfg = dict(body.get("config") if body.get("config") is not None else x.get("config") or {})
+        if t in ("sftp", "s3"):
+            need = {"sftp": ("host", "path", "username"), "s3": ("endpoint", "bucket")}[t]
+            missing = [k for k in need if not str(cfg.get(k) or "").strip()]
+            if missing: raise ValueError(f"{t} 目的地 config 缺 {missing}")
+            if t == "sftp":
+                cfg["port"] = int(cfg.get("port") or 22); cfg["auth"] = str(cfg.get("auth") or "password")
+                if cfg["auth"] not in ("password", "key"): raise ValueError("sftp config.auth 只能是 password／key")
+            else:
+                cfg["path_style"] = bool(cfg.get("path_style", True)); cfg["prefix"] = str(cfg.get("prefix") or "").strip("/"); cfg["region"] = str(cfg.get("region") or "")
+            for k in ("password", "private_key", "secret_key", "secret_access_key"):
+                if cfg.get(k): raise ValueError(f"config.{k} 疑似明文密鑰，請改用 secret_ref")
+            url = ""
+        x["config"] = cfg
         ref = str(body.get("secret_ref") or x.get("secret_ref") or "").strip()
         if not SECRET_REF_RE.match(ref): raise ValueError("secret_ref 格式不合法（只接受密鑰庫參照，不接受明文）")
         for k in ("secret", "token", "password"):
@@ -136,6 +150,8 @@ class ActivationService:
                   "mtls": bool(body.get("mtls", x.get("mtls", False))), "note": str(body.get("note") or x.get("note") or "")[:200]})
         return x
 
+    uploader: Any = None                     # 資料輸出的傳輸器（app 建好 OutputService 後掛上；sftp／s3 的測試走它）
+
     def create_destination(self, body: dict[str, Any], subject: Subject) -> dict[str, Any]:
         d = self._validate_destination(body, None)
         d.update({"id": "dst_" + uuid.uuid4().hex[:8], "status": "active", "owner": subject.user_id, "created_at": self._ts(), "updated_at": self._ts(),
@@ -146,7 +162,7 @@ class ActivationService:
 
     def update_destination(self, id_: str, body: dict[str, Any], subject: Subject) -> dict[str, Any]:
         cur = self.destination(id_); d = self._validate_destination(body, cur)
-        if d["url"] != cur["url"] or d["secret_ref"] != cur["secret_ref"]:
+        if d["url"] != cur["url"] or d["secret_ref"] != cur["secret_ref"] or d.get("config") != cur.get("config"):
             d["first_push_at"] = None                                            # 端點或密鑰換了，視同新目的地：首次推送需再核可
         d["updated_at"] = self._ts(); self.store.put_item("destination", d)
         self.store.audit("destination.updated", {"user": subject.user_id, "destination": id_, "changed": sorted(k for k in d if d[k] != cur.get(k))})
@@ -171,6 +187,13 @@ class ActivationService:
 
     def test_destination(self, id_: str, subject: Subject) -> dict[str, Any]:
         d = self.destination(id_)
+        if d["type"] in ("sftp", "s3"):
+            if self.uploader is None: raise Conflict("此環境沒有資料輸出傳輸器")
+            res = self.uploader.test(d)
+            d["last_test"] = {"at": self._ts(), "ok": res["status"] == "ok", "failed_step": next((s["step"] for s in res["steps"] if not s["ok"]), None)}
+            self.store.put_item("destination", d)
+            self.store.audit("destination.tested", {"user": subject.user_id, "destination": id_, "status": res["status"], "steps": [s["step"] for s in res["steps"]]})
+            return {"status": res["status"], "steps": res["steps"]}
         members = [{"customer_code": customer_code(f"test_{i}", self.code_key), "one_id": f"test_{i:04d}", "action": "add", "tags": {t: "測試" for t in d["allowed_tags"][:2]}} for i in range(3)]
         aud = {"id": "audience_test", "name": "測試受眾（假資料）", "version": 0, "computed_at": self._ts()}
         dest = self._dest(d)

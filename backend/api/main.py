@@ -156,6 +156,10 @@ def start_ticker(app: Any, store: Any, ch: Any) -> None:
                 if act is not None and ch is not None:
                     with routine("activation"):
                         act.tick(system)                                     # 到期重試、日批後增量推送
+                outp = getattr(app.state, "output", None)
+                if outp is not None and ch is not None:
+                    with routine("output"):
+                        outp.tick(system)                                    # 資料輸出：到點跑前一天分區
             except Exception as e:
                 store.audit("scheduler.tick.failed", {"error": str(e)[:300]})
             ops = getattr(app.state, "ops", None)

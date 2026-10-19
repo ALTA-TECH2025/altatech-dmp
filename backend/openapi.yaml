@@ -111,7 +111,7 @@ paths:
     get: { tags: [Exports], summary: '資料輸出任務清單（名稱、類型、輸出內容、目的地、狀態、上次執行）；需 integration.view；我的＋分享給我角色的', parameters: [{ name: status, in: query, schema: { type: string } }, { name: type, in: query, schema: { type: string, enum: [realtime, once, daily] } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/OutputTask' } } } } } } }
     post:
       tags: [Exports]
-      summary: 建立資料輸出任務（對齊「數據輸出」：任務類型 × 輸出內容 × 目的地 × 內容選擇 × 格式）。需 integration.use；輸出事件明細另需 events.export、用戶寬表／分群名單另需 users.export。建立即開審批單（type=output_task → 數位經營；目的地首次使用另需系統管理員），核可前狀態 pending_approval。L3／L4 欄位不可選（422）；L2 數值依匯出規則區間化；每列帶浮水印欄 _wm；單次執行列數上限 limits.output_rows_per_run（預設 10,000,000）。審計 output_task.created
+      summary: 建立資料輸出任務（對齊「數據輸出」：任務類型 × 輸出內容 × 目的地 × 內容選擇 × 格式）。需 integration.view；輸出事件明細另需 events.export、用戶寬表／分群名單另需 users.export（數據分析、數位經營；資訊管理只能看任務）。建立即開審批單（type=output_task → 數位經營；目的地首次使用另需系統管理員），核可前狀態 pending_approval。L3／L4 欄位不可選（422）；L2 數值依匯出規則區間化；每列帶浮水印欄 _wm；單次執行列數上限 limits.output_rows_per_run（預設 10,000,000）。審計 output_task.created
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OutputTaskCreate' } } } }
       responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/OutputTask' } } } }, '422': { description: 欄位含 L3／L4、事件不在字典、目的地類型與任務類型不合（realtime 只接 kafka／webhook）、格式不支援 } }
   /v1/exports/tasks/preview:

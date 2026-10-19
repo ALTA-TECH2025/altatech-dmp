@@ -16,6 +16,16 @@ types:
     cn: GCS Parquet（數倉／大量）
     prefix: gs://dmp-sync/audiences/
     manifest: true
+  sftp:                                       # 資料輸出任務（docs/06 §8）的批量檔案；密碼／私鑰只在 secret_ref，主機指紋固定
+    cn: SFTP（客戶批次介面）
+    config: [host, port, path, username, auth, host_key_fingerprint]
+    test_steps: [dns, tcp, auth, write_probe]
+    formats: [csv, jsonl, parquet]
+  s3:                                         # S3 相容物件儲存（含 MinIO）；secret key 只在 secret_ref
+    cn: S3 相容物件儲存（含 MinIO）
+    config: [endpoint, bucket, prefix, region, access_key_id, path_style]
+    test_steps: [dns, tcp, auth, write_probe]
+    formats: [csv, jsonl, parquet]
   # 廣告平台（GA4 受眾／Google Ads 再行銷、Customer Match）不在本系統範圍：受眾推送只做名單推送到內部系統。
 approval:
   create_destination: [digital_ops, it_admin]

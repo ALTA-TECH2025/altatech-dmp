@@ -7,7 +7,9 @@ from __future__ import annotations
 import json
 import re
 import time
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 
@@ -42,6 +44,10 @@ class FakeClickHouse:
             if "bitmapAnd(" in sql: return '{"tag_value":"P1","us":[2,3]}\n{"tag_value":"P2","us":[4]}\n'
             if "GROUP BY tag_value" in sql: return '{"value":"P1","users":80}\n{"value":"P2","users":40}\n'
             return '{"users":120}\n'
+        if "/* output_task_count */" in sql:
+            return '{"n":2}\n'
+        if "/* output_task */" in sql:                                                   # 資料輸出：事件明細（金額已在 SQL 端區間化）
+            return '{"_one_id":"v1_abcdef1234","event":"bond_deal","time":"2026-10-15 09:00:00.000","platform":"iOS","amount":"100000–500000","props.market":"TSE"}\n{"_one_id":"v1_zz","event":"bond_deal","time":"2026-10-15 09:05:00.000","platform":"Web","amount":"<0","props.market":"OTC"}\n'
         if "bitmapCardinality(" in sql:
             return '{"users":123}\n'
         if "system.parts" in sql:
@@ -680,8 +686,52 @@ def main(store: Any | None = None) -> None:
     assert not any("C0001" in repr(x) for x in store.audit_tail(300))
     assert {x["event"] for x in store.audit_tail(300)} >= {"migration.export.created", "migration.inventory.refreshed", "migration.export.rerun", "migration.groups.scanned", "migration.group.snapshot", "migration.group.skipped", "migration.group.linked", "segment.import.created"}
     login(c, sm, ["marketing"], "mkt")
+    # 5h. 資料輸出任務：sftp 目的地（config、明文密鑰 400、測試走出件匣）→ 分析師預覽（L3 欄位被拒、金額區間化）→ 建立開審批（數位經營）→ 核可 → 本人執行（csv.gz + manifest、浮水印、出件匣）→ daily 任務 tick 跑前一天 → 暫停
+    login(c, sm, ["digital_ops"], "ops")
+    assert c.post("/v1/destinations", json={"name": "批次 SFTP", "type": "sftp", "secret_ref": "kv/data/dmp/prod/sftp#password", "config": {"host": "sftp.internal", "path": "/dmp/out", "username": "dmp", "password": "plain"}}).status_code == 400
+    assert c.post("/v1/destinations", json={"name": "批次 SFTP", "type": "sftp", "secret_ref": "kv/data/dmp/prod/sftp#password", "config": {"host": "sftp.internal"}}).status_code == 400
+    sf = c.post("/v1/destinations", json={"name": "批次 SFTP", "type": "sftp", "secret_ref": "kv/data/dmp/prod/sftp#password", "config": {"host": "sftp.internal", "path": "/dmp/out", "username": "dmp", "auth": "key"}}); assert sf.status_code == 201, sf.text
+    sf = sf.json(); assert sf["type"] == "sftp" and sf["config"]["port"] == 22 and sf["url"] == "" and sf["secret"] == "••••••••", sf
+    st = c.post(f"/v1/destinations/{sf['id']}/test").json(); assert st["status"] == "ok" and [x["step"] for x in st["steps"]] == ["dns", "tcp", "auth", "write_probe"], st
+    login(c, sm, ["marketing"], "mkt"); assert c.post("/v1/exports/tasks", json={"name": "x", "type": "once", "content": {"kind": "events"}, "destination_id": sf["id"], "format": {}, "purpose": "行銷想輸出"}).status_code == 403
+    login(c, sm, ["data_analyst"], "ana")
+    body = {"name": "成交明細日檔", "type": "once", "content": {"kind": "events", "events": ["bond_deal"], "columns": ["event", "time", "platform", "amount", "props.market"], "filters": [{"field": "platform", "op": "in", "value": ["iOS", "Web"]}], "time": {"from": "2026-10-01", "to": "2026-10-16"}, "identifier": "customer_code"},
+            "destination_id": sf["id"], "format": {"type": "csv", "compression": "gzip"}, "purpose": "交付數據中台對帳（保存 90 天）", "retention_days": 90}
+    _r = c.post("/v1/exports/tasks/preview", json={**body, "content": {**body["content"], "columns": ["event", "one_id"]}}); assert _r.status_code == 422, _r.text          # L3 欄位
+    login(c, sm, ["data_analyst"], "ana2")   # ana 在 5e 有核可中的 one_id 揭露，換一個沒有揭露的分析師驗識別子
+    _r = c.post("/v1/exports/tasks/preview", json={**body, "content": {**body["content"], "identifier": "one_id"}}); assert _r.status_code == 422, _r.text                 # 沒有揭露的分析師不能明文 one_id
+    login(c, sm, ["data_analyst"], "ana")
+    _r = c.post("/v1/exports/tasks/preview", json={**body, "type": "realtime"}); assert _r.status_code == 422, _r.text                                                   # realtime 不接 sftp
+    pv = c.post("/v1/exports/tasks/preview", json=body); assert pv.status_code == 200, pv.text
+    pv = pv.json(); assert pv["rows_estimate"] == 2 and pv["rejected"] == [] and next(x for x in pv["columns"] if x["name"] == "amount")["policy"] == "bucket" and pv["sample"][0]["customer_code"].startswith("cust_") and "_one_id" not in pv["sample"][0] and pv["sample"][0]["amount"] == "100000–500000", pv
+    ot = c.post("/v1/exports/tasks", json=body); assert ot.status_code == 201, ot.text
+    ot = ot.json(); assert ot["status"] == "pending_approval" and ot["approval_id"] and ot["masked"] == {"amount": "bucket"} and ot["rows_estimate"] == 2 and ot["format"]["partition"] == "day", ot
+    assert c.post(f"/v1/exports/tasks/{ot['id']}/run").status_code == 409
+    assert [t["id"] for t in c.get("/v1/exports/tasks").json()] == [ot["id"]]
+    dy = c.post("/v1/exports/tasks", json={**body, "name": "成交明細每日", "type": "daily", "schedule": {"at": "02:00", "end_date": "2026-12-31"}}); assert dy.status_code == 201, dy.text
+    dy = dy.json()
+    login(c, sm, ["digital_ops"], "ops")
+    oaps = [a for a in c.get("/v1/approvals?scope=to_me").json() if a["type"] == "output_task" and a["status"] == "pending"]; assert len(oaps) == 2 and any("目的地首次使用" in a["summary"] for a in oaps), oaps
+    for a in oaps: assert c.post(f"/v1/approvals/{a['id']}/decide", json={"approve": True, "note": "ok"}).status_code == 200
+    assert c.get(f"/v1/exports/tasks/{ot['id']}").json()["status"] == "approved" and c.get(f"/v1/exports/tasks/{dy['id']}").json()["status"] == "active"
+    assert c.post(f"/v1/exports/tasks/{ot['id']}/run").status_code == 403                                                                           # 非建立者不能執行
+    login(c, sm, ["data_analyst"], "ana")
+    rn = c.post(f"/v1/exports/tasks/{ot['id']}/run"); assert rn.status_code == 202, rn.text
+    rn = rn.json(); assert rn["status"] == "ok" and rn["rows"] == 2 and [f["path"].split("/")[-1] for f in rn["files"]] == [f"{ot['id']}_2026-10-16_0001.csv.gz", "manifest.json"] and rn["watermark"] and all(len(f["checksum"]) == 64 for f in rn["files"]), rn
+    import gzip as _gz
+    outbox = app.state.output.dir / "outbox" / sf["id"] / "dmp" / "out" / rn["files"][0]["path"]; assert outbox.exists(), outbox
+    txt = _gz.decompress(outbox.read_bytes()).decode("utf-8"); assert txt.splitlines()[0] == "customer_code,event,time,platform,amount,props.market,_wm" and rn["watermark"] in txt and "v1_abcdef1234" not in txt, txt
+    man = json.loads((outbox.parent / "manifest.json").read_text(encoding="utf-8")); assert man["rows"] == 2 and man["masked"] == {"amount": "bucket"} and man["approval"] == ot["approval_id"], man
+    assert c.get(f"/v1/exports/tasks/{ot['id']}").json()["status"] == "ended" and c.get(f"/v1/exports/tasks/{ot['id']}/runs").json()[0]["id"] == rn["id"]
+    tk = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 17, 2, 5, tzinfo=ZoneInfo("Asia/Taipei"))); assert tk["ran"] and tk["ran"][0]["task"] == dy["id"] and tk["ran"][0]["status"] == "ok", tk
+    tk2 = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 17, 2, 6, tzinfo=ZoneInfo("Asia/Taipei"))); assert tk2["ran"] == [], tk2                     # 同一分區不重跑
+    runs = c.get(f"/v1/exports/tasks/{dy['id']}/runs").json(); assert runs[0]["trigger"] == "schedule" and runs[0]["partition_date"] == "2026-10-16", runs
+    assert c.post(f"/v1/exports/tasks/{dy['id']}/pause").json()["status"] == "paused" and c.post(f"/v1/exports/tasks/{dy['id']}/run").status_code == 409
+    up = c.put(f"/v1/exports/tasks/{dy['id']}", json={**body, "name": "成交明細每日 v2", "type": "daily", "schedule": {"at": "03:00"}, "content": {**body["content"], "events": ["bond_order"]}}); assert up.status_code == 200 and up.json()["status"] == "pending_approval", up.text   # 改內容重走審批
+    assert c.delete(f"/v1/exports/tasks/{dy['id']}").status_code == 204 and all(t["id"] != dy["id"] for t in c.get("/v1/exports/tasks").json())
+    evo = [x["event"] for x in store.audit_tail(200)]; assert {"output_task.previewed", "output_task.created", "output_task.approved", "output_task.run", "output_task.paused", "output_task.updated", "output_task.deleted", "destination.tested"} <= set(evo), set(evo)
     # 6. 審計：行銷只看自己；admin 全看
-    mine = c.get("/v1/audit").json(); assert mine and all(x.get("user") == "entra:mkt" for x in mine)
+    login(c, sm, ["marketing"], "mkt"); mine = c.get("/v1/audit").json(); assert mine and all(x.get("user") == "entra:mkt" for x in mine)
     login(c, sm, ["admin"], "adm"); allrows = c.get("/v1/audit").json(); assert len(allrows) > len(mine)
     # 6b. 系統管理：成員目錄（SSO 來自登入審計 + 本機帳號）、本機帳號 CRUD、全平台 session 與強制登出、日誌統計、審計報表、平台設定、權限拒絕審計
     cu = c.post("/v1/iam/users", json={"username": "vendor-b", "password": "Vendor-b-pass-2026!", "roles": ["custom_nope"], "name": "廠商 B"}); assert cu.status_code == 400, cu.text   # 角色需在白名單
