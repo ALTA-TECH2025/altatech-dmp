@@ -4,6 +4,7 @@ create_app(auth_service, store, ch) 讓測試能注入假 IdP／假 ClickHouse�
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -78,8 +79,22 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     app.include_router(users.build_router(store, get_subject, ch))
     exp = ExportService(store, ch, approvals, Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports", members_rule=seg_svc.members_rule)
     app.include_router(segments.build_router(store, get_subject, seg_svc))
+    from ..auth.mapping import overlay_assignments
     from ..output import OutputService
-    out_svc = OutputService(store, ch, approvals, (Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports") / "output", share.cat, members_rule=seg_svc.members_rule, code_key=act_svc.code_key)
+
+    def owner_roles(user_id: str) -> list[str] | None:
+        """排程以任務擁有者的權限跑：身分來源與登入相同（本機帳號的角色／SSO 最近一次登入映射到的角色）+ 本機指派疊加（deny、到期）；找不到或已停用 → None（不跑）。"""
+        m = next((x for x in member_directory(store, accounts, auth.sessions.store) if x["id"] == user_id), None)
+        if m is None or m.get("status") in ("disabled", "locked"): return None
+        base = list(m.get("roles") or [])                                       # 成員目錄：SSO＝最近一次登入映射到的角色；本機＝帳號角色（都含未到期的加權指派）
+        if m.get("source") == "local" and accounts is not None:
+            acc = next((a for a in accounts.list() if f"local:{a['subject']}" == user_id), None)
+            base = list(acc["roles"]) if acc else []
+        roles, _, _ = overlay_assignments((user_id, m.get("username") or user_id), base, store.assignments(), time.time())   # 再疊一次：deny／到期即時生效
+        return roles
+
+    out_svc = OutputService(store, ch, approvals, (Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports") / "output", share.cat, members_rule=seg_svc.members_rule, code_key=act_svc.code_key,
+                            roles_of=owner_roles)
     act_svc.uploader = out_svc.uploader
     app.state.output = out_svc
     app.include_router(output.build_router(store, get_subject, out_svc))   # 先掛：/v1/exports/tasks 不能被 /v1/exports/{id} 吃掉

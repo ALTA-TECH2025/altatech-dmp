@@ -17,6 +17,23 @@ class Uploader(Protocol):
         ...
 
 
+def safe_relpath(rel: str, what: str = "路徑") -> str:
+    """遠端相對路徑白名單：不得為絕對路徑、不得含 ..／空段落／反斜線；回正規化後的相對路徑。給檔名樣板、目的地 path／prefix 與上傳共用。"""
+    p = str(rel).replace("\\", "/")
+    if p.startswith("/") or ":" in p.split("/")[0] and len(p.split("/")[0]) <= 2:
+        raise ValueError(f"{what}不能是絕對路徑：{rel}")
+    parts = [x for x in p.split("/") if x != ""]
+    if not parts or any(x in (".", "..") for x in parts):
+        raise ValueError(f"{what}不能含 . 或 ..（不得越出目的地目錄）：{rel}")
+    return "/".join(parts)
+
+
+def _inside(base: Path, target: Path) -> bool:
+    """resolve 後（含符號連結）target 仍在 base 之內。"""
+    b = base.resolve(); t = target.resolve()
+    return t == b or b in t.parents
+
+
 class OutboxUploader:
     def __init__(self, root: Path):
         self.root = Path(root)
@@ -24,13 +41,21 @@ class OutboxUploader:
     def _base(self, dest: dict[str, Any]) -> Path:
         cfg = dest.get("config") or {}
         prefix = str(cfg.get("path") or cfg.get("prefix") or "").strip("/")
-        return self.root / str(dest["id"]) / prefix if prefix else self.root / str(dest["id"])
+        base = self.root / str(dest["id"])
+        if prefix: base = base / safe_relpath(prefix, "目的地路徑")
+        if not _inside(self.root, base): raise ValueError("目的地路徑越出出件匣")
+        return base
 
     def upload(self, dest: dict[str, Any], files: list[tuple[Path, str]]) -> list[str]:
         base = self._base(dest); out = []
-        for local, rel in files:
-            target = base / rel.lstrip("/")
+        plan: list[tuple[Path, Path, str]] = []
+        for local, rel in files:                                                # 先全部檢查，任何一個越界就整批不寫
+            safe = safe_relpath(rel, "輸出檔路徑"); target = base / safe
             target.parent.mkdir(parents=True, exist_ok=True)
+            if not _inside(base, target) or not _inside(base, target.parent) or target.is_symlink():
+                raise ValueError(f"輸出檔路徑越出目的地目錄：{rel}")
+            plan.append((local, target, safe))
+        for local, target, _ in plan:
             shutil.copyfile(local, target); out.append(str(target.relative_to(self.root)))
         return out
 

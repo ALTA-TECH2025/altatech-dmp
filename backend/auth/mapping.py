@@ -27,19 +27,28 @@ def map_roles(ident: Identity, mapping: dict[str, Any], assignments: list[dict[s
     if not roles:
         roles = list(mapping.get("default_roles") or [])
     if mapping.get("assignment_overlay", True):
-        t = now if now is not None else time.time()
-        for a in assignments or []:
-            if a.get("user_id") != ident.provider + ":" + ident.subject and a.get("user_id") != ident.username:
-                continue
-            if a.get("expires_at") and float(a["expires_at"]) < t:
-                continue
-            if a.get("deny"):
-                roles = [r for r in roles if r not in a["roles"]]; applied.append(f"deny:{a.get('id')}")
-            else:
-                roles += [r for r in a["roles"] if r not in roles and r in RBAC["roles"] or r.startswith(RBAC["custom_roles"]["key_prefix"])]
-                applied.append(f"assign:{a.get('id')}")
-                for k, v in (a.get("scope") or {}).items():
-                    scope[k] = v
+        roles, scope, more = overlay_assignments((ident.provider + ":" + ident.subject, ident.username), roles, assignments, now)
+        applied += more
+    roles = [r for r in roles if r in RBAC["roles"] or r.startswith(RBAC["custom_roles"]["key_prefix"])]
+    return roles, scope, applied
+
+
+def overlay_assignments(user_ids: tuple[str, ...], base_roles: list[str], assignments: list[dict[str, Any]] | None, now: float | None = None) -> tuple[list[str], dict[str, Any], list[str]]:
+    """本機指派疊加（登入與背景排程共用同一套規則）：到期的略過、deny 移除、其餘加上（只收 RBAC 內或自訂前綴的角色）並合併 scope。回 (roles, scope, applied)。"""
+    t = now if now is not None else time.time()
+    roles = list(base_roles); scope: dict[str, Any] = {}; applied: list[str] = []
+    for a in assignments or []:
+        if a.get("user_id") not in user_ids:
+            continue
+        if a.get("expires_at") and float(a["expires_at"]) < t:
+            continue
+        if a.get("deny"):
+            roles = [r for r in roles if r not in a["roles"]]; applied.append(f"deny:{a.get('id')}")
+        else:
+            roles += [r for r in a["roles"] if r not in roles and r in RBAC["roles"] or r.startswith(RBAC["custom_roles"]["key_prefix"])]
+            applied.append(f"assign:{a.get('id')}")
+            for k, v in (a.get("scope") or {}).items():
+                scope[k] = v
     roles = [r for r in roles if r in RBAC["roles"] or r.startswith(RBAC["custom_roles"]["key_prefix"])]
     return roles, scope, applied
 
