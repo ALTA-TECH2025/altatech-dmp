@@ -149,11 +149,15 @@
 | 執行紀錄 `OutputRun` | 推送的交付紀錄（realtime／webhook／kafka 的批次、狀態、重試走 `/v1/deliveries`） | 批量檔案的分區日、檔案清單與 sha256、列數／位元組、manifest |
 
 規則：
-- 建立即開審批單（type=`output_task` → 數位經營；目的地首次使用另需系統管理員），核可前 `pending_approval`；改輸出內容或目的地視同新任務重走審批。
+- 建立即開審批單（type=`output_task` → 數位經營）；目的地首次使用另開 `destination_first_use` → 系統管理員，兩道都核可任務才生效，核可前 `pending_approval`；任一道退回即 `rejected`。改輸出內容或目的地視同新任務重走審批；目的地連線設定變更後，下次執行會擋下並重開系統管理員審批。
+- 執行前重驗：目的地必須啟用中（暫停就記 `skipped`、不產檔不上傳）；排程以擁有者「現在」的有效角色執行（與登入同一套身分來源＋本機指派疊加：deny／到期即停；找不到身分不跑，不預設任何角色）。
+- 識別子：用戶寬表／分群名單在內部以原始 one_id 代碼化，`customer_code` 與事件明細一致；原始值不進檔案、預覽與 manifest。
+- 期間口徑：事件依 `event_date`；用戶寬表依 `updated_at`（once 期間、daily 分區當天）；分群名單＝最新版本完整快照，不套期間。
+- 路徑：檔名樣板與目的地 path／prefix 只能是相對、不得含 `..`，上傳前再以正規化路徑確認落在目的地目錄內（符號連結不能繞）。
 - 欄位：L3／L4 一律拒絕；L2 數值依匯出規則區間化；每列帶浮水印欄 `_wm`、manifest 帶申請單號／使用者／時間。單次執行列數上限 `limits.output_rows_per_run`（預設 10,000,000）。
 - 權限：清單與建立都需 `integration.view`；事件明細另需 `events.export`，用戶寬表／分群名單另需 `users.export`（數據分析、數位經營；資訊管理只能看任務）。
 - 排程：daily 重用資料流的背景例行（scheduler），每天 `schedule.at` 跑前一天分區；暫停不補跑，缺的分區用 `run` 指定 `partition_date`。realtime 第一版只接 kafka／webhook、只接事件明細，單條 jsonl。
-- 審計：`output_task.created／previewed／updated／approved／rejected／run／paused／resumed／deleted`；實際送出走 `sync.delivered／failed／replayed`。
+- 審計：`output_task.created／previewed／updated／approval_step／approved／rejected／reapproval／run／run_skipped／run_failed／paused／resumed／deleted`；實際送出走 `sync.delivered／failed／replayed`。
 - 前端：資料 › 數據整合 › 數據輸出：任務列表（名稱、類型、輸出內容、目的地、狀態、上次執行）＋ 右側抽屜表單三段（基本資訊／連接配置／數據管理：事件清單可批量添加、欄位與遮罩預覽）。
 
 對應檔案：`backend/openapi.yaml`（`/v1/exports/tasks*`、`Destination.type` 加 sftp／s3）；後端 `backend/output/`（服務、出件匣傳輸）、`backend/semantic/compiler/output.py`（事件明細輸出編譯）、`backend/api/output.py`；前端 `web/src/integration/OutputTab.tsx`（數據整合頁的「數據輸出」頁籤）、目的地表單在 `web/src/activation/ActivationPage.tsx`；示範站的任務由 `backend/tools/demo_fill.py` 建立、`demo_capture.py` 擷取。
