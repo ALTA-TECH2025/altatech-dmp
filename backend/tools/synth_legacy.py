@@ -5,11 +5,12 @@
 
 產生內容（project 預設 sinopac_demo，時間 2026-07-19 … 2026-10-16，台北時間）：
 - dmp.users：固定欄位（生命週期、等級、AUM…）＋ props_extra 放用戶表其餘可遷移欄位（L1／L2，依名稱產生日期／數值／旗標／代碼值，部分為空）。
-- dmp.events：字典裡 live 的事件依來源加權隨機產生；deprecated 事件只出現在前 30 天（歷史）。每筆帶該事件在字典裡的屬性。
-  另注入五條有先後順序與流失的流程（看盤→委託→成交、線上開戶、豐存股申購、股票禮品卡、豐雲學堂報名），讓漏斗與路徑有意義。
+- dmp.events：字典裡 live 的事件依來源加權隨機產生，行為資料（預設 1,000 萬筆，kind≠trade）與交易資料（預設 500 萬筆，kind=trade）筆數各自指定；
+  deprecated 事件只出現在前 30 天（歷史）。每筆帶該事件在字典裡的屬性。
+  另注入有先後順序與流失的流程（看盤→委託→成交、數位開戶 kh_* 漏斗：引流→審核成功 15%、每月約 2 萬戶、豐存股申購、股票禮品卡、豐雲學堂報名、App 會話），讓漏斗與路徑有意義。
 - 活躍度：用戶依序號冪次分布（少數人很活躍）；序號後 20% 的用戶只在前 30 天有事件（沉睡／流失）。
 
-用法：CLICKHOUSE_URL=http://127.0.0.1:8123 CLICKHOUSE_PASSWORD=… python3 -m backend.tools.synth_legacy [--users 1000000] [--events 30000000] [--project sinopac_demo]
+用法：CLICKHOUSE_URL=http://127.0.0.1:8123 CLICKHOUSE_PASSWORD=… python3 -m backend.tools.synth_legacy [--users 1000000] [--events 10000000] [--trades 5000000] [--project sinopac_demo]
      python3 -m backend.tools.synth_legacy --sql      # 只印 SQL 長度與事件權重摘要，不連 ClickHouse
      --compact：單機開檔數上限低時（屬性多、JSON 子欄位多）把 events／users 改成 compact part
 可重跑：先刪同 project 的事件與同前綴（v1_d）的用戶再寫入。
@@ -37,9 +38,13 @@ ID_PREFIX = "v1_d"                        # 用戶 one_id 前綴（看起來像�
 # 熱門度：以冪次（2.4）偏斜到清單前段，台積電最多、VOO 最少
 SYMBOLS = [("2330", "台積電"), ("2317", "鴻海"), ("0050", "元大台灣50"), ("2454", "聯發科"), ("00878", "國泰永續高股息"), ("2881", "富邦金"),
            ("2603", "長榮"), ("2308", "台達電"), ("AAPL", "Apple"), ("NVDA", "NVIDIA"), ("TSLA", "Tesla"), ("VOO", "Vanguard S&P 500")]
-FLOWS = [   # (名稱, 步驟, 每步續行機率, 步距分鐘, 起點數占用戶數比例)
+FLOWS = [   # (名稱, 步驟, 每步續行機率（一個數＝每步相同；清單＝逐步）, 步距分鐘, 起點數占用戶數比例[, "distinct"＝每個起點一個不同用戶])
     ("trade", ["hq_stockdetail_view", "bond_order", "bond_deal"], 0.45, 3, 1.2),
-    ("open_account", ["ConfirmID", "openact_mobile", "openact_profile", "Credit", "Contract", "OpenAccountDone", "EnableAct"], 0.72, 6, 0.05),
+    # 數位開戶漏斗（依埋點規格 kh_* 事件）：引流（開戶首頁）→ 審核成功 15%；起點 40% 用戶 ≈ 90 天 40 萬人進漏斗 → 每月約 2 萬戶開戶成功。
+    # 各步續行率參考券商／eKYC 供應商的公開經驗值：首頁到開始申請最大流失、證件上傳其次、送件後審核通過約九成；審核成功後批次寫回開戶完成、再啟用帳戶。
+    ("open_account", ["kh_entry_khpg_pv", "kh_entry_khpg_click", "kh_otp_get", "kh_idphoto_upload", "kh_enter_profilepg", "kh_kyc", "kh_set_bank", "kh_sign", "kh_apply", "kh_review_pass", "OpenAccountDone", "EnableAct"],
+     [0.58, 0.82, 0.76, 0.82, 0.88, 0.82, 0.88, 0.93, 0.86, 0.98, 0.85], 6, 0.4, "distinct"),   # 一人只進一次漏斗，整體轉化率才會是各步連乘
+    ("open_account_legacy", ["ConfirmID", "openact_mobile", "openact_profile", "Credit", "Contract"], 0.72, 6, 0.01),   # 舊版開戶事件（已少量留存）
     ("sip", ["viewProduct", "Purchase", "PurchaseSend", "PurchaseComfirm", "PurchaseComplete"], 0.6, 2, 0.12),
     ("gift_card", ["buy_now", "begin_checkout", "add_payment_info", "gift_card_purchase", "gift_card_payment"], 0.62, 2, 0.03),
     ("richclub", ["richclub_lesson_page_view", "richclub_register_click", "richclub_order_confirm", "richclub_register_confirm"], 0.55, 2, 0.04),
@@ -159,7 +164,7 @@ def event_specs(events: list[dict], props: dict[str, dict], types: dict[tuple[st
         if grp == "開戶" or name.startswith("etlOpenAccountDone"): w = 0.3
         if name.startswith("etlMatch_"): w = 2
         if e.get("status") == "deprecated": w = 0.3
-        out.append({"name": name, "keys": keys, "plats": plats or ["Web"], "weight": w, "deprecated": e.get("status") == "deprecated",
+        out.append({"name": name, "keys": keys, "plats": plats or ["Web"], "weight": w, "deprecated": e.get("status") == "deprecated", "kind": e.get("kind", "behavior"),
                     "entity": e.get("entity", "user"), "has_sym": name in ("bond_order", "bond_deal", "hq_stockdetail_view") or any(c in (C_SYMBOL, C_STOCKNAME) for _, c in keys),
                     "has_amt": any(c in (C_AMT, C_FEE) for _, c in keys)})
     return out
@@ -194,9 +199,12 @@ def _row_tail(project: str) -> str:
             f"{props}::JSON AS props, now64(3) AS ingest_time, 1 AS schema_version, 0 AS late, 'synth_legacy' AS batch_id")
 
 
-def events_sql(specs: list[dict], project: str, n_users: int, offset: int, count: int) -> str:
+def events_sql(specs: list[dict], project: str, n_users: int, offset: int, count: int, kinds: set[str] | None = None) -> str:
+    """隨機散佈的事件；kinds 給了只從這些類別（behavior／business／marketing／trade）抽，讓行為資料與交易資料的筆數可各自指定。"""
     bag: list[str] = []
     for s in specs:
+        if kinds and s["kind"] not in kinds:
+            continue
         bag += [s["name"]] * max(1, round(s["weight"] * 10))
     live_bag = [x for x in bag if not next(sp for sp in specs if sp["name"] == x)["deprecated"]]
     hours = [8] + [9] * 6 + [10] * 7 + [11] * 6 + [12] * 5 + [13] * 6 + [14] * 3 + [15] * 2 + [16, 17, 18] + [19] * 2 + [20] * 3 + [21] * 3 + [22] * 2 + [23, 7]
@@ -215,21 +223,28 @@ def events_sql(specs: list[dict], project: str, n_users: int, offset: int, count
 
 
 def flow_sql(specs: list[dict], project: str, n_users: int, flow: tuple, flow_no: int, offset: int) -> tuple[str, int]:
-    name, steps, p, gap, ratio = flow
+    name, steps, p, gap, ratio = flow[:5]
+    distinct = len(flow) > 5 and flow[5] == "distinct"
     have = {s["name"] for s in specs}
-    steps = [s for s in steps if s in have]
+    keep = [i for i, st in enumerate(steps) if st in have]
+    ps = list(p) if isinstance(p, (list, tuple)) else [p] * (len(steps) - 1)
+    steps = [steps[i] for i in keep]
+    ps = [ps[i - 1] for i in keep[1:]]                                  # 字典沒有的步驟略過，續行率跟著對齊
     starts = int(n_users * ratio)
     u = lambda k: f"(cityHash64(f, {k}, {SEED}) % 1000000 / 1000000.)"
-    # 每個起點走到第 k 步的機率 p^k；n 給全域唯一列號（offset + 起點 × 10 + 步序）
+    cum = [1.0]
+    for x in ps: cum.append(cum[-1] * x)                                # 走到第 k 步的累積機率
+    reach = f"toUInt32(arrayCount(c -> {u(7)} < c, [{', '.join(repr(c) for c in cum)}]) - 1)"
+    # 每個起點走到第 k 步的機率 = 各步續行率連乘；n 給全域唯一列號（offset + 起點 × 20 + 步序）
     sql = (f"INSERT INTO dmp.events (project, time, event, source, one_id, entity_type, entity_id, distinct_id, session_id, event_id, platform, app_id, symbol, side, channel, amount, "
            f"utm_source, utm_campaign, props, ingest_time, schema_version, late, batch_id) "
            f"WITH {_maps(specs)}, [{', '.join(q(x) for x in steps)}] AS STEPS "
-           f"{_row_tail(project)} FROM (SELECT {offset} + f * 10 + k AS n, uidx, STEPS[k + 1] AS event, "
+           f"{_row_tail(project)} FROM (SELECT {offset} + f * 20 + k AS n, uidx, STEPS[k + 1] AS event, "
            f"toDateTime64(toDateTime({q(START_UTC)}, 'UTC') + day * 86400 + 3600 + cityHash64(f, 5) % 50000 + k * {gap * 60} + cityHash64(f, k, 6) % {gap * 60}, 3, 'UTC') AS t, "
            f"PL[event][1 + cityHash64(f, 6) % length(PL[event])] AS PLAT, SYMS[1 + toUInt32(floor(pow(cityHash64(f, 102) % 100000 / 100000., 2.4) * length(SYMS)))] AS SYM, SYMNAMES[1 + toUInt32(floor(pow(cityHash64(f, 102) % 100000 / 100000., 2.4) * length(SYMS)))] AS SYMNAME, "
            f"round(pow(10, 3 + 3.5 * {u(101)})) AS AMT "
-           f"FROM (SELECT number AS f, toUInt64(floor(pow({u(1)}, 1.5) * {int(n_users * 0.8)})) AS uidx, toUInt32(floor({u(3)} * {DAYS - 1})) AS day, "
-           f"toUInt32(floor(log({u(7)} + 1e-9) / log({p}))) AS reach FROM numbers({starts})) ARRAY JOIN range(least(reach + 1, length(STEPS))) AS k)")
+           f"FROM (SELECT number AS f, {'toUInt64((f * 7919 + 101) % ' + str(n_users) + ')' if distinct else 'toUInt64(floor(pow(' + u(1) + ', 1.5) * ' + str(int(n_users * 0.8)) + '))'} AS uidx, toUInt32(floor({u(3)} * {DAYS - 1})) AS day, "
+           f"{reach} AS reach FROM numbers({starts})) ARRAY JOIN range(least(reach + 1, length(STEPS))) AS k)")
     return sql, starts
 
 
@@ -283,7 +298,10 @@ def users_sql(users: list[dict], n_users: int, offset: int, count: int) -> str:
             f"FROM (SELECT number AS n FROM numbers_mt({offset}, {count})))")
 
 
-def run(ch: Any, project: str, n_users: int, n_events: int, chunk: int = 2_000_000, compact: bool = False, log=print) -> dict[str, int]:
+TRADE_KINDS = {"trade"}                   # 「交易資料」= 字典 kind=trade 的事件（委託／成交／撮合批次…），其餘類別算行為資料
+
+
+def run(ch: Any, project: str, n_users: int, n_events: int, chunk: int = 2_000_000, compact: bool = False, log=print, n_trades: int = 0) -> dict[str, int]:
     events, props, types, users = load_inputs()
     specs = event_specs(events, props, types)
     s = {"allow_experimental_json_type": 1, "max_execution_time": 3600, "max_query_size": 50_000_000, "max_ast_elements": 5_000_000, "max_expanded_ast_elements": 5_000_000,
@@ -297,13 +315,17 @@ def run(ch: Any, project: str, n_users: int, n_events: int, chunk: int = 2_000_0
     for off in range(0, n_users, 250_000):
         ch.query(users_sql(users, n_users, off, min(250_000, n_users - off)), settings=s)
         log(f"users {min(off + 250_000, n_users):,}/{n_users:,}  {time.time() - t0:.0f}s")
+    all_kinds = {sp["kind"] for sp in specs}
     for off in range(0, n_events, chunk):
-        ch.query(events_sql(specs, project, n_users, off, min(chunk, n_events - off)), settings=s)
+        ch.query(events_sql(specs, project, n_users, off, min(chunk, n_events - off), kinds=(all_kinds - TRADE_KINDS) if n_trades else None), settings=s)
         log(f"events {min(off + chunk, n_events):,}/{n_events:,}  {time.time() - t0:.0f}s")
-    base = n_events * 10
+    for off in range(0, n_trades, chunk):
+        ch.query(events_sql(specs, project, n_users, n_events + off, min(chunk, n_trades - off), kinds=TRADE_KINDS), settings=s)
+        log(f"trades {min(off + chunk, n_trades):,}/{n_trades:,}  {time.time() - t0:.0f}s")
+    base = (n_events + n_trades) * 10
     for i, fl in enumerate(FLOWS):
         sql, starts = flow_sql(specs, project, n_users, fl, i, base)
-        ch.query(sql, settings=s); base += starts * 10 + 10
+        ch.query(sql, settings=s); base += starts * 20 + 20
         log(f"flow {fl[0]} starts={starts:,}  {time.time() - t0:.0f}s")
     with __import__("contextlib").suppress(Exception):
         ch.query("SYSTEM RELOAD DICTIONARY dmp.users_dict")
@@ -311,12 +333,18 @@ def run(ch: Any, project: str, n_users: int, n_events: int, chunk: int = 2_000_0
     ucnt = int(ch.query(f"SELECT count() FROM dmp.users WHERE startsWith(one_id, {q(ID_PREFIX)})").strip())
     act = int(ch.query(f"SELECT uniqExact(one_id_uint) FROM dmp.events WHERE project = {q(project)}").strip())
     evs = int(ch.query(f"SELECT uniqExact(event) FROM dmp.events WHERE project = {q(project)}").strip())
-    return {"users": ucnt, "events": cnt, "active_users": act, "distinct_events": evs, "dictionary_events": len(specs), "seconds": round(time.time() - t0)}
+    trades = [sp["name"] for sp in specs if sp["kind"] in TRADE_KINDS]
+    tcnt = int(ch.query(f"SELECT count() FROM dmp.events WHERE project = {q(project)} AND event IN ({', '.join(q(x) for x in trades)})").strip())
+    opened = int(ch.query(f"SELECT uniqExact(one_id_uint) FROM dmp.events WHERE project = {q(project)} AND event = 'kh_review_pass'").strip())
+    entered = int(ch.query(f"SELECT uniqExact(one_id_uint) FROM dmp.events WHERE project = {q(project)} AND event = 'kh_entry_khpg_pv'").strip())
+    return {"users": ucnt, "events": cnt, "trade_events": tcnt, "behavior_events": cnt - tcnt, "active_users": act, "distinct_events": evs, "dictionary_events": len(specs),
+            "open_account_entered": entered, "open_account_passed": opened, "open_account_rate": round(opened / entered, 4) if entered else None, "seconds": round(time.time() - t0)}
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--users", type=int, default=1_000_000); ap.add_argument("--events", type=int, default=30_000_000)
+    ap.add_argument("--users", type=int, default=1_000_000); ap.add_argument("--events", type=int, default=10_000_000, help="行為資料筆數（字典 kind≠trade 的事件；流程另外加）")
+    ap.add_argument("--trades", type=int, default=5_000_000, help="交易資料筆數（字典 kind=trade 的事件）；0 = 不分類別，全部從 --events 抽")
     ap.add_argument("--project", default="sinopac_demo"); ap.add_argument("--sql", action="store_true")
     ap.add_argument("--compact", action="store_true", help="單機開檔數上限低時改用 compact part（只改本機表設定）")
     ap.add_argument("--flows-only", default="", help="只追加指定流程（逗號分隔，例 app_session），不刪既有資料")
@@ -332,12 +360,12 @@ def main() -> int:
     if a.flows_only:
         events, props, types, _ = load_inputs(); specs = event_specs(events, props, types)
         for i, fl in enumerate(f for f in FLOWS if f[0] in a.flows_only.split(",")):
-            sql, starts = flow_sql(specs, a.project, a.users, fl, i, 9_000_000_000 + i * 100_000_000)   # 與主流程的列號錯開（event_id 唯一）
+            sql, starts = flow_sql(specs, a.project, a.users, fl, i, 9_000_000_000 + i * 200_000_000)   # 與主流程的列號錯開（event_id 唯一）
             ch.query(sql, settings={"allow_experimental_json_type": 1, "max_execution_time": 3600, "max_query_size": 50_000_000, "max_ast_elements": 5_000_000,
                                     "max_expanded_ast_elements": 5_000_000, "max_insert_threads": 4})
             print(f"flow {fl[0]} starts={starts:,}")
         return 0
-    print(json.dumps(run(ch, a.project, a.users, a.events, compact=a.compact), ensure_ascii=False))
+    print(json.dumps(run(ch, a.project, a.users, a.events, compact=a.compact, n_trades=a.trades), ensure_ascii=False))
     return 0
 
 
