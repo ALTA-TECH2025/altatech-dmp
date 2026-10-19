@@ -1,4 +1,4 @@
-# 可視化建模與資料整合：MSSQL、BigQuery、PostgreSQL、神策（SensorsData）
+# 可視化建模與資料整合：MSSQL、BigQuery、PostgreSQL、舊平台（LegacyData）
 
 > 版本 v0.2（2026-10-14）。定義「資料連結 → 可視化建模 → 欄位整合與清洗 → 載入事件／用戶／物品模型」的產品與技術設計。全部元件採 Apache-2.0／MIT／BSD／PostgreSQL 等寬鬆授權（見 07 文件授權審查）。
 
@@ -6,7 +6,7 @@
 
 > **v0.6 修訂（2026-10-15）**：交易與帳務資料**不直連交易主機**，來源是數據中台／CDP 的事實表（Hive／Iceberg，以 Trino／Spark 批次導入，每 15 分鐘增量 + 日批對帳；數據中台若提供 Kafka 則改流任務）。下文 MSSQL／CDC 的段落保留給 CRM 等其他業務系統；連接器定義見 `backend/integration/connectors.yaml` 的 `dwh`。
 - 業務／資料工程師在 UI 上以**拖拉與表單**完成來源連結、實體對映、欄位映射與清洗規則，不寫程式。
-- 與神策一樣「與資料建模域解耦」：來源怎麼接與事件模型長什麼樣分開；同一來源表可映射到多個實體。
+- 與舊平台一樣「與資料建模域解耦」：來源怎麼接與事件模型長什麼樣分開；同一來源表可映射到多個實體。
 - 倉表**雙向映射**：既有數倉的事實表可直接註冊為事件來源（不複製），本平台的事件表亦可被數倉以 Iceberg 讀取（只存一份）。
 
 ## 2. 支援的來源與接法
@@ -16,7 +16,7 @@
 | **Microsoft SQL Server** 2016+ | JDBC 增量（時間戳／自增鍵）、分頁拉取 | **Debezium SQL Server 連接器**（需開啟 CDC，`sys.sp_cdc_enable_table`）／Flink CDC SQL Server | Debezium（Apache-2.0）、Flink CDC（Apache-2.0）、mssql-jdbc（MIT） | 交易主機常見；若主機不允許 CDC，退回「回報檔 + 分鐘級拉取」 |
 | **PostgreSQL** 12+ | JDBC 增量 | Debezium PostgreSQL（`pgoutput` 邏輯複寫）／Flink CDC | Debezium、pgjdbc（BSD-2） | 本平台控制面亦為 PostgreSQL |
 | **BigQuery**（GA360 匯出、既有數倉） | **BigQuery Storage Read API**（Arrow，分片平行）；表分片 `events_YYYYMMDD` 自動偵測；增量以分區／日期 | 無 CDC；以 Fresh Daily／Streaming 表近即時 | Spark BigQuery Connector（Apache-2.0，Google）、google-cloud-bigquery（Apache-2.0） | 唯一出站連線；服務帳戶最小權限；GCP 部署時走 Private Google Access，不經公網 |
-| **神策 SensorsData**（歷史事件，**一次性匯入**） | **查詢 API**（`/api/sql/query`）分日匯出，或由神策工程匯出 Parquet；匯入 Iceberg → ClickHouse | 不接增量：匯入完成後行為事件全部來自 GA360 | 神策協議為 Apache-2.0；映射器為本平台程式 | 事件名、屬性名、`identities` 直接映射；`$` 預置屬性對齊到 GA 事件命名 |
+| **舊平台**（歷史事件，**一次性匯入**） | **查詢 API**（`/api/sql/query`）分日匯出，或由舊平台工程匯出 Parquet；匯入 Iceberg → ClickHouse | 不接增量：匯入完成後行為事件全部來自 GA360 | 舊平台協議為 Apache-2.0；映射器為本平台程式 | 事件名、屬性名、`identities` 直接映射；`$` 預置屬性對齊到 GA 事件命名 |
 | 其他（MySQL、Oracle、檔案 GCS/S3、Kafka、HTTP API） | 依連接器 | Debezium 支援 MySQL／Oracle（Oracle 需 LogMiner，注意 Oracle 授權） | — | P1 |
 
 技術底座：
@@ -33,7 +33,7 @@
  MSSQL       dbo.ORDER_HIST  → 事件 order_*    ORD_NO→order_no     trim/upper          100 筆樣本       每 5 分鐘增量
  BigQuery    events_*        → 事件 ga.*       event_params→props  µs→ms, 時區         型別檢查         Fresh/Daily
  PostgreSQL  crm.customer    → 用戶 profile    CUST_ID→login_id    HMAC 代碼化         禁止欄位掃描     每日 02:00
- Sensors     歷史匯出 Parquet → 事件（同名）     identities 直通      $ 屬性對齊          字典比對         一次性
+ 舊平台     歷史匯出 Parquet → 事件（同名）     identities 直通      $ 屬性對齊          字典比對         一次性
 ```
 
 ### 3.1 實體對映（Entity Mapping）
@@ -65,12 +65,12 @@
 - 即時：Debezium／Flink CDC 任務由平台以 K8s Operator 建立。
 - 監控：延遲、筆數、隔離率、Schema drift（來源新增欄位 → 告警與建議映射）。
 
-## 4. 神策歷史資料的一次性匯入
+## 4. 舊平台歷史資料的一次性匯入
 
-- 範圍：神策分析既有的歷史行為事件與使用者屬性，**只匯入一次**；匯入完成後行為事件全部改由 GA360 BigQuery 匯出（日批 + 串流 intraday）供應，不再接神策增量，也不寫回神策。
-- 流程：神策查詢 API 分日匯出（或請神策工程直接匯出 Parquet）→ GCS 暫存桶 → Spot 節點以 dlt／Spark 批次寫入 Iceberg raw → 映射器轉成本平台事件（事件名、屬性名、`identities` 幾乎 1:1；`$` 預置屬性對齊到 GA 事件命名）→ ClickHouse。
-- 對齊：神策事件名與 GA360 事件名需在事件字典建立對照（例：神策 `$pageview` ↔ `ga.page_view`、`$AppViewScreen` ↔ `ga.screen_view`），讓歷史與新資料能在同一漏斗中銜接；`distinct_id`／`login_id` 轉為 `$identity_login_id`，`track_signup`／`track_id_bind` 轉為 OneID 綁定指令。
-- 驗證：匯入後以每日事件量、去重人數與神策既有報表對帳（差異 < 1%），通過後刪除暫存桶。
+- 範圍：舊平台既有的歷史行為事件與使用者屬性，**只匯入一次**；匯入完成後行為事件全部改由 GA360 BigQuery 匯出（日批 + 串流 intraday）供應，不再接舊平台增量，也不寫回舊平台。
+- 流程：舊平台查詢 API 分日匯出（或請舊平台工程直接匯出 Parquet）→ GCS 暫存桶 → Spot 節點以 dlt／Spark 批次寫入 Iceberg raw → 映射器轉成本平台事件（事件名、屬性名、`identities` 幾乎 1:1；`$` 預置屬性對齊到 GA 事件命名）→ ClickHouse。
+- 對齊：舊平台事件名與 GA360 事件名需在事件字典建立對照（例：舊平台 `$pageview` ↔ `ga.page_view`、`$AppViewScreen` ↔ `ga.screen_view`），讓歷史與新資料能在同一漏斗中銜接；`distinct_id`／`login_id` 轉為 `$identity_login_id`，`track_signup`／`track_id_bind` 轉為 OneID 綁定指令。
+- 驗證：匯入後以每日事件量、去重人數與舊平台既有報表對帳（差異 < 1%），通過後刪除暫存桶。
 - 時程與資源：約 50 億事件，Spot 池 4 台 1–2 天完成；期間暫停標籤日批。
 
 ## 5. 後端骨架對應
@@ -88,7 +88,7 @@
 | 密鑰存放 | 未定義 | 若實作時直接存在平台 PostgreSQL，等於多一份明文密鑰；稽核不會過 |
 | 最小權限 | 未定義 | 現場常拿 db_owner／superuser 帳號接 CDC；一旦外洩影響範圍是整個交易庫 |
 | 連線測試 | 無 | 連不上只回「失敗」，DBA 與平台互推；CDC 前置（cdc 啟用、wal_level、publication）無法事前驗證 |
-| 輪替 | 無 | 密碼型憑證無到期管理；神策 token 匯入後沒有撤銷動作 |
+| 輪替 | 無 | 密碼型憑證無到期管理；舊平台 token 匯入後沒有撤銷動作 |
 | API | 無 integration 端點 | UI「新增連線」只是提示 |
 | 審計 | 只有 sync／profile 類事件 | 密鑰讀取與連線測試不留痕 |
 
@@ -100,7 +100,7 @@
    - PostgreSQL：Cloud SQL IAM 驗證（1 小時 token）＞ mTLS 用戶端憑證 ＞ 帳密（機房可用 OpenBao database engine 發動態帳密，TTL 24 h）。
    - MSSQL：Kerberos（AD，keytab 以 CSI 掛到執行 Pod）＞ Entra ID 服務主體 ＞ SQL 帳密。
    - Kafka：mTLS ＞ SASL/SCRAM ＞ OAUTHBEARER；GCS／S3 相容：Workload Identity ＞ HMAC。
-   - 神策：API token，一次性匯入完成後撤銷。
+   - 舊平台：API token，一次性匯入完成後撤銷。
 3. **最小權限清單**寫在 connectors.yaml（批次與 CDC 分開），連線測試逐項自檢；不接受 db_owner／superuser／專案層級 Viewer。
 4. **連線測試是逐步診斷**：dns → tcp → tls → auth → privilege → cdc_prereq → sample_read → clock_skew；在哪一步失敗就回該步的原因與修法（例：TLS 失敗 → 提供 CA bundle，而不是關閉驗證）。測試在執行節點以 Workload Identity 取密鑰，API 節點與瀏覽器不接觸明文。儲存前必須通過測試。
 5. **傳輸與網路**：TLS 1.2+ 且驗證伺服器憑證為強制（UI 不提供關閉）；私有 IP／Private Google Access；來源端放行 dmp 固定出口 IP（Cloud NAT／機房出口）。
@@ -110,21 +110,21 @@
 
 對應檔案：`backend/integration/connectors.yaml`（secret_providers、auth_methods、least_privilege、rotation_policy、connection_test）、`backend/integration/auth.py`（Connection.validate／redacted、SecretResolver、test_connection、rotate，含自測）、`backend/openapi.yaml`（/v1/integration/*）、原型「數據整合 → 連線 → 連線設定／新增連線」抽屜。
 
-## 7. 對齊神策「數據源的集成與管理」（通用數據接入）與「元數據管理」（v0.5.1 修訂）
+## 7. 對齊舊平台「數據源的集成與管理」（通用數據接入）與「元數據管理」（v0.5.1 修訂）
 
 ### 7.1 功能結構改為三層
 
-| 層 | 神策 | 本系統（原型「數據整合」頁） | 說明 |
+| 層 | 舊平台 | 本系統（原型「數據整合」頁） | 說明 |
 |---|---|---|---|
-| 數據源管理 | 新建數據源（Hive／MySQL／ClickHouse／FTP／Kafka…）、測試連線 | 連線（MSSQL／PostgreSQL／BigQuery／Kafka／GCS／神策一次性）＋ §6 的鑑權、密鑰參照、逐步測試、輪替 | — |
+| 數據源管理 | 新建數據源（Hive／MySQL／ClickHouse／FTP／Kafka…）、測試連線 | 連線（MSSQL／PostgreSQL／BigQuery／Kafka／GCS／舊平台一次性）＋ §6 的鑑權、密鑰參照、逐步測試、輪替 | — |
 | 數據表管理 | 登記外部表、Schema、欄位變更處理 | 探索表結構、設主鍵與增量欄位（LSN／更新時間／分片日期）、Schema 版本、變更標記；個資欄位標 L4 不可選 | 一張表可被多個任務使用 |
-| 數據同步（任務） | 來源 → 神策數據表／事件表／用戶表；事件表只增量、用戶表與有主鍵表 upsert；全量／增量／流任務；任務依賴、複製；啟停、狀態、日誌 | 同步任務：目標 **events（只增量，需事件化映射）／users（upsert）／維度表 dim_*（upsert 或全量覆蓋）／OneID 綁定／標籤**；全量／增量／流任務（CDC、Kafka）；排程、依賴、複製；執行紀錄與日誌、失敗重試、Schema 變更處理（自動映射／忽略／暫停通知） | 「可視化建模精靈」就是建立任務的流程 |
+| 數據同步（任務） | 來源 → 舊平台數據表／事件表／用戶表；事件表只增量、用戶表與有主鍵表 upsert；全量／增量／流任務；任務依賴、複製；啟停、狀態、日誌 | 同步任務：目標 **events（只增量，需事件化映射）／users（upsert）／維度表 dim_*（upsert 或全量覆蓋）／OneID 綁定／標籤**；全量／增量／流任務（CDC、Kafka）；排程、依賴、複製；執行紀錄與日誌、失敗重試、Schema 變更處理（自動映射／忽略／暫停通知） | 「可視化建模精靈」就是建立任務的流程 |
 
 建模精靈七步改名為：數據源 → 選表與主鍵 → 目標類型 → 字段映射與轉換 → 清洗規則 → 預覽驗證 → 排程發佈。清洗規則與隔離區不變（§3）。
 
 ### 7.2 維度表、維度字典、虛擬屬性（取代原「Item 表管理」的錯誤認知）
 
-原本把 Item 當成「帳戶、商品等有自己事件的主體」是錯的。神策的定義：
+原本把 Item 當成「帳戶、商品等有自己事件的主體」是錯的。舊平台的定義：
 
 - **維度表**：當事件裡缺少分析需要的維度時，引入外部表，以「事件／用戶屬性值 = 維度表主鍵」關聯（例：`events.symbol = dim_instrument.symbol`，items 表另以 `item_type` 區分），維度表的欄位成為可篩選、可分組的關聯屬性。關聯鍵必須唯一；建議行數 < 100 萬；事件屬性已能滿足時不要用維度表（JOIN 有成本）。事件仍然屬於用戶，維度表不是主體。
 - **維度字典**：針對已有資料上報的文字／數值屬性，上傳「值 → 顯示名」映射（1:1 或 N:1），篩選與分組時以顯示名呈現；上傳可新增或覆蓋。

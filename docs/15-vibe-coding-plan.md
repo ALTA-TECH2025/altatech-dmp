@@ -1,8 +1,8 @@
 # Vibe Coding 開發計畫：分工、測試協同、拆解與「代碼級第一版」時程
 
-> **v1.1 調整（2026-10-16）**：第一階段不做 AI（§4 的工具閘道／agent／evals 與 §5 第 13–16 週的 AI 工作移到第二階段），主軸改為神策 → GA360 遷移與歷史資料銜接；里程碑與週次以 docs/22 §6 的 M1–M5（第 20 週驗收）為準，本文其餘分工、規則、測試協同仍適用，「AI 層」一人改做歷史資料導出／對帳工具。
+> **v1.1 調整（2026-10-16）**：第一階段不做 AI（§4 的工具閘道／agent／evals 與 §5 第 13–16 週的 AI 工作移到第二階段），主軸改為舊平台 → GA360 遷移與歷史資料銜接；里程碑與週次以 docs/22 §6 的 M1–M5（第 20 週驗收）為準，本文其餘分工、規則、測試協同仍適用，「AI 層」一人改做歷史資料導出／對帳工具。
 >
-> 版本 v0.1（2026-10-14）。前提：原型（prototype/）、後端骨架與契約（backend/openapi.yaml、semantic/*.yaml、mcp/tools.yaml、security/*.yaml）、部署套件（deploy/）已完成；範圍依 docs/13 v0.6（不寫回神策、無 AI Coach、無客服工單／營業員 App、Customer Match 不做、自建映像 6 個）。
+> 版本 v0.1（2026-10-14）。前提：原型（prototype/）、後端骨架與契約（backend/openapi.yaml、semantic/*.yaml、mcp/tools.yaml、security/*.yaml）、部署套件（deploy/）已完成；範圍依 docs/13 v0.6（不寫回舊平台、無 AI Coach、無客服工單／營業員 App、Customer Match 不做、自建映像 6 個）。
 
 ## 0. 結論先講
 
@@ -10,7 +10,7 @@
 |---|---|---|
 | **M1 走通一條線** | GA360 BigQuery 日批 + 串流 → Kafka → Flink → ClickHouse；事件分析頁查到真資料；SSO 登入 | 第 3 週末 |
 | **M2 代碼級第一版（可演示）** | 6 個分析模組（事件、漏斗、留存、路徑、歸因、用戶列表）全部接真 API；OneID v1；交易 CDC；RBAC／隱碼／審計基本版；Helm 部署在測試環境（C-經濟 3 台） | **第 8 週末** |
-| **M3 P0 完整** | 標籤 v1（規則／SQL／統計，Bitmap 日批）、分群、受眾推送（Webhook／GA4）、可視化建模 v1、Tag Sync API、神策歷史一次性匯入工具 | 第 12 週末 |
+| **M3 P0 完整** | 標籤 v1（規則／SQL／統計，Bitmap 日批）、分群、受眾推送（Webhook／GA4）、可視化建模 v1、Tag Sync API、舊平台歷史一次性匯入工具 | 第 12 週末 |
 | **M4 AI 洞察 v1** | 工具閘道、metric.query／funnel.run／analysis.configure、異常偵測 agent、選擇題式問答、golden evals | 第 16 週末 |
 | **M5 GA** | 10 億合成事件效能基準、安全強化、機房 RKE2 驗證、DR 演練、文件 | 第 22–24 週 |
 
@@ -74,7 +74,7 @@ AI 洞察層（M4）由後端查詢 + TL 接手，不另加人。PM／PO 由客�
 ### E2 資料接入與事件化（資料平台，26 人日）
 | Story | 人日 | 驗收 |
 |---|---|---|
-| Collector（Go）：/v1/events 神策協議、/sa 批次；寫 Kafka raw | 3 | 1 萬事件／秒壓測 |
+| Collector（Go）：/v1/events 舊平台協議、/sa 批次；寫 Kafka raw | 3 | 1 萬事件／秒壓測 |
 | GA360 BigQuery 匯入：日批 events_（權威）+ 串流 events_intraday_（分鐘級）→ Kafka raw；event_id 去重、日批覆蓋 | 4 | 前日 05:30 前到齊；串流延遲 < 15 分鐘 |
 | 交易 CDC（Debezium MSSQL，KafkaConnect）或回報檔分鐘級拉取 | 4 | 委託／成交 2 秒內入 Kafka |
 | Flink SQL：normalize → eventize（ga4_mapping.yaml）→ session → 寫 ClickHouse | 5 | 口徑測試通過 |
@@ -132,7 +132,7 @@ AI 洞察層（M4）由後端查詢 + TL 接手，不另加人。PM／PO 由客�
 ```
 週      1-2            3-4            5-6            7-8            9-10           11-12          13-14          15-16
 平台    環境/映像/CI   Helm/SSO       監控/安全掃描   測試環境固化    機房RKE2驗證    DR/備份        強化           文件
-資料    合成資料/Collector GA匯入/Flink  CDC/OneID      MV/路徑抽樣    標籤Bitmap日批  TagSync/推送    神策匯入工具    10億基準
+資料    合成資料/Collector GA匯入/Flink  CDC/OneID      MV/路徑抽樣    標籤Bitmap日批  TagSync/推送    舊平台匯入工具    10億基準
 後端    編譯器         事件/用戶列表API 漏斗/留存API   路徑/歸因/權限  分群/審批      建模v1 API     工具閘道/agent  evals
 前端    工程化/登入     事件分析頁      漏斗/留存頁     路徑/歸因/列表  標籤/分群頁    推送/建模頁     AI問答頁        H5/打磨
 QA      產生器/golden  契約測試       口徑一致性      e2e全模組      1億效能        權限/隱碼回歸   evals          驗收

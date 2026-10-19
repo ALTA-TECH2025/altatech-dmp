@@ -2,9 +2,9 @@
 
 狀態：**A（問數建卡片）、B、C、D 與拖曳排版已實作**（契約見 `backend/openapi.yaml` Dashboards；實作 `backend/insight_agent/configure.py`、`backend/api/ask.py`、`backend/api/dashboard_share.py`、`backend/render/`）。A 與 B 的敘述版各有兩個解析器：`rules`（內建關鍵字規則，離線與示範站可用）與 `llm`（設定 `DMP_LLM_API_KEY_REF`／`DMP_LLM_BASE_URL` 後走企業 LLM Gateway 或 Claude API，結構化輸出同一份 schema；模型只在語意層目錄上做選擇，草稿一律再以當事人身分乾跑編譯）。20 題 golden 在 `backend/insight_agent/evals/ask_golden.yaml`，`python3 -m backend.insight_agent.configure` 跑規則解析器通過率。第一階段的儀表板（docs/27 C9）已可用：任何分析頁的查詢存成卡片、以檢視者權限重算、分享給角色或使用者。本文規劃在此之上加「問數」與「HTML 看板」兩個進階選項，全部沿用既有查詢編譯器、Policy Engine、審計與 MCP 工具閘道（docs/03、`backend/mcp/tools.yaml`）。
 
-## 0a. 書籤 → 看板（神策「書籤／概覽」對應）
+## 0a. 書籤 → 看板（舊平台「書籤／概覽」對應）
 
-神策的概覽由書籤組成：分析頁的查詢「保存為書籤」（可命名、分享、在書籤列表重開），再把書籤「添加到概覽」，同一個書籤可放進多個概覽，書籤改了概覽跟著變。本系統同構：`/v1/bookmarks*`（存查詢本體、以建立者身分先編譯、分享給角色／使用者）＋ 看板卡片可引用書籤（`DashboardCardCreate.bookmark`），卡片資料執行時取書籤當下的查詢；書籤刪除時卡片保留快照並標示。分析頁「存為書籤」可順手加進一或多個看板或新建看板；看板頁「加入書籤」從書籤清單挑。
+舊平台的概覽由書籤組成：分析頁的查詢「保存為書籤」（可命名、分享、在書籤列表重開），再把書籤「添加到概覽」，同一個書籤可放進多個概覽，書籤改了概覽跟著變。本系統同構：`/v1/bookmarks*`（存查詢本體、以建立者身分先編譯、分享給角色／使用者）＋ 看板卡片可引用書籤（`DashboardCardCreate.bookmark`），卡片資料執行時取書籤當下的查詢；書籤刪除時卡片保留快照並標示。分析頁「存為書籤」可順手加進一或多個看板或新建看板；看板頁「加入書籤」從書籤清單挑。
 
 ## 0. 結論先講
 
@@ -63,7 +63,7 @@ MCP 工具 `dashboard.compose`（已加入 `backend/mcp/tools.yaml`，phase 2）
 
 ### 3.1 為什麼是單檔 HTML
 
-主管與業務單位看報表的地方是信箱與 Teams，不會登入 DMP；神策的「概覽分享」也是這個用途。單檔 HTML（inline SVG、無外部資源、無 JS 取數）可寄送、可離線開、可貼進 wiki，而且**內容在產生當下就固定**，不會因為收件人沒權限而壞掉。
+主管與業務單位看報表的地方是信箱與 Teams，不會登入 DMP；舊平台的「概覽分享」也是這個用途。單檔 HTML（inline SVG、無外部資源、無 JS 取數）可寄送、可離線開、可貼進 wiki，而且**內容在產生當下就固定**，不會因為收件人沒權限而壞掉。
 
 ### 3.2 產生規則
 

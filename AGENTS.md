@@ -28,9 +28,9 @@ python3 -m backend.auth                       # 登入整合自測：假 Entra I
 python3 backend/integration/transforms.py     # 轉換函式自測
 python3 -m backend.integration.modeling       # 建模引擎自測（映射、清洗、SQL 編譯）
 python3 -m backend.integration.scheduler      # 排程器自測（模擬時鐘）
-python3 -m backend.integration.sensors_format # 神策格式檔預處理自測
+python3 -m backend.integration.legacy_format # 舊平台格式檔預處理自測
 python3 -m backend.integration.ga4_source     # GA360 BigQuery 三種表／三個任務自測（假 BigQuery）
-python3 -m backend.integration.sensors_api    # 神策查詢 API 連接器自測（假伺服器：鑑權兩模式、盤點、分頁導出、接 stage）
+python3 -m backend.integration.legacy_api    # 舊平台查詢 API 連接器自測（假伺服器：鑑權兩模式、盤點、分頁導出、接 stage）
 python3 -m backend.semantic.compiler.golden   # 查詢編譯器黃金測試乾跑（30 條編譯 + oracle、10 條必拒）；設 CLICKHOUSE_BIN 走真 ClickHouse 逐列比對
 python3 -m backend.integration.e2e_clickhouse # 接入端到端乾跑；設 CLICKHOUSE_BIN（自啟）或 CLICKHOUSE_URL（現成伺服器）走真 ClickHouse，最後一段跑編譯器黃金測試
 python3 backend/insight_agent/runtime.py      # agent 迴圈煙霧測試

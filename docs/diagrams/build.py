@@ -26,7 +26,7 @@ STATUS: list[tuple[str, str]] = [
     ("Kafka", "planned"), ("ClickHouse", "done"), ("PostgreSQL + pgvector", "partial"), ("Valkey", "planned"), ("Memorystore", "planned"), ("物件儲存", "planned"), ("Cloud Storage", "planned"), ("冷層", "planned"), ("Iceberg", "planned"),
     ("L0 events", "done"), ("MV：L1", "done"), ("L3 touchpoints", "partial"), ("users / items / id_map", "done"), ("audit_log", "partial"), ("events（L0 明細）", "done"), ("users ／ dim_*", "done"), ("user_tags Bitmap ／ segments", "partial"),
     # 接入
-    ("Collector", "planned"), ("GA360 Importer", "done"), ("BigQuery Importer", "done"), ("CDC", "partial"), ("CDC：Debezium", "planned"), ("用戶列表人數預估", "confirm"), ("KafkaConnect", "planned"), ("數據中台批次導入", "confirm"), ("dlt / SeaTunnel", "planned"), ("神策導出", "done"), ("神策歷史匯入", "done"), ("Sensors", "done"),
+    ("Collector", "planned"), ("GA360 Importer", "done"), ("BigQuery Importer", "done"), ("CDC", "partial"), ("CDC：Debezium", "planned"), ("用戶列表人數預估", "confirm"), ("KafkaConnect", "planned"), ("數據中台批次導入", "confirm"), ("dlt / SeaTunnel", "planned"), ("舊平台導出", "done"), ("舊平台歷史匯入", "done"), ("舊平台", "done"),
     # 橫切
     ("身分與權限", "done"), ("資料保護", "partial"), ("審計與法遵", "partial"), ("審計與觀測", "partial"), ("Prometheus", "partial"), ("Grafana", "partial"), ("Keycloak", "partial"),
     ("Docker 部署套件", "done"), ("Helm umbrella", "partial"), ("GKE", "confirm"), ("全部 OSI", "partial"), ("Ingress", "planned"), ("NetworkPolicy", "partial"), ("Cloud SQL", "partial"), ("Cloud KMS", "partial"), ("Secret Manager", "partial"), ("Cloud Logging", "planned"), ("Cloud Armor", "planned"),
@@ -39,7 +39,7 @@ STATUS: list[tuple[str, str]] = [
     # 數據流消費與 SLA
     ("DMP Web / AI", "partial"), ("Webhook / Kafka", "partial"), ("稽核", "done"), ("Artifact Registry", "planned"), ("Insight Agents", "phase2"), ("LLM Gateway", "phase2"), ("agent 問答", "phase2"), ("audit / insights topics", "planned"), ("外部 AI 客戶端", "phase2"), ("標籤全量日批", "confirm"), ("行為事件可查", "confirm"), ("交易事件可查", "confirm"), ("即時觸發：", "phase2"), ("漏斗", "confirm"), ("估數", "confirm"), ("分群估數", "confirm"),
 ]
-NO_BADGE = ("MA", "GA360（", "證券交易系統", "CRM /", "MA / 神策", "GA360 / BigQuery", "GA360 串流", "交易主機", "CRM PostgreSQL", "神策（歷史", "MA / 推播", "GA360 Web", "數據中台／CDP", "CRM / 開戶", "神策歷史（", "MA /")   # 外部來源不標
+NO_BADGE = ("MA", "GA360（", "證券交易系統", "CRM /", "MA / 舊平台", "GA360 / BigQuery", "GA360 串流", "交易主機", "CRM PostgreSQL", "舊平台（歷史", "MA / 推播", "GA360 Web", "數據中台／CDP", "CRM / 開戶", "舊平台歷史（", "MA /")   # 外部來源不標
 UNMATCHED: list[str] = []
 
 MAPPED: list[tuple[str, str]] = []
@@ -130,11 +130,11 @@ def system_architecture():
         s.box(L + 14 + i * 300, 630, 285, 68, t, ls, c)
     # 接入層
     s.group(L, 725, W, 110, "接入層  Ingestion（docs/06 可視化建模）")
-    for i, (t, ls, c) in enumerate([("Collector（Go）", ["/v1/events、/sa（App／內部系統直送）", "校驗、個資閘門、冪等、寫 Kafka"], "green"), ("GA360 Importer", ["BigQuery 日批 events_（權威）", "串流 events_intraday_（分鐘級）"], "green"), ("CDC：Debezium / Flink CDC", ["MSSQL 交易主機、PostgreSQL CRM", "Outbox → raw.trade_cdc"], "green"), ("批次整合：dlt / SeaTunnel", ["神策 Kafka 訂閱 + 查詢 API", "檔案、Kafka、GCS"], "green")]):
+    for i, (t, ls, c) in enumerate([("Collector（Go）", ["/v1/events、/sa（App／內部系統直送）", "校驗、個資閘門、冪等、寫 Kafka"], "green"), ("GA360 Importer", ["BigQuery 日批 events_（權威）", "串流 events_intraday_（分鐘級）"], "green"), ("CDC：Debezium / Flink CDC", ["MSSQL 交易主機、PostgreSQL CRM", "Outbox → raw.trade_cdc"], "green"), ("批次整合：dlt / SeaTunnel", ["舊平台 Kafka 訂閱 + 查詢 API", "檔案、Kafka、GCS"], "green")]):
         s.box(L + 14 + i * 300, 755, 285, 68, t, ls, c)
     # 來源
     s.group(L, 850, W, 110, "資料來源  Sources")
-    for i, (t, ls) in enumerate([("GA360（Web / App 埋點）", ["gtag / Firebase → BigQuery 匯出"]), ("證券交易系統", ["委託、成交、出入金、開戶、基金"]), ("CRM / 客戶主檔 / 營業員", ["客戶、帳戶、分公司、商品"]), ("MA / 神策歷史", ["推播；神策事件一次性匯入"])]):
+    for i, (t, ls) in enumerate([("GA360（Web / App 埋點）", ["gtag / Firebase → BigQuery 匯出"]), ("證券交易系統", ["委託、成交、出入金、開戶、基金"]), ("CRM / 客戶主檔 / 營業員", ["客戶、帳戶、分公司、商品"]), ("MA / 舊平台歷史", ["推播；舊平台事件一次性匯入"])]):
         s.box(L + 14 + i * 300, 880, 285, 56, t, ls, "gray")
     # 縱向流向
     for y1, y2 in [(936, 823), (755, 698), (630, 573), (505, 448), (370, 313), (235, 176)]:
@@ -165,7 +165,7 @@ def component_deployment():
     s = SVG(1600, 980, "元件組成圖：GKE 部署視圖（機房 RKE2 同構）")
     # 外部來源（左）
     s.group(28, 80, 250, 520, "外部來源  External")
-    for i, (t, ls) in enumerate([("GA360 / BigQuery", ["Storage Read API", "Private Google Access"]), ("GA360 串流匯出", ["events_intraday_", "分鐘級"]), ("交易主機 MSSQL", ["Debezium CDC / Outbox"]), ("CRM PostgreSQL", ["pgoutput CDC + 日批"]), ("神策（歷史，一次性匯入）", ["查詢 API / Parquet"]), ("LLM Gateway", ["企業閘道；agent 不持金鑰"])]):
+    for i, (t, ls) in enumerate([("GA360 / BigQuery", ["Storage Read API", "Private Google Access"]), ("GA360 串流匯出", ["events_intraday_", "分鐘級"]), ("交易主機 MSSQL", ["Debezium CDC / Outbox"]), ("CRM PostgreSQL", ["pgoutput CDC + 日批"]), ("舊平台（歷史，一次性匯入）", ["查詢 API / Parquet"]), ("LLM Gateway", ["企業閘道；agent 不持金鑰"])]):
         s.box(42, 110 + i * 80, 222, 64, t, ls, "gray", small=True)
     # GKE
     s.group(300, 80, 960, 770, "GKE 區域叢集  asia-east1（私有節點、Workload Identity、Binary Authorization）", fill="#FBFCFE")
@@ -217,10 +217,10 @@ def data_flow():
         s.parts.append(f'<text x="{x}" y="92" font-family="{FONT}" font-size="13" font-weight="800" fill="{C["brand"]}">{html.escape(t)}</text>')
         s.parts.append(f'<line x1="{x}" y1="100" x2="{x+234}" y2="100" stroke="{C["line"]}" stroke-width="2"/>')
     # column 1 sources
-    src = [("GA360 Web/App 埋點", ["gtag / Firebase → BigQuery 匯出"]), ("GA360 串流匯出", ["events_intraday_，分鐘級"]), ("數據中台／CDP（委託/成交/出入金）", ["事實表：批次導入或 Kafka"]), ("CRM / 開戶 / 基金", ["PostgreSQL、API"]), ("神策歷史（一次性匯入）", ["查詢 API / Parquet 匯出"]), ("MA", ["推播"])]
+    src = [("GA360 Web/App 埋點", ["gtag / Firebase → BigQuery 匯出"]), ("GA360 串流匯出", ["events_intraday_，分鐘級"]), ("數據中台／CDP（委託/成交/出入金）", ["事實表：批次導入或 Kafka"]), ("CRM / 開戶 / 基金", ["PostgreSQL、API"]), ("舊平台歷史（一次性匯入）", ["查詢 API / Parquet 匯出"]), ("MA", ["推播"])]
     for i, (t, ls) in enumerate(src): s.box(28, 115 + i * 78, 234, 60, t, ls, "gray", small=True)
     # column 2 ingestion
-    ing = [("BigQuery Importer（日批/Fresh）", ["Storage Read API → Iceberg raw"]), ("Collector /ga4 /v1/events /sa", ["校驗、禁止欄位、event_id 冪等"]), ("數據中台批次導入（Trino）", ["15 分鐘增量 → raw.dwh_trade"]), ("dlt / SeaTunnel 批次", ["raw.crm、profile_set"]), ("神策歷史匯入（一次性）", ["協議 1:1 映射 → Iceberg"]), ("Kafka raw.* topics", ["原文保留 7–30 天；可回放"])]
+    ing = [("BigQuery Importer（日批/Fresh）", ["Storage Read API → Iceberg raw"]), ("Collector /ga4 /v1/events /sa", ["校驗、禁止欄位、event_id 冪等"]), ("數據中台批次導入（Trino）", ["15 分鐘增量 → raw.dwh_trade"]), ("dlt / SeaTunnel 批次", ["raw.crm、profile_set"]), ("舊平台歷史匯入（一次性）", ["協議 1:1 映射 → Iceberg"]), ("Kafka raw.* topics", ["原文保留 7–30 天；可回放"])]
     for i, (t, ls) in enumerate(ing): s.box(290, 115 + i * 78, 234, 60, t, ls, "green", small=True)
     # column 3 flink
     fl = [("normalize", ["GA4 → 統一事件（ga. 前綴）", "時區、去重、遲到標記"]), ("eventize（狀態機）", ["NEW→order_submit、F→order_filled…", "敏感欄位代碼化 HMAC/FPE"]), ("oneid-resolve", ["identities → one_id / one_id_uint", "優先級合併、共用裝置限制"]), ("sessionize", ["30 分鐘閒置切 Session"]), ("rt-rules（CEP）/ rt-tags", ["MATCH_RECOGNIZE → dmp.triggers", "近 N 分鐘標籤 → Valkey"]), ("audit / insights topics", ["agent.tool_called、role.changed"])]
@@ -280,7 +280,7 @@ def data_flow():
 def module_map():
     s = SVG(1600, 1000, "元件模組圖：功能模組、負責的資料與模組間關係")
     s.group(28, 80, 460, 300, "接入與治理  Ingest & Governance", fill="#FBFCFE")
-    for i, (t, ls, c) in enumerate([("數據整合（可視化建模）", ["連線（鑑權／密鑰參照／測試）→ 選表 → 映射 → 清洗 → 發佈", "MSSQL／PG／BigQuery／Kafka／GCS／神策一次性"], "green"),
+    for i, (t, ls, c) in enumerate([("數據整合（可視化建模）", ["連線（鑑權／密鑰參照／測試）→ 選表 → 映射 → 清洗 → 發佈", "MSSQL／PG／BigQuery／Kafka／GCS／舊平台一次性"], "green"),
                                      ("元事件管理", ["事件字典、屬性字典、虛擬事件、隔離區", "上線檢查、變更單、L4 拒絕"], "green"),
                                      ("用戶表管理 ／ 維度表與字典", ["用戶屬性（來源／更新／敏感／可篩選）、OneID 歸戶規則", "維度表以屬性關聯補充分析維度；維度字典給枚舉顯示名"], "green")]):
         s.box(42, 112 + i * 86, 432, 76, t, ls, c, small=True)

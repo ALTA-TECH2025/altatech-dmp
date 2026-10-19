@@ -1,7 +1,7 @@
 # AltaTech DMP 後端架構
 
 > 版本 v0.1（2026-10-14）。本文件描述 AltaTech DMP（數位軌跡／客戶數據中台）的後端架構。
-> 調研背景與 GA360／交易事件接入細節見 `01-research-volcano-sensors-and-dtp-design.md`；AI agent 洞察層見 `03-ai-agent-insight-layer.md`。
+> 調研背景與 GA360／交易事件接入細節見 `01-research-vplatform-legacy-and-dtp-design.md`；AI agent 洞察層見 `03-ai-agent-insight-layer.md`。
 
 ## 1. 設計目標
 
@@ -12,7 +12,7 @@
 | OneID | 客戶／帳戶／裝置／Cookie 打通，多主體 |
 | 分析對標 | 事件、漏斗、留存、路徑、間隔、分布、歸因、LTV、Session、用戶細查 |
 | **AI agent 原生** | 所有分析能力同時以「語意層 + 工具（MCP）」形式暴露給 AI agent；agent 產生的洞察是一級資料物件，可被訂閱、回饋、再利用 |
-| 可替換 | 每一層都可換成火山引擎 VeCDP／DataFinder 或神策對應產品 |
+| 可替換 | 每一層都可換成V 平台 V-CDP／V-埋點分析 或舊平台對應產品 |
 
 > **第一階段註記（2026-10-16）**：計算層的 Flink 與 Kafka 第一階段不部署，改為「暫存 Parquet → ClickHouse SQL 標準化 → dbt／Airflow 微批」（docs/23 §2）；即時觸發與即時標籤第二階段再上 Flink（只做 CEP 一個 job）。本文其餘分層與元件職責不變。
 
@@ -34,7 +34,7 @@
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │ 儲存層   Kafka │ ClickHouse（熱）│ Iceberg on GCS（機房：SeaweedFS）（冷）│ PostgreSQL + pgvector │ Valkey      │
 ├─────────────────────────────────────────────────────────────────────────────────┤
-│ 接入層   GA360 Importer（BigQuery 日批 + 串流）│ Collector API（神策相容）│ 數據中台批次導入／Kafka │ CDC（CRM）│
+│ 接入層   GA360 Importer（BigQuery 日批 + 串流）│ Collector API（舊平台相容）│ 數據中台批次導入／Kafka │ CDC（CRM）│
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -44,7 +44,7 @@
 
 | 元件 | 技術 | 職責 | 擴展點 |
 |---|---|---|---|
-| Collector API | Go / FastAPI | 神策相容 `/sa`、原生 `/v1/events`（App／內部系統直送）；校驗、脫敏、寫 Kafka | 事件字典、禁止欄位規則 |
+| Collector API | Go / FastAPI | 舊平台相容 `/sa`、原生 `/v1/events`（App／內部系統直送）；校驗、脫敏、寫 Kafka | 事件字典、禁止欄位規則 |
 | GA360 Importer | Airflow + Spark（BigQuery Storage Read API） | 日批／Fresh 匯入、對帳、覆蓋 | 映射表 `backend/semantic/ga4_mapping.yaml` |
 | Trade Eventizer | Flink | 數據中台交易／帳務事實表的增量列 → 業務事件（狀態機）；不直連交易主機 | 狀態機 YAML |
 | OneID Service | Flink + Valkey + ClickHouse `id_map` + REST | 接入時歸戶（一個 ID 只屬一人、不自動合併、首次關聯升級、改綁政策）、人工合併／拆分、DSAR | `semantic/oneid_rules.yaml`（docs/19） |
@@ -134,11 +134,11 @@ Kafka dmp.events ─► Flink CEP（規則）─► dmp.triggers ─► 訂閱�
 
 ## 10. 與商用產品的替換關係
 
-| 本平台模組 | 火山引擎 | 神策 |
+| 本平台模組 | V 平台 | 舊平台 |
 |---|---|---|
-| Collector / Importer | DataFinder SDK + 數據導入 | 神策 SDK + FormatImporter |
-| OneID Service | VeCDP ID-Mapping / Baseid | IDM 3.0 |
-| Analytics Query API | DataFinder OpenAPI | 神策分析 查詢 API |
-| Segment & Tag | VeCDP 標籤／分群 | 用戶畫像 |
-| Realtime Rule Engine | VeCDP 實時規則引擎 | 智能運營 |
+| Collector / Importer | V-埋點分析 SDK + 數據導入 | 舊平台 SDK + FormatImporter |
+| OneID Service | V-CDP ID-Mapping / Baseid | IDM 3.0 |
+| Analytics Query API | V-埋點分析 OpenAPI | 舊平台 查詢 API |
+| Segment & Tag | V-CDP 標籤／分群 | 用戶畫像 |
+| Realtime Rule Engine | V-CDP 實時規則引擎 | 智能運營 |
 | Semantic Layer + Agent Tool Gateway + Insight Agent | （無對應；本平台差異化） | （無對應；本平台差異化） |

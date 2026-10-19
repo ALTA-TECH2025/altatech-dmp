@@ -1,10 +1,10 @@
 # 數位軌跡中台（Digital Trace Platform, DTP）設計書
 
 > 私有化部署、承接 GA360 埋點事件與證券交易事件的使用者行為資料中台
-> 對標：火山引擎 VeDI（DataFinder 增長分析 + VeCDP 客戶數據平台）、神策數據（神策分析 + SDP 數據根基平台 + 用戶畫像 + 智能運營）
+> 對標：V 平台 VeDI（V-埋點分析 增長分析 + V-CDP 客戶數據平台）、舊平台數據（舊平台 + SDP 數據根基平台 + 用戶畫像 + 智能運營）
 > 版本：v0.1（2026-10-14）　狀態：設計提案，待架構評審
 
-> **v0.2 勘誤（授權審查後）**：本文件原選型中的 MinIO（AGPL）、Redis（RSAL/SSPL）、HashiCorp Vault（BSL）、Grafana/Loki（AGPL）已分別改為 GCS／SeaweedFS、Valkey、Cloud KMS／OpenBao、Perses／OpenSearch，詳見 `07-deployment-gcp-license-os.md` 與 `LICENSES.md`；分析模組優先序改依 `04-analysis-modules-p0.md`。**範圍修訂**：神策只做一次性歷史匯入（不接增量、不寫回，見 06 文件 §4）；第 14 節「與 AI Coach 的銜接」作廢，平台下游為 MA、客服與營業員 App。
+> **v0.2 勘誤（授權審查後）**：本文件原選型中的 MinIO（AGPL）、Redis（RSAL/SSPL）、HashiCorp Vault（BSL）、Grafana/Loki（AGPL）已分別改為 GCS／SeaweedFS、Valkey、Cloud KMS／OpenBao、Perses／OpenSearch，詳見 `07-deployment-gcp-license-os.md` 與 `LICENSES.md`；分析模組優先序改依 `04-analysis-modules-p0.md`。**範圍修訂**：舊平台只做一次性歷史匯入（不接增量、不寫回，見 06 文件 §4）；第 14 節「與 AI Coach 的銜接」作廢，平台下游為 MA、客服與營業員 App。
 
 > **v0.3 勘誤（角色）**：本文提到的「營業員僅能看所屬客戶」「分公司主管僅見分公司」「稽核角色」不再適用。本系統的使用者只有五種角色：系統管理員、行銷、數據分析、數位經營、資訊管理（`backend/security/rbac.yaml`、docs/10 v0.4）；營業員與分公司主管不進本系統，客戶的所屬營業員／分公司只是分析維度，不是行級權限。
 
@@ -16,7 +16,7 @@
 ## 目錄
 
 0. [文件目的與範圍](#0-文件目的與範圍)
-1. [標竿調研：火山引擎與神策](#1-標竿調研火山引擎與神策)
+1. [標竿調研：V 平台與舊平台](#1-標竿調研V 平台與舊平台)
 2. [需求、限制與設計原則](#2-需求限制與設計原則)
 3. [整體架構](#3-整體架構)
 4. [統一事件模型（Event–User–Item）](#4-統一事件模型eventuseritem)
@@ -41,7 +41,7 @@
 
 本文件回答三個問題：
 
-1. **火山引擎 CDP／增長分析與神策分析到底提供了哪些能力？** 哪些是「使用者行為分析平台」的標配，哪些是差異化功能，哪些與證券業務有關。
+1. **V 平台 CDP／增長分析與舊平台到底提供了哪些能力？** 哪些是「使用者行為分析平台」的標配，哪些是差異化功能，哪些與證券業務有關。
 2. **若要在證券公司內部（私有化、資料不出境）自建一套同等級的數位軌跡中台，應該長什麼樣？** 包括架構、資料模型、ID 打通、儲存、分析模型、標籤分群、即時輸出。
 3. **如何同時承接兩類性質迥異的資料？** 一是 Web/App 的 GA360 埋點事件（行為資料，高量、半結構化、匿名為主），二是證券交易事件（業務資料，強一致、結構化、實名、受法遵約束）。
 
@@ -54,22 +54,22 @@
 > **勘誤（2026-10-15，以後續文件為準）**
 > 1. **GA360 沒有雙寫**：行為事件的 GA 來源只有 GA360 BigQuery 匯出（日批 `events_` 為權威、串流 `events_intraday_` 提供分鐘級）；本文 §5 的「GTM Server-side 雙寫（路徑 B）」與 Collector `/ga4` 端點取消。即時（秒級）只適用於交易／帳務 CDC 事件。
 > 2. **廣告平台不在範圍**：§受眾／再行銷相關的 GA4 受眾回流、Google Ads 不做；受眾推送只做「名單推送到內部系統」（docs/14）。
-> 3. **OneID 歸戶邏輯改版**：§6 的「圖連通 + 合併 + 夜間改寫」改為對齊神策 IDM 3.0 的「接入時決定、一個 ID 只屬一人、不自動合併、首次關聯升級、改綁政策」，見 docs/19 與 `backend/oneid/attribution.py`。
+> 3. **OneID 歸戶邏輯改版**：§6 的「圖連通 + 合併 + 夜間改寫」改為對齊舊平台 IDM 3.0 的「接入時決定、一個 ID 只屬一人、不自動合併、首次關聯升級、改綁政策」，見 docs/19 與 `backend/oneid/attribution.py`。
 
-## 1. 標竿調研：火山引擎與神策
+## 1. 標竿調研：V 平台與舊平台
 
-### 1.1 火山引擎數智平台 VeDI
+### 1.1 V 平台 VeDI
 
-火山引擎（字節跳動旗下）把 ToB 資料產品包成「數智平台 VeDI」，其中與本題直接相關的是三個產品：
+V 平台（大陸雲廠商旗下）把 ToB 資料產品包成「數智平台 VeDI」，其中與本題直接相關的是三個產品：
 
 | 產品 | 定位 | 本設計對應模組 |
 |---|---|---|
-| **DataFinder 增長分析** | 使用者行為分析（事件、轉化、留存、路徑、歸因…） | 分析引擎、看板 |
-| **VeCDP 客戶數據平台** | OneID、標籤、分群、洞察、營銷輸出 | OneID、標籤分群、即時規則引擎 |
-| **DataTester A/B 測試** | 實驗平台 | 不在本期範圍 |
-| **ByteHouse** | ClickHouse 路線的雲原生數倉，是 DataFinder 的數倉底座 | 儲存層選型依據 |
+| **V-埋點分析 增長分析** | 使用者行為分析（事件、轉化、留存、路徑、歸因…） | 分析引擎、看板 |
+| **V-CDP 客戶數據平台** | OneID、標籤、分群、洞察、營銷輸出 | OneID、標籤分群、即時規則引擎 |
+| **V-AB 測試 A/B 測試** | 實驗平台 | 不在本期範圍 |
+| **V 平台 OLAP（ClickHouse 改寫版）** | ClickHouse 路線的雲原生數倉，是 V-埋點分析 的數倉底座 | 儲存層選型依據 |
 
-#### 1.1.1 DataFinder 增長分析
+#### 1.1.1 V-埋點分析 增長分析
 
 - **部署模式**：SaaS 與私有化兩種。私有化版本有獨立文件中心（增長分析（私有化）），OpenAPI 服務位址依部署環境而定。
 - **分析模型**（官方稱 10+ 種）：
@@ -84,9 +84,9 @@
 - **指標管理**：事件指標、事件組合指標、留存指標、Session 指標、轉化指標。
 - **埋點**：程式碼埋點 + 全埋點（自動採集）+ 可視化圈選。
 - **資料治理**：私有化版本提供「數據刪除」功能（可清理已匯入的歷史行為事件）；「單項目多應用」讓看板按專案粒度彙總。
-- **數倉底座**：DataFinder 已整合進 ByteHouse（ClickHouse 技術路線、存算分離 MPP 架構）。
+- **數倉底座**：V-埋點分析 已整合進 V 平台 OLAP（ClickHouse 改寫版）（ClickHouse 技術路線、存算分離 MPP 架構）。
 
-#### 1.1.2 VeCDP 客戶數據平台
+#### 1.1.2 V-CDP 客戶數據平台
 
 - **資料整合**：宣稱支援 MySQL、廣告監測、串流等 20+ 種資料來源。
 - **OneID（系統內名稱 Baseid）**：透過 ID-Mapping 產生，一個 ID 只對應一個 OneID。可配置 **ID 優先級**與 **ID 間參考關係**；演算法可選「增強分段」或「複用原有 ID」；支援**即時 OneID 生成**；私有化版本提供 ID-Mapping 運維（血緣管理、ID 映射查詢）。
@@ -101,13 +101,13 @@
 - **分群**：規則組合、上傳名單、分群分組、任務狀態監控；支援**即時分群**（人群隨上游即時資料更新）。
 - **群體洞察**：自訂目標群體與分析維度，圖表對比群體差異。
 - **即時規則引擎**：把標籤、行為、分群的變化以 **Kafka 訊息**推送給下游（單獨付費；目前不支援多值文本標籤）。
-- **營銷應用**：人群包推送到廣告平台或火山引擎渠道。
+- **營銷應用**：人群包推送到廣告平台或V 平台渠道。
 
-### 1.2 神策數據
+### 1.2 舊平台數據
 
-神策的產品矩陣：**神策分析（SA）** → **SDP 數據根基平台**（採集、治理、儲存、查詢、展示）→ **用戶畫像**（OneID + 標籤）→ **智能運營**（MA）→ **A/B 測試**、**智能推薦**。
+舊平台的產品矩陣：**舊平台（SA）** → **SDP 數據根基平台**（採集、治理、儲存、查詢、展示）→ **用戶畫像**（OneID + 標籤）→ **智能運營**（MA）→ **A/B 測試**、**智能推薦**。
 
-#### 1.2.1 神策分析的分析模型與資料模型
+#### 1.2.1 舊平台的分析模型與資料模型
 
 - **資料模型**：Event–User–Item。所有分析（事件、留存、歸因、運營計畫）都建立在這個模型上。
 - **資料協議**（JSON，一行一筆）：
@@ -117,10 +117,10 @@
 - **十大分析模型**：事件分析、漏斗分析、留存分析、分布分析、屬性分析、用戶路徑、間隔分析、歸因分析、LTV 分析、用戶行為序列（細查）；另有 Session 分析、自定義查詢（SQL）、看板、預警（指標告警）。
 - **部署**：以私有化部署為主打（「本地部署的用戶行為分析平台」），並作為 PaaS 開放二次開發；**Kafka 訂閱即時資料僅私有化版本提供**。
 
-#### 1.2.2 神策的技術架構（私有化）
+#### 1.2.2 舊平台的技術架構（私有化）
 
 ```
-SDK ──► Nginx ──► Extractor（解析/校驗/清洗，產生符合神策協議的資料）
+SDK ──► Nginx ──► Extractor（解析/校驗/清洗，產生符合舊平台協議的資料）
                        │
                        ▼
                      Kafka ──► Data Loader ──► Kudu（即時寫入，最近資料）
@@ -135,16 +135,16 @@ SDK ──► Nginx ──► Extractor（解析/校驗/清洗，產生符合神
 
 #### 1.2.3 證券業經驗
 
-- 神策公開案例：海通證券在合規前提下採私有化部署，整合多平台資料、打通業務資料與行為資料。
-- 神策 2020 年文章提及服務過 7 家 TOP10 券商，主題為「客戶分級分類到全生命週期運營」。
+- 舊平台公開案例：海通證券在合規前提下採私有化部署，整合多平台資料、打通業務資料與行為資料。
+- 舊平台 2020 年文章提及服務過 7 家 TOP10 券商，主題為「客戶分級分類到全生命週期運營」。
 - 金融業 OneID 的特殊性：一個客戶號對應多個資金帳號的**二級 ID 結構**，這一點與本設計的「多主體（客戶／帳戶）」直接相關。
 
 ### 1.3 功能對照表
 
-| 能力 | 火山引擎（DataFinder + VeCDP） | 神策（SA + SDP + 畫像） | 本設計 DTP |
+| 能力 | V 平台（V-埋點分析 + V-CDP） | 舊平台（SA + SDP + 畫像） | 本設計 DTP |
 |---|---|---|---|
 | 資料模型 | 事件 + 使用者 + 多主體 | Event–User–Item | Event–User–Item + 多主體（客戶/帳戶/營業員/商品） |
-| 採集 | 程式碼埋點、全埋點、可視化圈選、SDK、OpenAPI、匯入 | 程式碼埋點、全埋點、可視化埋點、SDK、FormatImporter、Kafka | **GA360 匯入 + GTM Server-side 雙寫 + 神策相容 Collector API + CDC/Outbox 交易事件** |
+| 採集 | 程式碼埋點、全埋點、可視化圈選、SDK、OpenAPI、匯入 | 程式碼埋點、全埋點、可視化埋點、SDK、FormatImporter、Kafka | **GA360 匯入 + GTM Server-side 雙寫 + 舊平台相容 Collector API + CDC/Outbox 交易事件** |
 | ID 打通 | OneID/Baseid、優先級+參考關係、即時生成、多主體 | IDM 3.0 identities、bind/unbind、login_id 最高優先 | 圖連通 OneID、優先級表、即時 + 批次校正、多主體 |
 | 事件分析 | ✔ + 異常檢測 | ✔ | ✔ + 異常檢測 |
 | 漏斗 / 留存 / 分布 / 路徑 / 間隔 / Session / 歸因 / LTV | ✔（歸因：線性/位置/時間衰減） | ✔（十大模型） | ✔（ClickHouse 原生 windowFunnel / retention / sequenceMatch） |
@@ -156,15 +156,15 @@ SDK ──► Nginx ──► Extractor（解析/校驗/清洗，產生符合神
 | 群體洞察 / 畫像 | ✔ | ✔ | ✔ |
 | 即時輸出 | 即時規則引擎 → Kafka | Kafka 訂閱（私有化）、智能運營觸發 | 即時規則引擎 → Kafka / Webhook / gRPC |
 | 資料刪除（DSAR） | ✔（私有化） | ✔ | ✔（必備，個資法） |
-| 數倉底座 | ByteHouse（ClickHouse 路線） | Kudu + Parquet + Impala | ClickHouse（熱）+ Iceberg on MinIO（冷） |
+| 數倉底座 | V 平台 OLAP（ClickHouse 改寫版）（ClickHouse 路線） | Kudu + Parquet + Impala | ClickHouse（熱）+ Iceberg on MinIO（冷） |
 | 部署 | SaaS / 私有化 | 私有化為主 | **純私有化，K8s** |
 
 ### 1.4 對本設計的啟示
 
 1. **資料模型要先定，分析模型是其結果。** 兩家都用 Event–User(–Item) 模型，而且都保存最細粒度事件、查詢時即時聚合。這是正確取向，本設計沿用。
-2. **ID 打通是 CDP 的核心而不是附屬功能。** 火山引擎把 OneID 做成「優先級 + 參考關係 + 多主體」；神策把登入 ID 定為不可變的最高優先級錨點。證券業的「客戶 ↔ 多帳戶」二級結構必須在 ID 模型裡一開始就支援。
+2. **ID 打通是 CDP 的核心而不是附屬功能。** V 平台把 OneID 做成「優先級 + 參考關係 + 多主體」；舊平台把登入 ID 定為不可變的最高優先級錨點。證券業的「客戶 ↔ 多帳戶」二級結構必須在 ID 模型裡一開始就支援。
 3. **私有化環境才允許的功能（SQL 標籤、Kafka 訂閱、資料刪除）正是證券業最需要的。** 本設計把它們當作一期必備。
-4. **資料協議向神策對齊**。神策協議（track / profile_* / item_* / identities）是業界事實標準，GA4 事件結構也能無損映射。採用相容協議可降低未來更換商用產品或與 MA 整合的成本。
+4. **資料協議向舊平台對齊**。舊平台協議（track / profile_* / item_* / identities）是業界事實標準，GA4 事件結構也能無損映射。採用相容協議可降低未來更換商用產品或與 MA 整合的成本。
 5. **「即時」要分層定義**：即時分群／即時規則引擎（秒級、給觸發用）與即時分析（分鐘級、給人看）是不同 SLA，用不同路徑實現。
 
 ---
@@ -205,9 +205,9 @@ SDK ──► Nginx ──► Extractor（解析/校驗/清洗，產生符合神
 1. **一份事件、兩種來源、一個模型**：GA 行為與交易事件進同一張事件表，靠 `source` 與事件字典區分，而不是兩套倉。
 2. **原始可回放**：所有入站事件原文落 Kafka + 物件儲存，Schema 變更可重算。
 3. **ID 打通為一級公民**：OneID 服務獨立、有版本、可回溯、可拆分。
-4. **協議相容**：對外 Collector API 與匯出格式相容神策協議，GA4 事件可雙向映射。
+4. **協議相容**：對外 Collector API 與匯出格式相容舊平台協議，GA4 事件可雙向映射。
 5. **個資預設脫敏**：原始識別欄位只存在 ID 服務的加密區，分析倉只有代碼化 ID。
-6. **以開源組件為主、可被商用產品替換**：任何一層都能用 VeCDP／神策的對應產品替換而不影響其他層。
+6. **以開源組件為主、可被商用產品替換**：任何一層都能用 V-CDP／舊平台的對應產品替換而不影響其他層。
 
 ---
 
@@ -261,9 +261,9 @@ GTM Server ──► Collector API ─────────► Kafka raw.ga �
 
 | 層 | 選型 | 理由 | 可替換為 |
 |---|---|---|---|
-| 事件匯流排 | Apache Kafka 3.x（KRaft） | 業界標準；神策/火山都以 Kafka 作為訂閱介面 | Pulsar |
+| 事件匯流排 | Apache Kafka 3.x（KRaft） | 業界標準；舊平台/V 平台都以 Kafka 作為訂閱介面 | Pulsar |
 | 串流計算 | Apache Flink 1.19+ | Exactly-once、狀態後端、CEP（即時規則）、Debezium 連接器 | Spark Structured Streaming |
-| 分析數倉 | ClickHouse 24.x | 內建 `windowFunnel`、`retention`、`sequenceMatch`、Bitmap；火山 ByteHouse 即同路線；單機即可跑 PoC | StarRocks / Apache Doris（若需多表 Join 強） |
+| 分析數倉 | ClickHouse 24.x | 內建 `windowFunnel`、`retention`、`sequenceMatch`、Bitmap；V 平台 V 平台 OLAP（ClickHouse 改寫版） 即同路線；單機即可跑 PoC | StarRocks / Apache Doris（若需多表 Join 強） |
 | 冷層 / 湖 | Apache Iceberg on MinIO | 可回放、Schema 演進、時間旅行、支援刪除（DSAR） | HDFS + Hive |
 | 批次 / Ad-hoc SQL | Spark 3.5 + Trino | 標籤日批、ID 合併校正、跨源查詢 | Impala |
 | 中繼資料 / 控制面 | PostgreSQL 16 | 埋點 Schema、標籤定義、分群、權限、審計 | MySQL |
@@ -286,7 +286,7 @@ GTM Server ──► Collector API ─────────► Kafka raw.ga �
 | **Item** | 非人主體：帳戶（account）、商品（instrument）、營業員（agent）、分公司（branch）、活動（campaign）、內容（content） | `(item_type, item_id)` |
 | **Identity** | 各種原始識別子與 OneID 的對應 | `(id_type, id_value_hash)` |
 
-### 4.2 標準事件 Schema（相容神策協議的超集）
+### 4.2 標準事件 Schema（相容舊平台協議的超集）
 
 ```jsonc
 {
@@ -404,7 +404,7 @@ ALTER TABLE dtp.events ADD INDEX idx_event_id event_id TYPE bloom_filter(0.001) 
 | 路徑 | 機制 | 時效 | 完整性 | 個資風險 | 建議 |
 |---|---|---|---|---|---|
 | **A. BigQuery Export 拉取** | GA360 每日匯出 `events_YYYYMMDD`（360 每日上限 200 億事件）；360 專屬 **Fresh Daily**（`events_fresh_YYYYMMDD`，約清晨 5 點到齊，日內約每 60 分鐘增量）；**Streaming**（`events_intraday_YYYYMMDD`，分鐘級但無完整性 SLO，且缺新使用者／新 Session 的流量來源歸因） | T+1 / 小時 / 分鐘 | 日批權威；fresh 近似；streaming 可能缺漏 | 資料已在 Google 境外；拉回境內落地 | **必選**：日批為權威、Fresh 為日內 |
-| **B. GTM Server-side Container 雙寫** | 自建 GTM 伺服器容器（境內 K8s），瀏覽器／App 的 gtag 先打到自家網域，再由伺服器容器一份轉送 GA4、一份以神策相容格式打到 DTP Collector | 秒級 | 與 GA 近乎 1:1（可少掉 GA 端的 bot 過濾與修改器） | 可在境內先脫敏再送 GA（**降低 GA 個資風險**） | **必選**：即時路徑 + 個資閘門 |
+| **B. GTM Server-side Container 雙寫** | 自建 GTM 伺服器容器（境內 K8s），瀏覽器／App 的 gtag 先打到自家網域，再由伺服器容器一份轉送 GA4、一份以舊平台相容格式打到 DTP Collector | 秒級 | 與 GA 近乎 1:1（可少掉 GA 端的 bot 過濾與修改器） | 可在境內先脫敏再送 GA（**降低 GA 個資風險**） | **必選**：即時路徑 + 個資閘門 |
 | **C. GA4 Measurement Protocol 反向補送** | 用於離線或伺服器端事件補送到 GA | — | — | — | 僅用於把 DTP 的交易事件回補到 GA 做統一看板（選配） |
 
 採 **A + B 雙軌**：B 提供即時與個資控制，A 提供權威對帳。兩者事件以 `event_id` 去重（§5.1.3），日批到齊後以 A 覆蓋 B（`ReplacingMergeTree` 版本以 `source` 優先級決定：`ga360` > `gtm_ss`）。
@@ -494,9 +494,9 @@ event_id = sha256(stream_id | user_pseudo_id | event_timestamp | event_name | ev
 | 金額、數量、商品 | 保留原值（分析必需）；但行級權限限制誰能看單筆 |
 | IP | 去尾段後保存 `$ip_masked`，原 IP 不落地 |
 
-### 5.3 Collector API（神策相容）
+### 5.3 Collector API（舊平台相容）
 
-- `POST /sa?project=…`：相容神策 SDK 的 `data_list`（gzip + base64 JSON 陣列），讓既有神策／類神策 SDK 直接可用。
+- `POST /sa?project=…`：相容舊平台 SDK 的 `data_list`（gzip + base64 JSON 陣列），讓既有舊平台／類舊平台 SDK 直接可用。
 - `POST /v1/events`：原生 JSON 陣列，支援 `track`、`profile_*`、`item_*`、`track_id_bind/unbind`。
 - `POST /ga4`：接受 GTM 伺服器容器轉送的 GA4 Measurement Protocol 格式，由 Collector 做映射。
 - 校驗：事件是否已在事件字典登記（未登記進 `dtp.events_quarantine`，不丟棄）、屬性型別、禁止欄位、時間戳合理性（±7 天）、速率限制。
@@ -510,7 +510,7 @@ event_id = sha256(stream_id | user_pseudo_id | event_timestamp | event_name | ev
 
 | 優先級 | ID 類型 | 單/多值 | 可變 | 來源 | 說明 |
 |---|---|---|---|---|---|
-| 1 | `$identity_login_id`（客戶 ID 代碼化） | 單值 | 不可 | CRM / 交易 | OneID 錨點；同神策 `$identity_login_id`、火山 Baseid 最高優先 |
+| 1 | `$identity_login_id`（客戶 ID 代碼化） | 單值 | 不可 | CRM / 交易 | OneID 錨點；同舊平台 `$identity_login_id`、V 平台 Baseid 最高優先 |
 | 2 | `$identity_idno_hash` | 單值 | 不可 | CRM | 只在 ID 服務加密區，不進事件 |
 | 3 | `$identity_mobile_hash` | 單值 | 可 | CRM / 開戶 | 換號時重綁 |
 | 4 | `$identity_account_no` | **多值** | 可 | 帳務 | 一客多戶（證券、信用、期貨、基金） |
@@ -539,7 +539,7 @@ OneID = 連通分量中優先級最高的節點決定（login_id → idno → mo
   - 一個 `device_id` 綁定 > N（預設 5）個 `login_id` → 視為公共裝置，停止用它傳遞合併。
   - 合併只能由「強 ID 共現」（login/idno/mobile）或人工指令發動。
 - **拆分**：提供 `unbind` 指令與人工拆分工具；拆分後以 `id_map` 版本重算受影響事件的 `one_id`（事件表 `one_id` 以 `ALTER … UPDATE` 批次修正，或查詢時 JOIN 最新 `id_map`；建議熱表物化、冷表查詢時 JOIN）。
-- 對照：火山 VeCDP 的「ID 優先級 + 參考關係 + 增強分段／複用原有 ID」≈ 本設計的優先級表 + 合併限制 + ULID/沿用策略；神策 IDM 3.0 的「login_id 單值不可解綁」≈ 本設計優先級 1。
+- 對照：V 平台 V-CDP 的「ID 優先級 + 參考關係 + 增強分段／複用原有 ID」≈ 本設計的優先級表 + 合併限制 + ULID/沿用策略；舊平台 IDM 3.0 的「login_id 單值不可解綁」≈ 本設計優先級 1。
 
 ### 6.3 多主體（客戶 / 帳戶 / 營業員 / 分公司 / 商品）
 
@@ -552,7 +552,7 @@ instrument (symbol) ◄── order events
 
 - 事件表 `entity_type/entity_id` 指出事件直接主體；`one_id` 永遠填客戶。
 - `dtp.items` 保存各主體屬性（帳戶類型、開戶日、營業員、分公司、商品產業別…）。
-- 跨主體分析（火山「多主體分析」）：例如「某營業員名下客戶的 App 活躍 vs 交易轉化」= 事件表以 agent_id 關聯 dim_agent 維度表後分組。
+- 跨主體分析（V 平台「多主體分析」）：例如「某營業員名下客戶的 App 活躍 vs 交易轉化」= 事件表以 agent_id 關聯 dim_agent 維度表後分組。
 
 ### 6.4 OneID API
 
@@ -619,18 +619,18 @@ instrument (symbol) ◄── order events
 
 | 模型 | 對標 | ClickHouse 實作 | 證券場景範例 |
 |---|---|---|---|
-| 事件分析 | 火山 事件分析 / 神策 事件分析 | `count()`, `uniqExact(one_id)`, `sum(amount)` + `GROUP BY toStartOfInterval(time, …), dims` | 每日下單人數、成交金額、依渠道（App/Web/營業員）分組 |
-| 轉化（漏斗） | 火山 轉化分析 / 神策 漏斗 | `windowFunnel(window)(time, cond1, cond2, …)`（可設 `strict_order`） | 開戶漏斗：`ga.page_view(開戶頁) → account_open_start → account_open_submit → account_open_approved → fund_deposit → order_filled`，視窗 30 天 |
+| 事件分析 | V 平台 事件分析 / 舊平台 事件分析 | `count()`, `uniqExact(one_id)`, `sum(amount)` + `GROUP BY toStartOfInterval(time, …), dims` | 每日下單人數、成交金額、依渠道（App/Web/營業員）分組 |
+| 轉化（漏斗） | V 平台 轉化分析 / 舊平台 漏斗 | `windowFunnel(window)(time, cond1, cond2, …)`（可設 `strict_order`） | 開戶漏斗：`ga.page_view(開戶頁) → account_open_start → account_open_submit → account_open_approved → fund_deposit → order_filled`，視窗 30 天 |
 | 留存 | 留存分析 / 基本留存 | `retention(cond_day0, cond_day1, …)` 或 cohort 自聯結 | 新開戶客戶 7/30/90 日交易留存；App 活躍留存 |
 | 分布 | 分布分析 | `histogram` / 分桶 `GROUP BY intDiv(x, bucket)` | 月成交金額分布、下單次數分布 |
-| 屬性分析 | 神策 屬性分析 | `users` 表 `GROUP BY` | 年齡層 × 持有商品類型 |
+| 屬性分析 | 舊平台 屬性分析 | `users` 表 `GROUP BY` | 年齡層 × 持有商品類型 |
 | 路徑 | 路徑分析 | `groupArray(event) ORDER BY time` + 視窗截斷；桑基圖 | 從 `quote_view` 到 `order_submit` 的前後 5 步 |
 | 間隔 | 間隔分析 | `minIf(time, e=B) - minIf(time, e=A)` per user，再 quantiles | 開戶核准 → 首次入金 → 首筆成交 的時間間隔 |
 | Session | Session 分析 | `sessions` 物化表 | 每 Session 看盤深度、跳出率 |
 | 歸因 | 歸因分析（線性/位置/時間衰減/首末） | 以 `groupArray` 取轉化前觸點序列，於查詢層套權重 | 哪個行銷渠道帶來首筆入金 |
-| LTV | 神策 LTV | cohort × 累積 `sum(fee + tax)` 或 `sum(amount)` | 不同開戶渠道客戶 180 日累積手續費 |
+| LTV | 舊平台 LTV | cohort × 累積 `sum(fee + tax)` 或 `sum(amount)` | 不同開戶渠道客戶 180 日累積手續費 |
 | 用戶細查 | 用戶細查 / 行為序列 | `WHERE one_id = ?` ORDER BY time；JOIN `id_map` 顯示 ID 脫敏 | 客訴調查、營業員複盤（限所屬客戶） |
-| 異常檢測 | 火山 異常數據分析 | 日聚合表 + 季節性 STL / 3σ，寫告警 | 下單失敗率突升、某渠道事件量驟降（埋點掉線） |
+| 異常檢測 | V 平台 異常數據分析 | 日聚合表 + 季節性 STL / 3σ，寫告警 | 下單失敗率突升、某渠道事件量驟降（埋點掉線） |
 | 自定義 SQL | 兩者皆有 | Trino/CH SQL 沙箱，列級遮罩、行級過濾、資源群組 | 分析師 Ad-hoc |
 
 ### 8.1 漏斗 SQL 範例（開戶 → 首筆成交）
@@ -671,12 +671,12 @@ GROUP BY level ORDER BY level;
 
 | 類型 | 對標 | 計算方式 | 例 |
 |---|---|---|---|
-| 規則標籤 | 火山 規則標籤 / 神策 規則 | UI 規則 → CH SQL（日批或即時） | 「近 30 日成交 ≥ 5 筆」= 活躍交易者 |
-| 統計標籤 | 火山 即時標籤（統計/首末次/排序） | 首次/末次/次數/總和/去重/排序 | 末次登入日、偏好市場（下單次數最高的市場） |
-| SQL 標籤 | 火山 SQL 標籤（私有化限定）/ 神策 SQL | 分析師寫 SQL，輸出 `(one_id, value)` | 持股集中度、週轉率分級 |
-| 生命週期標籤 | 火山 生命週期 | 狀態機（新客/成長/成熟/沉睡/流失） | 依最近交易與登入間隔 |
-| 模型標籤 | 火山 模型標籤（K-means）/ 神策 模型 | Spark MLlib / 外部模型寫回 | 流失風險分、商品偏好聚類、風險屬性預測 |
-| 即時標籤 | 火山 即時標籤 | Flink 狀態 | 「過去 10 分鐘看了 ≥ 3 檔個股」 |
+| 規則標籤 | V 平台 規則標籤 / 舊平台 規則 | UI 規則 → CH SQL（日批或即時） | 「近 30 日成交 ≥ 5 筆」= 活躍交易者 |
+| 統計標籤 | V 平台 即時標籤（統計/首末次/排序） | 首次/末次/次數/總和/去重/排序 | 末次登入日、偏好市場（下單次數最高的市場） |
+| SQL 標籤 | V 平台 SQL 標籤（私有化限定）/ 舊平台 SQL | 分析師寫 SQL，輸出 `(one_id, value)` | 持股集中度、週轉率分級 |
+| 生命週期標籤 | V 平台 生命週期 | 狀態機（新客/成長/成熟/沉睡/流失） | 依最近交易與登入間隔 |
+| 模型標籤 | V 平台 模型標籤（K-means）/ 舊平台 模型 | Spark MLlib / 外部模型寫回 | 流失風險分、商品偏好聚類、風險屬性預測 |
+| 即時標籤 | V 平台 即時標籤 | Flink 狀態 | 「過去 10 分鐘看了 ≥ 3 檔個股」 |
 | 匯入標籤 | 多值標籤（匯入） | CSV / API | 行銷名單、VIP 等級 |
 
 標籤定義含：名稱、分類、值域、更新頻率、負責人、資料來源（血緣）、權限等級；每次計算產生版本，Bitmap 存 CH `user_tags`。
@@ -685,7 +685,7 @@ GROUP BY level ORDER BY level;
 
 - 規則分群：使用者屬性 + 標籤 + 行為（事件 × 時間窗 × 次數 × 屬性篩選）+ 行為序列（做過 A 後 N 天內做過 B）。
 - 上傳分群、組合分群（交／併／差）、即時分群（Flink 維護、人群隨事件進出）。
-- 分群快照（每日 Bitmap）供留存/對比；分群可一鍵送入分析模型作對比（火山「群體洞察」）。
+- 分群快照（每日 Bitmap）供留存/對比；分群可一鍵送入分析模型作對比（V 平台「群體洞察」）。
 - 輸出：Kafka、CSV（加密）、API 拉取、推送到 MA／客服／營業員 App。
 
 ### 9.3 畫像（群體洞察）
@@ -695,7 +695,7 @@ GROUP BY level ORDER BY level;
 
 ### 9.4 即時規則引擎
 
-對標火山 VeCDP「實時規則引擎」與神策「智能運營」觸發。Flink CEP 規則 DSL：
+對標V 平台 V-CDP「實時規則引擎」與舊平台「智能運營」觸發。Flink CEP 規則 DSL：
 
 ```yaml
 rule: cart_abandon_order
@@ -719,7 +719,7 @@ action:
 ## 10. 埋點治理、資料品質與血緣
 
 - **事件字典（Schema Registry）**：PostgreSQL 保存事件 / 屬性定義、型別、版本、負責人、上線狀態；提供 UI 與 API。GA 事件由 Importer 掃描 `events_` 自動建議登記，未登記事件進 quarantine 表每日報表。
-- **埋點驗證**：Collector 與 Importer 共用校驗器；測試環境提供「即時埋點除錯視圖」（對標神策 Debug 模式 / 火山埋點驗證）。
+- **埋點驗證**：Collector 與 Importer 共用校驗器；測試環境提供「即時埋點除錯視圖」（對標舊平台 Debug 模式 / V 平台埋點驗證）。
 - **資料品質監控**：事件量日環比、空值率、型別錯誤率、延遲 P95、GA 對帳差異、CDC lag、OneID 合併率異常，Grafana + 告警。
 - **血緣**：來源表 → Kafka topic → Flink job → CH 表 → 標籤 → 分群 → 輸出，以 OpenLineage 事件寫入 Marquez（或簡化為 PostgreSQL 表）。
 - **變更管理**：事件字典變更走審核；破壞性變更要求 `schema_version` 升版並由批次回填。
@@ -833,7 +833,7 @@ DMZ (K8s node pool: edge)
 | 3 | 路徑 A/B 事件 `event_id` 對齊精度 | 中 | PoC 驗證；備用近似去重 + 對帳報表 |
 | 4 | OneID 錯併（共用裝置、家庭帳戶） | 高 | 合併限制規則 + 人工拆分 + 抽樣稽核 |
 | 5 | ClickHouse JSON 型別成熟度（24.x） | 低 | 高頻屬性物化為欄位；不足時退回 Map + 分型別欄位 |
-| 6 | 自建 vs 採購（VeCDP / 神策）TCO | 決策 | 本設計各層可被商用替換；建議以 Phase 0–1 自建接入層與 OneID，分析 UI 可評估採購 |
+| 6 | 自建 vs 採購（V-CDP / 舊平台）TCO | 決策 | 本設計各層可被商用替換；建議以 Phase 0–1 自建接入層與 OneID，分析 UI 可評估採購 |
 | 7 | 營業員行級權限與客戶重分配歷史 | 中 | dim_agent 維度表版本化，查詢以「當前歸屬」或「事件當下歸屬」可選 |
 | 8 | 資料保存年限與 DSAR 衝突（法定保存 vs 刪除權） | 中 | 法遵定義「法定保存例外」，DSAR 僅刪行為資料、交易資料去識別化保留 |
 
@@ -899,29 +899,29 @@ DMZ (K8s node pool: edge)
 
 ## 附錄 C：參考來源
 
-**火山引擎**
-- [客户数据平台 VeCDP 產品頁](https://www.volcengine.com/product/veCDP)
+**V 平台**
+- [客户数据平台 V-CDP 產品頁](https://www.volcengine.com/product/veCDP)
 - [客户数据平台（私有化）产品介绍](https://docs.volcengine.com/docs/7139/191640)
 - [ID-Mapping 配置逻辑（私有化）](https://docs.volcengine.com/docs/CustomerDataPlatformprivatization/ID-Mappingconfigurationlogic?lang=zh)
 - [ID-Mapping 运维与管理（私有化）](https://www.volcengine.com/docs/7139/1222703)
 - [常用名词（Baseid/OneID）](https://www.volcengine.com/docs/6356/75798)
 - [规则标签（私有化）](https://www.volcengine.com/docs/7139/191743)、[SQL 标签（私有化）](https://docs.volcengine.com/docs/7139/191754)、[实时标签构建（私有化）](https://www.volcengine.com/docs/7139/1162990)、[标签常见问题](https://www.volcengine.com/docs/7139/191845?lang=zh)
 - [新用户学习路径（私有化）](https://www.volcengine.com/docs/7139/1131847)
-- [VeCDP 发版日志 2023 年 9 月（实时规则引擎）](https://www.volcengine.com/docs/6356/1148753)
-- [增长分析 DataFinder 產品頁](https://www.volcengine.com/product/datafinder)
-- [增长分析（私有化）产品简介和优势](https://www.volcengine.com/docs/6285/1219233)、[OpenAPI 概览](https://docs.volcengine.com/docs/6285/100050)、[专有名词](https://docs.volcengine.com/docs/Growthanalysisprivatization/ExplanationofDataFinderproprietaryterms?lang=zh)
-- [DataFinder 转化分析](https://docs.volcengine.com/docs/84129/1261541)、[留存分析](https://docs.volcengine.com/docs/84129/1261540)、[分布分析](https://volcengine.com/docs/84129/1261543)、[用户生命周期](https://www.volcengine.com/docs/84129/1261547)、[埋点、全埋点](https://volcengine.com/docs/84129/1261517)、[指标管理](https://docs.volcengine.com/docs/GrowthAnalysisDataFinder/Metricmanagement-3?lang=zh)、[SaaS 发版日志 2025](https://docs.volcengine.com/docs/GrowthAnalysisDataFinder/SaaS-ReleaseLog2025?lang=zh)
+- [V-CDP 发版日志 2023 年 9 月（实时规则引擎）](https://www.volcengine.com/docs/6356/1148753)
+- [增长分析 V-埋點分析 產品頁](https://www.volcengine.com/product/datafinder)
+- [增长分析（私有化）产品简介和优势](https://www.volcengine.com/docs/6285/1219233)、[OpenAPI 概览](https://docs.volcengine.com/docs/6285/100050)、[专有名词](https://docs.volcengine.com/docs/Growthanalysisprivatization/ExplanationofV-埋點分析proprietaryterms?lang=zh)
+- [V-埋點分析 转化分析](https://docs.volcengine.com/docs/84129/1261541)、[留存分析](https://docs.volcengine.com/docs/84129/1261540)、[分布分析](https://volcengine.com/docs/84129/1261543)、[用户生命周期](https://www.volcengine.com/docs/84129/1261547)、[埋点、全埋点](https://volcengine.com/docs/84129/1261517)、[指标管理](https://docs.volcengine.com/docs/GrowthAnalysisV-埋點分析/Metricmanagement-3?lang=zh)、[SaaS 发版日志 2025](https://docs.volcengine.com/docs/GrowthAnalysisV-埋點分析/SaaS-ReleaseLog2025?lang=zh)
 - [VeDI 增长营销季刊 VOL.05](https://developer.volcengine.com/articles/7221039238916079671)、[VOL.06](https://developer.volcengine.com/articles/7258155356163932214)、[VOL.07](https://developer.volcengine.com/articles/7293089661453828134)
-- [ByteHouse 技术白皮书](https://developer.volcengine.com/articles/7221794260490813501)、[ByteHouse 关键技术及最佳实践](https://developer.volcengine.com/articles/7418056624952377363)
+- [V 平台 OLAP（ClickHouse 改寫版） 技术白皮书](https://developer.volcengine.com/articles/7221794260490813501)、[V 平台 OLAP（ClickHouse 改寫版） 关键技术及最佳实践](https://developer.volcengine.com/articles/7418056624952377363)
 
-**神策數據**
-- [神策分析產品頁（本地部署）](https://www.sensorsdata.cn/product/analysis-zh-t.html)
-- [神策數據根基平台 SDP](https://www.sensorsdata.cn/features/bigdata.html)、[CDP 解決方案](https://www.sensorsdata.cn/solutions/cdp.html)、[用戶畫像](https://www.sensorsdata.cn/product/userTag.html)
-- [數據格式（track / profile_*）](https://manual.sensorsdata.cn/sa/docs/tech_import_format)、[預置用戶標識清單（IDM 3.0）](https://manual.sensorsdata.cn/sa/docs/preset_identity_list/v0205)、[標識用戶——全域用戶關聯](https://manual.sensorsdata.cn/sa/3.0/zh_cn/tech_knowledge_user_idm3-150667578.html)、[全域用戶關聯（Web）](https://manual.sensorsdata.cn/sa/3.0/zh_cn/tech_sdk_client_web_idm3-109576372.html)
-- [訂閱 Kafka 實時數據（私有化）](https://manual.sensorsdata.cn/sa/docs/tech_export_subscribe/v0204)
-- [基於 Impala 構建實時用戶行為分析引擎](https://sensorsdata.cn/uploads/2bd6708aa9e7d3fe7db04ce608907856/%E7%A5%9E%E7%AD%96%E6%95%B0%E6%8D%AE__%E5%9F%BA%E4%BA%8EImpala%E6%9E%84%E5%BB%BA%E5%AE%9E%E6%97%B6%E7%94%A8%E6%88%B7%E8%A1%8C%E4%B8%BA%E5%88%86%E6%9E%90%E5%BC%95%E6%93%8E.pdf)、[Impala 在神策實時分析引擎中的落地與優化](https://blog.csdn.net/rlnLo2pNEfx9c/article/details/124310846)、[神策分析的技術選型與架構實現](https://blog.csdn.net/weixin_33755847/article/details/90387637)
+**舊平台數據**
+- [舊平台產品頁（本地部署）](（舊平台原廠文件）)
+- [舊平台數據根基平台 SDP](（舊平台原廠文件）)、[CDP 解決方案](（舊平台原廠文件）)、[用戶畫像](（舊平台原廠文件）)
+- [數據格式（track / profile_*）](（舊平台原廠文件）)、[預置用戶標識清單（IDM 3.0）](（舊平台原廠文件）)、[標識用戶——全域用戶關聯](（舊平台原廠文件）)、[全域用戶關聯（Web）](（舊平台原廠文件）)
+- [訂閱 Kafka 實時數據（私有化）](（舊平台原廠文件）)
+- [基於 Impala 構建實時用戶行為分析引擎](（舊平台原廠文件）)、[Impala 在舊平台實時分析引擎中的落地與優化](https://blog.csdn.net/rlnLo2pNEfx9c/article/details/124310846)、[舊平台的技術選型與架構實現](https://blog.csdn.net/weixin_33755847/article/details/90387637)
 - [證券客戶生命週期運營方案全解析（2020）](https://news.pedaily.cn/20200415/1253.shtml)
-- [神策大數據：用戶識別（OneID 二級 ID 結構）](https://cloud.tencent.com/developer/article/1794950)
+- [舊平台大數據：用戶識別（OneID 二級 ID 結構）](https://cloud.tencent.com/developer/article/1794950)
 
 **GA360 / BigQuery**
 - [[GA4] BigQuery Export（官方說明）](https://support.google.com/analytics/answer/9358801?hl=en)

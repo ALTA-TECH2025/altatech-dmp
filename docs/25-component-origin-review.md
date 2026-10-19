@@ -12,7 +12,7 @@
 | **非大陸實體、主要作者大陸籍** | Vite／Vitest（VoidZero Inc.，美國公司，創辦人 Evan You 大陸出生、居新加坡）、SeaweedFS（SeaweedFS Inc.，美國，作者 Chris Lu 大陸出生、居美） | 保留但揭露；若評分表以作者籍貫計，Vite→Rollup+esbuild 直接用、Vitest→Jest（Meta）、SeaweedFS→客戶既有企業物件儲存或 Ceph RGW；GCP 用 GCS 本來就不用 SeaweedFS |
 | **其餘全部** | 美國／歐洲／以色列／加拿大／日本實體或基金會（ASF、CNCF、Linux Foundation、Eclipse、OpenJS、PGDG、Red Hat、Google、Microsoft、Meta） | 無疑慮 |
 
-被替換的系統：神策（Sensors Data，大陸）本案即在汰換；火山引擎 VeCDP 只是設計參考，不是元件。
+被替換的系統：舊平台（舊平台 Data，大陸）本案即在汰換；V 平台 V-CDP 只是設計參考，不是元件。
 
 ## 1. 逐項盤點
 

@@ -38,23 +38,23 @@ const sec1 = '提案簡報初稿', sec2 = '報價初版（未稅）', sec3 = '�
 pres.addSection({ title: sec1 });
 { const s = pres.addSlide({ masterName: 'TITLE_DARK', sectionTitle: sec1 });
   s.addText('內部草稿 v0.1 · 2026-10-17', T({ x: 0.6, y: 1.05, w: 8.8, h: 0.35, fontSize: 14, color: '8A9AA6' }));
-  s.addText('永豐金證券行為數據平台：神策 → GA360 遷移與 DMP 提案', { placeholder: 'title' });
+  s.addText('永豐金證券行為數據平台：舊平台 → GA360 遷移與 DMP 提案', { placeholder: 'title' });
   s.addText('客戶高階主管會議 2026-10-23（五）· AltaTech × Merkle\n週一 10-19 會前會先對齊最後一節', { placeholder: 'body' }); }
 
 // 2 今天要決定的事
 { const s = content('今天要決定的事', sec1);
-  const items = [['01', '神策到期前可以安全換掉', '高階主管點頭：GA360 接埋點、DMP 接分析與營運；錢與人力都在表上'], ['02', '時程 v2.1 與 M0 十項待確認', '專案負責人同意時程，11-02 kick-off 排得出來'], ['03', 'Merkle 與我們講同一張圖', '交接點是 BigQuery 匯出與橋接表，客戶面前一個說法']];
+  const items = [['01', '舊平台到期前可以安全換掉', '高階主管點頭：GA360 接埋點、DMP 接分析與營運；錢與人力都在表上'], ['02', '時程 v2.1 與 M0 十項待確認', '專案負責人同意時程，11-02 kick-off 排得出來'], ['03', 'Merkle 與我們講同一張圖', '交接點是 BigQuery 匯出與橋接表，客戶面前一個說法']];
   items.forEach(([n, h, b], i) => { const x = 0.5 + i * 3.1; card(s, x, 1.45, 2.8, 3.35, C.background1, `s2_card${i}`);
     s.addText(n, T({ x: x + 0.25, y: 1.7, w: 2.3, h: 0.6, fontSize: 30, bold: true, color: C.accent1 }));
     s.addText(h, T({ x: x + 0.25, y: 2.4, w: 2.3, h: 0.85, fontSize: 17, bold: true, color: C.text1 }));
     s.addText(b, T({ x: x + 0.25, y: 3.3, w: 2.3, h: 1.35, fontSize: 14, color: C.text1 })); }); }
 
 // 3 處境
-{ const s = content('神策 2027-10-31 到期，70 億筆歷史與每天在用的營運流程都要接得住', sec1);
-  [['2027-10-31', '神策授權到期日'], ['70 億筆', '神策歷史行為事件']].forEach(([v, l], i) => { const y = 1.45 + i * 1.75; card(s, 0.5, y, 3.6, 1.5, C.accent6, `s3_stat${i}`);
+{ const s = content('舊平台 2027-10-31 到期，70 億筆歷史與每天在用的營運流程都要接得住', sec1);
+  [['2027-10-31', '舊平台授權到期日'], ['70 億筆', '舊平台歷史行為事件']].forEach(([v, l], i) => { const y = 1.45 + i * 1.75; card(s, 0.5, y, 3.6, 1.5, C.accent6, `s3_stat${i}`);
     s.addText(v, T({ x: 0.75, y: y + 0.2, w: 3.1, h: 0.75, fontSize: 32, bold: true, color: C.accent1 }));
     s.addText(l, T({ x: 0.75, y: y + 0.95, w: 3.1, h: 0.4, fontSize: 14, color: C.text1 })); });
-  bullets(s, ['行銷、數據分析、數位經營每天在用神策的報表、分群、標籤與名單推送', '新埋點改由 GA360 收，歷史資料與營運功能需要一個落地的家', '供應商評分表要求說清楚元件來源、授權與是否需付費', '切換前要有並行期對帳，數字對得上才停寫神策'], { x: 4.5, y: 1.5, w: 5.0, h: 3.4 }); }
+  bullets(s, ['行銷、數據分析、數位經營每天在用舊平台的報表、分群、標籤與名單推送', '新埋點改由 GA360 收，歷史資料與營運功能需要一個落地的家', '供應商評分表要求說清楚元件來源、授權與是否需付費', '切換前要有並行期對帳，數字對得上才停寫舊平台'], { x: 4.5, y: 1.5, w: 5.0, h: 3.4 }); }
 
 // 4 方案一張圖
 { const s = content('GA360 收埋點、DMP 接分析與營運，交接點是 BigQuery 匯出', sec1);
@@ -66,7 +66,7 @@ pres.addSection({ title: sec1 });
   box(0.7, 2.1, 1.45, 'GA360\n埋點', 's4_b1'); box(2.45, 2.1, 1.45, 'BigQuery\n匯出', 's4_b2');
   box(4.55, 2.1, 1.5, 'DMP\nClickHouse', 's4_b3'); box(6.3, 2.1, 1.5, '分析・分群\n標籤・推送', 's4_b4'); box(8.0, 2.1, 1.3, 'MA／CRM', 's4_b5');
   ['→', '→', '→', '→'].forEach((a, i) => s.addText(a, T({ x: [2.15, 3.9, 6.05, 7.8][i], y: 2.4, w: 0.3, h: 0.45, fontSize: 20, bold: true, color: HEX.muted, align: 'center' })));
-  box(4.55, 3.55, 1.5, '神策歷史\n70 億筆', 's4_b6'); s.addText('↑', T({ x: 5.15, y: 3.15, w: 0.3, h: 0.4, fontSize: 20, bold: true, color: HEX.muted, align: 'center' }));
+  box(4.55, 3.55, 1.5, '舊平台歷史\n70 億筆', 's4_b6'); s.addText('↑', T({ x: 5.15, y: 3.15, w: 0.3, h: 0.4, fontSize: 20, bold: true, color: HEX.muted, align: 'center' }));
   s.addText('歷史資料經橋接表轉成同一套事件口徑，與 GA360 新資料在 DMP 會合，客戶代碼銜接 OneID', T({ x: 6.3, y: 3.6, w: 3.0, h: 1.1, fontSize: 13, color: C.text1 }));
   s.addText('分工線：埋點、GTM、GA360 設定、BigQuery 匯出與 Google 端 SLA 歸 Merkle；匯出之後的載入、OneID、分析、營運、歷史銜接與對帳工具歸 AltaTech', T({ x: 0.5, y: 3.95, w: 3.55, h: 0.95, fontSize: 12, color: HEX.muted })); }
 
@@ -84,8 +84,8 @@ pres.addSection({ title: sec1 });
   s.addText('數字截至 2026-10-17（docs/31 §1）', T({ x: 5.5, y: 5.2, w: 3.5, h: 0.3, fontSize: 10, color: HEX.muted, align: 'right' })); }
 
 // 7 現場操作
-{ const s = content('現場操作三段各 4 分鐘：先講神策怎麼做，再操作，最後回到需求表編號', sec1);
-  table(s, [['段', '角色', '步驟', '要講的點'], ['① 分析', '數據分析', '數位開戶轉換看板 → 事件分析改分組 → 存書籤進看板', '口徑與神策一致'], ['② 營運', '數位經營', '分群估數 → 標籤 RFM 分布 → 推送單到 CRM → 交付紀錄', '名單不出庫、要審批'], ['③ 治理', '資訊管理', '權限中心模擬行銷角色 → 日誌告警 → 資料流與 SLA → 系統監控', '可審計、可監控']], { y: 1.5, colW: [1.0, 1.3, 4.4, 2.3], rowH: 0.75 });
+{ const s = content('現場操作三段各 4 分鐘：先講舊平台怎麼做，再操作，最後回到需求表編號', sec1);
+  table(s, [['段', '角色', '步驟', '要講的點'], ['① 分析', '數據分析', '數位開戶轉換看板 → 事件分析改分組 → 存書籤進看板', '口徑與舊平台一致'], ['② 營運', '數位經營', '分群估數 → 標籤 RFM 分布 → 推送單到 CRM → 交付紀錄', '名單不出庫、要審批'], ['③ 治理', '資訊管理', '權限中心模擬行銷角色 → 日誌告警 → 資料流與 SLA → 系統監控', '可審計、可監控']], { y: 1.5, colW: [1.0, 1.3, 4.4, 2.3], rowH: 0.75 });
   s.addText('對應需求表 A4／A5／C2／C5／D4／E3；備一台本機真後端當備援', T({ x: 0.5, y: 4.65, w: 9.0, h: 0.35, fontSize: 13, color: HEX.muted })); }
 
 // 8 歷史資料
@@ -98,7 +98,7 @@ pres.addSection({ title: sec1 });
 
 // 9 與 Merkle 的交接點
 { const s = content('與 Merkle 的交接點有四個，橋接表作為埋點規範附件', sec1);
-  [['埋點規範與事件命名', '神策事件名 → GA4 事件名的橋接表由我們產，Merkle 依此埋點'], ['BigQuery 匯出', '日批前日全量＋串流 intraday；72 小時重寫；GA4 標準 schema'], ['user_id 口徑', '登入後 user_id = 客戶代碼（HMAC），與神策登入 ID 同一把金鑰'], ['並行期對帳', '每日 T5／T6，只放筆數與差異率；修正單 SLA 由雙方約定']].forEach(([h, b], i) => {
+  [['埋點規範與事件命名', '舊平台事件名 → GA4 事件名的橋接表由我們產，Merkle 依此埋點'], ['BigQuery 匯出', '日批前日全量＋串流 intraday；72 小時重寫；GA4 標準 schema'], ['user_id 口徑', '登入後 user_id = 客戶代碼（HMAC），與舊平台登入 ID 同一把金鑰'], ['並行期對帳', '每日 T5／T6，只放筆數與差異率；修正單 SLA 由雙方約定']].forEach(([h, b], i) => {
     const x = 0.5 + (i % 2) * 4.6, y = 1.45 + Math.floor(i / 2) * 1.75; card(s, x, y, 4.4, 1.55, C.background1, `s9_card${i}`);
     s.addShape(pres.shapes.OVAL, { x: x + 0.25, y: y + 0.25, w: 0.42, h: 0.42, fill: { color: C.accent1 }, line: { type: 'none' }, objectName: `s9_dot${i}` });
     s.addText(String(i + 1), T({ x: x + 0.25, y: y + 0.25, w: 0.42, h: 0.42, fontSize: 14, bold: true, color: C.background1, align: 'center', valign: 'middle' }));
@@ -106,12 +106,12 @@ pres.addSection({ title: sec1 });
     s.addText(b, T({ x: x + 0.85, y: y + 0.72, w: 3.35, h: 0.75, fontSize: 13, color: C.text1 })); }); }
 
 // 10 時程
-{ const s = content('UAT 2027-06-30、正式上線 2027-09-30，比神策到期早 31 天', sec1);
-  table(s, [['里程碑', '日期', '退出重點'], ['M0 決策與環境', '2026-11-02 ～ 11-13', '十項待確認拍板、測試環境、真 IdP 接通'], ['M1 盤點與橋接表', '2026-11-20', '必留清單確認、橋接表交 Merkle、1 個月真樣本'], ['M2 歷史資料進倉', '2026-12-18', '70 億載入、10 億效能基準回填 SLA'], ['M3 GA360 接入與並行', '2027-01-22', 'GA360 真匯出接入，並行期與每日對帳開始'], ['M4 交易結合與營運', '2027-02-26', '交易真資料、結合分析、神策分群標籤重建'], ['M5 內部驗收', '2027-03-26', '安全強化、DR 演練、切換演練、操作手冊'], ['UAT／PD', '2027-06-30／09-30', '客戶驗收 T1–T9；正式上線、神策停寫']], { y: 1.4, colW: [2.4, 2.2, 4.4], rowH: 0.43, highlight: [7] }); }
+{ const s = content('UAT 2027-06-30、正式上線 2027-09-30，比舊平台到期早 31 天', sec1);
+  table(s, [['里程碑', '日期', '退出重點'], ['M0 決策與環境', '2026-11-02 ～ 11-13', '十項待確認拍板、測試環境、真 IdP 接通'], ['M1 盤點與橋接表', '2026-11-20', '必留清單確認、橋接表交 Merkle、1 個月真樣本'], ['M2 歷史資料進倉', '2026-12-18', '70 億載入、10 億效能基準回填 SLA'], ['M3 GA360 接入與並行', '2027-01-22', 'GA360 真匯出接入，並行期與每日對帳開始'], ['M4 交易結合與營運', '2027-02-26', '交易真資料、結合分析、舊平台分群標籤重建'], ['M5 內部驗收', '2027-03-26', '安全強化、DR 演練、切換演練、操作手冊'], ['UAT／PD', '2027-06-30／09-30', '客戶驗收 T1–T9；正式上線、舊平台停寫']], { y: 1.4, colW: [2.4, 2.2, 4.4], rowH: 0.43, highlight: [7] }); }
 
 // 11 團隊
-{ const s = content('AltaTech 七人加 ClickHouse 顧問 20 天，三位服務過本客戶神策系統', sec1);
-  table(s, [['角色', '人', '負責'], ['產品', '1', '需求落差簽認、口徑與橋接表、驗收案例與手冊架構'], ['研發 R1 資料與查詢', '1', '接入、OneID、查詢編譯、ClickHouse 效能'], ['研發 R2 應用與前端', '1', 'API、分群標籤推送、權限、前端與示範站'], ['PM（服務過神策）', '1', '時程與退出條件、十項待確認、三方協作'], ['分析師 A（服務過神策）', '1', '神策盤點、必留清單、T1–T9 對帳'], ['分析師 B', '1', '教育訓練、看板重構、上線後交付調優'], ['運維（服務過神策）', '1', '神策導出、環境建置、監控與備份']], { y: 1.4, colW: [2.9, 0.6, 5.5], align: ['left', 'right', 'left'], rowH: 0.43 });
+{ const s = content('AltaTech 七人加 ClickHouse 顧問 20 天，三位服務過本客戶舊平台系統', sec1);
+  table(s, [['角色', '人', '負責'], ['產品', '1', '需求落差簽認、口徑與橋接表、驗收案例與手冊架構'], ['研發 R1 資料與查詢', '1', '接入、OneID、查詢編譯、ClickHouse 效能'], ['研發 R2 應用與前端', '1', 'API、分群標籤推送、權限、前端與示範站'], ['PM（服務過舊平台）', '1', '時程與退出條件、十項待確認、三方協作'], ['分析師 A（服務過舊平台）', '1', '舊平台盤點、必留清單、T1–T9 對帳'], ['分析師 B', '1', '教育訓練、看板重構、上線後交付調優'], ['運維（服務過舊平台）', '1', '舊平台導出、環境建置、監控與備份']], { y: 1.4, colW: [2.9, 0.6, 5.5], align: ['left', 'right', 'left'], rowH: 0.43 });
   s.addText('全員用 Claude Team 協同產出文件、對帳與測試；客戶端需要窗口、決策會與 UAT 人員', T({ x: 0.5, y: 4.85, w: 8.6, h: 0.3, fontSize: 12, color: HEX.muted })); }
 
 // 12 風險
@@ -135,7 +135,7 @@ pres.addSection({ title: sec1 });
 
 // 15 M0 十項
 { const s = content('M0 要客戶拍板十項，11-13 前決定', sec1);
-  const items = ['部署環境：GCP 或機房、機器檔位', '交易資料提供方式：批次或 Kafka', '身分：Entra ID／AD／Keycloak 與角色對照', '神策歷史導出方式與並行期長度', '隱私門檻：K 值、匯出上限、審計保存年限', '推送接收端規格與增量延遲', '自定義 SQL 開放對象與下載上限', 'AI 洞察的 LLM 供應方式與預算（二期）', '效能 SLA 在客戶規模實測', 'GA360 BigQuery 匯出區域與費用'];
+  const items = ['部署環境：GCP 或機房、機器檔位', '交易資料提供方式：批次或 Kafka', '身分：Entra ID／AD／Keycloak 與角色對照', '舊平台歷史導出方式與並行期長度', '隱私門檻：K 值、匯出上限、審計保存年限', '推送接收端規格與增量延遲', '自定義 SQL 開放對象與下載上限', 'AI 洞察的 LLM 供應方式與預算（二期）', '效能 SLA 在客戶規模實測', 'GA360 BigQuery 匯出區域與費用'];
   [0, 1].forEach((c) => { card(s, 0.5 + c * 4.6, 1.4, 4.4, 3.55, C.background1, `s15_col${c}`);
     s.addText(items.slice(c * 5, c * 5 + 5).map((t, i) => ({ text: `${c * 5 + i + 1}. ${t}`, options: { breakLine: i < 4, paraSpaceAfter: 10 } })), T({ x: 0.75 + c * 4.6, y: 1.6, w: 3.95, h: 3.2, fontSize: 14, color: C.text1 })); }); }
 
@@ -151,20 +151,20 @@ pres.addSection({ title: sec2 });
   s.addText('單位：新台幣，未稅；不含基礎設施、GA360／BigQuery、LINE 訊息方案與差旅', T({ x: 0.5, y: 4.9, w: 8.6, h: 0.3, fontSize: 11, color: HEX.muted })); }
 
 // 18 分階段
-{ const s = content('分階段：第一階段只做取代神策所必需的', sec2);
-  bullets(s, ['部署安裝（測試＋正式）、SSO 與權限', 'GA360 BigQuery 匯出接入、數據中台交易批次', '神策近 13 個月歷史導入與並行期對帳', '六個分析模組、分群、標籤、名單推送（Webhook）', '審批與審計、四個情境看板、一輪教育訓練'], { x: 0.5, y: 1.45, w: 5.6, h: 3.3, fontSize: 15 });
+{ const s = content('分階段：第一階段只做取代舊平台所必需的', sec2);
+  bullets(s, ['部署安裝（測試＋正式）、SSO 與權限', 'GA360 BigQuery 匯出接入、數據中台交易批次', '舊平台近 13 個月歷史導入與並行期對帳', '六個分析模組、分群、標籤、名單推送（Webhook）', '審批與審計、四個情境看板、一輪教育訓練'], { x: 0.5, y: 1.45, w: 5.6, h: 3.3, fontSize: 15 });
   card(s, 6.3, 1.45, 3.2, 3.3, C.accent6, 's18_phase');
   s.addText([{ text: '第一階段', options: { bold: true, breakLine: true } }, { text: '290 人天', options: { fontSize: 26, bold: true, breakLine: true, paraSpaceAfter: 10 } }, { text: '規格外', options: { bold: true, breakLine: true } }, { text: '後續模組，需要時再加；一律人天單價 × 人天', options: {} }], T({ x: 6.5, y: 1.65, w: 2.8, h: 2.9, fontSize: 14, color: C.text1 }));
-  s.addText('平台功能已大致完成，只計導入、接入、遷移、對帳與驗收；比較基準：神策年費約 6,000,000', T({ x: 0.5, y: 4.9, w: 8.6, h: 0.3, fontSize: 11, color: HEX.muted })); }
+  s.addText('平台功能已大致完成，只計導入、接入、遷移、對帳與驗收；比較基準：舊平台年費約 6,000,000', T({ x: 0.5, y: 4.9, w: 8.6, h: 0.3, fontSize: 11, color: HEX.muted })); }
 
 // 19 第一階段金額
 { const s = content('第一階段 6,180,000 元未稅；保固一年，次年維運 20%', sec2);
   table(s, [['角色', '人天', '單價', '金額'], ['研發 R1', '70', '25,000', '1,750,000'], ['研發 R2', '50', '25,000', '1,250,000'], ['數據分析師 A', '50', '16,000', '800,000'], ['專案經理', '40', '20,000', '800,000'], ['數據分析師 B', '30', '16,000', '480,000'], ['系統工程師（運維）', '30', '20,000', '600,000'], ['產品', '20', '25,000', '500,000'], ['第一階段合計', '290', '', '6,180,000']], { y: 1.3, colW: [3.3, 1.5, 1.7, 2.5], align: ['left', 'right', 'right', 'right'], rowH: 0.34, fontSize: 13, highlight: [8] });
-  s.addText('上線保固一年；次年起維運費＝合約 20%（1,236,000／年）。頭兩年約 7,416,000，低於兩年神策 12,000,000', T({ x: 0.5, y: 4.9, w: 8.6, h: 0.3, fontSize: 11, color: HEX.muted })); }
+  s.addText('上線保固一年；次年起維運費＝合約 20%（1,236,000／年）。頭兩年約 7,416,000，低於兩年舊平台 12,000,000', T({ x: 0.5, y: 4.9, w: 8.6, h: 0.3, fontSize: 11, color: HEX.muted })); }
 
 // 20 後續模組
 { const s = content('規格外的放後續模組，需要時再加', sec2);
-  table(s, [['後續模組', '人天', '金額（未稅）'], ['間隔／分佈／Session／LTV 分析', '50', '1,160,000'], ['CDP 標籤同步＋推送排除名單', '40', '950,000'], ['AI 問數與洞察（接 LLM）', '50', '1,250,000'], ['即時觸發（Flink 規則引擎）', '80', '1,900,000'], ['神策歷史超過 13 個月', '40', '730,000'], ['CSM 客戶成功', '50', '800,000']], { x: 0.5, y: 1.3, w: 5.6, colW: [3.2, 0.9, 1.5], align: ['left', 'right', 'right'], rowH: 0.36, fontSize: 12 });
+  table(s, [['後續模組', '人天', '金額（未稅）'], ['間隔／分佈／Session／LTV 分析', '50', '1,160,000'], ['CDP 標籤同步＋推送排除名單', '40', '950,000'], ['AI 問數與洞察（接 LLM）', '50', '1,250,000'], ['即時觸發（Flink 規則引擎）', '80', '1,900,000'], ['舊平台歷史超過 13 個月', '40', '730,000'], ['CSM 客戶成功', '50', '800,000']], { x: 0.5, y: 1.3, w: 5.6, colW: [3.2, 0.9, 1.5], align: ['left', 'right', 'right'], rowH: 0.36, fontSize: 12 });
   card(s, 6.3, 1.3, 3.2, 3.5, C.accent6, 's20_opt');
   s.addText([{ text: '出客戶版前要定', options: { bold: true, breakLine: true, paraSpaceAfter: 6 } }, { text: '1. 固定總價或人天實報', options: { breakLine: true } }, { text: '2. 保固一年；次年維運＝合約 20%', options: { breakLine: true } }, { text: '3. 付款：簽約 30%、UAT 30%、上線 30%、驗收 10%', options: { breakLine: true } }, { text: '4. 規格更改只走 CR，人天另計', options: { breakLine: true } }, { text: '5. 客戶自備：GA360、BigQuery、GCP 或機房、LINE', options: { breakLine: true } }, { text: '6. Merkle 分工：不含埋點與 GA360 設定', options: {} }], T({ x: 6.5, y: 1.5, w: 2.8, h: 3.1, fontSize: 13, color: C.text1 })); }
 

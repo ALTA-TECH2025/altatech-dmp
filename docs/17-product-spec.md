@@ -6,7 +6,7 @@
 >
 > v0.8 — **實作狀態標註**：四張系統圖每個方塊右上角標示 已實作／部分實作／規劃中／第二階段／待確認（`docs/diagrams/build.py` 的 `STATUS` 表，對照 docs/27 §1）；新增 §5a 實作狀態總表與待確認清單（取代原 §8 的轉介）。
 >
-> v0.7 — 範圍調整：本案主軸改為「舊平台 → GA360 遷移與歷史資料銜接」四件事（埋點設計建議、舊平台資料盤點與導出載入、新舊整合測試、交易資料導入與結合分析；docs/22）；**第一階段不做 AI 功能**，契約與原型頁面保留（功能旗標關閉）供第二階段接入；新增模組 5.17 歷史資料遷移、連接器 sensors_export、橋接工具 bridge.py；時程改為 M1–M5（第 20 週驗收）。
+> v0.7 — 範圍調整：本案主軸改為「舊平台 → GA360 遷移與歷史資料銜接」四件事（埋點設計建議、舊平台資料盤點與導出載入、新舊整合測試、交易資料導入與結合分析；docs/22）；**第一階段不做 AI 功能**，契約與原型頁面保留（功能旗標關閉）供第二階段接入；新增模組 5.17 歷史資料遷移、連接器 legacy_export、橋接工具 bridge.py；時程改為 M1–M5（第 20 週驗收）。
 >
 > v0.6 — 同步原型 v0.6.1：五種角色（docs/10 v0.4）、事件字典改用客戶模擬事件清單（112 個舊平台事件 + 別名）、交易／帳務改由數據中台／CDP 批次導入、GA360 去識別化埋點（docs/20）、OneID 登入後改寫（docs/19 v1.1）、分群／標籤／自定義 SQL 對齊舊平台（docs/21）、五個分析模組對齊舊平台使用指南（docs/04 §0b）、導覽拆成「數據治理」「系統管理」兩個大模組、系統管理員可新增刪除角色。
 
@@ -50,7 +50,7 @@
 | 交易／帳務 | 數據中台／CDP 事實表批次導入（每 15 分鐘增量 + 日批校正；數據中台有 Kafka 則流任務）→ Kafka → Flink 狀態機事件化（委託／成交／失敗／刪單）；不直連交易主機 | < 20 分鐘（批次）／< 1 分鐘（Kafka） |
 | 主檔 | CRM／HR／商品主檔 → 建模映射 → users／items | 每日 |
 | 分析查詢 | UI／API／agent → 語意層編譯 → Policy（行級、遮罩）→ ClickHouse（MV 優先）→ 快取 → 審計 | 各模組 P95 SLA 見 §5.9 |
-| 舊平台歷史資料（一次性） | Impala／HDFS Parquet 直讀（IDM 2.0：second_id → 客戶代碼，first_id 保留為匿名）→ Importer（sensors_export）→ 暫存 Parquet → ClickHouse SQL 標準化（事件名保留、時間轉 UTC、`$ip` 丟棄、登入 ID HMAC 成客戶代碼；第一階段微批，不經 Flink，docs/23）→ ClickHouse 歷史分區 → 三方對帳（來源／導出／載入） | 70 億約 2–3 天（Impala／HDFS 直讀，客戶已同意）；分片差異 > 0.1% 重跑 |
+| 舊平台歷史資料（一次性） | Impala／HDFS Parquet 直讀（IDM 2.0：second_id → 客戶代碼，first_id 保留為匿名）→ Importer（legacy_export）→ 暫存 Parquet → ClickHouse SQL 標準化（事件名保留、時間轉 UTC、`$ip` 丟棄、登入 ID HMAC 成客戶代碼；第一階段微批，不經 Flink，docs/23）→ ClickHouse 歷史分區 → 三方對帳（來源／導出／載入） | 70 億約 2–3 天（Impala／HDFS 直讀，客戶已同意）；分片差異 > 0.1% 重跑 |
 | OneID 登入改寫 | 登入／綁定事件 → 查該 distinct_id 近 7 天仍歸匿名用戶的事件 → 寫入 oneid_backfill 覆蓋表（查詢即時生效）→ 每 10 分鐘微批 lightweight update 回寫 events（≤ 8 個日分區）→ 審計 oneid.backfilled；拒絕同意者不改寫 | 覆蓋表即時；回寫 < 10 分鐘 |
 | 標籤與分群 | 例行（日／週／月）或手動計算 → user_tags Bitmap（保留 1–100 版）→ 分群（規則／匯入／結果存檔；交／聯／差；1/16 抽樣估數）→ 審批 → 推送紀錄 | 日批 < 20 分鐘；500 分群估數 < 3 s |
 | 名單推送 | 分群／標籤 → 推送單審批 → Webhook／Kafka／GCS（內部系統）→ deliveries | 增量 15 分鐘送完 |
@@ -64,7 +64,7 @@
 
 - Event–User–Item 模型，舊平台相容協議（track／profile_*／item_*／identities）與 GA4 匯出映射（docs/01、06）；OneID 歸戶對齊舊平台 IDM 3.0，匿名用戶也有 distinct_id，登入後改寫近 7 天匿名事件（docs/19 v1.1）。
 - 事件字典 v4（`events.yaml`，共 264 個）：客戶模擬事件清單 112 個 ＋ 3 個補充交易事件 ＋ 舊平台埋點規格表 147 個自訂事件（2026-10-19 補；依平台判斷來源，標 (X)／已下線／過期活動的 17 個為 deprecated，只匯歷史；required 只列保留或代碼化的屬性，個資與維護欄不列）。模擬清單的 112 個舊平台事件（開戶 kh_*、定期定額 sip_*、申購／競拍 auc_*、行情 hq_*、活動 act_*、證券 bond_*、$App*／$pageview 等基礎事件、$Plan*／$Journey* 智能運營事件、LINE／Push／短鏈）＋ 3 個補充交易事件；每個事件帶 group／platforms／source／aliases，舊名（ga.page_view、quote_view、order_submit…）以別名映射到正式事件名（docs/04 §0a）。
-- 新舊銜接：正式事件名 = 舊平台事件名；GA 端事件名由 `backend/migration/bridge.py` 由事件字典產生（264 事件：157 經 GA〔自訂 155、自動 2〕、59 由數據中台／業務系統／渠道／短鏈直接接入、48 只匯舊平台歷史〔MA／LINE 與已停用事件〕），接入時以 `sensors_ga4_bridge.yaml` 轉回；登入用戶兩邊同一客戶代碼，匿名 ID 不銜接（docs/22 §2）。
+- 新舊銜接：正式事件名 = 舊平台事件名；GA 端事件名由 `backend/migration/bridge.py` 由事件字典產生（264 事件：157 經 GA〔自訂 155、自動 2〕、59 由數據中台／業務系統／渠道／短鏈直接接入、48 只匯舊平台歷史〔MA／LINE 與已停用事件〕），接入時以 `legacy_ga4_bridge.yaml` 轉回；登入用戶兩邊同一客戶代碼，匿名 ID 不銜接（docs/22 §2）。
 - 去識別化：一把 HMAC 金鑰（HSM）產生 `v1_` + 20 字元客戶代碼，GA `user_id` 與舊平台 `$identity_login_id` 同款；手機 HMAC／帳號 FPE 不送 GA；行為事件與交易事件不逐筆對帳，只靠 OneID 歸戶（docs/20）。
 - ClickHouse：`events`（L0，按 project／event_date／event／one_id／time／event_id 排序，月分區，13 個月熱層）、MV L1–L3、`oneid_backfill`（登入改寫覆蓋表）、`users`、維度表 `dim_*`（dictionary）、`id_map`、`user_tags`（Bitmap）、`segment_members`、`audit_log`（`backend/clickhouse/*.sql`）。
 - 語意層 YAML：`events.yaml`、`metrics.yaml`、`dimensions.yaml`、`dimension_tables.yaml`（維度表／字典／虛擬屬性）、`user_properties.yaml`、`oneid_rules.yaml`、`ga4_mapping.yaml`；UI、API、agent 工具走同一查詢編譯器。
@@ -116,7 +116,7 @@
 | 5.14 權限中心 | 🟢 已實作 | 五角色＋自訂、指派與範圍、模組矩陣、行級模擬、成員目錄、本機帳號＋TOTP、session 強制登出、雙人複核、臨時提權 | 真實 AD／Entra ID 對接驗證（只接過假 IdP） | 客戶 IdP（Entra／AD／Keycloak）與群組→角色對照 |
 | 5.15 日誌統計／審計 | 🟢 已實作 | 全操作審計、看板（指標卡、趨勢、模組／角色、敏感存取、告警規則）、CSV 匯出含浮水印 | 審計 WORM（GCS 物件鎖）、DSAR 流程 | 審計保存年限 |
 | 5.16 資料流與效能 | 🟡 部分實作 | 資料流四段（來源同步 → ClickHouse 進倉 → API 與查詢 → 推送交付）與資料品質、各模組查詢 P50/P95/P99 對 SLA（`ops/sla.yaml`）、批次作業（同步任務可重跑、背景例行）與儲存用量、告警（`ops/alerts.yaml` 11 條規則）；API 輸出 Prometheus 指標 `/metrics`；Helm 的 ServiceMonitor／PrometheusRule（同一組規則）／Grafana 看板；**系統管理 › 系統監控頁**（系統管理員、資訊管理）：Grafana 同一組 17 個面板在平台內看（`ops/panels.yaml` 一份兩用、每面板附 PromQL、API 每分鐘快照保留 24 小時、設 `DMP_GRAFANA_URL` 可跳到 Grafana 同一面板）；**告警通知**：Email（SMTP，依角色取收件人＋額外信箱）與 LINE 官方帳號（Messaging API push／multicast，token 只存 secret_ref），政策（最低嚴重度、冷卻、恢復通知、靜音時段只送緊急），線上設定與測試送出、通知紀錄；叢集內 Alertmanager 經 webhook 走同一組管道 | OTel 追蹤、OpenSearch／Cloud Logging 日誌、告警通知管道（Email／LINE）與值班分工、query_log 物化、Airflow 作業接入 | SLA 實測：行為事件 15 分鐘可查、30 天漏斗 10 秒、標籤日批 60 分鐘（M2 效能基準回填） |
-| 5.17 歷史資料遷移 | 🟢 已實作（工具） | 盤點、橋接表、導出任務狀態機、三方對帳 T2／T5／T6、並行期樣本；屬性分級（事件屬性 681、用戶屬性 3,642 含規格表待確認 36 欄）；依規格合成的 100 萬人模擬資料（`backend/tools/synth_sensors.py`） | 真資料尚未跑；規格表待確認欄與 17 個已停用事件需客戶確認 | 舊平台 70 億筆的導出方式（Impala／HDFS／API）與並行期長度 |
+| 5.17 歷史資料遷移 | 🟢 已實作（工具） | 盤點、橋接表、導出任務狀態機、三方對帳 T2／T5／T6、並行期樣本；屬性分級（事件屬性 681、用戶屬性 3,642 含規格表待確認 36 欄）；依規格合成的 100 萬人模擬資料（`backend/tools/synth_legacy.py`） | 真資料尚未跑；規格表待確認欄與 17 個已停用事件需客戶確認 | 舊平台 70 億筆的導出方式（Impala／HDFS／API）與並行期長度 |
 | 總覽／儀表板 | 🟢 已實作 | 書籤→看板、拖曳排版、解讀（規則）、單檔 HTML、定時寄送、AI 生成卡片、四個需求表情境範例看板、手機版 | 模型解讀需 LLM 金鑰 | — |
 | 部署與營運 | 🟡 部分實作 | Helm、values（機房／GCP 檔位）、ClickHouse Keeper、CI 弱掃（Trivy／hadolint／gitleaks）、PostgreSQL 控制面、監控最小版（ServiceMonitor、PrometheusRule、Grafana 看板） | OpenTofu GCP、Operators、Valkey、物件儲存冷層、告警通知管道、備份／DR 演練 | GCP 或機房；A 檔 6 台 vs D 檔 3 台 |
 

@@ -54,9 +54,9 @@ flowchart TB
     KF[(Kafka)] --- CH[(ClickHouse)] --- PG[(PostgreSQL + pgvector)] --- VK[(Valkey)] --- OBJ[(GCS / 物件儲存<br/>Iceberg 冷層)]
   end
   subgraph ING[接入層]
-    COL[Collector Go<br/>/v1/events /sa] --- GA[GA360 Importer<br/>BigQuery 日批 + 串流] --- DWH[數據中台批次導入 Trino / Kafka] --- CDC[Debezium CDC CRM] --- BAT[dlt / SeaTunnel 批次匯入<br/>神策歷史一次性]
+    COL[Collector Go<br/>/v1/events /sa] --- GA[GA360 Importer<br/>BigQuery 日批 + 串流] --- DWH[數據中台批次導入 Trino / Kafka] --- CDC[Debezium CDC CRM] --- BAT[dlt / SeaTunnel 批次匯入<br/>舊平台歷史一次性]
   end
-  SRC[資料來源：GA360 · 交易系統 · CRM · MA · 神策歷史（一次性匯入）] --> ING --> STO --> CMP --> SVC --> AGENT --> EXP
+  SRC[資料來源：GA360 · 交易系統 · CRM · MA · 舊平台歷史（一次性匯入）] --> ING --> STO --> CMP --> SVC --> AGENT --> EXP
   SEC[安全：Keycloak · RBAC · 隱碼 · KMS · 審計 WORM]:::x -.-> SVC
   OBS[觀測：Prometheus · OTel · Grafana OSS]:::x -.-> CMP
   DEP[部署：Docker 套件 · Helm · GKE/RKE2 · OpenTofu]:::x -.-> STO
@@ -67,7 +67,7 @@ flowchart TB
 ```mermaid
 flowchart LR
   subgraph EXTS[外部]
-    BQ[GA360 / BigQuery 匯出] ; DW[數據中台 / CDP 交易事實表] ; CRM[CRM PostgreSQL] ; SA[神策歷史 一次性] ; LLMG[LLM Gateway]
+    BQ[GA360 / BigQuery 匯出] ; DW[數據中台 / CDP 交易事實表] ; CRM[CRM PostgreSQL] ; SA[舊平台歷史 一次性] ; LLMG[LLM Gateway]
   end
   subgraph GKE[GKE asia-east1 / RKE2]
     subgraph P1[ingest pool]
@@ -108,7 +108,7 @@ flowchart LR
   S1[GA360 BigQuery 匯出] --> I1[Importer] --> R[(Kafka raw.*)]
   S2[數據中台 / CDP 交易·帳務事實表] --> I2[批次導入 每 15 分鐘 / Kafka] --> R
   S3[CRM / MA] --> I3[dlt 批次] --> R
-  S4[神策歷史事件 一次性] -.匯入.-> ICE
+  S4[舊平台歷史事件 一次性] -.匯入.-> ICE
   R --> N[normalize] --> E[eventize 狀態機<br/>HMAC/FPE 代碼化] --> O[oneid-resolve] --> SS[sessionize] --> EV[(dmp.events)]
   SS --> RR[rt-rules CEP / rt-tags] --> TR[(dmp.triggers)] --> MA[MA / 內部系統 Webhook]
   EV --> L0[(ClickHouse L0 events)] --> L1[(L1/L2 MV)] --> L3[(L3 觸點 / L4 Bitmap 標籤)]
