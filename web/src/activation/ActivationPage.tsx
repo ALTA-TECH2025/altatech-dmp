@@ -85,7 +85,7 @@ function ActivationInner() {
             <Table.Tbody>{dests.map((d) => (
               <Table.Tr key={d.id}>
                 <Table.Td><Text size="sm" fw={700}>{d.name}</Text><Text size="xs" c="dimmed">{d.note}{d.first_push_at ? '' : ' · 尚未首次推送（需核可）'}</Text></Table.Td>
-                <Table.Td><Text size="xs" ff="monospace">{d.url}</Text><Small>secret：{d.secret_ref}{d.rotated_at ? `（${fmtTs(d.rotated_at)} 輪替）` : ''}</Small></Table.Td>
+                <Table.Td><Group gap={4} wrap="nowrap"><Badge color="gray" size="xs">{d.type}</Badge><Text size="xs" ff="monospace">{d.type === 'sftp' ? `${String(d.config?.host ?? '')}:${String(d.config?.port ?? 22)}${String(d.config?.path ?? '')}` : d.type === 's3' ? `${String(d.config?.endpoint ?? '')}/${String(d.config?.bucket ?? '')}/${String(d.config?.prefix ?? '')}` : d.url}</Text></Group><Small>secret：{d.secret_ref}{d.rotated_at ? `（${fmtTs(d.rotated_at)} 輪替）` : ''}</Small></Table.Td>
                 <Table.Td><Text size="xs" ff="monospace">{d.identifier}</Text></Table.Td>
                 <Table.Td>{d.allowed_tags.length ? <Group gap={2}>{d.allowed_tags.map((t) => <Badge key={t} color="gray" size="xs" ff="monospace">{t}</Badge>)}</Group> : <Text size="sm" c="dimmed">無（匿名 ID）</Text>}</Table.Td>
                 <Table.Td ta="right"><Mono>{pct(d.stats.ok_7d)}</Mono></Table.Td>
@@ -175,28 +175,53 @@ function PushForm({ segs, dests, tags, onDone, onCancel }: { segs: Segment[]; de
   );
 }
 
+type DestType = 'webhook' | 'sftp' | 's3';
+const DEST_TYPE_OPTS = [{ value: 'webhook', label: 'Webhook（名單推送）' }, { value: 'sftp', label: 'SFTP（數據輸出批量檔案）' }, { value: 's3', label: '物件儲存 S3 相容（數據輸出批量檔案，含 MinIO）' }];
 function DestForm({ tags, onDone, onCancel }: { tags: Tag[]; onDone: () => Promise<void>; onCancel: () => void }) {
+  const [type, setType] = useState<DestType>('webhook');
   const [d, setD] = useState({ name: '', url: 'https://', secret_ref: 'kv/data/dmp/prod/', identifier: 'customer_code' as 'customer_code' | 'one_id', allowed_tags: [] as string[], note: '' });
+  const [cfg, setCfg] = useState<Record<string, string | number | boolean>>({ host: '', port: 22, path: '/', username: '', auth: 'password', endpoint: 'https://', bucket: '', prefix: '', region: '', access_key_id: '', tls_verify: true });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const save = async () => { setBusy(true); setErr(null); try { await api.post('/v1/destinations', { ...d, type: 'webhook' }); await onDone(); } catch (e) { setErr(e instanceof ApiError ? e.message : '建立失敗'); } finally { setBusy(false); } };
+  const body = () => type === 'webhook' ? { ...d, type }
+    : type === 'sftp' ? { name: d.name, type, secret_ref: d.secret_ref, identifier: d.identifier, note: d.note, config: { host: cfg.host, port: Number(cfg.port) || 22, path: cfg.path, username: cfg.username, auth: cfg.auth } }
+    : { name: d.name, type, secret_ref: d.secret_ref, identifier: d.identifier, note: d.note, config: { endpoint: cfg.endpoint, bucket: cfg.bucket, prefix: cfg.prefix, region: cfg.region, access_key_id: cfg.access_key_id, tls_verify: Boolean(cfg.tls_verify) } };
+  const save = async () => { setBusy(true); setErr(null); try { await api.post('/v1/destinations', body()); await onDone(); } catch (e) { setErr(e instanceof ApiError ? e.message : '建立失敗'); } finally { setBusy(false); } };
+  const setK = (k: string, v: string | number | boolean) => setCfg({ ...cfg, [k]: v });
+  const ok = d.name.trim() && (type === 'webhook' || (type === 'sftp' ? cfg.host && cfg.path && cfg.username : cfg.endpoint && cfg.bucket));
   return (
     <Paper>
       <Stack gap="md">
-        <SectionTitle title="新增目的地（Webhook）" />
+        <SectionTitle title="新增目的地" />
         <SimpleGrid cols={{ base: 1, sm: 3 }}>
+          <NativeSelect label="類型" aria-label="目的地類型" value={type} data={DEST_TYPE_OPTS} onChange={(e) => setType(e.target.value as DestType)} />
           <TextInput label="名稱" aria-label="目的地名稱" value={d.name} maxLength={60} onChange={(e) => setD({ ...d, name: e.target.value })} />
-          <TextInput label="端點 URL（https）" aria-label="目的地 URL" ff="monospace" value={d.url} onChange={(e) => setD({ ...d, url: e.target.value })} />
-          <TextInput label="簽章密鑰 secret_ref" aria-label="secret_ref" ff="monospace" value={d.secret_ref} placeholder="kv/data/dmp/prod/crm#webhook_secret" onChange={(e) => setD({ ...d, secret_ref: e.target.value })} />
+          <TextInput label={type === 'webhook' ? '簽章密鑰 secret_ref' : type === 'sftp' ? '密碼／私鑰 secret_ref' : 'Secret Key secret_ref'} aria-label="secret_ref" ff="monospace" value={d.secret_ref} placeholder={type === 'webhook' ? 'kv/data/dmp/prod/crm#webhook_secret' : type === 'sftp' ? 'kv/data/dmp/prod/sftp_dw#private_key' : 'kv/data/dmp/prod/minio_dw#secret_key'} onChange={(e) => setD({ ...d, secret_ref: e.target.value })} />
+          {type === 'webhook' && <TextInput label="端點 URL（https）" aria-label="目的地 URL" ff="monospace" value={d.url} onChange={(e) => setD({ ...d, url: e.target.value })} />}
+          {type === 'sftp' && <>
+            <TextInput label="主機" aria-label="SFTP 主機" ff="monospace" value={String(cfg.host)} placeholder="sftp.dw.internal" onChange={(e) => setK('host', e.target.value)} />
+            <TextInput label="埠" aria-label="SFTP 埠" ff="monospace" value={String(cfg.port)} onChange={(e) => setK('port', e.target.value)} />
+            <TextInput label="遠端路徑" aria-label="SFTP 路徑" ff="monospace" value={String(cfg.path)} placeholder="/dmp/out" onChange={(e) => setK('path', e.target.value)} />
+            <TextInput label="帳號" aria-label="SFTP 帳號" ff="monospace" value={String(cfg.username)} onChange={(e) => setK('username', e.target.value)} />
+            <NativeSelect label="驗證方式（密鑰只在 secret_ref）" aria-label="SFTP 驗證方式" value={String(cfg.auth)} data={[opt('password', '密碼'), opt('key', '私鑰')]} onChange={(e) => setK('auth', e.target.value)} />
+          </>}
+          {type === 's3' && <>
+            <TextInput label="Endpoint" aria-label="S3 endpoint" ff="monospace" value={String(cfg.endpoint)} placeholder="https://minio.dw.internal:9000" onChange={(e) => setK('endpoint', e.target.value)} />
+            <TextInput label="Bucket" aria-label="S3 bucket" ff="monospace" value={String(cfg.bucket)} onChange={(e) => setK('bucket', e.target.value)} />
+            <TextInput label="前綴（資料夾）" aria-label="S3 前綴" ff="monospace" value={String(cfg.prefix)} placeholder="dmp/out" onChange={(e) => setK('prefix', e.target.value)} />
+            <TextInput label="Region（可留空）" aria-label="S3 region" ff="monospace" value={String(cfg.region)} onChange={(e) => setK('region', e.target.value)} />
+            <TextInput label="Access Key ID（非密鑰）" aria-label="S3 access key id" ff="monospace" value={String(cfg.access_key_id)} onChange={(e) => setK('access_key_id', e.target.value)} />
+            <Checkbox mt={28} label="驗證 TLS 憑證" checked={Boolean(cfg.tls_verify)} onChange={(e) => setK('tls_verify', e.target.checked)} />
+          </>}
           <NativeSelect label="識別子" value={d.identifier} data={[opt('customer_code', 'customer_code（代碼化）'), opt('one_id', 'one_id')]} onChange={(e) => setD({ ...d, identifier: e.target.value as 'customer_code' })} />
           <TextInput label="說明" value={d.note} onChange={(e) => setD({ ...d, note: e.target.value })} />
         </SimpleGrid>
-        <Stack gap={4}>
+        {type === 'webhook' && <Stack gap={4}>
           <Text size="xs" c="dimmed" fw={700}>可附帶標籤</Text>
           <Group gap="md">{tags.filter((t) => t.status === 'active').map((t) => <Checkbox key={t.id} label={t.name} checked={d.allowed_tags.includes(t.id)} onChange={(e) => setD({ ...d, allowed_tags: e.target.checked ? [...d.allowed_tags, t.id] : d.allowed_tags.filter((x) => x !== t.id) })} />)}</Group>
-        </Stack>
-        <Text size="sm" c="dimmed">密鑰只存密鑰庫參照（OpenBao／GCP Secret Manager／K8s Secret），不接受明文；新目的地或換了端點／密鑰後，第一次推送需核可。</Text>
-        <Group gap="xs"><Button variant="filled" disabled={!d.name.trim() || busy} onClick={() => void save()}>{busy ? '建立中…' : '建立'}</Button><Button variant="subtle" onClick={onCancel}>取消</Button>{err && <Alert color="red" variant="light" py={6}>{err}</Alert>}</Group>
+        </Stack>}
+        <Text size="sm" c="dimmed">密鑰只存密鑰庫參照（OpenBao／GCP Secret Manager／K8s Secret），不接受明文；新目的地或換了端點／密鑰後，第一次推送／輸出需核可。{type !== 'webhook' && ' 批量檔案由執行節點以 secret_ref 取密鑰後上傳；「測試」會逐步診斷 DNS → 連線 → 登入 → 寫入探測檔。'}</Text>
+        <Group gap="xs"><Button variant="filled" disabled={!ok || busy} onClick={() => void save()}>{busy ? '建立中…' : '建立'}</Button><Button variant="subtle" onClick={onCancel}>取消</Button>{err && <Alert color="red" variant="light" py={6}>{err}</Alert>}</Group>
       </Stack>
     </Paper>
   );

@@ -70,7 +70,7 @@ def compile_event_rows(project: str, start: date, end: date, events: list[str], 
     sel = ["e.one_id AS _one_id"]; masked: dict[str, str] = {}
     for c, p in zip(cols, plan):
         if c in EVENT_COLS:
-            expr = "toString(e.props)" if c == "props" else f"e.{c}"
+            expr = "toString(e.props)" if c == "props" else "toTimeZone(e.time, 'Asia/Taipei')" if c == "time" else f"e.{c}"   # 輸出檔給客戶看：時間用台北時區
         else:
             expr = ctx.expr(cat.resolve(c))
         if p["policy"] != "plain":

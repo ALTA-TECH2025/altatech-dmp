@@ -156,5 +156,5 @@
 - 審計：`output_task.created／previewed／updated／approved／rejected／run／paused／resumed／deleted`；實際送出走 `sync.delivered／failed／replayed`。
 - 前端：資料 › 數據整合 › 數據輸出：任務列表（名稱、類型、輸出內容、目的地、狀態、上次執行）＋ 右側抽屜表單三段（基本資訊／連接配置／數據管理：事件清單可批量添加、欄位與遮罩預覽）。
 
-對應檔案：`backend/openapi.yaml`（`/v1/exports/tasks*`、`Destination.type` 加 sftp／s3）；後端與前端另開 PR。
+對應檔案：`backend/openapi.yaml`（`/v1/exports/tasks*`、`Destination.type` 加 sftp／s3）；後端 `backend/output/`（服務、出件匣傳輸）、`backend/semantic/compiler/output.py`（事件明細輸出編譯）、`backend/api/output.py`；前端 `web/src/integration/OutputTab.tsx`（數據整合頁的「數據輸出」頁籤）、目的地表單在 `web/src/activation/ActivationPage.tsx`；示範站的任務由 `backend/tools/demo_fill.py` 建立、`demo_capture.py` 擷取。
 

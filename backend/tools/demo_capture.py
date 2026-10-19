@@ -20,7 +20,7 @@ GETS = ["/auth/providers", "/v1/dashboards", "/v1/bookmarks", "/v1/exports", "/v
         "/v1/approvals?scope=to_me", "/v1/approvals?scope=mine", "/v1/approvals?scope=all",
         "/v1/iam/roles", "/v1/iam/assignments", "/v1/iam/sessions", "/v1/iam/sessions?scope=all", "/v1/iam/users", "/v1/iam/changes", "/v1/iam/masking", "/v1/iam/modules",
         "/v1/settings", "/v1/sql/tables", "/v1/sql/saved", "/v1/sql/history", "/v1/sql/mid-tables",
-        "/v1/tags", "/v1/tags?status=recycled", "/v1/tags/custom-fields", "/v1/destinations", "/v1/pushes", "/v1/deliveries",
+        "/v1/tags", "/v1/tags?status=recycled", "/v1/tags/custom-fields", "/v1/destinations", "/v1/pushes", "/v1/deliveries", "/v1/exports/tasks",
         "/v1/integration/connectors", "/v1/integration/connections", "/v1/integration/tables", "/v1/integration/sync-tasks",
         "/v1/meta/events", "/v1/meta/properties", "/v1/meta/virtual-events", "/v1/meta/quarantine", "/v1/meta/change-requests", "/v1/meta/user-properties", "/v1/meta/oneid/rules", "/v1/meta/dimension-tables", "/v1/meta/dictionaries", "/v1/meta/virtual-properties",
         "/v1/migration/inventory", "/v1/migration/bridge", "/v1/migration/exports", "/v1/migration/reconcile?days=28&project=migration_demo",
@@ -110,6 +110,16 @@ def main() -> None:
         r = adm.call("GET", f"/v1/pushes/{pu['id']}"); put("GET", f"/v1/pushes/{pu['id']}", r); put("GET", "/v1/pushes/*", r)
     for d in fx["routes"].get("GET /v1/destinations", []):
         r = adm.call("GET", f"/v1/destinations/{d['id']}"); put("GET", f"/v1/destinations/{d['id']}", r); put("GET", "/v1/destinations/*", r)
+    for ot in fx["routes"].get("GET /v1/exports/tasks", []):                                 # 數據輸出：任務詳情、執行紀錄；預覽以分析師身分擷取（遮罩口徑）
+        r = adm.call("GET", f"/v1/exports/tasks/{ot['id']}"); put("GET", f"/v1/exports/tasks/{ot['id']}", r); put("GET", "/v1/exports/tasks/*", r)
+        r = adm.call("GET", f"/v1/exports/tasks/{ot['id']}/runs?limit=20"); put("GET", f"/v1/exports/tasks/{ot['id']}/runs?limit=20", r); put("GET", "/v1/exports/tasks/*/runs?limit=20", r)
+    ot1 = next((t for t in fx["routes"].get("GET /v1/exports/tasks", []) if t["type"] == "once"), None)
+    if ot1:
+        try:
+            body = {k: ot1[k] for k in ("name", "type", "content", "destination_id", "format", "purpose", "retention_days")}; body["project"] = DEMO_PROJECT
+            put("POST", "/v1/exports/tasks/preview", sessions["analyst"].call("POST", "/v1/exports/tasks/preview", body))
+        except RuntimeError as e:
+            print("skip output preview", str(e)[:80])
     ex = []
     for e in fx["routes"].get("GET /v1/sql/tables", {}).get("examples", []):             # 自定義 SQL 範例：示範站以固定結果回放
         try:

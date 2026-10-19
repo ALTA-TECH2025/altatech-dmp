@@ -17,7 +17,8 @@ export interface TagCustomFields { fields: { key: string; cn: string; type: 'tex
 
 export type DestinationStatus = 'active' | 'paused';
 export interface Destination {
-  id: string; name: string; type: 'webhook' | 'kafka' | 'gcs'; url: string; secret_ref: string; secret: string; identifier: 'customer_code' | 'one_id'; allowed_tags: string[]; masking_level: 'L1' | 'L2'; ip_allowlist: string[]; mtls: boolean; note: string;
+  id: string; name: string; type: 'webhook' | 'kafka' | 'gcs' | 'sftp' | 's3'; url: string; secret_ref: string; secret: string; identifier: 'customer_code' | 'one_id'; allowed_tags: string[]; masking_level: 'L1' | 'L2'; ip_allowlist: string[]; mtls: boolean; note: string;
+  /** sftp／s3 的連線設定（主機、路徑、bucket…；密碼／私鑰只在 secret_ref）。 */ config?: Record<string, unknown>;
   status: DestinationStatus; owner: string; created_at: string; updated_at: string; first_push_at: string | null; consecutive_failures: number; rotated_at: string | null;
   stats: { ok_7d: number | null; deliveries_7d: number; p95_ms: number | null; last_delivery_at: string | null };
 }

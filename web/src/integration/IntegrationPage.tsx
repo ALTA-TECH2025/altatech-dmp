@@ -1,14 +1,17 @@
-// 數據整合：數據源管理（連線：secret_ref、測試診斷、輪替、最小權限）→ 數據表管理（登記、探索欄位與敏感等級、重新探索）→ 同步任務（建立精靈、預覽、立即執行、執行紀錄）。設計系統元件組合。
+// 數據整合：數據源管理（連線：secret_ref、測試診斷、輪替、最小權限）→ 數據表管理（登記、探索欄位與敏感等級、重新探索）→ 同步任務（建立精靈、預覽、立即執行、執行紀錄）→ 數據輸出（任務、審批、預覽、執行紀錄；OutputTab）。設計系統元件組合。
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Alert, Badge, Button, Group, NativeSelect, Paper, SegmentedControl, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
 import { EmptyState, KeyValue, Mono, PageHeader, SectionTitle, StatTile, StatusBadge } from '@/ds';
 import { isSecretRef, looksLikeSecret, parseList, rotationText, runPill, runText, RUN_STATUS_CN, scheduleBody, SENS_PILL, STEP_CN, TASK_STATUS } from './integration';
+import { OutputTab } from './OutputTab';
 import type { Connection, ConnectionCreate, ConnectionTest, Connector, ExtTable, Preview, Privileges, RunNow, SyncRun, SyncTask, SyncTaskCreate, TableCreate } from './types';
+import type { OutputTask } from './output';
 
-type Tab = 'connections' | 'tables' | 'tasks' | 'wizard';
+type Tab = 'connections' | 'tables' | 'tasks' | 'wizard' | 'output';
 const errText = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 const opt = (value: string, label: string) => ({ value, label });
 const WARN_BG = 'var(--mantine-color-orange-light)';   // 需要注意的列（最近失敗）底色，跟著深淺色走
@@ -19,7 +22,10 @@ export function IntegrationPage() {
 
 function IntegrationInner() {
   const { can } = useAuth();
-  const [tab, setTab] = useState<Tab>('connections');
+  const [sp, setSp] = useSearchParams();
+  const tab = (sp.get('tab') as Tab) || 'connections';
+  const setTab = (t: Tab) => setSp(t === 'connections' ? {} : { tab: t });
+  const [outputs, setOutputs] = useState<OutputTask[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [conns, setConns] = useState<Connection[]>([]);
   const [tables, setTables] = useState<ExtTable[]>([]);
@@ -33,19 +39,21 @@ function IntegrationInner() {
       const [cs, cn, tb, tk] = await Promise.all([api.get<Connector[]>('/v1/integration/connectors'), api.get<Connection[]>('/v1/integration/connections'), api.get<ExtTable[]>('/v1/integration/tables'), api.get<SyncTask[]>('/v1/integration/sync-tasks')]);
       setConnectors(cs); setConns(cn); setTables(tb); setTasks(tk);
     } catch (e) { setErr(errText(e, '讀取失敗')); }
+    api.get<OutputTask[]>('/v1/exports/tasks').then(setOutputs).catch(() => null);   // 數據輸出的數量只是頁籤提示，失敗不擋頁
   };
   useEffect(() => { void reload(); }, []);
   const run = async (fn: () => Promise<void>, fallback: string) => { setBusy(true); setErr(null); try { await fn(); await reload(); } catch (e) { setErr(errText(e, fallback)); } finally { setBusy(false); } };
   const warnTasks = tasks.filter((t) => t.status !== 'active').length;
   return (
     <div className="page">
-      <PageHeader title="數據整合" lead="數據源管理 → 數據表管理 → 同步任務（目標：事件表／用戶表／維度表；全量／增量微批）→ 清洗與隔離。連線只存密鑰庫參照，畫面永遠看不到明文；任務是建模產物（模型 yaml）＋來源表＋排程，立即執行會寫入 ClickHouse 並三方對帳。" />
-      <SegmentedControl mb="md" value={tab} onChange={(v) => setTab(v as Tab)} data={[opt('connections', `數據源 ${conns.length}`), opt('tables', `數據表 ${tables.length}`), opt('tasks', `同步任務 ${tasks.length}${warnTasks ? ` ⚠${warnTasks}` : ''}`), opt('wizard', '建立任務')]} />
+      <PageHeader title="數據整合" lead="數據源管理 → 數據表管理 → 同步任務（目標：事件表／用戶表／維度表；全量／增量微批）→ 清洗與隔離 → 數據輸出（事件明細／用戶寬表／分群名單送 SFTP／物件儲存）。連線只存密鑰庫參照，畫面永遠看不到明文；任務是建模產物（模型 yaml）＋來源表＋排程，立即執行會寫入 ClickHouse 並三方對帳。" />
+      <SegmentedControl mb="md" value={tab} onChange={(v) => setTab(v as Tab)} data={[opt('connections', `數據源 ${conns.length}`), opt('tables', `數據表 ${tables.length}`), opt('tasks', `同步任務 ${tasks.length}${warnTasks ? ` ⚠${warnTasks}` : ''}`), opt('wizard', '建立任務'), opt('output', `數據輸出 ${outputs.length}`)]} />
       {err && <Alert color="red" variant="light" mb="md">{err}</Alert>}
       {tab === 'connections' && <ConnectionsTab connectors={connectors} conns={conns} busy={busy} canUse={canUse} canAdmin={canAdmin} run={run} />}
       {tab === 'tables' && <TablesTab conns={conns} tables={tables} busy={busy} canUse={canUse} run={run} />}
       {tab === 'tasks' && <TasksTab tasks={tasks} busy={busy} canUse={canUse} run={run} onNew={() => setTab('wizard')} />}
       {tab === 'wizard' && <Wizard tables={tables} tasks={tasks} canUse={canUse} onDone={async () => { await reload(); setTab('tasks'); }} />}
+      {tab === 'output' && <OutputTab />}
     </div>
   );
 }

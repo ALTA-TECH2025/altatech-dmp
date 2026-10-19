@@ -50,7 +50,7 @@ export const demoFetch: typeof fetch = async (input, init) => {
 // ---- 記憶體覆蓋層：示範站建立的看板／書籤 ----
 type Obj = Record<string, unknown>;
 let curQs = '';                                            // 目前請求的 query string（覆蓋層需要 ?status=recycled 之類的篩選）
-const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj>(), sqlSaved: new Map<string, Obj>(), sqlRuns: [] as Obj[], mids: new Map<string, Obj>(), midGone: new Set<string>(), tags: new Map<string, Obj>(), dests: new Map<string, Obj>(), pushes: new Map<string, Obj>(), dl: [] as Obj[], notify: null as Obj | null, ntf: [] as Obj[] };
+const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj>(), sqlSaved: new Map<string, Obj>(), sqlRuns: [] as Obj[], mids: new Map<string, Obj>(), midGone: new Set<string>(), tags: new Map<string, Obj>(), dests: new Map<string, Obj>(), pushes: new Map<string, Obj>(), dl: [] as Obj[], otasks: new Map<string, Obj>(), oruns: [] as Obj[], notify: null as Obj | null, ntf: [] as Obj[] };
 const now = () => new Date().toISOString().slice(0, 19) + 'Z';
 const me = (fx: Fixtures): string => String(((fx.roles[demoRole()] ?? fx.roles.admin) as { user: { id: string } }).user.id);
 const nid = (p: string) => `${p}_demo${Math.random().toString(36).slice(2, 7)}`;
@@ -128,6 +128,7 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
     return askOverlay(String(b.question ?? ''), null, fx);
   }
   if (seg[1] === 'dashboards' && seg[3] === 'ask' && method === 'POST') return askOverlay(String(b.question ?? ''), seg[2], fx);
+  if (seg[1] === 'exports' && seg[2] === 'tasks') return outputOverlay(method, seg, b, fx, who);
   if (seg[1] === 'sql') return sqlOverlay(method, seg, b, fx, who);
   if (seg[1] === 'segments') { const r = segOverlay(method, seg, b, fx, who); if (r) return r; }
   if (seg[1] === 'migration' && seg[2] === 'legacy-groups') return groupsOverlay(method, seg, b, fx, who);
@@ -175,6 +176,58 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
     if (seg[3] === 'cards' && seg.length === 5 && method === 'DELETE') { d.cards = (d.cards as Obj[]).filter((c) => c.id !== seg[4]); return { body: { ok: true } }; }
     if (seg[3] === 'cards' && seg[5] === 'data' && method === 'POST') { const c = (d.cards as Obj[]).find((x) => x.id === seg[4]); const data = c ? sampleData(fx, String(c.kind), c.query as Obj) : null; return data && c ? { body: { ...data, card: { id: c.id, kind: c.kind, chart: c.chart, title: c.title, bookmark: c.bookmark }, warnings: c.bookmark_deleted ? ['書籤已刪除，顯示的是刪除前的查詢快照'] : (data.warnings as string[] | undefined) ?? [] } } : null; }
     return null;                                            // explain／render／schedules 等走固定資料（* 比對）
+  }
+  return null;
+}
+// ---- 數據輸出：固定資料的任務照舊；示範站新建的任務存在記憶體（送審 → 數位經營核可 → 執行寫出件匣的模擬）；預覽以固定預覽為底、欄位策略在瀏覽器內重算 ----
+const OUT_LEVEL: Record<string, string> = { amount: 'bucket', aum: 'bucket', filled_amount: 'bucket', fee: 'bucket', churn_score: 'round', one_id: 'rejected', cust_code: 'rejected', account_no: 'rejected', mobile: 'rejected', email: 'rejected', id_no: 'rejected' };
+function outputOverlay(method: string, seg: string[], b: Obj, fx: Fixtures, who: string): { body: unknown; status?: number } | null {
+  const id = seg[3] && seg[3] !== 'preview' ? seg[3] : undefined; const sub = seg[4];
+  const role = demoRole();
+  const canExport = role === 'admin' || role === 'analyst' || role === 'ops';
+  const fixedRuns = (fx.routes['GET /v1/exports/tasks/*/runs?limit=20'] as Obj[] | undefined) ?? [];
+  const runsOf = (tid: string) => [...mem.oruns.filter((r) => r.task_id === tid), ...(((fx.routes[`GET /v1/exports/tasks/${tid}/runs?limit=20`] as Obj[] | undefined) ?? (mem.otasks.has(tid) ? [] : fixedRuns)))];
+  const withLast = (t: Obj): Obj => ({ ...t, last_run: runsOf(String(t.id))[0] ?? t.last_run ?? null });
+  if (seg[3] === 'preview' && method === 'POST') {
+    if (!canExport) return { body: { detail: '需要 events.export／users.export（數據分析、數位經營）' }, status: 403 };
+    const content = (b.content as Obj | undefined) ?? {}; const kind = String(content.kind ?? 'events');
+    const cols = ((content.columns as string[] | undefined) ?? []).length ? (content.columns as string[]) : kind === 'events' ? ['event', 'time', 'platform', 'channel', 'symbol', 'side', 'amount', 'session_id', 'event_id', 'props'] : [];
+    const plan = cols.map((c) => { const base = c.replace(/^(props|user)\./, ''); const pol = OUT_LEVEL[base] ?? 'plain'; return { name: c, cn: c, level: pol === 'rejected' ? 'L3' : pol === 'plain' ? 'L1' : 'L2', policy: pol }; });
+    const rejected = plan.filter((p) => p.policy === 'rejected').map((p) => p.name);
+    if (rejected.length) return { body: { detail: `欄位不可輸出（L3／L4 或不可見）：${JSON.stringify(rejected)}` }, status: 422 };
+    if (content.identifier === 'one_id' && role !== 'admin') return { body: { detail: '你的輸出策略不允許明文 one_id，請改用 customer_code（代碼化）' }, status: 422 };
+    const fixed = fx.routes['POST /v1/exports/tasks/preview'] as Obj | undefined;
+    const ident = content.identifier === 'one_id' ? 'one_id' : 'customer_code';
+    const sample = ((fixed?.sample as Obj[] | undefined) ?? []).slice(0, 8).map((r, i) => Object.fromEntries([[ident, ident === 'one_id' ? `v1_${hash(`${i}`)}${hash(`x${i}`)}` : `cust_${hash(`${i}`)}`], ...cols.map((c) => [c, c in r ? r[c] : c === 'event' ? ((content.events as string[] | undefined)?.[0] ?? 'bond_deal') : c === 'time' ? `2026-10-16 09:${String(10 + i).padStart(2, '0')}:00` : c.startsWith('props.') ? null : '—'])]));
+    const n = kind === 'segment_members' ? 1200 + (cols.length * 37) : kind === 'users' ? 1_000_000 : Math.max(1, ((content.events as string[] | undefined)?.length || 12)) * 6_771 + cols.length;
+    const rows = Number(fixed?.rows_estimate ?? n) || n;
+    const est = kind === 'events' && (content.events as string[] | undefined)?.length === 1 && (content.events as string[])[0] === 'bond_deal' ? rows : n;
+    return { body: { columns: plan, rejected: [], rows_estimate: est, scan_rows_estimate: est, sample, warnings: est > 10_000_000 ? [`預估 ${est.toLocaleString()} 列超過單次上限 10,000,000；請縮小事件清單或期間`] : [], partition_date: b.type === 'daily' ? '2026-10-16' : null, demo: true } };
+  }
+  if (!id && method === 'GET') { const all = listOf(fx, 'GET /v1/exports/tasks', mem.otasks).map(withLast); const st = new URLSearchParams(curQs).get('status'); return { body: st ? all.filter((t) => t.status === st) : all }; }
+  if (!id && method === 'POST') {
+    if (!canExport) return { body: { detail: '需要 events.export／users.export（數據分析、數位經營）' }, status: 403 };
+    const content = (b.content as Obj | undefined) ?? {};
+    if (String(b.type) === 'realtime' && content.kind !== 'events') return { body: { detail: 'realtime 只接事件明細' }, status: 422 };
+    const dest = findIn(fx, 'GET /v1/destinations', mem.dests, String(b.destination_id));
+    if (!dest) return { body: { detail: `找不到：目的地 ${String(b.destination_id)}` }, status: 422 };
+    const t: Obj = { ...b, id: nid('ot'), status: 'pending_approval', approval_id: nid('ap'), masked: ((content.columns as string[] | undefined) ?? []).some((c) => c === 'amount') ? { amount: 'bucket' } : {}, rows_estimate: 81254, owner: who, created_at: now(), updated_at: now(), last_run: null, demo: true };
+    mem.otasks.set(String(t.id), t); return { body: t, status: 201 };
+  }
+  const t = id ? findIn(fx, 'GET /v1/exports/tasks', mem.otasks, id) : undefined;
+  if (!t) return null;
+  const put = (x: Obj) => { mem.otasks.set(String(x.id), x); return { body: withLast(x) }; };
+  if (sub === 'runs' && method === 'GET') return { body: runsOf(id!) };
+  if (method === 'GET') return { body: { ...withLast(t), runs: runsOf(id!) } };
+  if (method === 'PUT') { const changed = JSON.stringify(b.content) !== JSON.stringify(t.content) || b.destination_id !== t.destination_id || b.type !== t.type; return put({ ...t, ...b, status: changed ? 'pending_approval' : t.status, updated_at: now() }); }
+  if (method === 'DELETE') { mem.otasks.set(id!, { ...t, status: 'deleted' }); return { body: null, status: 204 }; }
+  if (sub === 'pause' && method === 'POST') { if (t.status !== 'active' && t.status !== 'paused') return { body: { detail: `任務未生效（${String(t.status)}）` }, status: 409 }; return put({ ...t, status: t.status === 'active' ? 'paused' : 'active', updated_at: now() }); }
+  if (sub === 'run' && method === 'POST') {
+    if (t.status !== 'approved' && t.status !== 'active') return { body: { detail: `任務未核可、已暫停或已結束（${String(t.status)}）` }, status: 409 };
+    const day = String(b.partition_date ?? (t.type === 'daily' ? '2026-10-16' : ((t.content as Obj).time as Obj | undefined)?.to ?? '2026-10-16'));
+    const rows = Number(t.rows_estimate ?? 81254); const fmt = (t.format as Obj | undefined) ?? {}; const ext = `${String(fmt.type ?? 'csv')}${fmt.compression === 'gzip' ? '.gz' : ''}`;
+    const run: Obj = { id: nid('or'), task_id: t.id, trigger: 'manual', partition_date: t.type === 'daily' ? day : null, started_at: now(), finished_at: now(), status: 'ok', rows, bytes: rows * 96, files: [{ path: `${String(t.id)}/${day}/${String(t.id)}_${day}_0001.${ext}`, rows, bytes: rows * 96, checksum: hash(`${String(t.id)}${day}`).repeat(8) }, { path: `${String(t.id)}/${day}/manifest.json`, rows: 0, bytes: 693, checksum: hash(`m${String(t.id)}`).repeat(8) }], delivery_ids: [], error: null, attempts: 1, watermark: hash(`${who}${day}`), demo: true };
+    mem.oruns.unshift(run); if (t.type === 'once') mem.otasks.set(id!, { ...t, status: 'ended', updated_at: now() }); return { body: run, status: 202 };
   }
   return null;
 }
@@ -441,8 +494,12 @@ function actOverlay(method: string, seg: string[], b: Obj, fx: Fixtures, who: st
       if (!approver && role !== 'it') return { body: { detail: '目的地需數位經營（segments.approve）或資訊管理（integration.admin）' }, status: 403 };
       if (b.secret || b.token || b.password) return { body: { detail: '欄位 secret 疑似明文密鑰，請改用 secret_ref' }, status: 400 };
       if (!/^kv\/data\/dmp\/[a-z]+\/[a-z0-9_]+#[a-z_]+$/.test(String(b.secret_ref ?? ''))) return { body: { detail: 'secret_ref 格式不合法（只接受密鑰庫參照，不接受明文）' }, status: 400 };
-      if (!/^https:\/\//.test(String(b.url ?? ''))) return { body: { detail: 'url 須為 https://' }, status: 400 };
-      const d: Obj = { id: nid('dst'), name: b.name, type: 'webhook', url: b.url, secret_ref: b.secret_ref, secret: '••••••••', identifier: b.identifier ?? 'customer_code', allowed_tags: b.allowed_tags ?? [], masking_level: 'L2', ip_allowlist: [], mtls: false, note: b.note ?? '', status: 'active', owner: who, created_at: now(), updated_at: now(), first_push_at: null, consecutive_failures: 0, rotated_at: null, stats: { ok_7d: null, deliveries_7d: 0, p95_ms: null, last_delivery_at: null } };
+      const dtype = String(b.type ?? 'webhook'); const cfg = (b.config as Obj | undefined) ?? {};
+      if (dtype === 'webhook' && !/^https:\/\//.test(String(b.url ?? ''))) return { body: { detail: 'url 須為 https://' }, status: 400 };
+      if (dtype === 'sftp' && !(cfg.host && cfg.path && cfg.username)) return { body: { detail: 'sftp 需要 config.host／path／username' }, status: 400 };
+      if (dtype === 's3' && !(cfg.endpoint && cfg.bucket)) return { body: { detail: 's3 需要 config.endpoint／bucket' }, status: 400 };
+      if (cfg.password || cfg.secret_key || cfg.private_key) return { body: { detail: 'config 疑似含明文密鑰，請改用 secret_ref' }, status: 400 };
+      const d: Obj = { id: nid('dst'), name: b.name, type: dtype, url: dtype === 'webhook' ? b.url : '', config: dtype === 'webhook' ? {} : { port: 22, ...cfg }, secret_ref: b.secret_ref, secret: '••••••••', identifier: b.identifier ?? 'customer_code', allowed_tags: b.allowed_tags ?? [], masking_level: 'L2', ip_allowlist: [], mtls: false, note: b.note ?? '', status: 'active', owner: who, created_at: now(), updated_at: now(), first_push_at: null, consecutive_failures: 0, rotated_at: null, stats: { ok_7d: null, deliveries_7d: 0, p95_ms: null, last_delivery_at: null } };
       mem.dests.set(String(d.id), d); return { body: d, status: 201 };
     }
     const d = id ? findIn(fx, 'GET /v1/destinations', mem.dests, id) : undefined;

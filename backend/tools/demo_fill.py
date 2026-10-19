@@ -189,11 +189,33 @@ def main() -> None:
         ana.call("POST", "/v1/tags/rfm_90d/compute", {})
         mkt.call("POST", "/v1/tags", {"name": "Q4 活動名單（待審）", "key": "campaign_q4", "directory": "行銷", "kind": "values", "values": [{"value": "A 組", "rule": {"project": DEMO_PROJECT, "combine": "or", "filters": {"op": "or", "items": [{"field": "user.lifecycle", "op": "in", "value": ["沉睡"]}, {"op": "and", "items": [{"field": "user.churn_score", "op": "gte", "value": 70}, {"field": "user.has_margin", "op": "false"}]}]},
                                                                            "behaviors": [{"event": "bond_deal", "measure": {"agg": "sum", "field": "amount"}, "cmp": {"op": "lt", "value": 100000}, "time": {"last_days": 30}}]}}]})
+    segs_mkt_id = next((s["id"] for s in mkt.call("GET", "/v1/segments") if s["name"] == "行銷：沉睡客喚醒名單"), "")
     dests = {d["name"]: d for d in ops.call("GET", "/v1/destinations")}
     if "CRM 客戶系統" not in dests:
         dests["CRM 客戶系統"] = ops.call("POST", "/v1/destinations", {"name": "CRM 客戶系統", "url": os.environ.get("DMP_DEMO_WEBHOOK", "http://127.0.0.1:9099/dmp/webhook"), "secret_ref": "kv/data/dmp/prod/crm#webhook_secret", "allowed_tags": ["tier_grade", "deals_30d"], "note": "HMAC 簽章、IP 白名單"})
         ops.call("POST", f"/v1/destinations/{dests['CRM 客戶系統']['id']}/test")
         dests["行銷自動化 MA"] = ops.call("POST", "/v1/destinations", {"name": "行銷自動化 MA", "url": "https://ma.internal/hooks/dmp", "secret_ref": "kv/data/dmp/prod/ma#webhook_secret", "identifier": "one_id", "allowed_tags": ["tier_grade"], "note": "mTLS"})
+    # 9b. 數據輸出：數位經營建 SFTP 目的地（數據中台）→ 分析師建「成交明細一次性」與「成交明細每日 T+1」任務 → 數位經營核可 → 分析師執行一次性（出件匣 csv.gz + manifest）
+    if "數據中台 SFTP" not in dests:
+        dests["數據中台 SFTP"] = ops.call("POST", "/v1/destinations", {"name": "數據中台 SFTP", "type": "sftp", "secret_ref": "kv/data/dmp/prod/sftp_dw#private_key", "identifier": "customer_code", "note": "數據中台每日對帳檔；私鑰只在密鑰庫",
+                                                                     "config": {"host": "sftp.dw.internal", "port": 22, "path": "/dmp/out", "username": "dmp_batch", "auth": "key"}})
+        ops.call("POST", f"/v1/destinations/{dests['數據中台 SFTP']['id']}/test")
+    if not ana.call("GET", "/v1/exports/tasks"):
+        content = {"kind": "events", "events": ["bond_deal"], "columns": ["event", "time", "platform", "channel", "symbol", "side", "amount", "props.market"], "filters": [{"field": "platform", "op": "in", "value": ["iOS", "Web"]}], "identifier": "customer_code"}
+        fmt = {"type": "csv", "compression": "gzip", "partition": "day", "header": True, "manifest": True}
+        once = ana.call("POST", "/v1/exports/tasks", {"project": DEMO_PROJECT, "name": "成交明細（10 月上半）", "type": "once", "content": {**content, "time": {"from": "2026-10-01", "to": "2026-10-16"}}, "destination_id": dests["數據中台 SFTP"]["id"], "format": fmt,
+                                                     "purpose": "交付數據中台對帳（保存 90 天）", "retention_days": 90, "shared_roles": ["digital_ops"]})
+        ana.call("POST", "/v1/exports/tasks", {"project": DEMO_PROJECT, "name": "成交明細每日 T+1", "type": "daily", "content": content, "destination_id": dests["數據中台 SFTP"]["id"], "format": fmt, "schedule": {"at": "02:00", "end_date": "2026-12-31"},
+                                              "purpose": "數據中台每日對帳檔（保存 90 天）", "retention_days": 90, "shared_roles": ["digital_ops"]})
+        mkt.call("POST", "/v1/exports/tasks", {"project": DEMO_PROJECT, "name": "沉睡客喚醒名單 → MA", "type": "once", "content": {"kind": "segment_members", "segment_id": segs_mkt_id, "identifier": "customer_code", "time": {"from": "2026-10-01", "to": "2026-10-16"}}, "destination_id": dests["數據中台 SFTP"]["id"], "format": fmt,
+                                              "purpose": "行銷喚醒活動名單（保存 30 天）", "retention_days": 30}, ok=(201, 403))
+        for a in ops.call("GET", "/v1/approvals?scope=to_me"):
+            if a["type"] == "output_task" and a["status"] == "pending":
+                ops.call("POST", f"/v1/approvals/{a['id']}/decide", {"approve": True, "note": "用途與保存期限明確，欄位已區間化"})
+        for a in adm.call("GET", "/v1/approvals?scope=to_me"):
+            if a["type"] == "output_task" and a["status"] == "pending":
+                adm.call("POST", f"/v1/approvals/{a['id']}/decide", {"approve": True, "note": "目的地首次使用：已確認 SFTP 主機在白名單"})
+        ana.call("POST", f"/v1/exports/tasks/{once['id']}/run", {})
     segs = {s["name"]: s for s in ana.call("GET", "/v1/segments")}
     hv = segs.get("高價值活躍交易客")
     if hv and not ana.call("GET", "/v1/pushes"):
