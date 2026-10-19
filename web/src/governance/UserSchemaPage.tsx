@@ -7,6 +7,7 @@ import { RequireGrant } from '@/auth/RequireGrant';
 import { fmtNum } from '@/analytics/series';
 import { KeyValue, Mono, PageHeader, SectionTitle, StatTile, StatusBadge } from '@/ds';
 import { pct, SENS_CN, SENS_PILL } from './governance';
+import { TemplateTools } from './TemplateTools';
 import type { Level, OneIdRule, OneIdRules, UserPropertyList } from './types';
 
 type Tab = 'props' | 'oneid' | 'privacy';
@@ -46,7 +47,7 @@ function PropsTab({ up, canUse, onChange }: { up: UserPropertyList; canUse: bool
     <Stack gap="md">
       <Group gap="xs" wrap="wrap">
         <Text size="sm" c="dimmed">{up.users_total !== null ? `users ${fmtNum(up.users_total)} 列 · 覆蓋率 = ClickHouse 實際` : '未連接 ClickHouse：沒有覆蓋率'} · L4 黑名單 {up.forbidden_l4_count} 欄</Text>
-        {canUse && <Button ml="auto" onClick={() => setOpen((v) => !v)}>＋ 登記用戶屬性</Button>}
+        <Group ml="auto" gap="xs"><TemplateTools kind="user-properties" canUse={canUse} onApplied={onChange} />{canUse && <Button onClick={() => setOpen((v) => !v)}>＋ 登記用戶屬性</Button>}</Group>
       </Group>
       {open && <Paper component="form" onSubmit={submit}><Stack gap="md">
         {err && <Alert color="red" variant="light">{err}</Alert>}

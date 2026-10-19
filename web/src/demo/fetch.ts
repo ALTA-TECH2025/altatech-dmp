@@ -2,6 +2,7 @@
 // 規則：GET／已擷取的 POST → 固定資料（依路徑與查詢字串，動態 id 以 * 代）；未擷取的寫入 → 回合成成功（不保存）；/v1/iam/me 依選擇的角色。
 // 例外：看板與書籤在瀏覽器記憶體裡真的建得出來（建看板 → 存書籤 → 加入看板 → 看板顯示卡片），重新整理即消失；卡片資料借用同類型範例卡的固定資料。
 import { askRules } from './ask';
+import { firstColumn, TEMPLATE_KEYS, toCsv, type TemplateKind } from '@/governance/templates';
 import { demoRole, setDemoRole } from './mode';
 
 interface Fixtures { captured_at: string; roles: Record<string, unknown>; routes: Record<string, unknown> }
@@ -81,6 +82,18 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
   const seg = path.split('/').filter(Boolean);            // ['v1','dashboards',id,...]
   const who = me(fx);
   if (seg[0] !== 'v1') return null;
+  if (seg[1] === 'meta' && seg[2] === 'templates' && seg[3] in TEMPLATE_KEYS) {                    // 示範：範本由固定資料的清單產生；上傳只預覽、套用回模擬成功
+    const kind = seg[3] as TemplateKind;
+    const src = { events: 'GET /v1/meta/events', properties: 'GET /v1/meta/properties', 'user-properties': 'GET /v1/meta/user-properties' }[kind];
+    const items = ((fx.routes[src] as { items?: Obj[] } | undefined)?.items ?? []).map((it) => kind === 'events'
+      ? { ...it, properties: ((it.properties as Obj[] | undefined) ?? []).map((p) => `${String(p.key)}:${String(p.type ?? 'string')}:${String(p.sensitivity ?? 'L1')}${p.required === false ? ':optional' : ''}`).join('; ') } : it);
+    if (method === 'GET') return { body: toCsv(TEMPLATE_KEYS[kind], new URLSearchParams(curQs).get('filled') === 'true' ? items : []) };
+    const have = new Set(items.map((it) => String(it.name ?? it.key)));
+    const rows = firstColumn(String(b.csv ?? '')).map(({ line, key }) => ({ line, key, action: have.has(key) ? 'unchanged' : 'create', changes: [] as string[], errors: [] as string[] }));
+    const applied = new URLSearchParams(curQs).get('dry_run') === 'false';
+    const count = (a: string) => rows.filter((r) => r.action === a).length;
+    return { body: { kind, applied, total: rows.length, summary: { create: count('create'), update: 0, change_request: 0, unchanged: count('unchanged'), error: 0 }, rows, demo: true, message: applied ? '示範模式：已模擬套用，變更不會保存' : undefined } };
+  }
   if (seg[1] === 'ops' && seg[2] === 'batch-jobs' && seg[4] === 'rerun' && method === 'POST') return { body: { job: seg[3], status: 'success', demo: true }, status: 202 };   // 示範：重跑同步任務
   if (seg[1] === 'ops' && seg[2] === 'notify') {                                                    // 示範：通知設定／測試／紀錄（記憶體覆蓋層）
     const base = (mem.notify ?? (fx.routes['GET /v1/ops/notify'] as Obj | undefined)) as Obj | undefined;

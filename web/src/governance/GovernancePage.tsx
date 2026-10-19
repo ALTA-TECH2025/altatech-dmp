@@ -6,6 +6,7 @@ import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
 import { Mono, PageHeader, SectionTitle, StatusBadge } from '@/ds';
+import { TemplateTools } from './TemplateTools';
 import { checkEvent, dailyText, ENTITY_CN, KIND_CN, SENS_CN, SENS_PILL, STATUS_CN } from './governance';
 import type { ChangeRequest, EventList, EventProp, EventStatus, Level, MetaEvent, MetaEventDetail, MetaProperty, PropertyList, Quarantine, VirtualEvent } from './types';
 
@@ -50,6 +51,7 @@ function GovernanceInner() {
             <TextInput aria-label="搜尋事件" placeholder="搜尋事件名稱／顯示名／業務線（例：開戶、sip_、$Plan）" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: '1 1 320px' }} />
             <SegmentedControl size="xs" value={status} onChange={(v) => setStatus(v as EventStatus | 'all')} data={[opt('all', `全部 ${ev.total}`), opt('live', `上線 ${ev.counts.live ?? 0}`), opt('draft', `草稿 ${ev.counts.draft ?? 0}`), opt('quarantine', `隔離 ${ev.counts.quarantine ?? 0}`), opt('deprecated', `停用 ${ev.counts.deprecated ?? 0}`)]} />
             <Text size="sm" c="dimmed">{ev.stats_source ? '日均量 = 近 7 天 ClickHouse 實際' : '日均量：未連接 ClickHouse'}</Text>
+            <Group ml="auto"><TemplateTools kind="events" canUse={canUse} onApplied={reload} /></Group>
           </Group>
           <Paper p={0} style={{ overflow: 'hidden' }}>
             <Table.ScrollContainer minWidth={1040}>
@@ -174,7 +176,7 @@ function PropsTab({ props, canUse, onChange }: { props: PropertyList; canUse: bo
       <Group gap="xs" wrap="wrap">
         <TextInput aria-label="搜尋屬性" placeholder="搜尋屬性／神策舊名" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: '1 1 280px' }} />
         <Text size="sm" c="dimmed">L4 屬性一律拒絕入倉（{props.forbidden_l4.length} 個已列黑名單）；L3 以 HMAC／FPE 代碼化；L2 匯出區間化</Text>
-        {canUse && <Button ml="auto" onClick={() => setOpen((v) => !v)}>＋ 登記屬性</Button>}
+        <Group ml="auto" gap="xs"><TemplateTools kind="properties" canUse={canUse} onApplied={onChange} />{canUse && <Button onClick={() => setOpen((v) => !v)}>＋ 登記屬性</Button>}</Group>
       </Group>
       {open && <Paper component="form" onSubmit={submit}><Stack gap="md">
         {err && <Alert color="red" variant="light">{err}</Alert>}
