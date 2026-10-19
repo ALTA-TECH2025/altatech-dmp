@@ -98,7 +98,7 @@ function SequenceCard({ s, i, cat, onChange, onRemove }: { s: UsersSequence; i: 
   );
 }
 
-function BehaviorCard({ b, i, cat, onChange, onRemove }: { b: UsersBehavior; i: number; cat: Catalog | null; onChange: (b: UsersBehavior) => void; onRemove: () => void }) {
+export function BehaviorCard({ b, i, cat, onChange, onRemove }: { b: UsersBehavior; i: number; cat: Catalog | null; onChange: (b: UsersBehavior) => void; onRemove: () => void }) {
   const ef = eventFields(cat); const nf = numericEventFields(cat); const L = `行為 ${i + 1} `;
   const agg = b.measure?.agg ?? 'count'; const cmp = b.cmp ?? b.count ?? { op: 'gte' as CmpOp, value: 1 };
   const t = b.time ?? {};

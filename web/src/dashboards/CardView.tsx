@@ -8,7 +8,9 @@ import { FunnelChart } from '@/analytics/FunnelChart';
 import { LineChart } from '@/analytics/LineChart';
 import { PathChart } from '@/analytics/PathChart';
 import { RetentionMatrix } from '@/analytics/RetentionPage';
+import { fmtValue, type NumFormat } from '@/analytics/events';
 import { fmtNum, groupLabel, toSeries } from '@/analytics/series';
+import type { LineChartKind } from '@/analytics/LineChart';
 import type { AttributionResult, EventsResult, FunnelRow, RetentionRow } from '@/analytics/types';
 import { Mono, SectionTitle, StatTile, StatusBadge } from '@/ds';
 import { DateRangeInput } from '@/ds/DateRange';
@@ -77,19 +79,22 @@ function CardBody({ card, data, k, labelOf }: { card: DashboardCard; data: CardD
     const spec = String(data.chart_spec.type ?? 'line');
     const bucketed = data.rows.length > 0 && aliases.some((a) => data.rows.every((r) => r[a] === null || (typeof r[a] === 'string' && !Number.isFinite(Number(r[a])))));   // 遮罩分桶（例：金額 ≥5000000）→ 自動改表格
     const chart = bucketed ? 'table' : card.chart === 'auto' ? spec : card.chart;        // 分桶字串畫不出長條／折線，不管卡片設定一律表格
-    if (chart === 'table') return <DataTable data={data} labels={labels} />;
+    const fmt: NumFormat = card.format ?? 'auto';
+    if (chart === 'table') return <DataTable data={data} labels={labels} fmt={fmt} />;
     if (chart === 'stat') {
       const r = data.rows[0] as Record<string, unknown> | undefined;
-      return <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="sm">{aliases.map((a) => <Tile key={a} label={labels[a]} value={r?.suppressed ? `< ${k}` : fmtStat(r?.[a])} />)}</SimpleGrid>;
+      return <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="sm">{aliases.map((a) => <Tile key={a} label={labels[a]} value={r?.suppressed ? `< ${k}` : fmt === 'auto' ? fmtStat(r?.[a]) : fmtValue(r?.[a], fmt)} />)}</SimpleGrid>;
     }
-    return <LineChart series={toSeries(res, aliases, labels)} kind={chart === 'bar' || spec === 'bar' ? 'bar' : 'line'} height={220} />;
+    const kinds: LineChartKind[] = ['line', 'area', 'bar', 'stacked', 'pie', 'percent'];
+    const kind: LineChartKind = kinds.includes(chart as LineChartKind) ? (chart as LineChartKind) : spec === 'bar' ? 'bar' : 'line';
+    return <LineChart series={toSeries(res, aliases, labels)} kind={kind} height={220} format={fmt} />;
   }
   if (card.kind === 'sql') {
     const cols = (data.columns ?? Object.keys(data.rows[0] ?? {})).filter((c) => c !== '_k' && c !== 'suppressed');
     const num = cols.slice(1).filter((c) => data.rows.some((r) => typeof r[c] === 'number'));
     const dated = /^\d{4}-\d{2}/.test(String(data.rows[0]?.[cols[0]] ?? ''));                      // 第一欄是日期才畫折線；維度欄畫長條
     const chart = card.chart === 'auto' ? (num.length && data.rows.length > 1 && cols.length <= 4 ? (dated ? 'line' : 'bar') : 'table') : card.chart;
-    if (chart === 'line' || chart === 'bar') return <LineChart series={num.slice(0, 3).map((y) => ({ key: y, label: y, metric: y, group: '', points: data.rows.map((r) => ({ x: String(r[cols[0]] ?? ''), y: typeof r[y] === 'number' ? (r[y] as number) : null, suppressed: false })) }))} kind={chart} height={220} />;
+    if (chart === 'line' || chart === 'bar' || chart === 'area') return <LineChart series={num.slice(0, 3).map((y) => ({ key: y, label: y, metric: y, group: '', points: data.rows.map((r) => ({ x: String(r[cols[0]] ?? ''), y: typeof r[y] === 'number' ? (r[y] as number) : null, suppressed: false })) }))} kind={chart} height={220} />;
     return <DataTable data={data} labels={{}} />;
   }
   if (card.kind === 'funnel') {
@@ -99,7 +104,8 @@ function CardBody({ card, data, k, labelOf }: { card: DashboardCard; data: CardD
   if (card.kind === 'retention') {
     const rows = data.rows as unknown as RetentionRow[];
     const unit = String(card.query.unit ?? 'day') as 'day' | 'week' | 'month';
-    return <RetentionMatrix rows={rows.filter((r) => r.g1 == null || r.g1 === rows[0]?.g1)} k={k} display="rate" unit={unit} />;
+    const same = (r: RetentionRow) => (r.g1 == null || r.g1 === rows[0]?.g1) && (r.cohort_name == null || r.cohort_name === rows[0]?.cohort_name);
+    return <>{rows[0]?.cohort_name && <Text size="sm" c="dimmed" mb="xs">只顯示對照組「{rows[0].cohort_name}」；完整請到留存分析。</Text>}<RetentionMatrix rows={rows.filter(same)} k={k} display="rate" unit={unit} /></>;
   }
   if (card.kind === 'path') {
     return <>
@@ -118,13 +124,13 @@ function CardBody({ card, data, k, labelOf }: { card: DashboardCard; data: CardD
   </>;
 }
 
-function DataTable({ data, labels }: { data: CardData; labels: Record<string, string> }) {
+function DataTable({ data, labels, fmt = 'auto' }: { data: CardData; labels: Record<string, string>; fmt?: NumFormat }) {
   const cols = tableColumns(data.columns, data.rows);
   return (
     <Table.ScrollContainer minWidth={320}>
       <Table>
-        <Table.Thead><Table.Tr>{cols.map((c) => <Table.Th key={c} ta={data.rows.some((r) => typeof r[c] === 'number') ? 'right' : undefined}>{c === 'bucket' ? '時間' : labels[c] ?? c}</Table.Th>)}</Table.Tr></Table.Thead>
-        <Table.Tbody>{data.rows.slice(0, 50).map((r, i) => <Table.Tr key={i} bg={r.suppressed ? 'var(--mantine-color-orange-light)' : undefined}>{cols.map((c) => <Table.Td key={c} ta={typeof r[c] === 'number' ? 'right' : undefined}><Mono>{c.startsWith('g') && c.length === 2 ? groupLabel({ [c]: r[c] as string }) : typeof r[c] === 'number' ? fmtNum(r[c] as number) : String(r[c] ?? '—')}</Mono></Table.Td>)}</Table.Tr>)}</Table.Tbody>
+        <Table.Thead><Table.Tr>{cols.map((c) => <Table.Th key={c} ta={data.rows.some((r) => typeof r[c] === 'number') ? 'right' : undefined}>{c === 'bucket' ? '時間' : c === 'cohort' ? '對照組' : labels[c] ?? c}</Table.Th>)}</Table.Tr></Table.Thead>
+        <Table.Tbody>{data.rows.slice(0, 50).map((r, i) => <Table.Tr key={i} bg={r.suppressed ? 'var(--mantine-color-orange-light)' : undefined}>{cols.map((c) => <Table.Td key={c} ta={typeof r[c] === 'number' ? 'right' : undefined}><Mono>{c.startsWith('g') && c.length === 2 ? groupLabel({ [c]: r[c] as string }) : typeof r[c] === 'number' ? fmtValue(r[c], fmt) : String(r[c] ?? '—')}</Mono></Table.Td>)}</Table.Tr>)}</Table.Tbody>
       </Table>
     </Table.ScrollContainer>
   );

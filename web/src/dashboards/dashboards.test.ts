@@ -15,7 +15,7 @@ describe('dashboards helpers', () => {
   });
   it('漏斗第一組與表格欄位', () => {
     const g = firstGroup([{ bucket: '2026-10-01', g1: 'iOS', step: 1 }, { bucket: '2026-10-01', g1: 'iOS', step: 2 }, { bucket: '2026-10-02', g1: 'iOS', step: 1 }]);
-    expect(g.key).toBe('2026-10-01 iOS'); expect(g.rows.length).toBe(2); expect(g.groups).toBe(2);
+    expect(g.key).toBe('2026-10-01 · iOS'); expect(g.rows.length).toBe(2); expect(g.groups).toBe(2);
     expect(tableColumns(['bucket', 'm1', '_k', 'suppressed'], [])).toEqual(['bucket', 'm1']); expect(tableColumns(undefined, [{ a: 1, _k: 2 }])).toEqual(['a']);
   });
   it('時間文字', () => {

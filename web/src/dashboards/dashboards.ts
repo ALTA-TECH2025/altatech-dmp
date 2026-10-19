@@ -27,11 +27,11 @@ export function defaultTitle(kind: CardKind, query: Record<string, unknown>): st
 }
 
 /** 漏斗卡片只畫第一個（bucket, 分組）組合；多組請看漏斗分析頁。 */
-export function firstGroup<T extends { bucket?: string; g1?: string | null }>(rows: T[]): { key: string; rows: T[]; groups: number } {
+export function firstGroup<T extends { cohort?: string; bucket?: string; g1?: string | null }>(rows: T[]): { key: string; rows: T[]; groups: number } {
   const keys = new Map<string, T[]>();
-  for (const r of rows) { const k = `${r.bucket ?? ''}|${r.g1 ?? ''}`; keys.set(k, [...(keys.get(k) ?? []), r]); }
+  for (const r of rows) { const k = `${r.cohort ?? ''}|${r.bucket ?? ''}|${r.g1 ?? ''}`; keys.set(k, [...(keys.get(k) ?? []), r]); }
   const first = keys.entries().next().value as [string, T[]] | undefined;
-  return { key: first ? first[0].replace('|', ' ').trim() : '', rows: first ? first[1] : [], groups: keys.size };
+  return { key: first ? first[0].split('|').filter(Boolean).join(' · ') : '', rows: first ? first[1] : [], groups: keys.size };
 }
 
 /** 表格呈現用的欄位：去掉內部欄（_k、suppressed）。 */

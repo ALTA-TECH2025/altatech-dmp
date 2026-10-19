@@ -17,6 +17,7 @@ import type { Segment } from '@/users/types';
 import { CHART_CN, FORMAT_CN, aliasOk, chartAvailable, fmtValue, formulaError, growthOf, shareOf, tableCsv, transpose, type ChartKind, type NumFormat } from './events';
 import { dedupe } from './FunnelPage';
 import { LineChart } from './LineChart';
+import { ScopeEditor, cleanScope, scopeOk } from './ScopeEditor';
 import { groupLabel, toSeries } from './series';
 import type { Catalog, Cond, EventsMetric, EventsQuery, EventsResult } from './types';
 
@@ -51,7 +52,7 @@ export function FilterRow({ f, fields, cat, onChange, onRemove }: { f: Cond; fie
 }
 
 /** 細分篩選可選欄位：事件欄位、維度（含枚舉值）、可篩選的用戶屬性。 */
-function filterFieldsOf(cat: Catalog | null): FieldOpt[] {
+export function filterFieldsOf(cat: Catalog | null): FieldOpt[] {
   const t = (x: string | undefined): FieldOpt['type'] => (x === 'number' || x === 'bool' || x === 'date' ? x : 'string');
   return [...eventFields(cat), ...(cat?.user_props ?? []).filter((u) => u.filterable).map((u) => ({ v: `user.${u.key}`, cn: `用戶：${u.cn}`, type: t(u.type === 'enum' ? 'string' : u.type), values: u.values?.length ? u.values : undefined }))];
 }
@@ -80,12 +81,12 @@ function EventsInner() {
   const formulas = q.formulas ?? [];
   const formulaErrs = formulas.map((f) => (!aliasOk(f.alias) ? '別名只能是英數底線' : aliases.includes(f.alias) || formulas.filter((x) => x.alias === f.alias).length > 1 ? '別名與指標或其他公式重複' : formulaError(f.expr, aliases)));
   const metricsOk = q.metrics.every((m) => ((!NUM_AGGS.has(m.agg) && m.agg !== 'uniq') || m.field) && groupOk(toGroup(m.filters as CondGroup | Cond[] | undefined)));
-  const ready = metricsOk && formulaErrs.every((e) => !e) && groupOk(fg);
+  const ready = metricsOk && formulaErrs.every((e) => !e) && groupOk(fg) && scopeOk(q);
   const run = async () => {
     setBusy(true); setErr(null);
     try {
       const body: EventsQuery = { ...q, metrics: q.metrics.map((m) => ({ ...m, event: m.event || null, field: NUM_AGGS.has(m.agg) || m.agg === 'uniq' ? m.field : undefined, filters: pruneGroup(toGroup(m.filters as CondGroup | Cond[] | undefined)) })),
-        formulas: formulas.length ? formulas : undefined, filters: pruneGroup(fg), group_by: q.group_by?.length ? q.group_by : undefined, segment: q.segment || undefined };
+        formulas: formulas.length ? formulas : undefined, filters: pruneGroup(fg), group_by: q.group_by?.length ? q.group_by : undefined, segment: q.segment || undefined, ...cleanScope(q) };
       setRes(await api.post<EventsResult>('/v1/analytics/events', body)); setSent(body);
     } catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); }
     finally { setBusy(false); }
@@ -93,7 +94,7 @@ function EventsInner() {
   useEffect(() => { if (bm.pending && cat) { bm.done(); void run(); } // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bm.pending, cat]);
   const k = me?.scope.k_anonymity ?? 20;
-  const META_COLS = new Set(['bucket', 'g1', 'g2', 'g3', '_k', 'suppressed']);
+  const META_COLS = new Set(['cohort', 'bucket', 'g1', 'g2', 'g3', '_k', 'suppressed']);
   const wanted = [...aliases, ...formulas.map((f) => f.alias)];
   const allAliases = res && !wanted.some((a) => res.columns.includes(a)) ? res.columns.filter((c) => !META_COLS.has(c) && !c.endsWith('_prev')) : wanted;   // 結果欄位名與目前表單對不上（書籤用語意指標名、示範模式固定結果）→ 以結果為準
   const labels: Record<string, string> = { ...Object.fromEntries(q.metrics.map((m, i) => [m.alias || `m${i + 1}`, `${m.event || '任一事件'} ${AGG_CN[m.agg]}${m.field ? `(${m.field})` : ''}`])), ...Object.fromEntries(formulas.map((f) => [f.alias, `${f.alias} = ${f.expr}`])) };
@@ -107,7 +108,7 @@ function EventsInner() {
   const grouped = !!q.group_by?.length;
   const effective: ChartKind | 'stat' = view !== 'auto' ? view : isTotal ? (grouped ? 'bar' : 'stat') : 'line';
   const shownCols = res ? res.columns.filter((c) => c !== '_k' && c !== 'suppressed') : [];
-  const colCn = (c: string) => (c === 'bucket' ? '時間' : c.startsWith('g') && c.length === 2 ? (q.group_by?.[Number(c[1]) - 1] ?? c) : labels[c] ?? (c.endsWith('_prev') ? `${labels[c.slice(0, -5)] ?? c}（上期）` : c));
+  const colCn = (c: string) => (c === 'bucket' ? '時間' : c === 'cohort' ? '對照組' : c.startsWith('g') && c.length === 2 ? (q.group_by?.[Number(c[1]) - 1] ?? c) : labels[c] ?? (c.endsWith('_prev') ? `${labels[c.slice(0, -5)] ?? c}（上期）` : c));
   const rowLabel = (r: EventsResult['rows'][number]) => [r.bucket != null ? String(r.bucket) : '', grouped ? groupLabel(r) : ''].filter(Boolean).join(' · ') || '合計';
   const growth = useMemo(() => (res && tbl.growth ? growthOf(res.rows, allAliases, hasBucket) : null), [res, tbl.growth]);   // eslint-disable-line react-hooks/exhaustive-deps
   const share = useMemo(() => (res && tbl.share ? shareOf(res.rows, allAliases, grouped) : null), [res, tbl.share]);         // eslint-disable-line react-hooks/exhaustive-deps
@@ -173,6 +174,7 @@ function EventsInner() {
                 <NativeSelect label="抽樣" value={q.sample ?? ''} data={[opt('', '不抽樣'), opt('0.5', '1/2'), opt('0.1', '1/10'), opt('0.01', '1/100')]} onChange={(e) => setQ({ ...q, sample: e.target.value ? Number(e.target.value) : undefined })} />
                 <NativeSelect label="人數計算" aria-label="人數計算" value={q.estimate ? 'estimate' : 'exact'} data={[opt('exact', '精確（預設）'), opt('estimate', '快速估算（近似值）')]} onChange={(e) => setQ({ ...q, estimate: e.target.value === 'estimate' ? true : undefined })} />
               </SimpleGrid>
+              <ScopeEditor value={q} onChange={(s) => setQ({ ...q, ...s })} cat={cat} fields={filterFields} segments={segments ?? []} note="有行為篩選時一律走明細層" />
             </Stack>
           </Paper>
         </SimpleGrid>
@@ -225,7 +227,7 @@ function EventsInner() {
                           onClick={clickable ? () => nav('/users', { state: { source: { type: 'events', query: q, bucket: r.bucket != null ? String(r.bucket) : undefined, group: q.group_by?.length ? q.group_by.map((_, gi) => r[`g${gi + 1}`] ?? null) : undefined, metric: aliases[0], label: `事件分析 ${labels[aliases[0]]}${r.bucket != null ? ` ${String(r.bucket)}` : ''}${q.group_by?.length ? ` · ${q.group_by.map((_, gi) => groupLabel({ [`g${gi + 1}`]: r[`g${gi + 1}`] })).join(' / ')}` : ''}` } } }) : undefined}>
                           {shownCols.map((c) => { const ai = allAliases.indexOf(c); return (
                             <Table.Td key={c} ta={typeof r[c] === 'number' ? 'right' : undefined}>
-                              <Mono>{c === 'bucket' ? String(r[c]) : c.startsWith('g') && c.length === 2 ? groupLabel({ [c]: r[c] }) : r.suppressed ? `< ${k}` : fmtValue(r[c], fmt)}</Mono>
+                              <Mono>{c === 'bucket' ? String(r[c]) : c === 'cohort' ? String(r[c] ?? '') : c.startsWith('g') && c.length === 2 ? groupLabel({ [c]: r[c] }) : r.suppressed ? `< ${k}` : fmtValue(r[c], fmt)}</Mono>
                               {ai >= 0 && !r.suppressed && (growth || share) && <Text size="xs" c="dimmed" ta="right">{[growth ? `↕ ${pct(growth[i]?.[ai])}` : '', share ? `佔 ${share[i]?.[ai] == null ? '—' : `${(share[i][ai] as number).toFixed(1)}%`}` : ''].filter(Boolean).join(' · ')}</Text>}
                             </Table.Td>); })}
                         </Table.Tr>);

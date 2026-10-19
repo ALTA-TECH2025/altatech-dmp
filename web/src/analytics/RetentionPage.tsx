@@ -10,7 +10,10 @@ import { SaveCardButton } from '@/dashboards/SaveCardButton';
 import { useBookmarkOpen } from '@/dashboards/useBookmarkOpen';
 import { Mono, PageHeader, SectionTitle } from '@/ds';
 import { DateRangeInput } from '@/ds/DateRange';
+import type { Segment } from '@/users/types';
+import { filterFieldsOf } from './EventsPage';
 import { dedupe } from './FunnelPage';
+import { ScopeEditor, cleanScope, scopeOk } from './ScopeEditor';
 import type { Catalog, RetentionQuery, RetentionResult, RetentionRow } from './types';
 
 const MODELS: [RetentionQuery['model'], string, string][] = [['date', '第 N 期留存', '第 N 期當期有回訪'], ['interval', 'N 期內留存', '第 1–N 期內任一期有回訪'], ['continuous', '連續留存', '第 1–N 期每期都有回訪'], ['churn', '流失', '第 N 期起到最後一期都沒有回訪']];
@@ -34,10 +37,13 @@ function RetentionInner() {
   const [sent, setSent] = useState<Record<string, unknown> | null>(null);
   const bm = useBookmarkOpen<typeof q>('retention', setQ);
   const [display, setDisplay] = useState<'rate' | 'users'>('rate');
+  const [segments, setSegments] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
+  useEffect(() => { if (can('segments', 'view')) api.get<Segment[]>('/v1/segments').then((s) => setSegments(s.filter((x) => x.status === 'active' || x.status === 'draft').map((x) => ({ id: x.id, name: x.name })))).catch(() => setSegments([])); }, [can]);
+  const scopeFields = useMemo(() => filterFieldsOf(cat), [cat]);
   const run = async () => {
     setBusy(true); setErr(null);
-    try { const body = { ...q, return: q.return?.event ? q.return : undefined }; setRes(await api.post<RetentionResult>('/v1/analytics/retention', body)); setSent(body); }
+    try { const body = { ...q, return: q.return?.event ? q.return : undefined, ...cleanScope(q) }; setRes(await api.post<RetentionResult>('/v1/analytics/retention', body)); setSent(body); }
     catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); }
     finally { setBusy(false); }
   };
@@ -47,7 +53,7 @@ function RetentionInner() {
   const groups = useMemo(() => {
     if (!res) return [] as [string, RetentionRow[]][];
     const m = new Map<string, RetentionRow[]>();
-    for (const r of res.rows) { const key = r.g1 ?? ''; m.set(key, [...(m.get(key) ?? []), r]); }
+    for (const r of res.rows) { const key = [r.cohort_name, r.g1].filter((x) => x != null && x !== '').join(' · '); m.set(key, [...(m.get(key) ?? []), r]); }
     return Array.from(m.entries());
   }, [res]);
   const dimOptions = dedupe(cat ? [...cat.event_columns.filter((c) => c.name !== 'amount' && c.name !== '$event_hour').map((c) => ({ v: c.name, cn: c.cn })), ...cat.dimensions.map((d) => ({ v: d.name, cn: d.cn })), ...cat.user_props.filter((u) => u.groupable).map((u) => ({ v: `user.${u.key}`, cn: `用戶：${u.cn}` }))] : []);
@@ -69,10 +75,11 @@ function RetentionInner() {
                 <NativeSelect label="含當期" value={q.include_day0 ? '1' : '0'} data={[opt('0', '不含'), opt('1', '含第 0 期')]} onChange={(e) => setQ({ ...q, include_day0: e.target.value === '1' })} />
                 <NativeSelect label="分組" value={q.group_by?.[0] ?? ''} data={[opt('', '不分組'), ...dimOptions.map((o) => opt(o.v, o.cn))]} onChange={(e) => setQ({ ...q, group_by: e.target.value ? [e.target.value] : undefined })} />
                 <DateRangeInput label="同期群期間" value={q.time} onChange={(r) => setQ({ ...q, time: { ...q.time, ...r } })} />
-                <TextInput label="分群" placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} />
+                {segments.length > 0 ? <NativeSelect label="用戶屬於分群" aria-label="分群" value={q.segment ?? ''} data={[opt('', '全體用戶'), ...segments.map((s) => opt(s.id, s.name))]} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} /> : <TextInput label="分群" placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} />}
               </SimpleGrid>
+              <ScopeEditor value={q} onChange={(s) => setQ({ ...q, ...s })} cat={cat} fields={scopeFields} segments={segments} note="只作用於進同期群的用戶" />
               <Group gap="xs">
-                <Button variant="filled" disabled={!q.initial.event || busy} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</Button>
+                <Button variant="filled" disabled={!q.initial.event || busy || !scopeOk(q)} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</Button>
                 {res && <>
                   <SegmentedControl size="xs" value={display} onChange={(v) => setDisplay(v as 'rate' | 'users')} data={[{ value: 'rate', label: '比例' }, { value: 'users', label: '人數' }]} />
                   <Button onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</Button>

@@ -46,7 +46,7 @@ export function growthOf(rows: EventsRow[], aliases: string[], hasBucket: boolea
     const prev = r[`${a}_prev`];
     if (typeof prev === 'number') return prev ? ((v - prev) / Math.abs(prev)) * 100 : null;
     if (!hasBucket) return null;
-    const key = `${a}|${['g1', 'g2', 'g3'].map((g) => r[g] ?? '').join('|')}`;
+    const key = `${a}|${['cohort', 'g1', 'g2', 'g3'].map((g) => r[g] ?? '').join('|')}`;
     const p = last.get(key); last.set(key, v);
     return p === undefined || p === 0 ? null : ((v - p) / Math.abs(p)) * 100;
   }));
@@ -54,7 +54,7 @@ export function growthOf(rows: EventsRow[], aliases: string[], hasBucket: boolea
 /** 佔比％：有分組時 = 佔同一時間桶（或合計）內所有分組的比例；沒分組時 = 佔整段期間的比例。 */
 export function shareOf(rows: EventsRow[], aliases: string[], grouped: boolean): (number | null)[][] {
   const tot = new Map<string, number>();
-  const key = (r: EventsRow, a: string) => `${a}|${grouped ? String(r.bucket ?? '') : ''}`;
+  const key = (r: EventsRow, a: string) => `${a}|${grouped ? String(r.bucket ?? '') : ''}|${String(r.cohort ?? '')}`;   // 對照組各自算佔比
   for (const r of rows) for (const a of aliases) { const v = r[a]; if (typeof v === 'number') tot.set(key(r, a), (tot.get(key(r, a)) ?? 0) + v); }
   return rows.map((r) => aliases.map((a) => { const v = r[a]; const t = tot.get(key(r, a)); return typeof v === 'number' && t ? (v / t) * 100 : null; }));
 }

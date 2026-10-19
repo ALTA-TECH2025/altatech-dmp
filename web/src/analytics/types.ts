@@ -1,7 +1,15 @@
 // 與 openapi FunnelQuery／FunnelResult 及 /v1/semantic/catalog 對齊
+import type { UsersBehavior } from '@/users/types';
+
 export interface Cond { field: string; op: string; value?: unknown; type?: string }
+/** 條件：平鋪陣列（＝且）或 {op, items} 樹（可巢狀）。 */
+export type FilterTree = Cond[] | { op: 'and' | 'or'; items: unknown[] };
+/** 對照組：組名 + 自己的篩選（屬性樹、分群、行為）；結果多一欄 cohort（留存 cohort_name）。 */
+export interface Cohort { name: string; filters?: FilterTree; segment?: string; behaviors?: UsersBehavior[]; behaviors_op?: 'and' | 'or' }
+/** 行為篩選與對照組：事件分析、漏斗、留存共用。 */
+export interface Scope { behaviors?: UsersBehavior[]; behaviors_op?: 'and' | 'or'; cohorts?: Cohort[] }
 export interface FunnelStep { event: string; alias?: string; filters?: Cond[] }
-export interface FunnelQuery {
+export interface FunnelQuery extends Scope {
   project?: string;
   steps: FunnelStep[];
   window: { value: number; unit: 'minute' | 'hour' | 'day' };
@@ -15,7 +23,7 @@ export interface FunnelQuery {
   sample?: number;
   time: { from: string; to: string };
 }
-export interface FunnelRow { bucket?: string; g1?: string | null; step: number; alias: string; event: string; users: number | null; _k: number; suppressed?: boolean; rate_prev: number | null; rate_first: number | null }
+export interface FunnelRow { cohort?: string; bucket?: string; g1?: string | null; step: number; alias: string; event: string; users: number | null; _k: number; suppressed?: boolean; rate_prev: number | null; rate_first: number | null }
 export interface FunnelResult { rows: FunnelRow[]; steps: { event: string; alias: string }[]; sql: string; lineage: string[]; cost: { ms: number; rows: number; layer: string }; warnings: string[]; chart_spec: Record<string, unknown> }
 
 export interface Catalog {
@@ -29,7 +37,7 @@ export interface Catalog {
   path?: { max_steps: number; session_modes: string[]; default_sample: number; max_days: number; exit_node: string };
 }
 
-export interface RetentionQuery {
+export interface RetentionQuery extends Scope {
   project?: string;
   initial: { event: string; filters?: Cond[] };
   return?: { event: string; filters?: Cond[] };
@@ -43,13 +51,11 @@ export interface RetentionQuery {
   sample?: number;
   time: { from: string; to: string; now?: string };
 }
-export interface RetentionRow { cohort: string; g1?: string | null; period: number; users: number | null; retained: number | null; rate: number | null; complete: boolean; suppressed?: boolean }
+export interface RetentionRow { cohort: string; cohort_name?: string; g1?: string | null; period: number; users: number | null; retained: number | null; rate: number | null; complete: boolean; suppressed?: boolean }
 export interface RetentionResult { rows: RetentionRow[]; sql: string; lineage: string[]; cost: { ms: number; rows: number; layer: string }; warnings: string[]; chart_spec: Record<string, unknown> }
 
-/** 條件：平鋪陣列（＝且）或 {op, items} 樹（可巢狀）。 */
-export type FilterTree = Cond[] | { op: 'and' | 'or'; items: unknown[] };
 export interface EventsMetric { event?: string | null; agg: string; field?: string; alias?: string; filters?: FilterTree }
-export interface EventsQuery {
+export interface EventsQuery extends Scope {
   project?: string;
   metric?: string;
   metrics: EventsMetric[];

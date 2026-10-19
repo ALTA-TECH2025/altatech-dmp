@@ -10,7 +10,10 @@ import { SaveCardButton } from '@/dashboards/SaveCardButton';
 import { useBookmarkOpen } from '@/dashboards/useBookmarkOpen';
 import { Mono, PageHeader, SectionTitle } from '@/ds';
 import { DateRangeInput } from '@/ds/DateRange';
+import type { Segment } from '@/users/types';
+import { filterFieldsOf } from './EventsPage';
 import { FunnelChart } from './FunnelChart';
+import { ScopeEditor, cleanScope, scopeOk } from './ScopeEditor';
 import type { Catalog, FunnelQuery, FunnelResult, FunnelStep } from './types';
 
 const WINDOW_PRESETS: [number, 'minute' | 'hour' | 'day', string][] = [[30, 'minute', '30 分鐘'], [1, 'day', '1 天'], [3, 'day', '3 天'], [7, 'day', '7 天'], [14, 'day', '14 天'], [30, 'day', '30 天'], [90, 'day', '90 天']];
@@ -33,22 +36,25 @@ function FunnelInner() {
   const [showSql, setShowSql] = useState(false);
   const [sent, setSent] = useState<FunnelQuery | null>(null);
   const bm = useBookmarkOpen<typeof q>('funnel', setQ);
+  const [segments, setSegments] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
+  useEffect(() => { if (can('segments', 'view')) api.get<Segment[]>('/v1/segments').then((s) => setSegments(s.filter((x) => x.status === 'active' || x.status === 'draft').map((x) => ({ id: x.id, name: x.name })))).catch(() => setSegments([])); }, [can]);
+  const scopeFields = useMemo(() => filterFieldsOf(cat), [cat]);
 
   const setStep = (i: number, s: Partial<FunnelStep>) => setQ({ ...q, steps: q.steps.map((x, j) => (j === i ? { ...x, ...s } : x)) });
   const run = async () => {
     setBusy(true); setErr(null);
-    try { setRes(await api.post<FunnelResult>('/v1/analytics/funnel', q)); setSent(q); }
+    try { const body = { ...q, ...cleanScope(q) }; setRes(await api.post<FunnelResult>('/v1/analytics/funnel', body)); setSent(body); }
     catch (e) { setErr(e instanceof ApiError ? e.message : '查詢失敗'); }
     finally { setBusy(false); }
   };
   useEffect(() => { if (bm.pending && cat) { bm.done(); void run(); } // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bm.pending, cat]);
-  const ready = q.steps.length >= 2 && q.steps.every((s) => s.event);
+  const ready = q.steps.length >= 2 && q.steps.every((s) => s.event) && scopeOk(q);
   const groups = useMemo(() => {
     if (!res) return [];
     const keys = new Map<string, FunnelResult['rows']>();
-    for (const r of res.rows) { const k = `${r.bucket ?? ''}|${r.g1 ?? ''}`; keys.set(k, [...(keys.get(k) ?? []), r]); }
+    for (const r of res.rows) { const k = `${r.cohort ?? ''}|${r.bucket ?? ''}|${r.g1 ?? ''}`; keys.set(k, [...(keys.get(k) ?? []), r]); }
     return Array.from(keys.entries());
   }, [res]);
   const k = me?.scope.k_anonymity ?? 20;
@@ -83,8 +89,9 @@ function FunnelInner() {
                 <NativeSelect label="分組" value={q.group_by?.[0] ?? ''} data={[opt('', '不分組'), ...dimOptions.map((o) => opt(o.v, o.cn))]} onChange={(e) => setQ({ ...q, group_by: e.target.value ? [e.target.value] : undefined })} />
                 <NativeSelect label="趨勢" value={q.trend ?? ''} data={[opt('', '合計'), opt('day', '按日'), opt('week', '按週'), opt('month', '按月')]} onChange={(e) => setQ({ ...q, trend: (e.target.value || undefined) as FunnelQuery['trend'] })} />
                 <DateRangeInput label="期間" value={q.time} onChange={(r) => setQ({ ...q, time: { ...q.time, ...r } })} />
-                <TextInput label="分群" placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} />
+                {segments.length > 0 ? <NativeSelect label="用戶屬於分群" aria-label="分群" value={q.segment ?? ''} data={[opt('', '全體用戶'), ...segments.map((s) => opt(s.id, s.name))]} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} /> : <TextInput label="分群" placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} />}
               </SimpleGrid>
+              <ScopeEditor value={q} onChange={(s) => setQ({ ...q, ...s })} cat={cat} fields={scopeFields} segments={segments} note="只作用於進漏斗的用戶" />
               <Group gap="xs">
                 <Button variant="filled" disabled={!ready || busy} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</Button>
                 {res && <Button onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</Button>}
@@ -106,7 +113,7 @@ function FunnelInner() {
             {res.warnings.length > 0 && <Text size="sm" c="dimmed">{res.warnings.join('；')}</Text>}
             {groups.map(([key, rows]) => (
               <Paper key={key}>
-                <SectionTitle title={key === '|' ? '整體' : key.replace('|', ' · ').replace(/^ · | · $/g, '')}><Text size="xs" c="dimmed">{res.cost.ms} ms · {res.cost.layer}</Text></SectionTitle>
+                <SectionTitle title={key.split('|').filter(Boolean).join(' · ') || '整體'}><Text size="xs" c="dimmed">{res.cost.ms} ms · {res.cost.layer}</Text></SectionTitle>
                 <FunnelChart rows={rows} k={k} />
                 <Table.ScrollContainer minWidth={560} mt="sm">
                   <Table>

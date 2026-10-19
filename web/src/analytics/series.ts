@@ -3,7 +3,7 @@ import type { EventsResult, EventsRow } from './types';
 
 export interface Series { key: string; label: string; metric: string; group: string; points: { x: string; y: number | null; suppressed: boolean }[] }
 
-export const GROUP_COLS = ['g1', 'g2', 'g3'];
+export const GROUP_COLS = ['cohort', 'g1', 'g2', 'g3'];   // 對照組名視為第一層分組
 
 export function groupLabel(r: EventsRow): string {
   return GROUP_COLS.filter((g) => g in r).map((g) => (r[g] === null || r[g] === undefined || r[g] === '' ? '（未填）' : String(r[g]))).join(' · ');
