@@ -33,6 +33,11 @@ def map_roles(ident: Identity, mapping: dict[str, Any], assignments: list[dict[s
     return roles, scope, applied
 
 
+def base_roles(ident: Identity, mapping: dict[str, Any]) -> list[str]:
+    """登入身分的基底角色（群組映射／本機帳號／預設），不含本機指派；指派每次請求再疊（見 SessionManager.effective）。"""
+    return map_roles(ident, mapping, None)[0]
+
+
 def overlay_assignments(user_ids: tuple[str, ...], base_roles: list[str], assignments: list[dict[str, Any]] | None, now: float | None = None) -> tuple[list[str], dict[str, Any], list[str]]:
     """本機指派疊加（登入與背景排程共用同一套規則）：到期的略過、deny 移除、其餘加上（只收 RBAC 內或自訂前綴的角色）並合併 scope。回 (roles, scope, applied)。"""
     t = now if now is not None else time.time()

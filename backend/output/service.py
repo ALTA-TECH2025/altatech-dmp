@@ -297,11 +297,17 @@ class OutputService:
                                                  "destination": dest["id"], "rows_estimate": t["rows_estimate"], "purpose": t["purpose"]})
         return self._public(t)
 
+    @staticmethod
+    def _dest_version(dest: dict[str, Any]) -> str:
+        """目的地設定摘要（type／url／secret_ref／config 的 sha256 前 16 碼）：核准綁的是這個，不是 updated_at（秒級會碰撞，也看不出內容有沒有變）。"""
+        body = {"type": dest.get("type"), "url": dest.get("url"), "secret_ref": dest.get("secret_ref"), "config": dest.get("config") or {}}
+        return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:16]
+
     def _dest_needs_admin(self, t: dict[str, Any], dest: dict[str, Any]) -> bool:
-        """目的地首次使用（還沒成功送過）且這個任務沒有「對應目前設定版本」的系統管理員核可 → 需要第二道審批。"""
+        """目的地首次使用（還沒成功送過）且這個任務沒有「對應這個目的地、這個設定版本」的系統管理員核可 → 需要第二道審批。"""
         if dest.get("first_push_at"): return False
         da = t.get("destination_approved") or {}
-        return da.get("config_version") != dest.get("updated_at")
+        return da.get("destination") != dest.get("id") or da.get("config_version") != self._dest_version(dest)
 
     def _request_approvals(self, t: dict[str, Any], subject: Subject, dest: dict[str, Any], kind: str, changed: list[str] | None = None) -> None:
         """開審批單：資料面 output_task（數位經營）＋（目的地首次使用時）destination_first_use（系統管理員）。兩道都核可才生效。"""
@@ -315,7 +321,7 @@ class OutputService:
         t["approval_id"] = a["id"]; t["pending_approvals"] = [a["id"]]; t["status"] = "pending_approval"
         if first:
             d = self.approvals.create("destination_first_use", subject, f"目的地首次使用 {dest['name']}（{dest['type']}）：資料輸出 {t['name']} 要送到這裡",
-                                      {"destination_id": dest["id"], "destination": dest["name"], "destination_type": dest["type"], "config": {k: v for k, v in (dest.get("config") or {}).items()}, "config_version": dest.get("updated_at"),
+                                      {"destination_id": dest["id"], "destination": dest["name"], "destination_type": dest["type"], "config": {k: v for k, v in (dest.get("config") or {}).items()}, "config_version": self._dest_version(dest),
                                        "task": t["id"], "purpose": t["purpose"]}, {"kind": "output_task", "id": t["id"]})
             t["destination_approval_id"] = d["id"]; t["pending_approvals"].append(d["id"])
 
@@ -348,7 +354,10 @@ class OutputService:
         t = self._validate({**body, "type": body.get("type") or cur["type"]}, subject, cur)
         changed = sorted(k for k in ("content", "destination_id", "type") if t.get(k) != cur.get(k))
         t["updated_at"] = self._ts()
-        if changed and cur["status"] != "pending_approval":                 # 改內容或目的地視同新任務：重走審批（換目的地且首次使用 → 也要系統管理員）
+        if changed:                                                         # 改內容或目的地視同新任務：重走審批（換目的地且首次使用 → 也要系統管理員）
+            if cur["status"] == "pending_approval":                         # 待審期間改：審批者看到的已不是要執行的設定 → 既有待審單全部作廢，重開
+                self.approvals.close_for_object("output_task", id_, False, subject, "送審內容變更（" + "、".join(changed) + "），重新送審")
+                self.store.audit("output_task.approvals_reset", {"user": subject.user_id, "task": id_, "changed": changed})
             if "destination_id" in changed: t["destination_approved"] = None; t["destination_approval_id"] = None
             self._request_approvals(t, subject, self._destination(t["destination_id"]), t["content"]["kind"], changed)
         self.store.put_item("output_task", t)
@@ -414,6 +423,10 @@ class OutputService:
                 if roles is None: raise PermissionError(f"找不到任務擁有者 {t['owner']} 的有效身分，不以其權限執行")
                 owner = Subject(t["owner"], roles)
             d = self._decision(owner, kind, export=True, approval_id=t["approval_id"])
+            if t["content"]["identifier"] == "one_id" and d.field_policies.get("one_id", "mask_tail(4)") != "plain":   # 建立時的檢查不能代替執行時：擁有者降權就停，不靜默擴權
+                t.update({"status": "paused", "note": "執行身分已無 one_id 明文權限，任務暫停；請改用 customer_code 或由系統管理員重新建立", "updated_at": self._ts()}); self.store.put_item("output_task", t)
+                self.store.audit("output_task.paused", {"user": subject.user_id, "task": t["id"], "reason": "one_id_plain_revoked", "roles": list(owner.roles)})
+                raise PermissionError(t["note"])
             comp = self._compile(t, d, partition, self.max_rows + 1)
             rows = [self._public_row(r, t) for r in self._rows(comp.sql, comp.settings)]
             if len(rows) > self.max_rows: raise Conflict(f"列數超過單次上限 {self.max_rows:,}")
@@ -453,7 +466,7 @@ class OutputService:
         for a in self.store.items("approvals"):
             if a["object"] == {"kind": "output_task", "id": t["id"]} and a["type"] == "destination_first_use" and a["status"] == "pending": return
         d = self.approvals.create("destination_first_use", Subject(t["owner"], []), f"目的地設定變更後重新核可 {dest['name']}（{dest['type']}）：資料輸出 {t['name']}",
-                                  {"destination_id": dest["id"], "destination": dest["name"], "destination_type": dest["type"], "config": dict(dest.get("config") or {}), "config_version": dest.get("updated_at"), "task": t["id"], "purpose": t["purpose"]},
+                                  {"destination_id": dest["id"], "destination": dest["name"], "destination_type": dest["type"], "config": dict(dest.get("config") or {}), "config_version": self._dest_version(dest), "task": t["id"], "purpose": t["purpose"]},
                                   {"kind": "output_task", "id": t["id"]})
         t.update({"status": "pending_approval", "destination_approval_id": d["id"], "destination_approved": None, "pending_approvals": [d["id"]], "updated_at": self._ts()}); self.store.put_item("output_task", t)
         self.store.audit("output_task.reapproval", {"user": subject.user_id, "task": t["id"], "approval": d["id"], "reason": "destination_config_changed"})
