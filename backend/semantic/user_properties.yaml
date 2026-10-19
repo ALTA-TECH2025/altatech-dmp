@@ -34,4 +34,6 @@ forbidden_l4: [name, id_no, mobile, email, full_account_no, birth_date, address,
   s_name, openactname, latest_openactname, birth_dt, s_birth, s_birth_virtual,
   cus_mtel, lack_cus_mtel, remove_sym_cus_mtel, openactmobile, latest_openactmobile, noticemobile, sleepycust_mobile, ec_sec_acc_mobile, richclub_order_phone,
   cuadm, openactmail, latest_openactmail, googleloginmail, latest_googleloginmail, fbloginmail, latest_fbloginmail, appleloginmail, latest_appleloginmail,
-  sleepycust_email, ec_sec_acc_email, ec_sub_acc_email, richclub_order_email, latest_order_email]
+  sleepycust_email, ec_sec_acc_email, ec_sub_acc_email, richclub_order_email, latest_order_email,
+  # 神策埋點規格表有、用戶屬性導出無的個資欄（sensors_plan_user_properties.csv）：出現了也要擋
+  b27_name, ec_sub_acc_mobile]
