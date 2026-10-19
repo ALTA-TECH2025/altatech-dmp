@@ -36,7 +36,7 @@ export const SOURCES = [
 
 /* ------------------------------------------------------------------ event dictionary */
 export const EVENTS = [
-  // 事件字典：依客戶（神策 sbp_family 專案）模擬事件清單 112 個 + 本系統交易／帳務 CDC 補充；aliases 為本專案文件中的舊名
+  // 事件字典：依客戶（舊平台 sbp_family 專案）模擬事件清單 112 個 + 本系統交易／帳務 CDC 補充；aliases 為本專案文件中的舊名
   {'name': 'PlanEDMClick', 'cn': 'EDM郵件點擊', 'group': '智能運營（MA）', 'entity': 'user', 'source': 'MA 系統事件', 'kind': 'marketing', 'status': 'live', 'daily': 415799, 'props': ['plan_id', 'journey_id', 'msg_id'], 'owner': '數位行銷', 'platforms': '服務端'},
   {'name': 'PlanEDMShow', 'cn': 'EDM開信', 'group': '智能運營（MA）', 'entity': 'user', 'source': 'MA 系統事件', 'kind': 'marketing', 'status': 'live', 'daily': 534600, 'props': ['plan_id', 'journey_id', 'msg_id'], 'owner': '數位行銷', 'platforms': '服務端'},
   {'name': 'ShortUrlRedirect', 'cn': 'ShortUrlRedirect', 'group': '短鏈', 'entity': 'user', 'source': '短鏈服務', 'kind': 'marketing', 'status': 'live', 'daily': 14580, 'props': ['short_url', 'target'], 'owner': '數位行銷', 'platforms': '其它,iOS,Android'},
@@ -246,9 +246,9 @@ export const TAG_KINDS = [
   ['lifecycle', '生命週期標籤', '增長模型預置 5 層（新客期／成長期／成熟期／預流失期／流失期）或自定義分層，附洞察報告'],
   ['import', '導入創建', '上傳 txt／csv，以屬性或 ID 匹配打標；可選保留未匹配 ID'],
 ];
-// 標籤：對齊神策「標籤管理」（每專案最多 500 個；手動／例行更新；版本 1–100；回收站；血緣；審批；自定義欄位）
+// 標籤：對齊舊平台「標籤管理」（每專案最多 500 個；手動／例行更新；版本 1–100；回收站；血緣；審批；自定義欄位）
 export const TAGS = [
-  { id: 'lifecycle', cn: '生命週期', type: '規則', kind: 'lifecycle', dir: '客戶價值', dtype: 'string', vals: ['新客期', '成長期', '成熟期', '預流失期', '流失期'], dist: [['新客期', 118000], ['成長期', 243000], ['成熟期', 522000], ['預流失期', 301000], ['流失期', 228000]], cover: 1412000, upd: '每日 06:00', owner: '數位經營', rt: false, rule: '神策增長模型 5 層：新客期 = 開戶 ≤ 30 天；成長期 = 近 90 天成交 ≥ 1 且 AUM 上升；成熟期 = 近 90 天成交 ≥ 6；預流失期 = 近 60 天無成交但近 90 天有；流失期 = 近 90 天無成交', update: { mode: 'routine', freq: '每天', range: '不限', earliest: '06:00' }, keep: 30, status: 'running', calc: 'success', versions: [['10-15', 1412000, '計算成功'], ['10-14', 1409800, '計算成功'], ['10-13', 1407100, '計算成功']], lineage: { up: ['事件 kh_review_pass', '事件 bond_deal', '屬性 aum_bucket'], down: ['分群 高價值沉睡客', '分群 新戶未入金', '報告 用戶價值全週期分析'] }, approval: '已通過（10-01，陳柏宇）', custom: { dept: '數位經營部', requester: '陳柏宇', category: '客戶價值' }, created: '09-28', by: '林雅婷', hasData: true, ruleOk: true },
+  { id: 'lifecycle', cn: '生命週期', type: '規則', kind: 'lifecycle', dir: '客戶價值', dtype: 'string', vals: ['新客期', '成長期', '成熟期', '預流失期', '流失期'], dist: [['新客期', 118000], ['成長期', 243000], ['成熟期', 522000], ['預流失期', 301000], ['流失期', 228000]], cover: 1412000, upd: '每日 06:00', owner: '數位經營', rt: false, rule: '舊平台增長模型 5 層：新客期 = 開戶 ≤ 30 天；成長期 = 近 90 天成交 ≥ 1 且 AUM 上升；成熟期 = 近 90 天成交 ≥ 6；預流失期 = 近 60 天無成交但近 90 天有；流失期 = 近 90 天無成交', update: { mode: 'routine', freq: '每天', range: '不限', earliest: '06:00' }, keep: 30, status: 'running', calc: 'success', versions: [['10-15', 1412000, '計算成功'], ['10-14', 1409800, '計算成功'], ['10-13', 1407100, '計算成功']], lineage: { up: ['事件 kh_review_pass', '事件 bond_deal', '屬性 aum_bucket'], down: ['分群 高價值沉睡客', '分群 新戶未入金', '報告 用戶價值全週期分析'] }, approval: '已通過（10-01，陳柏宇）', custom: { dept: '數位經營部', requester: '陳柏宇', category: '客戶價值' }, created: '09-28', by: '林雅婷', hasData: true, ruleOk: true },
   { id: 'pref_market', cn: '偏好市場', type: '統計', kind: 'preference', dir: '交易偏好', dtype: 'string', vals: ['TSE', 'OTC', 'US', 'HK', 'FUND'], dist: [['TSE', 612000], ['US', 214000], ['OTC', 118000], ['FUND', 52000], ['HK', 24000]], cover: 1020000, upd: '每日 06:00', owner: '數據分析', rt: false, rule: '事件偏好屬性：bond_deal 近 365 天按 market 分組，成交次數最多的前 1 名', update: { mode: 'routine', freq: '每天', range: '近 365 天', earliest: '06:00' }, keep: 7, status: 'running', calc: 'success', versions: [['10-15', 1020000, '計算成功'], ['10-14', 1018400, '計算成功']], lineage: { up: ['事件 bond_deal', '屬性 market'], down: ['分群 定期定額活躍客', '事件分析 分組'] }, approval: '已通過', custom: { dept: '數據分析', requester: '林雅婷', category: '交易偏好' }, created: '09-20', by: '林雅婷', hasData: true, ruleOk: true },
   { id: 'fee_tier', cn: '手續費貢獻分級', type: 'SQL', kind: 'metric', dir: '客戶價值', dtype: 'string', vals: ['P1 (前 5%)', 'P2', 'P3', 'P4', 'P5'], dist: [['P1', 44000], ['P2', 88000], ['P3', 176000], ['P4', 264000], ['P5', 308000]], cover: 880000, upd: '每週一', owner: '數據分析', rt: false, rule: '基礎指標值：bond_charge_income 近 90 天 fee 總和，按百分比分層（前 5% / 15% / 35% / 65% / 其餘）', update: { mode: 'routine', freq: '每週一', range: '近 90 天', earliest: '05:30' }, keep: 12, status: 'running', calc: 'success', versions: [['10-13', 880000, '計算成功'], ['10-06', 876200, '計算成功']], lineage: { up: ['事件 bond_charge_income', '屬性 fee'], down: ['分群 高價值沉睡客', '隱碼規則 fee90'] }, approval: '已通過', custom: { dept: '數位經營部', requester: '陳柏宇', category: '客戶價值' }, created: '09-15', by: '林雅婷', hasData: true, ruleOk: true },
   { id: 'churn_score', cn: '流失風險分', type: '模型', kind: 'sql', dir: '風險', dtype: 'number', vals: ['0–100'], dist: [['0–20', 532000], ['20–40', 388000], ['40–60', 262000], ['60–80', 148000], ['80–100', 82000]], cover: 1412000, upd: '每日 07:30', owner: '數據科學', rt: false, rule: 'SQL 標籤（數值型）：SELECT one_id, churn_prob*100 FROM ml.churn_scores_latest', update: { mode: 'routine', freq: '每天', range: '不限', earliest: '07:30' }, keep: 14, status: 'running', calc: 'success', versions: [['10-15', 1412000, '計算成功'], ['10-14', 1409800, '計算成功']], lineage: { up: ['中間表 ml.churn_scores_latest'], down: ['分群 高價值沉睡客', '隱碼規則 churn_score'] }, approval: '已通過', custom: { dept: '數據科學', requester: '林雅婷', category: '風險' }, created: '09-10', by: '數據科學', hasData: true, ruleOk: true },
@@ -261,7 +261,7 @@ export const TAGS = [
   { id: 'old_vip_flag', cn: '舊 VIP 旗標', type: '規則', kind: 'custom', dir: '客戶價值', dtype: 'bool', vals: ['是', '否'], dist: [], cover: 0, upd: '已暫停', owner: '數位經營', rt: false, rule: '自定義標籤值：是 = 屬性 vip_level 有值', update: { mode: 'routine', freq: '每天', range: '不限', earliest: '06:00' }, keep: 7, status: 'paused', calc: 'failed', versions: [['10-10', 0, '計算失敗：依賴屬性 vip_level 已停用']], lineage: { up: ['屬性 vip_level（已停用）'], down: [] }, approval: '已通過', custom: { dept: '數位經營部', requester: '陳柏宇', category: '客戶價值' }, created: '08-20', by: '陳柏宇', hasData: false, ruleOk: false, recycled: '10-14 · 預計 10-29 自動徹底刪除' },
 ];
 export const SEG_RULE_TYPES = [['prop', '屬性'], ['event', '事件'], ['segment', '分群'], ['func', '函數'], ['seq', '行為序列']];
-// 分群：對齊神策「分群」（規則創建／導入創建／結果保存；每專案最多 500 個；手動／例行；版本；回收站；血緣；推送）
+// 分群：對齊舊平台「分群」（規則創建／導入創建／結果保存；每專案最多 500 個；手動／例行；版本；回收站；血緣；推送）
 export const SEGMENTS = [
   { id: 'sg1', name: '高價值沉睡客（agent 提議）', code: 'high_value_dormant', kind: 'rule', n: 11420, rule: '手續費貢獻分級 ∈ {P1,P2} AND 近 30 天 app_login_success = 0', groups: [{ logic: 'and', rules: [['prop', '標籤 手續費貢獻分級 包含於 P1、P2'], ['event', '近 30 天 app_login_success 總次數 = 0']] }], groupLogic: '交集', by: 'churn-radar', status: 'pending_approval', run: 'running', calc: 'success', update: { mode: 'routine', freq: '每天', range: '近 30 天', earliest: '06:30' }, keep: 7, versions: [['10-15', 11420, '計算成功'], ['10-14', 11180, '計算成功'], ['10-13', 11060, '計算成功']], lineage: { up: ['標籤 手續費貢獻分級', '事件 app_login_success'], down: ['推送單 MA 沉睡喚回（待審）'] }, upd: '今天 07:04', rt: false, desc: 'churn-radar 以 segment.propose 提議；證據見 AI 洞察', created: '10-15', tz: 'Asia/Taipei', sort: '按 fee90 由大到小，取前 100%' },
   { id: 'sg2', name: '新戶未入金（7 天）', code: 'new_no_deposit_7d', kind: 'rule', n: 8930, rule: 'kh_review_pass 在 7 天內 AND fund_deposit = 0', groups: [{ logic: 'and', rules: [['event', '近 7 天 kh_review_pass 總次數 ≥ 1'], ['event', '近 7 天 fund_deposit 總次數 = 0']] }], groupLogic: '交集', by: '陳柏宇', status: 'active', run: 'running', calc: 'success', update: { mode: 'routine', freq: '每天', range: '近 7 天', earliest: '06:10' }, keep: 14, versions: [['10-15', 8930, '計算成功'], ['10-14', 9120, '計算成功'], ['10-13', 8840, '計算成功'], ['10-12', 9310, '計算成功']], lineage: { up: ['事件 kh_review_pass', '事件 fund_deposit'], down: ['即時規則 新戶核准未入金 3 天', '推送單 MA + CRM'] }, upd: '今天 06:10', rt: false, desc: '', created: '09-30', tz: 'Asia/Taipei', sort: '' },
@@ -462,8 +462,8 @@ export const CONNECTIONS = [
     auth: { method: 'workload_identity', cn: 'Workload Identity（無密鑰）', fields: { project_id: 'ga-export-3012', dataset: 'analytics_3012', location: 'asia-east1' }, secret: null, rotation: { kind: 'short_lived' }, lastTest: { at: '10-14 05:10', ok: true }, owner: '數位行銷 林', tls: true, privileges: [['bigquery.dataViewer（dataset）', true], ['bigquery.readSessionUser', true], ['bigquery.jobUser（dmp 專案）', true]] } },
   { id: 'crm_pg', type: 'PostgreSQL', cn: 'CRM 客戶主檔', mode: 'CDC（pgoutput）+ 日批', tables: 4, models: 2, lag: '3.1 秒', status: 'ok', rows24h: 1_230_119,
     auth: { method: 'password', cn: '帳號密碼', fields: { host: '10.20.8.14', port: 5432, database: 'crm', username: 'dmp_ro' }, secret: { field: 'password', ref: 'projects/dmp-prod/secrets/crm-pg/versions/3', provider: 'Secret Manager' }, rotation: { kind: 'rotating', every: 90, due: '2026-10-24', left: 10, state: 'warn' }, lastTest: { at: '10-14 02:00', ok: true }, owner: 'CRM 王', tls: true, privileges: [['CONNECT / USAGE', true], ['SELECT on 4 表', true], ['REPLICATION', true], ['非 superuser', true]], note: '建議改 Cloud SQL IAM 驗證（短效 token，免輪替）' } },
-  { id: 'sensors', type: 'SensorsData', cn: '神策分析歷史事件（一次性匯入，已完成）', mode: 'Impala／HDFS Parquet 直讀 → 暫存 → ClickHouse', tables: 1, models: 1, lag: '已完成 10/02', status: 'ok', rows24h: 0, note: '匯入 70 億筆，對帳差異 0.04%；之後行為事件全部來自 GA360',
-    auth: { method: 'api_token', cn: 'API token（已撤銷）', fields: { base_url: 'https://sa.bank.internal', project: 'production' }, secret: { field: 'api_secret', ref: 'projects/dmp-prod/secrets/sensors-token/versions/2', provider: 'Secret Manager', revoked: true }, rotation: { kind: 'revoked' }, lastTest: { at: '10-02 18:40', ok: true }, owner: '數據分析 王', tls: true, privileges: [['專案唯讀分析帳號', true]] } },
+  { id: 'legacy', type: 'LegacyData', cn: '舊平台歷史事件（一次性匯入，已完成）', mode: 'Impala／HDFS Parquet 直讀 → 暫存 → ClickHouse', tables: 1, models: 1, lag: '已完成 10/02', status: 'ok', rows24h: 0, note: '匯入 70 億筆，對帳差異 0.04%；之後行為事件全部來自 GA360',
+    auth: { method: 'api_token', cn: 'API token（已撤銷）', fields: { base_url: 'https://legacy.bank.internal', project: 'production' }, secret: { field: 'api_secret', ref: 'projects/dmp-prod/secrets/legacy-token/versions/2', provider: 'Secret Manager', revoked: true }, rotation: { kind: 'revoked' }, lastTest: { at: '10-02 18:40', ok: true }, owner: '數據分析 王', tls: true, privileges: [['專案唯讀分析帳號', true]] } },
   { id: 'fund_pg', type: 'PostgreSQL', cn: '基金平台', mode: 'CDC', tables: 2, models: 1, lag: '4.0 秒', status: 'warn', rows24h: 41_000, note: '來源新增欄位 PLAN_FREQ，建議映射到 plan_type',
     auth: { method: 'cert', cn: 'mTLS 用戶端憑證', fields: { host: 'fund-db.bank.internal', port: 5432, database: 'fund', username: 'dmp_ro' }, secret: { field: 'client_cert', ref: 'kv/data/dmp/prod/fund_pg#client_cert', provider: 'OpenBao' }, rotation: { kind: 'rotating', every: 365, due: '2027-03-01', left: 138, state: 'ok' }, lastTest: { at: '10-13 02:00', ok: false, failedStep: 'cdc_prereq' }, owner: '財富 李', tls: true, privileges: [['CONNECT / USAGE', true], ['SELECT on 2 表', true], ['REPLICATION', true], ['publication 含新表', false]] } },
 ];
@@ -486,7 +486,7 @@ export const CONNECTOR_AUTH = {
     { id: 'sa_impersonation', cn: '服務帳號模擬', rec: false, fields: ['project_id', 'dataset', 'location', 'target_service_account'], secret: null, rotate: 0, note: '跨專案；短效 token、可審計' },
     { id: 'service_account_key', cn: '服務帳號金鑰檔', rec: false, fields: ['project_id', 'dataset', 'location'], secret: 'sa_key_json', rotate: 90, note: '不建議；組織政策通常禁止建立金鑰' }],
     priv: { batch: ['bigquery.dataViewer（dataset 層級）', 'bigquery.readSessionUser', 'bigquery.jobUser（dmp 專案）'] } },
-  SensorsData: { methods: [{ id: 'api_token', cn: 'API token', rec: true, fields: ['base_url', 'project'], secret: 'api_secret', rotate: 180, note: '一次性匯入完成後撤銷' }], priv: { batch: ['專案唯讀分析帳號'] } },
+  LegacyData: { methods: [{ id: 'api_token', cn: 'API token', rec: true, fields: ['base_url', 'project'], secret: 'api_secret', rotate: 180, note: '一次性匯入完成後撤銷' }], priv: { batch: ['專案唯讀分析帳號'] } },
   Kafka: { port: 9092, methods: [
     { id: 'mtls', cn: 'mTLS', rec: true, fields: ['bootstrap', 'topics'], secret: 'client_cert', rotate: 365, note: '' },
     { id: 'sasl_scram', cn: 'SASL/SCRAM', rec: false, fields: ['bootstrap', 'topics', 'username'], secret: 'password', rotate: 90, note: '' },
@@ -592,7 +592,7 @@ export const DELIVERIES = [
   { id: 'dlv_01J8…e0', seg: '看盤未下單（即時）', dest: '數據平台 Kafka', ver: '—', mode: 'realtime', n: 3_812, batches: '—', status: 'ok', at: '持續', resp: 'lag 0.8 s' },
 ];
 
-/* ------------------------------------------------------------------ v0.4：查詢條件目錄（事件分析／漏斗分析共用，對標神策「篩選條件／按分組查看／指標類型」） */
+/* ------------------------------------------------------------------ v0.4：查詢條件目錄（事件分析／漏斗分析共用，對標舊平台「篩選條件／按分組查看／指標類型」） */
 export const PROPS = [
   // 事件屬性（$ 開頭為 SDK/GA 預置屬性）
   { k: 'platform', cn: '平台', scope: 'event', type: 'string', vals: ['iOS', 'Android', 'Web'] },
@@ -658,7 +658,7 @@ export const SAVED_REPORTS = [
 
 /* ------------------------------------------------------------------ v0.5：元事件／屬性字典／用戶表／Item 表／資料流與效能／使用者指派 */
 export const META_PROPS = [
-  // 全域屬性字典（事件屬性 + 預置屬性）：型別、敏感等級、來源、枚舉、被幾個事件使用；sa = 客戶神策舊資料的屬性名（docs/28），顯示名沿用客戶用詞
+  // 全域屬性字典（事件屬性 + 預置屬性）：型別、敏感等級、來源、枚舉、被幾個事件使用；sa = 客戶舊平台舊資料的屬性名（docs/28），顯示名沿用客戶用詞
   { k: '$page_url', cn: '網頁網址', sa: '$url', type: 'string', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 2, note: '去除查詢字串後入倉', status: 'live' },
   { k: 'page_group', cn: '區塊目錄（頁面群組）', sa: 'section／menu', type: 'string', scope: 'event', sens: 'L1', src: '事件化規則', enum: ['account_open', 'quote', 'trade', 'wealth', 'campaign'], usedBy: 3, status: 'live' },
   { k: '$screen_name', cn: 'APP 頁面名稱', sa: '$screen_name', type: 'string', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'live' },
@@ -676,7 +676,7 @@ export const META_PROPS = [
   { k: 'kyc_level', cn: 'KYC', sa: 'KYC_RANK_CODE', type: 'string', scope: 'event', sens: 'L2', src: '開戶系統', enum: ['L1', 'L2', 'L3'], usedBy: 1, status: 'live' },
   { k: 'duration_ms', cn: '事件時長', sa: '$event_duration', type: 'number', unit: 'ms', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'live' },
   { k: 'campaign_id', cn: '推播計劃 ID／utm_campaign', sa: '$sf_plan_id／$utm_campaign', type: 'string', scope: 'event', sens: 'L1', src: 'MA / GA360', usedBy: 2, item: 'dim_campaign', status: 'live' },
-  { k: 'exp_id', cn: '實驗 ID', sa: '—（神策無）', type: 'string', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'quarantine', note: '隨 ga.ab_exposure 進隔離區，待登記' },
+  { k: 'exp_id', cn: '實驗 ID', sa: '—（舊平台無）', type: 'string', scope: 'event', sens: 'L1', src: 'GA360', usedBy: 1, status: 'quarantine', note: '隨 ga.ab_exposure 進隔離區，待登記' },
   { k: 'memo', cn: '備註', sa: 'msg', type: 'string', scope: 'event', sens: 'L4', src: 'CRM', usedBy: 0, status: 'blocked', note: '個資掃描命中手機號：拒絕入倉' },
 ];
 export const USER_PROPS = [
@@ -700,26 +700,26 @@ export const USER_PROPS = [
   { k: 'name / id_no / mobile / email', cn: '姓名／身分證／手機／Email', sa: 's_name／cus_mtel／cuadm／birth_dt 等 33 欄（forbidden_l4）', type: '—', src: '來源系統', upd: '—', sens: 'L4', filter: false, group: false, cover: 0, note: '永不入倉；OneID 只存 HMAC 雜湊' },
 ];
 export const ONEID_RULES = [
-  // 對齊神策 IDM 3.0：歸戶在接入時決定、一個 ID 只屬一個用戶、不自動合併已存在的用戶、資料歸優先級最高的 ID；未登入事件以 distinct_id 歸匿名用戶，登入時近 7 天匿名事件改寫到客戶（docs/19）
+  // 對齊舊平台 IDM 3.0：歸戶在接入時決定、一個 ID 只屬一個用戶、不自動合併已存在的用戶、資料歸優先級最高的 ID；未登入事件以 distinct_id 歸匿名用戶，登入時近 7 天匿名事件改寫到客戶（docs/19）
   { id: '$identity_login_id', cn: '客戶代碼（HMAC）', strength: 'strong', priority: 1, card: '單值', rebind: '不可改、不可解綁', src: 'CRM / App 後台 / GA user_id', note: '唯一錨點；GA user_id 接入時視同此 ID（同一把 HMAC 金鑰，docs/20）' },
   { id: '$identity_mobile_hash', cn: '手機（HMAC）', strength: 'strong', priority: 2, card: '單值', rebind: '人工', src: 'CRM / 開戶', note: '同手機被第二個客戶帶入 → 不改綁、記 conflict 待人工；換號由 CRM 發 unbind+bind' },
-  { id: '$identity_email_hash', cn: 'Email（HMAC）', strength: 'strong', priority: 3, card: '單值', rebind: '人工', src: 'CRM', note: '神策預置順序 login > mobile > email；同 Email 第二客戶 → 記 conflict 待人工' },
+  { id: '$identity_email_hash', cn: 'Email（HMAC）', strength: 'strong', priority: 3, card: '單值', rebind: '人工', src: 'CRM', note: '舊平台預置順序 login > mobile > email；同 Email 第二客戶 → 記 conflict 待人工' },
   { id: '$identity_account_no', cn: '交易帳號（FPE）', strength: 'strong', priority: 4, card: '多值', rebind: '人工', src: 'CRM 綁定 / 數據中台交易資料', note: '一客多戶；交易事件只帶帳號且未綁定 → 先建帳號用戶，CRM 綁定到達後升級為客戶' },
-  { id: '$identity_device_id', cn: '裝置 ID（IDFV／GAID）', strength: 'weak', priority: 5, card: '多值（上限 20，滾動解綁）', rebind: '不自動改綁', src: 'GA360 app_instance_id', note: '未登入事件的 distinct_id（App）；共用裝置：第二個客戶登入 → 關聯失敗、事件歸登入客戶、裝置留在首次關聯者（神策同）；登出時 App 重置 app_instance_id' },
+  { id: '$identity_device_id', cn: '裝置 ID（IDFV／GAID）', strength: 'weak', priority: 5, card: '多值（上限 20，滾動解綁）', rebind: '不自動改綁', src: 'GA360 app_instance_id', note: '未登入事件的 distinct_id（App）；共用裝置：第二個客戶登入 → 關聯失敗、事件歸登入客戶、裝置留在首次關聯者（舊平台同）；登出時 App 重置 app_instance_id' },
   { id: '$identity_cookie_id', cn: 'GA client_id', strength: 'weak', priority: 6, card: '多值（上限 50，滾動解綁）', rebind: '不自動改綁', src: 'GA360', note: '未登入事件的 distinct_id（Web）；登入前事件先歸匿名用戶，登入事件到達時近 7 天匿名事件改寫到登入客戶' },
-  { id: '$identity_anonymous_id', cn: '匿名 ID', strength: 'weak', priority: 7, card: '多值（上限 50，滾動解綁）', rebind: '不自動改綁', src: 'Collector', note: '神策相容 SDK 的 distinct_id；兜底' },
+  { id: '$identity_anonymous_id', cn: '匿名 ID', strength: 'weak', priority: 7, card: '多值（上限 50，滾動解綁）', rebind: '不自動改綁', src: 'Collector', note: '舊平台相容 SDK 的 distinct_id；兜底' },
   { id: '$identity_line_uid', cn: 'LINE UID', strength: 'channel', priority: 9, card: '多值', rebind: '—', src: 'MA', note: '觸達渠道，不參與歸戶，只做輸出對應' },
 ];
 export const ONEID_CASES = [
   ['S1 匿名瀏覽 → 首次登入', 'cookie C1（distinct_id）的匿名用戶 U1；登入事件 {C1, cust_A}（A 尚無用戶）', 'U1 升級為客戶 A；之前的匿名事件自動屬於 A（同一個 one_id，不需改寫事件）'],
   ['S2 既有客戶在新裝置', '新裝置 cookie C2 先成匿名用戶 U2（9 天前、3 天前、1 天前各有事件）；登入事件 {C2, cust_A}', '事件歸 A；C2 改綁到 A；近 7 天的 2 筆匿名事件改寫到 A（distinct_id 保留 C2）；9 天前那筆留在 U2'],
-  ['S3 共用裝置換人登入', 'A 登入後 C2 上又有匿名事件（歸 A）；兩天後 {C2, cust_B}', '事件歸 B（登入事件以客戶代碼為準）；C2 關聯失敗、留在 A、記 conflict；已歸 A 的事件不動；之後 C2 的匿名事件仍歸 A（神策 IDM 2.0／3.0 相同）'],
+  ['S3 共用裝置換人登入', 'A 登入後 C2 上又有匿名事件（歸 A）；兩天後 {C2, cust_B}', '事件歸 B（登入事件以客戶代碼為準）；C2 關聯失敗、留在 A、記 conflict；已歸 A 的事件不動；之後 C2 的匿名事件仍歸 A（舊平台 IDM 2.0／3.0 相同）'],
   ['S4 交易事件只帶帳號', '{ACC9}（CRM 尚未送綁定）', '以帳號建立用戶；CRM 綁定 {cust_C, ACC9} 到達 → 該用戶升級為客戶 C，歷史交易自動歸戶'],
   ['S5 同手機兩個客戶', '{cust_D, M1}，M1 已屬 A', 'D 另建用戶、事件歸 D；手機不改綁（政策：人工）、記 conflict；不會把 A、D 合併'],
   ['S6 未同意', '{cust_A, C8} 但 analytics_storage 未同意', '事件歸 A（有強 ID）；C8 不綁定、C8 的匿名事件不改寫；C8 單獨出現的事件留在匿名用戶'],
   ['S7 解綁', 'unbind(cookie C7)', '允許；unbind(login_id) 一律拒絕；人工合併／拆分由資訊管理發起、系統管理員審批，並改寫受影響事件'],
 ];
-// 維度表（對齊神策「元數據管理 › 維度表」）：外部表以「事件／用戶屬性 = 維度表主鍵」關聯，欄位成為可篩選／分組的關聯屬性；不是獨立主體，事件永遠屬於用戶
+// 維度表（對齊舊平台「元數據管理 › 維度表」）：外部表以「事件／用戶屬性 = 維度表主鍵」關聯，欄位成為可篩選／分組的關聯屬性；不是獨立主體，事件永遠屬於用戶
 export const DIM_TABLES = [
   { id: 'dim_instrument', cn: '商品主檔', pk: 'symbol', join: 'events.symbol = dim_instrument.symbol', itemType: 'instrument', rows: 24_310, src: '數據同步任務 sync_instrument（商品主檔 PG，日批 05:30）', sync: '每日 05:30', status: 'ok', cols: [['name', '商品名稱', 'string', 'L0', true], ['market', '市場', 'enum', 'L0', true], ['industry', '產業', 'string', 'L0', true], ['type', '類型', 'enum', 'L0', true], ['is_etf', 'ETF', 'bool', 'L0', true], ['lot_size', '交易單位', 'number', 'L0', false]], usedBy: ['事件分析：成交 × 產業', '標籤：pref_market', '歸因：ETF 專區'], note: '補充交易／看盤事件沒有埋的商品維度（產業、類型）；行數 < 100 萬' },
   { id: 'dim_account', cn: '帳戶主檔', pk: 'account_no', join: 'events.account_no = dim_account.account_no', itemType: 'account', rows: 1_812_440, src: '數據同步任務 sync_account（數據中台帳戶主檔，日批 upsert）', sync: '每日 02:30', status: 'warn', cols: [['account_type', '帳戶類型', 'enum', 'L1', true], ['branch_id', '分公司', 'string', 'L1', true], ['agent_id', '營業員', 'string', 'L3', true], ['opened_at', '開戶日', 'date', 'L1', false], ['status', '狀態', 'enum', 'L1', true], ['margin_enabled', '信用', 'bool', 'L2', true]], usedBy: ['事件分析：成交 × 帳戶類型', '用戶列表：按分公司'], note: '帳戶不是獨立主體：account_no 是客戶的多值 ID（docs/19），這張表只補帳戶的維度；超過 100 萬列，查詢以 dictGet 而非 JOIN' },
@@ -727,7 +727,7 @@ export const DIM_TABLES = [
   { id: 'dim_agent', cn: '營業員', pk: 'agent_id', join: 'users.agent_id = dim_agent.agent_id', itemType: 'agent', rows: 1_240, src: '數據同步任務 sync_org', sync: '每日', status: 'ok', cols: [['branch_id', '分公司', 'string', 'L1', true], ['team', '組別', 'string', 'L1', true], ['level', '職級', 'enum', 'L2', true], ['active', '在職', 'bool', 'L1', true]], usedBy: ['用戶列表：按營業員組別'], note: '' },
   { id: 'dim_campaign', cn: '行銷活動', pk: 'campaign_id', join: 'events.campaign_id = dim_campaign.campaign_id；events.utm_campaign = dim_campaign.utm_name', itemType: 'campaign', rows: 318, src: '數據同步任務 sync_campaign（MA API，每小時）', sync: '每小時', status: 'ok', cols: [['name', '活動名稱', 'string', 'L0', true], ['channel', '渠道', 'enum', 'L0', true], ['start_at', '開始', 'date', 'L0', false], ['end_at', '結束', 'date', 'L0', false], ['budget_bucket', '預算區間', 'enum', 'L2', true], ['owner', '負責人', 'string', 'L1', false]], usedBy: ['歸因：觸點命名', '活動復盤'], note: '' },
 ];
-// 維度字典（對齊神策「維度字典」）：屬性值 → 顯示名（1:1 或 N:1），篩選與分組時以顯示名呈現；只限文字／數值屬性
+// 維度字典（對齊舊平台「維度字典」）：屬性值 → 顯示名（1:1 或 N:1），篩選與分組時以顯示名呈現；只限文字／數值屬性
 export const DIM_DICTS = [
   { prop: 'reason_code', cn: '失敗原因碼', n: 42, mode: 'N:1', upd: '10-12', sample: [['E001', '餘額不足'], ['E012', '漲跌停'], ['E020', '零股限制'], ['SYS02', '委託閘道逾時'], ['SYS03', '委託閘道逾時']], src: '交易系統文件（手動上傳）' },
   { prop: 'market', cn: '市場', n: 5, mode: '1:1', upd: '09-01', sample: [['TSE', '上市'], ['OTC', '上櫃'], ['US', '美股'], ['HK', '港股'], ['FUND', '基金']], src: '手動' },
@@ -735,14 +735,14 @@ export const DIM_DICTS = [
   { prop: 'branch_id', cn: '分公司代碼', n: 46, mode: '1:1', upd: '每日（由 dim_branch 產生）', sample: [['TPE01', '台北'], ['TPE02', '信義'], ['TCH01', '台中'], ['KHH01', '高雄']], src: '維度表 dim_branch.name' },
   { prop: 'kyc_level', cn: 'KYC 等級', n: 3, mode: '1:1', upd: '09-01', sample: [['L1', '基本'], ['L2', '進階'], ['L3', '完整']], src: '手動' },
 ];
-// 虛擬屬性（對齊神策「虛擬屬性」）：以表達式組合事件／用戶屬性與維度表欄位，查詢時計算，不落地
+// 虛擬屬性（對齊舊平台「虛擬屬性」）：以表達式組合事件／用戶屬性與維度表欄位，查詢時計算，不落地
 export const VIRTUAL_PROPS = [
   { name: 'v.symbol_industry', cn: '成交商品產業', scope: 'event', expr: "dim_instrument.industry WHERE events.symbol", uses: ['dim_instrument'], note: '事件分析按產業分組' },
   { name: 'v.amount_bucket', cn: '金額區間', scope: 'event', expr: "CASE WHEN amount < 1e5 THEN '<10萬' WHEN amount < 5e5 THEN '10–50萬' WHEN amount < 1e6 THEN '50–100萬' ELSE '≥100萬' END", uses: [], note: 'L2 數值對外一律用此區間' },
   { name: 'v.is_office_hour', cn: '盤中', scope: 'event', expr: "toHour(time) BETWEEN 9 AND 13", uses: [], note: '' },
   { name: 'v.account_age_band', cn: '開戶年資', scope: 'user', expr: "multiIf(account_age_days < 30, '新戶', account_age_days < 365, '1 年內', '1 年以上')", uses: [], note: '' },
 ];
-// 數據源的集成與管理（對齊神策「通用數據接入」：數據源管理 › 數據表管理 › 數據同步）
+// 數據源的集成與管理（對齊舊平台「通用數據接入」：數據源管理 › 數據表管理 › 數據同步）
 export const EXT_TABLES = [
   { conn: 'dwh_trade', table: 'iceberg.trade.fact_order', pk: 'ORD_NO', incr: 'dt 分區 + updated_at', cols: 14, schemaVer: 3, drift: 0, tasks: ['sync_orders_events'] },
   { conn: 'dwh_trade', table: 'iceberg.ledger.fact_cash', pk: 'TXN_NO', incr: 'dt 分區 + updated_at', cols: 8, schemaVer: 1, drift: 0, tasks: ['sync_cash_events'] },
@@ -761,7 +761,7 @@ export const SYNC_TASKS = [
   { id: 'sync_account', cn: '帳戶主檔 → 維度表 dim_account', src: 'dwh_trade · dim_account', target: 'dim_account（upsert by account_no）', mode: '每日全量', sched: '02:30', last: '14:36', rows: 1_812_440, status: 'ok', note: '' },
   { id: 'sync_instrument', cn: '商品主檔 → 維度表 dim_instrument', src: 'crm_pg · instrument_master', target: 'dim_instrument（全量覆蓋）', mode: '全量', sched: '05:30', last: '05:30 → 05:31', rows: 24_310, status: 'ok', note: '' },
   { id: 'sync_fund_events', cn: '基金申購 → 事件', src: 'fund_pg · fund_order（CDC）', target: 'events', mode: '流任務', sched: '持續', last: '14:30', rows: 41_000, status: 'warn', note: 'Schema drift：來源新增 PLAN_FREQ，38 筆 plan_type 空值進隔離' },
-  { id: 'sync_sensors_history', cn: '神策歷史事件（一次性）', src: 'sensors · Impala／HDFS Parquet 直讀', target: 'events', mode: '全量（一次性）', sched: '已完成 10/02', last: '10/02 18:40', rows: 7_010_000_000, status: 'done', note: '對帳差異 0.04%；T0 後補導最終增量' },
+  { id: 'sync_legacy_history', cn: '舊平台歷史事件（一次性）', src: 'legacy · Impala／HDFS Parquet 直讀', target: 'events', mode: '全量（一次性）', sched: '已完成 10/02', last: '10/02 18:40', rows: 7_010_000_000, status: 'done', note: '對帳差異 0.04%；T0 後補導最終增量' },
 ];
 export const PIPELINE = {
   stages: [
@@ -811,7 +811,7 @@ export const VIRTUAL_EVENTS = [
   { name: 'v.open_funnel_entry', cn: '進入開戶流程', def: '$pageview（page_group=account_open）OR kh_entry_khpg_pv', owner: '數位開戶', usedBy: ['漏斗：開戶'] },
 ];
 
-/* ================================================================== v0.6：自定義 SQL（對齊神策「自定義 SQL」） */
+/* ================================================================== v0.6：自定義 SQL（對齊舊平台「自定義 SQL」） */
 export const SQL_TABLES = [
   { name: 'events', cn: '事件表', rows: '198 億', perm: '數據分析／數位經營／資訊管理（行權限：專案；列權限：L3 隱碼）', cols: [['event', 'String', '事件名'], ['time', 'DateTime64', '事件時間'], ['event_date', 'Date', '分區日期'], ['one_id', 'String', 'OneID（L3 尾碼遮罩）'], ['one_id_uint', 'UInt64', '稠密 ID'], ['distinct_id', 'String', '未登入識別'], ['session_id', 'String', '會話'], ['platform', 'String', '平台'], ['symbol', 'String', '商品代碼'], ['market', 'String', '市場'], ['side', 'String', '買賣別'], ['amount', 'Float64', '金額（L2，匯出區間化）'], ['channel', 'String', '渠道'], ['props', 'JSON', '其他屬性']] },
   { name: 'users', cn: '用戶表', rows: '141 萬', perm: '數據分析／數位經營', cols: [['one_id', 'String', 'OneID'], ['customer_code', 'String', '客戶代碼（L3）'], ['lifecycle', 'String', '生命週期'], ['tier', 'String', '價值分級'], ['age_band', 'String', '年齡層'], ['branch_id', 'String', '分公司'], ['aum_bucket', 'String', '資產區間'], ['churn_score', 'Float64', '流失分（L2）'], ['first_seen', 'DateTime', '首次出現'], ['props', 'JSON', '其他屬性']] },
@@ -848,12 +848,12 @@ GROUP BY platform
 ORDER BY traders DESC
 LIMIT 1000`;
 
-/* ------------------------------------------------------------------ v0.7：神策 → GA360 遷移與歷史資料銜接（docs/22） */
+/* ------------------------------------------------------------------ v0.7：舊平台 → GA360 遷移與歷史資料銜接（docs/22） */
 export const MIG_INVENTORY = [
   { ds: '事件明細', loc: 'Impala · events（Kudu 近期 + HDFS Parquet 歷史）', range: '2023-10-01 ～ 2026-10-14（3 年）', rows: 7_010_000_000, method: 'HDFS Parquet 直讀（distcp，客戶已開放）', target: 'dmp.events 歷史分區（36 個月）', status: 'ok', progress: 100, note: '三方對帳差異 0.04%；$ip 丟棄；登入後事件 distinct_id 已 HMAC 成客戶代碼' },
   { ds: '用戶表（IDM 2.0）', loc: 'Impala · users（id、first_id、second_id、profile 屬性）', range: '全量快照 2026-10-14', rows: 2_140_330, method: 'Impala JDBC', target: 'dmp.users（16 個屬性映射）；second_id → 客戶代碼', status: 'ok', progress: 100, note: 'L4 欄位未選；age_band／aum_bucket 分桶後入倉' },
   { ds: 'ID 映射（由 users 推得）', loc: 'users.id ↔ first_id／second_id', range: '全量快照 2026-10-14', rows: 2_140_330, method: 'Impala JDBC', target: 'id_map（匿名 ID ↔ 客戶代碼 + 首次關聯時間）', status: 'ok', progress: 100, note: '先於事件載入；first_id 保留為匿名，不與 GA client_id 銜接' },
-  { ds: '分群結果', loc: '用戶分群結果表（按 basetime）', range: '最近版本 + 定義 JSON', rows: 183, method: '查詢 API', target: '分群（規則重建 121 / 匯入快照 62）', status: 'warn', progress: 86, note: '62 個含神策函數規則無法一比一重建，先匯入成員快照並標示「不再更新」' },
+  { ds: '分群結果', loc: '用戶分群結果表（按 basetime）', range: '最近版本 + 定義 JSON', rows: 183, method: '查詢 API', target: '分群（規則重建 121 / 匯入快照 62）', status: 'warn', progress: 86, note: '62 個含舊平台函數規則無法一比一重建，先匯入成員快照並標示「不再更新」' },
   { ds: '標籤', loc: 'user_tag_*（含歷史版本）', range: '最近 7 版', rows: 412, method: 'Impala JDBC', target: '標籤（匯入型）+ 例行計算在 DMP 重建', status: 'ok', progress: 100, note: '' },
   { ds: '元數據', loc: '事件／屬性字典、虛擬事件、概覽、書籤', range: '112 事件 · 286 屬性 · 概覽 41 · 書籤 220', rows: 659, method: '元數據 API', target: 'events.yaml v4（完成）；概覽依需求重建', status: 'warn', progress: 60, note: '概覽與書籤盤點中，客戶勾選必留清單後重建' },
   { ds: '智能運營（SF）／LINE 歷史', loc: '計畫／旅程定義、觸達紀錄、LINE 事件', range: '2024-03 ～ 2026-10', rows: 96_400_000, method: 'HDFS Parquet 直讀', target: 'events（$Plan*／$Journey*／LINE 歷史，標示僅歷史）', status: 'ok', progress: 100, note: '新 MA 工具與 LINE 不在本案；T0 後無新資料' },
@@ -863,10 +863,10 @@ export const MIG_EXPORTS = [
   { id: 'exp_users', ds: '用戶表', mode: 'Impala JDBC 全量', slices: 1, done: 1, src: 2_140_330, exp: 2_140_330, load: 2_140_330, status: 'ok', last: '10/01 02:10', note: '' },
   { id: 'exp_idmap', ds: 'ID 映射（IDM 2.0 由 users 推得）', mode: 'Impala JDBC 全量', slices: 1, done: 1, src: 2_140_330, exp: 2_140_330, load: 2_140_330, status: 'ok', last: '10/01 01:40', note: '' },
   { id: 'exp_sf', ds: '智能運營事件', mode: 'HDFS Parquet（日）', slices: 950, done: 950, src: 96_412_000, exp: 96_412_000, load: 96_401_200, status: 'ok', last: '10/03 09:12', note: '' },
-  { id: 'exp_seg', ds: '分群結果', mode: '查詢 API', slices: 183, done: 158, src: 183, exp: 158, load: 158, status: 'warn', last: '10/14 16:00', note: '25 個分群規則含神策函數，待人工分級' },
-  { id: 'exp_delta', ds: '事件明細（T0 後最終增量）', mode: 'HDFS Parquet（日）', slices: 0, done: 0, src: 0, exp: 0, load: 0, status: 'pending', last: '—', note: 'T0 由客戶定（最晚 2027-09-30）；神策可用到 2027-10-31' },
+  { id: 'exp_seg', ds: '分群結果', mode: '查詢 API', slices: 183, done: 158, src: 183, exp: 158, load: 158, status: 'warn', last: '10/14 16:00', note: '25 個分群規則含舊平台函數，待人工分級' },
+  { id: 'exp_delta', ds: '事件明細（T0 後最終增量）', mode: 'HDFS Parquet（日）', slices: 0, done: 0, src: 0, exp: 0, load: 0, status: 'pending', last: '—', note: 'T0 由客戶定（最晚 2027-09-30）；舊平台可用到 2027-10-31' },
 ];
-// 並行期（GA360 已上線、神策仍在）：同一事件每日量，神策 vs GA360；diff 為 (ga−sa)/sa
+// 並行期（GA360 已上線、舊平台仍在）：同一事件每日量，舊平台 vs GA360；diff 為 (ga−sa)/sa
 export const MIG_PARALLEL = [
   { ev: '$pageview', ga: 'page_view', sa: 6_240_000, gav: 5_990_400, note: '同意拒絕 + 廣告攔截' },
   { ev: '$AppViewScreen', ga: 'screen_view', sa: 9_120_000, gav: 9_028_800, note: '' },
@@ -881,17 +881,17 @@ export const MIG_PARALLEL = [
   { ev: '$WebClick', ga: 'web_click', sa: 3_110_000, gav: 2_460_000, note: 'GA 自訂 web_click 只埋了主要按鈕（口徑差異，已記錄）' },
   { ev: 'push_click', ga: 'notification_open', sa: 92_000, gav: 90_100, note: 'FCM 自動事件' },
 ];
-export const MIG_USERS = { login_users: 1_812_440, both: 1_703_690, only_sa: 92_300, only_ga: 16_450, anon_sa: 7_920_000, anon_ga: 2_310_000 };
+export const MIG_USERS = { login_users: 1_812_440, both: 1_703_690, only_legacy: 92_300, only_ga: 16_450, anon_sa: 7_920_000, anon_ga: 2_310_000 };
 export const MIG_TIMELINE = [
   { t: 'M1', date: '2026/11/20', cn: '盤點、橋接表定稿交 GA360 導入商', status: 'done' },
   { t: 'M2', date: '2026/12/18', cn: '歷史 70 億載入測試環境；T1–T4', status: 'done' },
   { t: 'M3', date: '2027/01/22', cn: 'GA360 上線，並行期開始；T5–T6', status: 'done' },
   { t: 'M4 / M5', date: '2027/02/26 · 03/26', cn: '交易結合與營運；內部驗收、切換演練', status: 'now' },
   { t: 'UAT', date: '2027/06/30', cn: '客戶驗收 T1–T9 與結合分析案例', status: 'todo' },
-  { t: 'PD = T0', date: '2027/09/30', cn: '正式上線；神策停止寫入；4 週內最終增量與對帳', status: 'todo' },
-  { t: '神策到期', date: '2027/10/31', cn: 'Impala／HDFS 權限與 token 撤銷', status: 'todo' },
+  { t: 'PD = T0', date: '2027/09/30', cn: '正式上線；舊平台停止寫入；4 週內最終增量與對帳', status: 'todo' },
+  { t: '舊平台到期', date: '2027/10/31', cn: 'Impala／HDFS 權限與 token 撤銷', status: 'todo' },
 ];
-// 神策預置事件／屬性 → GA4（與 backend/migration/bridge.py 同一張表）
+// 舊平台預置事件／屬性 → GA4（與 backend/migration/bridge.py 同一張表）
 export const MIG_PRESET_EVENTS = {
   '$pageview': ['page_view', 'auto'], '$WebClick': ['web_click', 'custom'], '$WebStay': ['user_engagement', 'auto'], '$AppViewScreen': ['screen_view', 'auto'],
   '$AppStart': ['app_start', 'custom'], '$AppEnd': ['app_end', 'custom'], '$AppClick': ['app_click', 'custom'], '$AppInstall': ['first_open', 'auto'],

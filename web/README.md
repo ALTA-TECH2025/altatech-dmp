@@ -29,7 +29,7 @@ npm run build          # dist/（由 apps.web 映像的 nginx 提供，與 API �
 | `src/approvals/ApprovalsPage.tsx`、`approvals.ts`、`src/users/ExportDialog.tsx` | 審批與匯出頁（待我審批：核可／退回附意見；我的申請；匯出申請：核可後產檔 → 下載 CSV；揭露申請：狀態、到期、查看次數）；細查抽屜可對遮罩欄位申請限單一用戶的揭露；用戶列表與分群詳情的「匯出（審批）」小表單（用途、保存天數） |
 | `src/integration/IntegrationPage.tsx`、`integration.ts`、`types.ts` | 數據整合頁（數據源：連線清單、新增連線表單只收 secret_ref 並擋疑似明文、逐步診斷測試、最小權限自檢、輪替、停用；數據表：登記並探索欄位與敏感等級、重新探索 Schema 變更；同步任務：預覽驗證、立即執行、執行紀錄；建立任務四步精靈：數據表 → 模型 → 排程與策略 → 建立並預覽） |
 | `src/governance/GovernancePage.tsx`、`UserSchemaPage.tsx`、`ItemsPage.tsx`、`governance.ts`、`types.ts` | 資料治理：元事件管理（事件字典搜尋／狀態、登記與編輯抽屜含上線檢查、狀態轉移、隔離區登記放行、變更單審批；屬性字典登記；虛擬事件建立）、用戶表管理（用戶屬性與覆蓋率、登記；OneID 規則優先序／上限／狀態修改送覆核；個資防護）、維度表與字典（維度表定義／新增／編輯欄位／立即同步；字典 CSV 上傳 append／overwrite；虛擬屬性建立）。語意層項目標「語意層」、執行期登記標「待發版」 |
-| `src/migration/MigrationPage.tsx`、`migration.ts`、`types.ts` | 神策遷移：盤點（計畫 + 神策 API 盤點 + 任務進度）、埋點銜接表（可下載 CSV）、導出與載入（建立任務、分片、重跑）、新舊對帳（T5 折線、T6 長條、T2 表）、切換時序 |
+| `src/migration/MigrationPage.tsx`、`migration.ts`、`types.ts` | 舊平台遷移：盤點（計畫 + 舊平台 API 盤點 + 任務進度）、埋點銜接表（可下載 CSV）、導出與載入（建立任務、分片、重跑）、新舊對帳（T5 折線、T6 長條、T2 表）、切換時序 |
 | `src/audit/AuditPage.tsx` | 日誌統計：/v1/audit 最近 N 筆、篩選、事件分佈；效能統計標「第二階段」 |
 | `src/shell/nav.ts`、`AppShell.tsx` | 橫向導覽與原型同構：頂欄群組（首頁／分析／營運／資料／AI 洞察／數據治理／系統管理）＋子導覽列（目前群組的項目）＋手機抽屜；未實作項目加「二期」「待開發」小標 |
 | `src/app/App.tsx` Placeholder、`src/users/ProfileEntryPage.tsx` | 未實作頁面標「第二階段」（即時觸發、資料流與效能、AI 洞察四頁）或「待開發」（自定義 SQL、平台設定），附替代入口；用戶細查 / OneID 入口頁可直接以客戶代碼＋理由開細查抽屜 |
@@ -54,8 +54,8 @@ npm run build          # dist/（由 apps.web 映像的 nginx 提供，與 API �
 
 ```bash
 deploy/quickstart/run_local.sh up
-# 100 萬人模擬資料（依神策埋點規格：262 個事件、用戶表可遷移欄位；完全合成），單機約 30–40 分鐘
-CLICKHOUSE_URL=http://127.0.0.1:8123 CLICKHOUSE_PASSWORD=dmp-local python3 -m backend.tools.synth_sensors --users 1000000 --events 12000000 --compact
+# 100 萬人模擬資料（依舊平台埋點規格：262 個事件、用戶表可遷移欄位；完全合成），單機約 30–40 分鐘
+CLICKHOUSE_URL=http://127.0.0.1:8123 CLICKHOUSE_PASSWORD=dmp-local python3 -m backend.tools.synth_legacy --users 1000000 --events 12000000 --compact
 export DMP_DEMO_PROJECT=sinopac_demo        # 範例儀表板、demo_fill、demo_capture 都查這份資料；不設則用黃金資料集（golden）
 DMP_SEED_PASSWORD=… deploy/quickstart/run_local.sh seed
 DMP_LOCAL_ACCOUNTS=~/dmp-local/accounts.json DMP_SEED_PASSWORD=… python3 -m backend.tools.demo_fill && python3 -m backend.tools.demo_capture

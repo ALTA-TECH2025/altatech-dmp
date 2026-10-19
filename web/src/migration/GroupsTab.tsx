@@ -1,34 +1,34 @@
-// 神策分群／標籤遷移：掃描 users 表 user_group_*／user_tag_* → 每項快照（固定名單）、連到重建的 DMP 分群／標籤（比對人數）或附原因略過。
+// 舊平台分群／標籤遷移：掃描 users 表 user_group_*／user_tag_* → 每項快照（固定名單）、連到重建的 DMP 分群／標籤（比對人數）或附原因略過。
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Alert, Anchor, Button, Group, NativeSelect, Paper, SegmentedControl, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { api, ApiError } from '@/api/client';
 import { EmptyState, Mono, SectionTitle, StatTile, StatusBadge } from '@/ds';
 import { diffOk, diffText, GROUP_STATUS } from './migration';
-import type { SensorsGroup, SensorsGroupList, SensorsGroupStatus } from './types';
+import type { LegacyGroup, LegacyGroupList, LegacyGroupStatus } from './types';
 
 type Pick = { id: string; name: string };
 const opt = (value: string, label: string) => ({ value, label });
 
 export function GroupsTab({ canUse, canSnapshot }: { canUse: boolean; canSnapshot: boolean }) {
-  const [data, setData] = useState<SensorsGroupList | null>(null);
-  const [filter, setFilter] = useState<'all' | SensorsGroupStatus>('all');
+  const [data, setData] = useState<LegacyGroupList | null>(null);
+  const [filter, setFilter] = useState<'all' | LegacyGroupStatus>('all');
   const [kind, setKind] = useState<'all' | 'segment' | 'tag'>('all');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [form, setForm] = useState<{ name: string; mode: 'link' | 'skip' | 'snapshot'; type: 'segment' | 'tag'; id: string; note: string } | null>(null);
   const [segs, setSegs] = useState<Pick[]>([]); const [tags, setTags] = useState<Pick[]>([]);
-  const load = async () => { try { setData(await api.get<SensorsGroupList>('/v1/migration/sensors-groups')); setErr(null); } catch (e) { setErr(e instanceof ApiError ? e.message : '讀取失敗'); } };
+  const load = async () => { try { setData(await api.get<LegacyGroupList>('/v1/migration/legacy-groups')); setErr(null); } catch (e) { setErr(e instanceof ApiError ? e.message : '讀取失敗'); } };
   useEffect(() => {
     void load();
     api.get<Pick[]>('/v1/segments').then((x) => setSegs(x.map((s) => ({ id: s.id, name: s.name })))).catch(() => undefined);
     api.get<Pick[]>('/v1/tags').then((x) => setTags(x.map((t) => ({ id: t.id, name: t.name })))).catch(() => undefined);
   }, []);
   const run = async (key: string, fn: () => Promise<unknown>) => { setBusy(key); setErr(null); try { await fn(); setForm(null); await load(); } catch (e) { setErr(e instanceof ApiError ? e.message : '操作失敗'); } finally { setBusy(null); } };
-  const scan = () => run('scan', () => api.post('/v1/migration/sensors-groups/scan', {}));
-  const submit = (g: SensorsGroup) => {
+  const scan = () => run('scan', () => api.post('/v1/migration/legacy-groups/scan', {}));
+  const submit = (g: LegacyGroup) => {
     if (!form) return;
-    const u = `/v1/migration/sensors-groups/${encodeURIComponent(g.name)}`;
+    const u = `/v1/migration/legacy-groups/${encodeURIComponent(g.name)}`;
     if (form.mode === 'snapshot') void run(g.name, () => api.post(`${u}/snapshot`, { dmp_name: form.note.trim() || undefined }));
     else if (form.mode === 'link') void run(g.name, () => api.post(`${u}/link`, { type: form.type, id: form.id }));
     else void run(g.name, () => api.post(`${u}/skip`, { note: form.note }));
@@ -39,7 +39,7 @@ export function GroupsTab({ canUse, canSnapshot }: { canUse: boolean; canSnapsho
     <Stack gap="md">
       {err && <Alert color="red" variant="light">{err}</Alert>}
       <SimpleGrid cols={{ base: 2, md: 5 }}>
-        <StatTile label="神策分群＋標籤" value={s ? s.total.toLocaleString() : '—'} hint={data?.scanned_at ? `掃描於 ${data.scanned_at.slice(0, 16).replace('T', ' ')}` : '尚未掃描'} />
+        <StatTile label="舊平台分群＋標籤" value={s ? s.total.toLocaleString() : '—'} hint={data?.scanned_at ? `掃描於 ${data.scanned_at.slice(0, 16).replace('T', ' ')}` : '尚未掃描'} />
         <StatTile label="待處理" value={s ? s.pending.toLocaleString() : '—'} />
         <StatTile label="快照" value={s ? s.snapshot.toLocaleString() : '—'} hint="固定名單，不再更新" />
         <StatTile label="已重建" value={s ? s.rebuilt.toLocaleString() : '—'} hint="以規則重建、例行計算" />
@@ -48,12 +48,12 @@ export function GroupsTab({ canUse, canSnapshot }: { canUse: boolean; canSnapsho
       <Group gap="xs" wrap="wrap">
         <SegmentedControl size="xs" value={filter} onChange={(v) => setFilter(v as typeof filter)} data={[opt('all', '全部'), ...(['pending', 'snapshot', 'rebuilt', 'skipped'] as const).map((k) => opt(k, GROUP_STATUS[k].cn))]} />
         <SegmentedControl size="xs" value={kind} onChange={(v) => setKind(v as typeof kind)} data={[opt('all', '分群＋標籤'), opt('segment', '分群'), opt('tag', '標籤')]} />
-        {canUse && <Button ml="auto" loading={busy === 'scan'} disabled={!!busy || data?.sensors_configured === false} title={data?.sensors_configured === false ? '執行節點需設定 SA_BASE_URL／SA_PROJECT／SA_API_SECRET' : ''} onClick={() => void scan()}>以神策 API 掃描</Button>}
+        {canUse && <Button ml="auto" loading={busy === 'scan'} disabled={!!busy || data?.legacy_configured === false} title={data?.legacy_configured === false ? '執行節點需設定 LEGACY_BASE_URL／LEGACY_PROJECT／LEGACY_API_SECRET' : ''} onClick={() => void scan()}>以舊平台 API 掃描</Button>}
       </Group>
       <Paper p={0} style={{ overflow: 'hidden' }}>
         <Table.ScrollContainer minWidth={1040}>
           <Table>
-            <Table.Thead><Table.Tr><Table.Th>神策分群／標籤</Table.Th><Table.Th>類型</Table.Th><Table.Th ta="right">神策人數</Table.Th><Table.Th>狀態</Table.Th><Table.Th>DMP 對應</Table.Th><Table.Th ta="right">DMP 人數</Table.Th><Table.Th ta="right">差異</Table.Th><Table.Th>處理</Table.Th></Table.Tr></Table.Thead>
+            <Table.Thead><Table.Tr><Table.Th>舊平台分群／標籤</Table.Th><Table.Th>類型</Table.Th><Table.Th ta="right">舊平台人數</Table.Th><Table.Th>狀態</Table.Th><Table.Th>DMP 對應</Table.Th><Table.Th ta="right">DMP 人數</Table.Th><Table.Th ta="right">差異</Table.Th><Table.Th>處理</Table.Th></Table.Tr></Table.Thead>
             <Table.Tbody>{rows.map((g) => { const ok = diffOk(g.dmp?.diff_pct); const editing = form?.name === g.name; return (
               <Table.Tr key={g.name}>
                 <Table.Td><Text fw={600} size="sm">{g.cn}</Text><Text size="xs" c="dimmed" ff="monospace">{g.name}</Text>{g.note && <Text size="xs" c="dimmed">{g.note}</Text>}</Table.Td>
@@ -65,7 +65,7 @@ export function GroupsTab({ canUse, canSnapshot }: { canUse: boolean; canSnapsho
                 <Table.Td ta="right">{ok === null ? <Text size="xs" c="dimmed">—</Text> : <StatusBadge tone={ok ? 'blue' : 'amber'}>{diffText(g.dmp?.diff_pct)}</StatusBadge>}</Table.Td>
                 <Table.Td>
                   {canUse && !editing && <Group gap={4} wrap="nowrap">
-                    {(g.status === 'pending' || g.status === 'skipped') && canSnapshot && <Button size="compact-xs" variant="light" disabled={!!busy} onClick={() => setForm({ name: g.name, mode: 'snapshot', type: g.kind, id: '', note: `神策：${g.cn}` })}>快照</Button>}
+                    {(g.status === 'pending' || g.status === 'skipped') && canSnapshot && <Button size="compact-xs" variant="light" disabled={!!busy} onClick={() => setForm({ name: g.name, mode: 'snapshot', type: g.kind, id: '', note: `舊平台：${g.cn}` })}>快照</Button>}
                     <Button size="compact-xs" variant="light" disabled={!!busy} onClick={() => setForm({ name: g.name, mode: 'link', type: g.kind, id: '', note: '' })}>{g.status === 'rebuilt' ? '改連' : '連到重建'}</Button>
                     {g.status === 'pending' && <Button size="compact-xs" variant="subtle" color="gray" disabled={!!busy} onClick={() => setForm({ name: g.name, mode: 'skip', type: g.kind, id: '', note: '' })}>略過</Button>}
                   </Group>}
@@ -83,7 +83,7 @@ export function GroupsTab({ canUse, canSnapshot }: { canUse: boolean; canSnapsho
                   </Stack>}
                 </Table.Td>
               </Table.Tr>); })}
-              {!rows.length && <Table.Tr><Table.Td colSpan={8}><EmptyState>{data?.scanned_at ? '沒有符合的項目' : '尚未掃描神策分群與標籤'}</EmptyState></Table.Td></Table.Tr>}
+              {!rows.length && <Table.Tr><Table.Td colSpan={8}><EmptyState>{data?.scanned_at ? '沒有符合的項目' : '尚未掃描舊平台分群與標籤'}</EmptyState></Table.Td></Table.Tr>}
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>

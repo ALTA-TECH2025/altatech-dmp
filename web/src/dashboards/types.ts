@@ -29,7 +29,7 @@ export interface Schedule {
   status: 'pending_approval' | 'active' | 'paused' | 'rejected'; approval: string | null; created_by: string; created_at: string; last_run: ScheduleRun | null;
 }
 
-// ---- 書籤（神策「書籤」對應）：分析查詢存成可重用、可分享的物件；看板卡片可引用 ----
+// ---- 書籤（舊平台「書籤」對應）：分析查詢存成可重用、可分享的物件；看板卡片可引用 ----
 export interface Bookmark {
   id: string; name: string; description: string; kind: CardKind; query: Record<string, unknown>; chart: CardChart; shared: { roles: string[]; users: string[] };
   owner: string; created_at: string; updated_at: string; mine: boolean; editable: boolean; used_in: { dashboard: string; name: string }[]; added_to?: { dashboard: string; name: string }[];

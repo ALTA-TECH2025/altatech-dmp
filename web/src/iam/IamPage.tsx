@@ -116,7 +116,7 @@ export function RoleEditor({ role, readOnly, onChange, onSave, onCancel }: { rol
               </Table.Tr>))}</Table.Tbody>
           </Table>
         </Table.ScrollContainer>
-        <Text size="sm" c="dimmed">勾選規則：可用蘊含可見、匯出蘊含可用；匯出一律走審批並加浮水印。欄位隱碼不在角色上設定（見「欄位隱碼」）。儲存後成為變更申請，由另一位系統管理員或數位經營複核後生效。<StatusBadge tone="gray">逐事件／逐屬性可見白名單（神策式）：第二階段</StatusBadge></Text>
+        <Text size="sm" c="dimmed">勾選規則：可用蘊含可見、匯出蘊含可用；匯出一律走審批並加浮水印。欄位隱碼不在角色上設定（見「欄位隱碼」）。儲存後成為變更申請，由另一位系統管理員或數位經營複核後生效。<StatusBadge tone="gray">逐事件／逐屬性可見白名單（舊平台式）：第二階段</StatusBadge></Text>
         <Group gap="xs">{!readOnly && <Button variant="filled" onClick={onSave}>儲存</Button>}<Button onClick={onCancel}>關閉</Button></Group>
       </Stack>
     </Paper>

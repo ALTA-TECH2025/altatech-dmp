@@ -1,4 +1,4 @@
-// 權限中心 › 成員（對應神策「成員管理」）：登入審計看到的 SSO 使用者 ∪ 本機帳號 ∪ 本地指派；本機帳號可新增／停用／重設密碼／重設 TOTP／刪除（需 iam.admin）。設計系統元件組合。
+// 權限中心 › 成員（對應舊平台「成員管理」）：登入審計看到的 SSO 使用者 ∪ 本機帳號 ∪ 本地指派；本機帳號可新增／停用／重設密碼／重設 TOTP／刪除（需 iam.admin）。設計系統元件組合。
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Code, Group, List, MultiSelect, Paper, SegmentedControl, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { api, ApiError } from '@/api/client';

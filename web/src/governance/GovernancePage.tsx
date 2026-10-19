@@ -174,7 +174,7 @@ function PropsTab({ props, canUse, onChange }: { props: PropertyList; canUse: bo
   return (
     <Stack gap="md">
       <Group gap="xs" wrap="wrap">
-        <TextInput aria-label="搜尋屬性" placeholder="搜尋屬性／神策舊名" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: '1 1 280px' }} />
+        <TextInput aria-label="搜尋屬性" placeholder="搜尋屬性／舊平台舊名" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: '1 1 280px' }} />
         <Text size="sm" c="dimmed">L4 屬性一律拒絕入倉（{props.forbidden_l4.length} 個已列黑名單）；L3 以 HMAC／FPE 代碼化；L2 匯出區間化</Text>
         <Group ml="auto" gap="xs"><TemplateTools kind="properties" canUse={canUse} onApplied={onChange} />{canUse && <Button onClick={() => setOpen((v) => !v)}>＋ 登記屬性</Button>}</Group>
       </Group>
@@ -195,7 +195,7 @@ function PropsTab({ props, canUse, onChange }: { props: PropertyList; canUse: bo
       <Paper p={0} style={{ overflow: 'hidden' }}>
         <Table.ScrollContainer minWidth={960}>
           <Table>
-            <Table.Thead><Table.Tr><Table.Th>屬性</Table.Th><Table.Th>神策舊名</Table.Th><Table.Th>型別</Table.Th><Table.Th>敏感等級</Table.Th><Table.Th>來源</Table.Th><Table.Th>枚舉／單位</Table.Th><Table.Th>維度表／字典</Table.Th><Table.Th ta="right">使用事件數</Table.Th><Table.Th>狀態</Table.Th></Table.Tr></Table.Thead>
+            <Table.Thead><Table.Tr><Table.Th>屬性</Table.Th><Table.Th>舊平台舊名</Table.Th><Table.Th>型別</Table.Th><Table.Th>敏感等級</Table.Th><Table.Th>來源</Table.Th><Table.Th>枚舉／單位</Table.Th><Table.Th>維度表／字典</Table.Th><Table.Th ta="right">使用事件數</Table.Th><Table.Th>狀態</Table.Th></Table.Tr></Table.Thead>
             <Table.Tbody>{list.map((p) => <Table.Tr key={p.key}>
               <Table.Td><Text fw={600} size="sm" ff="monospace">{p.key}</Text><Text size="xs" c="dimmed">{p.cn}{p.caveats.length > 0 && ` · ${p.caveats[0]}`}</Text></Table.Td>
               <Table.Td><Text size="xs" c="dimmed" ff="monospace">{p.sa || '—'}</Text></Table.Td>

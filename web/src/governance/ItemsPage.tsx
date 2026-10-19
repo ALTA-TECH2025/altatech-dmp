@@ -1,4 +1,4 @@
-// 維度表與字典（對齊神策元數據管理）：維度表（清單、定義、新增、編輯欄位顯示名／敏感等級、立即同步）、維度字典（上傳 CSV append／overwrite）、虛擬屬性（建立）。設計系統元件組合。
+// 維度表與字典（對齊舊平台元數據管理）：維度表（清單、定義、新增、編輯欄位顯示名／敏感等級、立即同步）、維度字典（上傳 CSV append／overwrite）、虛擬屬性（建立）。設計系統元件組合。
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Alert, Badge, Button, Checkbox, Group, List, NativeSelect, Paper, SegmentedControl, SimpleGrid, Stack, Table, Text, TextInput, Textarea, UnstyledButton } from '@mantine/core';
 import { api, ApiError } from '@/api/client';

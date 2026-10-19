@@ -36,7 +36,7 @@ export function ImportForm({ onDone, onCancel }: { onDone: (s: Segment) => Promi
     <Paper maw={860}>
       <Stack gap="md">
         <SectionTitle title="導入名單建分群" />
-        <Text size="sm" c="dimmed">貼上或上傳 txt／csv，一列一個；csv 取第一欄，表頭會自動略過。客戶代碼會用與神策登入 ID 相同的方式轉成 one_id，原始代碼不會存進平台。一次最多 {MAX_IMPORT.toLocaleString()} 筆。</Text>
+        <Text size="sm" c="dimmed">貼上或上傳 txt／csv，一列一個；csv 取第一欄，表頭會自動略過。客戶代碼會用與舊平台登入 ID 相同的方式轉成 one_id，原始代碼不會存進平台。一次最多 {MAX_IMPORT.toLocaleString()} 筆。</Text>
         {!imp ? <>
           <Group gap="sm" align="end">
             <NativeSelect label="名單內容" aria-label="名單類型" w={200} value={idType} data={[{ value: 'customer_code', label: '客戶代碼' }, { value: 'one_id', label: 'one_id' }]} onChange={(e) => setIdType(e.target.value as typeof idType)} />

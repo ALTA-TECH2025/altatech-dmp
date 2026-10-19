@@ -83,7 +83,7 @@ function ConnectionsTab({ connectors, conns, busy, canUse, canAdmin, run }: { co
                   {canAdmin && c.enabled && <Button size="compact-sm" variant="subtle" color="red" disabled={busy} onClick={() => void run(async () => { await api.del(`/v1/integration/connections/${c.id}`); }, '停用失敗')}>停用</Button>}
                 </Group></Table.Td>
               </Table.Tr>); })}
-              {!conns.length && <Table.Tr><Table.Td colSpan={7}><EmptyState>還沒有連線。先新增數據源（數據中台、BigQuery、神策歷史…）。</EmptyState></Table.Td></Table.Tr>}
+              {!conns.length && <Table.Tr><Table.Td colSpan={7}><EmptyState>還沒有連線。先新增數據源（數據中台、BigQuery、舊平台歷史…）。</EmptyState></Table.Td></Table.Tr>}
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>

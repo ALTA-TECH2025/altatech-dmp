@@ -67,7 +67,7 @@ function PropsTab({ up, canUse, onChange }: { up: UserPropertyList; canUse: bool
       <Paper p={0} style={{ overflow: 'hidden' }}>
         <Table.ScrollContainer minWidth={1000}>
           <Table>
-            <Table.Thead><Table.Tr><Table.Th>屬性</Table.Th><Table.Th>神策舊名</Table.Th><Table.Th>型別</Table.Th><Table.Th>來源</Table.Th><Table.Th>更新</Table.Th><Table.Th>敏感</Table.Th><Table.Th>篩選</Table.Th><Table.Th>分組</Table.Th><Table.Th ta="right">覆蓋率</Table.Th><Table.Th>狀態</Table.Th></Table.Tr></Table.Thead>
+            <Table.Thead><Table.Tr><Table.Th>屬性</Table.Th><Table.Th>舊平台舊名</Table.Th><Table.Th>型別</Table.Th><Table.Th>來源</Table.Th><Table.Th>更新</Table.Th><Table.Th>敏感</Table.Th><Table.Th>篩選</Table.Th><Table.Th>分組</Table.Th><Table.Th ta="right">覆蓋率</Table.Th><Table.Th>狀態</Table.Th></Table.Tr></Table.Thead>
             <Table.Tbody>{up.items.map((p) => <Table.Tr key={p.key}>
               <Table.Td><Text fw={600} size="sm" ff="monospace">{p.key}</Text><Text size="xs" c="dimmed">{p.cn}{p.note && ` · ${p.note}`}{p.row_level_key && ' · 行級權限鍵'}</Text></Table.Td>
               <Table.Td><Text size="xs" c="dimmed" ff="monospace">{p.sa || '—'}</Text></Table.Td>
@@ -84,7 +84,7 @@ function PropsTab({ up, canUse, onChange }: { up: UserPropertyList; canUse: bool
         </Table.ScrollContainer>
       </Paper>
       <SimpleGrid cols={{ base: 1, md: 3 }}>
-        <Paper><SectionTitle title="寫入方式" /><Text size="sm" c="dimmed">{up.write_protocol.join('／')}（神策相容協議）；CDC 來源以映射規則寫入；標籤引擎每日覆寫標籤型屬性；事件推導屬性由 Flink 即時更新。</Text></Paper>
+        <Paper><SectionTitle title="寫入方式" /><Text size="sm" c="dimmed">{up.write_protocol.join('／')}（舊平台相容協議）；CDC 來源以映射規則寫入；標籤引擎每日覆寫標籤型屬性；事件推導屬性由 Flink 即時更新。</Text></Paper>
         <Paper><SectionTitle title="新增屬性" /><Text size="sm" c="dimmed">在數據整合的「欄位映射」把來源欄位對到用戶屬性即自動登記；型別與敏感等級由治理審核；可篩選／分組會同步到語意層 dimensions.yaml。</Text></Paper>
         <Paper><SectionTitle title="覆蓋率低的屬性" />{low.length ? <List size="sm">{low.map((p) => <List.Item key={p.key}><Mono>{p.key}</Mono> {pct(p.coverage)}</List.Item>)}</List> : <Text size="sm" c="dimmed">{up.stats_source ? '沒有覆蓋率低於 80% 的屬性。' : '未連接 ClickHouse。'}</Text>}</Paper>
       </SimpleGrid>
@@ -109,7 +109,7 @@ function OneIdTab({ oi, canAdmin, onChange }: { oi: OneIdRules; canAdmin: boolea
       </SimpleGrid>
       <Paper p={0} style={{ overflow: 'hidden' }}>
         <Group p="sm" pb={0} gap="xs" wrap="wrap">
-          <Title order={3}>識別類型（對齊神策 IDM 3.0）</Title>
+          <Title order={3}>識別類型（對齊舊平台 IDM 3.0）</Title>
           {oi.override && <StatusBadge tone={oi.override.status === 'pending_review' ? 'amber' : 'blue'}>修改待覆核 · {oi.override.by}</StatusBadge>}
           <Group gap="xs" ml="auto">
             {canAdmin && !edit && <Button size="compact-sm" variant="subtle" onClick={() => setEdit(true)}>修改規則</Button>}
@@ -164,7 +164,7 @@ function PrivacyTab({ up }: { up: UserPropertyList }) {
             <Table.Tbody>{PRIVACY.map((r) => <Table.Tr key={r[0]}><Table.Td><Text fw={600} size="sm">{r[0]}</Text></Table.Td><Table.Td>{r[1]}</Table.Td><Table.Td><Text size="xs" ff="monospace">{r[2]}</Text></Table.Td></Table.Tr>)}</Table.Tbody>
           </Table>
         </Table.ScrollContainer>
-        <Text size="sm" c="dimmed" mt="sm">黑名單（forbidden_l4）共 {up.forbidden_l4_count} 欄，含客戶神策事件屬性與用戶屬性裡的姓名、手機、信箱、生日、銀行帳號；接入與同步任務一律丟棄並記隔離。</Text></Paper>
+        <Text size="sm" c="dimmed" mt="sm">黑名單（forbidden_l4）共 {up.forbidden_l4_count} 欄，含客戶舊平台事件屬性與用戶屬性裡的姓名、手機、信箱、生日、銀行帳號；接入與同步任務一律丟棄並記隔離。</Text></Paper>
       <Stack gap="md">
         <Paper><SectionTitle title="DSAR／刪除權"><StatusBadge tone="gray">第二階段</StatusBadge></SectionTitle><Text size="sm" c="dimmed">客戶要求刪除：以客戶代碼找 one_id → 刪 users／id_map／user_tags → events 以 one_id 改寫為 tombstone（保留匿名統計）→ 下游推送撤回 → 30 天內完成並產出證明。工單流程待第二階段接上審批中心。</Text></Paper>
         <Paper><SectionTitle title="用戶表統計" />

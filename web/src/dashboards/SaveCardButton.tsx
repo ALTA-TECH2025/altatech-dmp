@@ -1,4 +1,4 @@
-// 分析頁的「存為書籤」（神策：保存為書籤 → 添加到概覽）：命名、分享角色、順手加進一或多個看板或新建看板 → POST /v1/bookmarks。查詢本體原樣存（後端以建立者身分先編譯一次）。設計系統元件組合。
+// 分析頁的「存為書籤」（舊平台：保存為書籤 → 添加到概覽）：命名、分享角色、順手加進一或多個看板或新建看板 → POST /v1/bookmarks。查詢本體原樣存（後端以建立者身分先編譯一次）。設計系統元件組合。
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Alert, Anchor, Button, Group, NativeSelect, Paper, SimpleGrid, Stack, Text, TextInput } from '@mantine/core';

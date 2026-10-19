@@ -130,7 +130,7 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
   if (seg[1] === 'dashboards' && seg[3] === 'ask' && method === 'POST') return askOverlay(String(b.question ?? ''), seg[2], fx);
   if (seg[1] === 'sql') return sqlOverlay(method, seg, b, fx, who);
   if (seg[1] === 'segments') { const r = segOverlay(method, seg, b, fx, who); if (r) return r; }
-  if (seg[1] === 'migration' && seg[2] === 'sensors-groups') return groupsOverlay(method, seg, b, fx, who);
+  if (seg[1] === 'migration' && seg[2] === 'legacy-groups') return groupsOverlay(method, seg, b, fx, who);
   if (seg[1] === 'tags' || seg[1] === 'destinations' || seg[1] === 'pushes' || seg[1] === 'audiences' || seg[1] === 'deliveries' || seg[1] === 'activation') return actOverlay(method, seg, b, fx, who);
   if (seg[1] === 'bookmarks') {
     const id = seg[2]; const bm = id ? mem.bookmarks.get(id) : undefined;
@@ -225,7 +225,7 @@ function createSeg(b: Obj, who: string, latestUsers?: number): Obj {
   segMem.set(String(s.id), s); return s;
 }
 
-// ---- 神策分群／標籤遷移：合成的神策清單（名稱與人數為示範值），處理狀態存在記憶體 ----
+// ---- 舊平台分群／標籤遷移：合成的舊平台清單（名稱與人數為示範值），處理狀態存在記憶體 ----
 let groups: Obj[] | null = null; let scannedAt: string | null = null;
 const SEED_GROUPS: [string, 'segment' | 'tag', number, number | null][] = [
   ['user_group_active_traders_30d', 'segment', 205, null], ['user_group_etf_regular_saving', 'segment', 96, null], ['user_group_dormant_90d', 'segment', 142, null],      // 與示範資料集（400 人）同量級
@@ -238,7 +238,7 @@ function groupsOverlay(method: string, seg: string[], b: Obj, fx: Fixtures, who:
   const list = () => {
     const items = (scannedAt ? groups ?? [] : []).map((g) => withDmp(g, fx));
     const st = ['pending', 'snapshot', 'rebuilt', 'skipped'] as const;
-    return { items, scanned_at: scannedAt, summary: { total: items.length, ...Object.fromEntries(st.map((k) => [k, items.filter((x) => x.status === k).length])) }, sensors_configured: true };
+    return { items, scanned_at: scannedAt, summary: { total: items.length, ...Object.fromEntries(st.map((k) => [k, items.filter((x) => x.status === k).length])) }, legacy_configured: true };
   };
   if (method === 'GET') return { body: list() };
   if (!canUse) return { body: { detail: '需 governance.use' }, status: 403 };
@@ -249,9 +249,9 @@ function groupsOverlay(method: string, seg: string[], b: Obj, fx: Fixtures, who:
   if (act === 'snapshot') {
     if (role !== 'admin') return { body: { detail: '快照需 segments.use（資訊管理沒有）' }, status: 403 };
     if (g.status === 'snapshot' || g.status === 'rebuilt') return { body: { detail: `已處理（${g.status}）` }, status: 409 };
-    const name = String(b.dmp_name || `神策：${g.cn}`).slice(0, 60); const users = Math.round(Number(g.users) * 0.96);
-    if (g.kind === 'segment') { const s = createSeg({ name, kind: 'import', description: `神策分群 ${g.name} 的快照`, rule: { source: { type: 'import', import_id: 'im_demo' } } }, who, users); Object.assign(g, { status: 'snapshot', dmp: { type: 'segment', id: s.id, name }, updated_at: now() }); }
-    else { const key = `sa_${String(g.cn).slice(0, 30)}`; mem.tags.set(key, { id: key, key, name, kind: 'import', directory: '其他', description: `神策標籤 ${g.name} 的快照`, dtype: 'string', values: [], status: 'active', owner: who, update: { mode: 'manual', freq: 'daily', earliest: '02:00', keep: 7 }, latest: { version: 1, basetime: now().slice(0, 10), users, status: 'success', computed_at: now(), ms: 52, trigger: 'manual', error: null, distribution: [] }, versions: [], lineage: { up: ['dmp.tag_imports'], down: [] }, approval: { status: 'none' }, created_at: now(), updated_at: now(), fields: {}, changes: [] });
+    const name = String(b.dmp_name || `舊平台：${g.cn}`).slice(0, 60); const users = Math.round(Number(g.users) * 0.96);
+    if (g.kind === 'segment') { const s = createSeg({ name, kind: 'import', description: `舊平台分群 ${g.name} 的快照`, rule: { source: { type: 'import', import_id: 'im_demo' } } }, who, users); Object.assign(g, { status: 'snapshot', dmp: { type: 'segment', id: s.id, name }, updated_at: now() }); }
+    else { const key = `sa_${String(g.cn).slice(0, 30)}`; mem.tags.set(key, { id: key, key, name, kind: 'import', directory: '其他', description: `舊平台標籤 ${g.name} 的快照`, dtype: 'string', values: [], status: 'active', owner: who, update: { mode: 'manual', freq: 'daily', earliest: '02:00', keep: 7 }, latest: { version: 1, basetime: now().slice(0, 10), users, status: 'success', computed_at: now(), ms: 52, trigger: 'manual', error: null, distribution: [] }, versions: [], lineage: { up: ['dmp.tag_imports'], down: [] }, approval: { status: 'none' }, created_at: now(), updated_at: now(), fields: {}, changes: [] });
       Object.assign(g, { status: 'snapshot', dmp: { type: 'tag', id: key, name }, updated_at: now() }); }
     return { body: withDmp(g, fx) };
   }

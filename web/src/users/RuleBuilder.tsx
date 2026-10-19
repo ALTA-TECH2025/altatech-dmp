@@ -1,4 +1,4 @@
-// 用戶條件建構器（用戶列表、分群、標籤值共用）：神策式規則——用戶屬性／分群條件樹（且／或可巢狀）、行為（做過／未做過 × 指標 × 比較 × 近 N 天或自訂期間 × 事件屬性條件樹）、行為序列（A → B 在窗口內依序完成）、屬性塊與行為塊之間的且／或、來源落點（唯讀）。
+// 用戶條件建構器（用戶列表、分群、標籤值共用）：舊平台式規則——用戶屬性／分群條件樹（且／或可巢狀）、行為（做過／未做過 × 指標 × 比較 × 近 N 天或自訂期間 × 事件屬性條件樹）、行為序列（A → B 在窗口內依序完成）、屬性塊與行為塊之間的且／或、來源落點（唯讀）。
 import { ActionIcon, Badge, Button, Group, NativeSelect, Paper, Stack, Text, TextInput } from '@mantine/core';
 import type { Catalog, Cond } from '@/analytics/types';
 import { CMP_OPS, MAX_DEPTH, MEASURES, NO_VALUE_OPS, NUMERIC_MEASURES, OP_CN, WINDOW_UNITS, condValue, emptyCond, eventFields, isGroup, newBehavior, newSequence, numericEventFields, opsFor, rawValue, sourceText, toGroup, userFields, type FieldOpt } from './rule';
