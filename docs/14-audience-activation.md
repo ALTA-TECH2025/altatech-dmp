@@ -7,7 +7,7 @@
 | 物件 | 說明 |
 |---|---|
 | Audience（受眾包） | 一個分群的快照版本：`audience_id`、`version`、成員 Bitmap、產生時間、口徑（分群定義的 hash） |
-| Destination（目的地） | 內部系統端點：類型（webhook／kafka／gcs）、識別子（customer_code／one_id）、可附標籤清單、簽章密鑰參照、狀態 |
+| Destination（目的地） | 內部系統端點：類型（webhook／kafka／gcs／sftp／s3）、識別子（customer_code／one_id）、可附標籤清單、密鑰參照、狀態；受眾推送與資料輸出任務（docs/06 §8）共用 |
 | Push（推送單） | 受眾包 × 目的地 × 模式（增量／全量／即時）× 排程；全量需審批 |
 | Delivery（交付） | 一次實際送出：批次、筆數、回應、重試次數、狀態；冪等鍵 `delivery_id` |
 
@@ -18,6 +18,8 @@
 | Webhook | MA、CRM 等應用系統 | customer_code（代碼化）、one_id | 可選；L2 數值一律區間化 | HTTPS + HMAC-SHA256 簽章；mTLS／IP 白名單可選 |
 | Kafka | 內部即時消費（數據平台、規則引擎） | customer_code + one_id | 可 | `dmp.audience_updates`、`dmp.tag_updates`（Avro） |
 | GCS Parquet | 數倉、大量全量 | customer_code | 可 | `gs://dmp-sync/audiences/…` + manifest + checksum |
+| SFTP | 客戶既有批次介面（資料輸出任務的批量檔案） | customer_code／one_id | 可（≤ L2） | SFTP（密碼或私鑰只在 secret_ref、主機指紋固定）；csv／jsonl／parquet + manifest + sha256 |
+| S3 相容物件儲存（含 MinIO） | 機房物件儲存、數據中台落地 | customer_code／one_id | 可（≤ L2） | S3 API（secret key 只在 secret_ref）；同上格式 |
 
 不傳：姓名、手機、Email、完整帳號等任何 L4／L3 明文。
 

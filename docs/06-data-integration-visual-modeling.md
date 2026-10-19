@@ -137,3 +137,24 @@
 - `backend/openapi.yaml`：`/v1/integration/connections*`（數據源）、`/v1/integration/tables*`（數據表）、`/v1/integration/sync-tasks*`（任務：建立、執行、執行紀錄、預覽）。
 - `backend/integration/connectors.yaml`、`auth.py`：數據源與鑑權。
 - `backend/semantic/dimension_tables.yaml`：維度表／字典／虛擬屬性定義。
+
+## 8. 數據輸出（資料輸出任務，v0.6）
+
+對齊主流分析平台「數據管理 › 數據輸出」：把事件明細、用戶寬表或分群名單定時／一次性／實時送到客戶的系統。不另造一套，重用三個既有物件：
+
+| 元件 | 重用 | 新增 |
+|---|---|---|
+| 任務 `OutputTask` | 匯出申請的審批、遮罩、浮水印、列數上限 | 任務類型（realtime／once／daily）、輸出內容（events／users／segment_members）、內容選擇（事件清單、欄位、篩選、期間）、格式（csv／jsonl／parquet、壓縮、按日分檔、檔名樣板、manifest）、排程（每天幾點、結束日） |
+| 目的地 `Destination` | 推送的目的地（webhook／kafka／gcs、secret_ref、測試、暫停、輪替、首次使用核可） | `sftp`、`s3`（S3 相容物件儲存，含 MinIO）兩種類型與 `config`（主機、路徑、bucket…；密碼／私鑰只在 secret_ref） |
+| 執行紀錄 `OutputRun` | 推送的交付紀錄（realtime／webhook／kafka 的批次、狀態、重試走 `/v1/deliveries`） | 批量檔案的分區日、檔案清單與 sha256、列數／位元組、manifest |
+
+規則：
+- 建立即開審批單（type=`output_task` → 數位經營；目的地首次使用另需系統管理員），核可前 `pending_approval`；改輸出內容或目的地視同新任務重走審批。
+- 欄位：L3／L4 一律拒絕；L2 數值依匯出規則區間化；每列帶浮水印欄 `_wm`、manifest 帶申請單號／使用者／時間。單次執行列數上限 `limits.output_rows_per_run`（預設 10,000,000）。
+- 權限：建立需 `integration.use`；事件明細另需 `events.export`，用戶寬表／分群名單另需 `users.export`；清單 `integration.view`。
+- 排程：daily 重用資料流的背景例行（scheduler），每天 `schedule.at` 跑前一天分區；暫停不補跑，缺的分區用 `run` 指定 `partition_date`。realtime 第一版只接 kafka／webhook、只接事件明細，單條 jsonl。
+- 審計：`output_task.created／previewed／updated／approved／rejected／run／paused／resumed／deleted`；實際送出走 `sync.delivered／failed／replayed`。
+- 前端：資料 › 數據整合 › 數據輸出：任務列表（名稱、類型、輸出內容、目的地、狀態、上次執行）＋ 右側抽屜表單三段（基本資訊／連接配置／數據管理：事件清單可批量添加、欄位與遮罩預覽）。
+
+對應檔案：`backend/openapi.yaml`（`/v1/exports/tasks*`、`Destination.type` 加 sftp／s3）；後端與前端另開 PR。
+

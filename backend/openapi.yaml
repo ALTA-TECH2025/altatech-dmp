@@ -107,6 +107,25 @@ paths:
     post: { tags: [Exports], summary: '核可後產生檔案（申請者本人；匯出遮罩比 UI 嚴一級：L2 區間化、L3 尾碼；每列帶浮水印欄、檔頭帶申請單號／使用者／時間；審計 export.generated）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Export' } } } }, '409': { description: 未核可或已過期 } } }
   /v1/exports/{id}/download:
     get: { tags: [Exports], summary: '下載 CSV（申請者本人；核可後 7 天內；審計 export.downloaded）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { text/csv: { schema: { type: string } } } }, '409': { description: 尚未產生或已過期 } } }
+  /v1/exports/tasks:
+    get: { tags: [Exports], summary: '資料輸出任務清單（名稱、類型、輸出內容、目的地、狀態、上次執行）；需 integration.view；我的＋分享給我角色的', parameters: [{ name: status, in: query, schema: { type: string } }, { name: type, in: query, schema: { type: string, enum: [realtime, once, daily] } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/OutputTask' } } } } } } }
+    post:
+      tags: [Exports]
+      summary: 建立資料輸出任務（對齊「數據輸出」：任務類型 × 輸出內容 × 目的地 × 內容選擇 × 格式）。需 integration.use；輸出事件明細另需 events.export、用戶寬表／分群名單另需 users.export。建立即開審批單（type=output_task → 數位經營；目的地首次使用另需系統管理員），核可前狀態 pending_approval。L3／L4 欄位不可選（422）；L2 數值依匯出規則區間化；每列帶浮水印欄 _wm；單次執行列數上限 limits.output_rows_per_run（預設 10,000,000）。審計 output_task.created
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OutputTaskCreate' } } } }
+      responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/OutputTask' } } } }, '422': { description: 欄位含 L3／L4、事件不在字典、目的地類型與任務類型不合（realtime 只接 kafka／webhook）、格式不支援 } }
+  /v1/exports/tasks/preview:
+    post: { tags: [Exports], summary: '建立前預覽：套遮罩後的欄位清單（哪些被區間化／拒絕）、估算列數與掃描量、最多 20 列樣本（依申請者權限遮罩）；不落地、不送目的地；審計 output_task.previewed', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OutputTaskCreate' } } } }, responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/OutputPreview' } } } } } }
+  /v1/exports/tasks/{id}:
+    get: { tags: [Exports], summary: '任務詳情（含最近 20 次執行）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/OutputTask' } } } } } }
+    put: { tags: [Exports], summary: '編輯任務（名稱、排程、結束日、格式、內容選擇；改輸出內容或目的地視同新任務，重走審批）；審計 output_task.updated', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/OutputTaskCreate' } } } }, responses: { '200': { description: ok } } }
+    delete: { tags: [Exports], summary: '刪除任務（已有執行紀錄的保留紀錄，狀態改 deleted；審計 output_task.deleted）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
+  /v1/exports/tasks/{id}/run:
+    post: { tags: [Exports], summary: '立即執行一次（once：整段期間；daily：指定 partition_date，預設昨天；realtime 不適用）；需任務 active 或 approved；回執行摘要；審計 output_task.run', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { partition_date: { type: string, format: date } } } } } }, responses: { '202': { description: accepted, content: { application/json: { schema: { $ref: '#/components/schemas/OutputRun' } } } }, '409': { description: 任務未核可、已暫停或已結束 } } }
+  /v1/exports/tasks/{id}/pause:
+    post: { tags: [Exports], summary: '暫停／恢復（daily 暫停期間不排程、realtime 停止寫入；恢復後不補跑，缺的分區用 run 指定 partition_date 補）；審計 output_task.paused／resumed', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+  /v1/exports/tasks/{id}/runs:
+    get: { tags: [Exports], summary: '執行紀錄（分區日、觸發方式、列數、位元組、檔案清單與校驗碼、狀態、錯誤、重試）；realtime 任務回每分鐘彙總', parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: limit, in: query, schema: { type: integer, default: 20, maximum: 200 } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/OutputRun' } } } } } } }
   /v1/reveals:
     get: { tags: [Approvals], summary: '揭露申請（我的；admin／數位經營全看）；active = 核可且未到期', responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Reveal' } } } } } } }
     post: { tags: [Approvals], summary: '申請揭露遮罩欄位（masking.yaml 的欄位；L3 由 admin 審批、L2 由數位經營；理由必填；時效預設 24 小時）；核可後該欄位在時效內對申請者明文，每次查看寫審計 mask.revealed', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/RevealRequest' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Reveal' } } } }, '400': { description: 欄位不在遮罩表或本來就明文 } } }
@@ -570,10 +589,10 @@ paths:
   /v1/integration/connections/{id}/privileges:
     get: { tags: [Integration], summary: '權限自檢結果（對照 least_privilege 清單逐項 ✓／✗）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/destinations:
-    get: { tags: [Activation], summary: '目的地清單（webhook / kafka / gcs；皆為內部系統）', responses: { '200': { description: ok } } }
+    get: { tags: [Activation], summary: '目的地清單（webhook / kafka / gcs / sftp / s3；皆為內部系統；資料輸出任務與受眾推送共用）', responses: { '200': { description: ok } } }
     post: { tags: [Activation], summary: '建立目的地（需 segments.approve；新目的地首次推送另需稽核核可）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Destination' } } } }, responses: { '201': { description: created } } }
   /v1/destinations/{id}/test:
-    post: { tags: [Activation], summary: '送測試事件（audience.test，3 筆假資料）並回傳接收端回應', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    post: { tags: [Activation], summary: '送測試事件（audience.test，3 筆假資料）並回傳接收端回應；sftp／s3 改為逐步診斷 dns→tcp→auth→寫入測試檔→刪除', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/destinations/{id}:
     get: { tags: [Activation], summary: '目的地詳情（secret 只顯示參照；含 7 天成功率、最近交付）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
     put: { tags: [Activation], summary: '編輯目的地（名稱、可附標籤、識別子、IP 白名單；URL 與 secret 變更視同新目的地：首次推送需再核可）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
@@ -1023,7 +1042,7 @@ components:
       type: object
       properties:
         id: { type: string }
-        type: { type: string, enum: [export, segment, push, reveal_l2, reveal_l3, agent_proposal, role_change, break_glass, dashboard_schedule], description: 類型決定審批角色（docs/10 §6）；role_change／break_glass 一律不可自審；dashboard_schedule = 看板定時寄送（數位經營） }
+        type: { type: string, enum: [export, output_task, segment, push, reveal_l2, reveal_l3, agent_proposal, role_change, break_glass, dashboard_schedule], description: 類型決定審批角色（docs/10 §6）；output_task = 資料輸出任務（數位經營；目的地首次使用另需系統管理員）；role_change／break_glass 一律不可自審；dashboard_schedule = 看板定時寄送（數位經營） }
         requester: { type: string }
         approver_roles: { type: array, items: { type: string } }
         summary: { type: string, description: 一行說明（給審批者看） }
@@ -1035,6 +1054,82 @@ components:
         decided_at: { type: string, nullable: true }
         decided_by: { type: string, nullable: true }
         note: { type: string }
+    OutputTaskCreate:
+      type: object
+      required: [name, type, content, destination_id, format, purpose]
+      description: 資料輸出任務＝任務類型 × 輸出內容 × 目的地（沿用推送的 Destination，加 sftp／s3）× 內容選擇 × 格式；密鑰只在目的地的 secret_ref
+      properties:
+        name: { type: string, minLength: 1, maxLength: 50 }
+        type: { type: string, enum: [realtime, once, daily], description: 'realtime 單條寫入指定目的地（只接 kafka／webhook、只接 events）；once 一次性批量；daily T+1 定時（每天 schedule.at 跑前一天分區）' }
+        content: { $ref: '#/components/schemas/OutputContent' }
+        destination_id: { type: string, description: /v1/destinations 的目的地；新目的地首次使用需系統管理員核可 }
+        format: { $ref: '#/components/schemas/OutputFormat' }
+        schedule: { type: object, properties: { at: { type: string, description: 'daily：每天幾點（HH:MM，台北）；預設 02:00' }, end_date: { type: string, format: date, description: 'daily：離線結束日（含）；到期後狀態 ended' } } }
+        purpose: { type: string, minLength: 4, maxLength: 200, description: 用途（進審批單與浮水印） }
+        retention_days: { type: integer, minimum: 1, maximum: 365, default: 90, description: 接收方承諾的保存期限（寫進審批單與檔頭） }
+        shared_roles: { type: array, items: { type: string }, description: 哪些角色看得到這個任務 }
+    OutputContent:
+      type: object
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [events, users, segment_members], description: 事件明細／用戶寬表／分群名單 }
+        events: { type: array, maxItems: 300, items: { type: string }, description: 'kind=events：事件清單（空＝全部 live 事件）；批量添加用事件字典的 group' }
+        columns: { type: array, items: { type: string }, description: '欄位清單（事件：固定欄與 props.<key>；用戶：user.<key>）；空＝該敏感等級內的全部欄位；L3／L4 一律拒絕' }
+        filters: { description: 同 SemanticQuery.filters（事件）或 UsersQuery.filters（用戶） }
+        segment_id: { type: string, description: 'kind=segment_members；輸出 one_id／customer_code（代碼化）與選的標籤' }
+        time: { type: object, properties: { from: { type: string, format: date }, to: { type: string, format: date } }, description: 'once：期間（事件依 event_date；用戶依 updated_at）；daily 不用（每次一個分區）' }
+        identifier: { type: string, enum: [one_id, customer_code], default: one_id, description: 用戶識別子；customer_code 為代碼化值 }
+    OutputFormat:
+      type: object
+      properties:
+        type: { type: string, enum: [csv, jsonl, parquet], default: csv, description: realtime 固定 jsonl（每條一筆） }
+        compression: { type: string, enum: [none, gzip, zstd], default: gzip }
+        partition: { type: string, enum: [none, day], default: day, description: 按日分檔（檔名含 partition_date） }
+        file_pattern: { type: string, default: '{task}/{date}/{task}_{date}_{seq}.{ext}', description: 遠端檔名樣板；變數 task／date／seq／ext }
+        max_rows_per_file: { type: integer, minimum: 10000, maximum: 5000000, default: 1000000 }
+        header: { type: boolean, default: true, description: csv 表頭 }
+        manifest: { type: boolean, default: true, description: 每次執行附 manifest.json（檔案、列數、校驗碼、浮水印） }
+    OutputTask:
+      allOf:
+        - $ref: '#/components/schemas/OutputTaskCreate'
+        - type: object
+          properties:
+            id: { type: string }
+            status: { type: string, enum: [pending_approval, approved, active, paused, rejected, ended, deleted], description: approved＝核可未開始（once 等 run；daily 到時自動 active） }
+            approval_id: { type: string, nullable: true }
+            masked: { type: object, additionalProperties: { type: string }, description: 輸出欄 → 遮罩策略（與匯出同） }
+            rows_estimate: { type: integer, nullable: true }
+            owner: { type: string }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+            last_run: { $ref: '#/components/schemas/OutputRun' }
+            runs: { type: array, items: { $ref: '#/components/schemas/OutputRun' }, description: 詳情才有（最近 20 次） }
+    OutputRun:
+      type: object
+      properties:
+        id: { type: string }
+        task_id: { type: string }
+        trigger: { type: string, enum: [manual, schedule, realtime, replay] }
+        partition_date: { type: string, format: date, nullable: true }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time, nullable: true }
+        status: { type: string, enum: [running, ok, failed, retrying, skipped], description: 'skipped＝分區沒有資料或任務暫停' }
+        rows: { type: integer, nullable: true }
+        bytes: { type: integer, nullable: true }
+        files: { type: array, items: { type: object, properties: { path: { type: string }, rows: { type: integer }, bytes: { type: integer }, checksum: { type: string, description: sha256 } } } }
+        delivery_ids: { type: array, items: { type: string }, description: realtime／webhook／kafka 走交付紀錄（/v1/deliveries） }
+        error: { type: string, nullable: true }
+        attempts: { type: integer }
+        watermark: { type: string, description: 本次浮水印值（檔頭與 _wm 欄） }
+    OutputPreview:
+      type: object
+      properties:
+        columns: { type: array, items: { type: object, properties: { name: { type: string }, cn: { type: string }, level: { type: string }, policy: { type: string, description: 'plain／bucket／round／mask_tail／rejected' } } } }
+        rejected: { type: array, items: { type: string }, description: 被拒的欄位（L3／L4 或 hide） }
+        rows_estimate: { type: integer }
+        scan_rows_estimate: { type: integer }
+        sample: { type: array, maxItems: 20, items: { type: object } }
+        warnings: { type: array, items: { type: string } }
     ExportRequest:
       type: object
       required: [kind, purpose]
@@ -1316,9 +1411,10 @@ components:
       properties:
         id: { type: string }
         name: { type: string }
-        type: { type: string, enum: [webhook, kafka, gcs] }
+        type: { type: string, enum: [webhook, kafka, gcs, sftp, s3], description: 'webhook／kafka／gcs 給受眾推送與實時輸出；sftp／s3（S3 相容物件儲存，含 MinIO）給資料輸出任務的批量檔案' }
         url: { type: string, description: webhook 專用 }
-        secret_ref: { type: string, description: 'Webhook 簽章密鑰的密鑰庫參照（kv/data/dmp/<env>/<name>#<key>）；永不接受明文' }
+        config: { type: object, additionalProperties: true, description: '類型專用設定：sftp {host, port, path, username, auth: password|key, host_key_fingerprint}；s3 {endpoint, bucket, prefix, region, access_key_id, path_style}；kafka {bootstrap, topic}；gcs {bucket, prefix}。密碼／私鑰／secret key 不在這裡，只在 secret_ref' }
+        secret_ref: { type: string, description: '密鑰庫參照（kv/data/dmp/<env>/<name>#<key>）：Webhook 簽章密鑰、SFTP 密碼或私鑰、S3 secret key；永不接受明文' }
         identifier: { type: string, enum: [customer_code, one_id, client_id] }
         allowed_tags: { type: array, items: { type: string } }
         masking_level: { type: string, enum: [L1, L2], default: L2 }
