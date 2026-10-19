@@ -1,6 +1,6 @@
 # 客戶神策事件屬性字典：分級、入倉決定與 GA4 參數名
 
-> 版本 v0.2（2026-10-16）。來源：客戶提供的神策「批量修改資訊檔」（事件屬性命名表：屬性名／顯示名，681 個屬性）與「用戶屬性導出」（name／type，3,606 個用戶屬性，§7）。規則與產出都在 `backend/migration/properties.py`，產出檔 `backend/migration/sensors_properties.csv`（property, display, tag, domain, sensitivity, decision, ga4_param, rule）。客戶原檔不進 repo；`--check` 以產出檔前兩欄重算比對，CI 每次跑。口徑：docs/10 §欄位等級、docs/22 §3.3。
+> 版本 v0.3（2026-10-19）：加入客戶神策埋點規格表的比對（§10），修正兩類分級（BROKERNO3／4_SACNO 改 L3、加密參數改不入倉）。v0.2（2026-10-16）。來源：客戶提供的神策「批量修改資訊檔」（事件屬性命名表：屬性名／顯示名，681 個屬性）與「用戶屬性導出」（name／type，3,606 個用戶屬性，§7）。規則與產出都在 `backend/migration/properties.py`，產出檔 `backend/migration/sensors_properties.csv`（property, display, tag, domain, sensitivity, decision, ga4_param, rule）。客戶原檔不進 repo；`--check` 以產出檔前兩欄重算比對，CI 每次跑。口徑：docs/10 §欄位等級、docs/22 §3.3。
 
 ## 1. 結論
 
@@ -8,10 +8,10 @@
 |---|---|
 | 屬性總數 | 681 |
 | L4 可識別 → 接入預處理丟棄（已登記 `user_properties.yaml forbidden_l4`） | 30 |
-| L3 代碼化識別 → 入倉前 token_v1，查詢尾碼遮罩 | 31 |
-| L2 敏感業務 → 入倉，按角色遮罩／分桶，匯出降一級 | 392 |
+| L3 代碼化識別 → 入倉前 token_v1，查詢尾碼遮罩 | 27 |
+| L2 敏感業務 → 入倉，按角色遮罩／分桶，匯出降一級 | 390 |
 | L1 行為 → 入倉 | 208 |
-| (X) 維護／清理欄位與 IP → 不入倉 | 20 |
+| (X) 維護／清理欄位、IP、加密參數 → 不入倉 | 26 |
 | 來源 domain：數據中台批次（交易／帳務／開戶／CRM，全大寫或 (O)(C)(B) 前綴） | 370 |
 | 來源 domain：App／Web 埋點（經 GA360，給 ga4_param） | 263 |
 | 來源 domain：神策智能運營 SF 事件（只匯入歷史） | 48 |
@@ -24,9 +24,9 @@
 
 執行點：`backend/integration/sensors_format.py stage()` 讀 `forbidden_l4` 逐行丟棄（神策歷史與線下格式檔都走這裡）；GA360 端這些欄位本來就不該埋（docs/20 §3.3 個資閘門）；語意層 `catalog.py` 對 `user.<prop>` 查詢直接拒絕。員工姓名（介紹人、營業員、審核員工）也視為個資，分析用員工編號（L3）即可。
 
-## 3. L3：代碼化後入倉（31）
+## 3. L3：代碼化後入倉（27）
 
-客戶／會員識別：UUID、S_IDNO（去識別化 ID）、PART_IDNO、member_id、gift_card_recipient、gift_card_recipient_acno、gift_card_recipient_unicode。證券／信用帳號：S_ACNO、AccountNo、MT_ACNO、BROKERNO3_MT_ACNO、HG105、ANTE_BNK_ACC。員工編號：BE_EMP_NO、SALE_EMP_NO 系列（SALE_EMP_BELONG、SALE_EMP_BELON、SALE_NO_BELONG）、SINO_EMP_NO、ADNO、SALE_NO、om_user_id、O_MM_EMP_NO、HAA11。裝置與匿名關聯：$device_id、$track_signup_original_id、hashKey／ivKey／svid 與其 _latest_ 版本。
+客戶／會員識別：UUID、S_IDNO（去識別化 ID）、PART_IDNO、member_id、gift_card_recipient、gift_card_recipient_acno、gift_card_recipient_unicode。證券／信用帳號：S_ACNO、AccountNo、MT_ACNO、BROKERNO3_MT_ACNO、BROKERNO3_SACNO、BROKERNO4_SACNO（分公司代碼＋證券帳號，v0.3 由 L2 改）、HG105、ANTE_BNK_ACC。員工編號：BE_EMP_NO、SALE_EMP_NO 系列（SALE_EMP_BELONG、SALE_EMP_BELON、SALE_NO_BELONG）、SINO_EMP_NO、ADNO、SALE_NO、om_user_id、O_MM_EMP_NO、HAA11。裝置與匿名關聯：$device_id、$track_signup_original_id、hashKey／ivKey／svid 與其 _latest_ 版本。
 
 帳戶層級分析（需求 B2「一人多帳戶」）靠 S_ACNO／AccountNo 的 token 做分組，不需要明文。**待做**：`stage()` 目前只 token 化 distinct_id，屬性層的 L3 token 化（依本表 decision=hash）要補進預處理，並在 `masking.yaml` 登記尾碼遮罩；排 M2。
 
@@ -131,3 +131,25 @@ App／Web 埋點的 263 個屬性給 `ga4_param`（snake_case、≤ 40 字元，
 | user.first_utm_source | $utm_source（用戶表） | 首次來源 |
 | user.last_active_at | last_login_date_dt | 最近登入 |
 | user.tier／churn_score／pref_market | —（神策沒有） | 本系統新增 |
+
+## 10. 神策埋點規格表比對（2026-10-19）
+
+客戶另提供神策「數據採集需求文檔」（只有欄位定義、沒有資料）：自訂事件 148 個、全埋點事件 29 個、事件屬性 537 個、用戶表 184 欄。
+規格表的事件屬性定義（事件 × 屬性 × 型別）存成 `backend/migration/sensors_plan_event_properties.csv`，用戶表定義存成 `sensors_plan_user_properties.csv`。
+
+| 比對 | 規格表 | repo 原有 | 處理 |
+|---|---:|---:|---|
+| 事件屬性 | 537 | 537 | 全部已在本字典，分級不變 |
+| 自訂事件 | 148 | 1 | 147 個補進事件字典（`events.yaml`，契約提交）；17 個標 (X)／已下線／2020–2025 過期活動 → deprecated，只匯歷史、不列入 GA 埋點規格 |
+| 用戶表欄位 | 184 | 141（＋7 以 `$dimension_dict_` 前綴存在） | 36 欄附在 `sensors_user_properties.csv`（family=design_only）：一般欄位 decision=confirm（請客戶確認是否已停用）；B27 的 ODS 原始字串欄 20 個 = skip_dup（與 b27_* 清洗版重複）；b27_name、ec_sub_acc_mobile 為 L4（已登記 forbidden_l4）；ivkey／hashkey／svid 不入倉 |
+
+這次一併修正的分級：
+- **BROKERNO3_SACNO、BROKERNO4_SACNO**：分公司代碼＋證券帳號，原為 L2 明文保留 → L3 代碼化。
+- **ivKey、hashKey、svid（含 _latest_ 版本）**：短網址／開戶驗證的加密參數，原為 L3 代碼化後還當 GA4 參數送出 → `drop_ops`，不入倉、不送 GA。
+- 接入預處理 `stage()` 原本只丟 `$ip` 類與 L4，`drop_ops` 欄位其實沒被丟；現在一併丟棄（`sensors_format.ops_drop_props()`）。
+
+要問客戶的（接 §5、§7）：
+10. 規格表用戶關聯方案寫「登入 ID＝手機號碼」，未來確定改為去識別化代碼（已確認，與 docs/19／docs/20 設計一致）；舊資料裡若仍有手機號碼當登入 ID 的期間，需告知起訖日以便代碼化對照。
+11. design_only 的 11 欄（decision=confirm）是否已停用；標「即將下架」的欄位能否直接不遷移。
+12. 17 個 deprecated 事件（Review2020_*、Event_2023…2025、(X) 標記）是否確定不再使用。
+
