@@ -9,6 +9,7 @@ import { RequireGrant } from '@/auth/RequireGrant';
 import { SaveCardButton } from '@/dashboards/SaveCardButton';
 import { useBookmarkOpen } from '@/dashboards/useBookmarkOpen';
 import { Mono, PageHeader, SectionTitle, StatTile, StatusBadge } from '@/ds';
+import { DateRangeInput } from '@/ds/DateRange';
 import { dedupe } from './FunnelPage';
 import { LineChart } from './LineChart';
 import { fmtNum, groupLabel, toSeries } from './series';
@@ -108,8 +109,7 @@ function EventsInner() {
               <NativeSelect label="分組（最多 3）" multiple styles={MULTI_STYLES} value={q.group_by ?? []} data={dimOptions.map((o) => opt(o.v, o.cn))} onChange={(e) => setQ({ ...q, group_by: Array.from(e.target.selectedOptions).map((o) => o.value).slice(0, 3) })} />
               <NativeSelect label="粒度" value={q.time.grain} data={GRAINS.map(([v, cn]) => opt(v, cn))} onChange={(e) => setQ({ ...q, time: { ...q.time, grain: e.target.value as EventsQuery['time']['grain'] } })} />
               <TextInput label="Top N 分組值" type="number" min={1} value={q.top_n ?? ''} placeholder="全部" onChange={(e) => setQ({ ...q, top_n: e.target.value ? Number(e.target.value) : undefined })} />
-              <TextInput label="開始" type="date" value={q.time.from} onChange={(e) => setQ({ ...q, time: { ...q.time, from: e.target.value } })} />
-              <TextInput label="結束" type="date" value={q.time.to} onChange={(e) => setQ({ ...q, time: { ...q.time, to: e.target.value } })} />
+              <DateRangeInput label="期間" value={q.time} onChange={(r) => setQ({ ...q, time: { ...q.time, ...r } })} />
               <NativeSelect label="對比" value={q.compare ?? ''} data={[opt('', '無'), opt('previous_period', '上一期')]} onChange={(e) => setQ({ ...q, compare: (e.target.value || undefined) as EventsQuery['compare'] })} />
               <NativeSelect label="抽樣" value={q.sample ?? ''} data={[opt('', '不抽樣'), opt('0.5', '1/2'), opt('0.1', '1/10'), opt('0.01', '1/100')]} onChange={(e) => setQ({ ...q, sample: e.target.value ? Number(e.target.value) : undefined })} />
               <TextInput label="分群" placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} />

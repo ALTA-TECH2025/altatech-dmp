@@ -9,6 +9,7 @@ import { RequireGrant } from '@/auth/RequireGrant';
 import { SaveCardButton } from '@/dashboards/SaveCardButton';
 import { useBookmarkOpen } from '@/dashboards/useBookmarkOpen';
 import { Mono, PageHeader, SectionTitle } from '@/ds';
+import { DateRangeInput } from '@/ds/DateRange';
 import { FilterRow, MULTI_STYLES, WARN_ROW_BG, opt } from './EventsPage';
 import { dedupe } from './FunnelPage';
 import { PathChart } from './PathChart';
@@ -85,8 +86,7 @@ function PathInner() {
                 <NativeSelect label="會話切割" aria-label="會話切割" value={q.session?.mode ?? 'gap'} data={[opt('gap', '依間隔切會話'), opt('id', '用 session_id'), opt('cross', '跨會話（整段期間）')]} onChange={(e) => setQ({ ...q, session: { ...q.session, mode: e.target.value as 'gap' } })} />
                 <TextInput label="會話間隔（分鐘）" type="number" min={1} max={1440} disabled={q.session?.mode !== 'gap'} value={q.session?.gap_minutes ?? 30} onChange={(e) => setQ({ ...q, session: { ...q.session, gap_minutes: Number(e.target.value) || 30 } })} />
                 <NativeSelect label="抽樣" aria-label="抽樣" value={String(q.sample)} data={SAMPLES.map(([cn, v]) => opt(String(v), cn))} onChange={(e) => setQ({ ...q, sample: e.target.value === 'null' ? null : Number(e.target.value) })} />
-                <TextInput label="開始" type="date" value={q.time.from} onChange={(e) => setQ({ ...q, time: { ...q.time, from: e.target.value } })} />
-                <TextInput label="結束" type="date" value={q.time.to} onChange={(e) => setQ({ ...q, time: { ...q.time, to: e.target.value } })} />
+                <DateRangeInput label="期間" value={q.time} onChange={(r) => setQ({ ...q, time: { ...q.time, ...r } })} />
                 <TextInput label="分群" placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} />
               </SimpleGrid>
               <div>

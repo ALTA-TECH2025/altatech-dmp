@@ -9,6 +9,7 @@ import { RequireGrant } from '@/auth/RequireGrant';
 import { SaveCardButton } from '@/dashboards/SaveCardButton';
 import { useBookmarkOpen } from '@/dashboards/useBookmarkOpen';
 import { Mono, PageHeader, SectionTitle } from '@/ds';
+import { DateRangeInput } from '@/ds/DateRange';
 import { dedupe } from './FunnelPage';
 import type { Catalog, RetentionQuery, RetentionResult, RetentionRow } from './types';
 
@@ -67,8 +68,7 @@ function RetentionInner() {
                 <TextInput label="期數" type="number" min={1} max={90} value={q.periods} onChange={(e) => setQ({ ...q, periods: Number(e.target.value) })} />
                 <NativeSelect label="含當期" value={q.include_day0 ? '1' : '0'} data={[opt('0', '不含'), opt('1', '含第 0 期')]} onChange={(e) => setQ({ ...q, include_day0: e.target.value === '1' })} />
                 <NativeSelect label="分組" value={q.group_by?.[0] ?? ''} data={[opt('', '不分組'), ...dimOptions.map((o) => opt(o.v, o.cn))]} onChange={(e) => setQ({ ...q, group_by: e.target.value ? [e.target.value] : undefined })} />
-                <TextInput label="同期群開始" type="date" value={q.time.from} onChange={(e) => setQ({ ...q, time: { ...q.time, from: e.target.value } })} />
-                <TextInput label="同期群結束" type="date" value={q.time.to} onChange={(e) => setQ({ ...q, time: { ...q.time, to: e.target.value } })} />
+                <DateRangeInput label="同期群期間" value={q.time} onChange={(r) => setQ({ ...q, time: { ...q.time, ...r } })} />
                 <TextInput label="分群" placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} />
               </SimpleGrid>
               <Group gap="xs">

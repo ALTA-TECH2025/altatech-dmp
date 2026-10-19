@@ -9,6 +9,7 @@ import { RequireGrant } from '@/auth/RequireGrant';
 import { SaveCardButton } from '@/dashboards/SaveCardButton';
 import { useBookmarkOpen } from '@/dashboards/useBookmarkOpen';
 import { Mono, PageHeader, SectionTitle } from '@/ds';
+import { DateRangeInput } from '@/ds/DateRange';
 import { FunnelChart } from './FunnelChart';
 import type { Catalog, FunnelQuery, FunnelResult, FunnelStep } from './types';
 
@@ -81,8 +82,7 @@ function FunnelInner() {
                 <NativeSelect label="口徑" value={q.metric} disabled={!q.relation} data={[opt('users', '用戶數'), opt('times', '流程數（需關聯屬性）')]} onChange={(e) => setQ({ ...q, metric: e.target.value as 'users' | 'times' })} />
                 <NativeSelect label="分組" value={q.group_by?.[0] ?? ''} data={[opt('', '不分組'), ...dimOptions.map((o) => opt(o.v, o.cn))]} onChange={(e) => setQ({ ...q, group_by: e.target.value ? [e.target.value] : undefined })} />
                 <NativeSelect label="趨勢" value={q.trend ?? ''} data={[opt('', '合計'), opt('day', '按日'), opt('week', '按週'), opt('month', '按月')]} onChange={(e) => setQ({ ...q, trend: (e.target.value || undefined) as FunnelQuery['trend'] })} />
-                <TextInput label="開始" type="date" value={q.time.from} onChange={(e) => setQ({ ...q, time: { ...q.time, from: e.target.value } })} />
-                <TextInput label="結束" type="date" value={q.time.to} onChange={(e) => setQ({ ...q, time: { ...q.time, to: e.target.value } })} />
+                <DateRangeInput label="期間" value={q.time} onChange={(r) => setQ({ ...q, time: { ...q.time, ...r } })} />
                 <TextInput label="分群" placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} />
               </SimpleGrid>
               <Group gap="xs">

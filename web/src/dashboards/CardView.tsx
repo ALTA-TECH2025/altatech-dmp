@@ -1,6 +1,7 @@
 // 一張卡片：POST /v1/dashboards/{id}/cards/{card}/data（以檢視者身分重算）→ 依 kind／chart 畫圖；錯誤與抑制照分析頁規則。設計系統元件組合。
+// 每張卡可臨時改自己的期間與粒度（只在這次瀏覽生效、不寫回看板；後端 time 覆寫：請求 → 看板 preset → 卡片原查詢）。
 import { useEffect, useState, type HTMLAttributes } from 'react';
-import { Alert, Box, Button, Code, Group, Paper, SimpleGrid, Table, Text } from '@mantine/core';
+import { Alert, Box, Button, Code, Group, NativeSelect, Paper, SimpleGrid, Table, Text } from '@mantine/core';
 import { api, ApiError } from '@/api/client';
 import { shareSeries } from '@/analytics/AttributionPage';
 import { FunnelChart } from '@/analytics/FunnelChart';
@@ -10,8 +11,12 @@ import { RetentionMatrix } from '@/analytics/RetentionPage';
 import { fmtNum, groupLabel, toSeries } from '@/analytics/series';
 import type { AttributionResult, EventsResult, FunnelRow, RetentionRow } from '@/analytics/types';
 import { Mono, SectionTitle, StatTile, StatusBadge } from '@/ds';
+import { DateRangeInput } from '@/ds/DateRange';
+import { presetRange, type DateRange } from '@/ds/daterange';
 import { firstGroup, metricLabels, tableColumns, timeText } from './dashboards';
 import type { CardData, Dashboard, DashboardCard } from './types';
+
+const GRAINS = [{ value: 'hour', label: '小時' }, { value: 'day', label: '日' }, { value: 'week', label: '週' }, { value: 'month', label: '月' }, { value: 'total', label: '合計' }];
 
 /** 指標卡的值：數字加千分位；區間字串（≥5000000、100000–500000）裡的數字也加千分位。 */
 function fmtStat(v: unknown): string {
@@ -29,11 +34,15 @@ export function CardView({ dash, card, k, labelOf, reloadKey, onRemove, onRename
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
   const [showSql, setShowSql] = useState(false);
+  const [own, setOwn] = useState<{ from: string; to: string; grain?: string } | null>(null);   // 這張卡自己的期間／粒度（臨時）
+  useEffect(() => { setOwn(null); }, [dash.time.preset]);
   useEffect(() => {
     let alive = true; setBusy(true); setErr(null);
-    api.post<CardData>(`/v1/dashboards/${dash.id}/cards/${card.id}/data`).then((d) => { if (alive) setData(d); }).catch((e: Error) => { if (alive) setErr(e instanceof ApiError ? e.message : '查詢失敗'); }).finally(() => { if (alive) setBusy(false); });
+    api.post<CardData>(`/v1/dashboards/${dash.id}/cards/${card.id}/data`, own ? { time: own } : undefined).then((d) => { if (alive) setData(d); }).catch((e: Error) => { if (alive) setErr(e instanceof ApiError ? e.message : '查詢失敗'); }).finally(() => { if (alive) setBusy(false); });
     return () => { alive = false; };
-  }, [dash.id, card.id, dash.time.preset, reloadKey]);
+  }, [dash.id, card.id, dash.time.preset, reloadKey, own]);
+  const range: DateRange = own ?? (data?.time?.from && data.time.to ? { from: data.time.from, to: data.time.to } : presetRange(dash.time.preset));
+  const grain = own?.grain ?? String((card.query.time as { grain?: string } | undefined)?.grain ?? data?.time?.grain ?? 'day');
   const warnings = data ? data.warnings.filter((w) => !w.startsWith('plan ')) : [];
   return (
     <Paper className={`dash-card w${card.width}`} {...rootProps}>
@@ -45,7 +54,12 @@ export function CardView({ dash, card, k, labelOf, reloadKey, onRemove, onRename
           {onRemove && <Button size="compact-sm" variant="subtle" color="red" onClick={onRemove}>移除</Button>}
         </Group>}>
         {card.bookmark && <StatusBadge tone={card.bookmark_deleted ? 'gray' : 'custom'}><span title={card.bookmark_deleted ? '書籤已刪除，顯示刪除前的查詢' : `書籤 ${card.bookmark}`}>{card.bookmark_deleted ? '書籤已刪除' : '書籤'}</span></StatusBadge>}
-        <Text size="xs" c="dimmed">{data ? `${timeText(data.time, dash.time.preset)} · ${data.cost.ms} ms` : busy ? '載入中…' : ''}</Text>
+        <Group gap={4} wrap="wrap" className="card-time">
+          <DateRangeInput size="xs" fullWidth={false} ariaLabel={`${card.title} 期間`} value={range} onChange={(r) => setOwn({ ...own, ...r })} />
+          {card.kind === 'events' && <NativeSelect size="xs" aria-label={`${card.title} 粒度`} value={grain} data={GRAINS} onChange={(e) => setOwn({ ...range, grain: e.target.value })} />}
+          {own && <Button size="compact-xs" variant="subtle" onClick={() => setOwn(null)}>跟看板</Button>}
+          <Text size="xs" c="dimmed">{data ? `${own ? '這張卡自訂' : timeText(data.time, dash.time.preset)} · ${data.cost.ms} ms` : busy ? '載入中…' : ''}</Text>
+        </Group>
       </SectionTitle>
       {err && <Alert color="red" variant="light" mb="sm">{err}</Alert>}
       {warnings.length > 0 && <Text size="sm" c="dimmed" mb="sm">{warnings.join('；')}</Text>}

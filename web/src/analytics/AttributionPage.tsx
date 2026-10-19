@@ -9,6 +9,7 @@ import { RequireGrant } from '@/auth/RequireGrant';
 import { SaveCardButton } from '@/dashboards/SaveCardButton';
 import { useBookmarkOpen } from '@/dashboards/useBookmarkOpen';
 import { Mono, PageHeader, SectionTitle, StatTile } from '@/ds';
+import { DateRangeInput } from '@/ds/DateRange';
 import { dedupe } from './FunnelPage';
 import { LineChart } from './LineChart';
 import { fmtNum, type Series } from './series';
@@ -93,8 +94,7 @@ function AttributionInner() {
                 <TextInput label="半衰期（天）" type="number" min={0.1} step={0.5} disabled={!q.models.includes('decay')} value={q.half_life_days ?? 7} onChange={(e) => setQ({ ...q, half_life_days: Number(e.target.value) || 7 })} />
                 <NativeSelect label="觸點拆分" value={q.split ?? ''} aria-label="拆分" data={[opt('', '不拆分'), ...splitOptions.map((o) => opt(o.v, o.cn))]} onChange={(e) => setQ({ ...q, split: e.target.value || undefined })} />
                 <TextInput label="分群" placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} />
-                <TextInput label="轉化開始" type="date" value={q.time.from} onChange={(e) => setQ({ ...q, time: { ...q.time, from: e.target.value } })} />
-                <TextInput label="轉化結束" type="date" value={q.time.to} onChange={(e) => setQ({ ...q, time: { ...q.time, to: e.target.value } })} />
+                <DateRangeInput label="轉化期間" value={q.time} onChange={(r) => setQ({ ...q, time: { ...q.time, ...r } })} />
               </SimpleGrid>
               <Group gap="xs">
                 <Button variant="filled" disabled={!ready || busy} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</Button>
