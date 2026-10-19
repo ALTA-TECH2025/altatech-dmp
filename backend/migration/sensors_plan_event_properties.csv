@@ -1,0 +1,2160 @@
+﻿sheet,event,event_cn,property,display,type
+custom,om_open_acct_flow,(C)開_07 開戶審核,BrokerID,#分公司代碼,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,BrokerName,#分公司名稱,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,E_NP,(C)#是否為自然人,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,E_OTYPE,(C)#是否為大戶投,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,ProductNo,#產品別,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,WebCategoryCn,(C)#進件來源子項,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,WebMCategoryCn,(C)#進件來源主項 strWeb,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,WebOpactCN,(C)#進件來源(數位/指定),STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,WebProjectCn,(C)#進件專案 strProd,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,create_date,(C)建立日期,DATETIME
+custom,om_open_acct_flow,(C)開_07 開戶審核,crm_level,(C)審核階段,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,flow_type,(C)審核狀態,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,om_flow_apply_no,(C)申請件號,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,om_flow_seq_no,(C)簽核序號,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,om_new_sino_no,(C)申請案號,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,om_user_id,(C)審核員工編號,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,om_user_nm,(C)審核員工姓名,STRING
+custom,om_open_acct_flow,(C)開_07 開戶審核,sign_date,(C)簽核日期,DATETIME
+custom,richclub_get_coupon,領取優惠券,analytics_label,分析標籤,STRING
+custom,richclub_get_coupon,領取優惠券,coupon_code,折扣碼序號,STRING
+custom,richclub_get_coupon,領取優惠券,coupon_email,領券人信箱,STRING
+custom,richclub_get_coupon,領取優惠券,coupon_id,折扣碼ID,STRING
+custom,richclub_get_coupon,領取優惠券,coupon_name,折扣碼名稱,STRING
+custom,richclub_get_coupon,領取優惠券,fail_reason,失敗原因,STRING
+custom,richclub_get_coupon,領取優惠券,is_success,是否成功,BOOL
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),ALLOCA_PER,分配比率ALLOCA_PER,NUMBER
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),ALLOCA_PRICE,分配成交價金(豐美股),NUMBER
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),ALLOCA_STOCK,分配股數(豐美股),NUMBER
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),BANK_REPLY,銀行回覆錯誤代碼BANK_REPLY,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),BATCH,處理批次BATCH,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),BROKERNO4_SACNO,BROKERNO4_SACNO,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),BROKER_NO4,(O)券商代號,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),CIRCLE_BANK,圈存銀行別(豐美股),STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),CIRCLE_DATE,豐美股圈存日期,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),CIRCLE_MONEY,實際圈存金額,NUMBER
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),CLOSE_PRICE,收盤價,NUMBER
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),COMP_SOURCE,來源公司,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),Currency,(C)#幣別代碼,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),DUE_STOCK,扣款股數,NUMBER
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),FEE,(O)手續費/舊:手續費,NUMBER
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),INVEST,投資標的,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),MAIN_DATE,(X)維護MAIN_DATE,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),MAIN_USER,(X)維護者MAIN_USER,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),PAY_MONEY,客戶應付金額,NUMBER
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),ProductNo,#產品別,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),SALE_EMP_BELONG,業績歸屬營業員員工代號,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),SALE_NO,(C)#營業員員編,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),SEQNO,序號SEQNO,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),S_ACNO,#客戶帳號,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),SubProduct,#子產品別,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),TRAN_NO,交易所代碼,STRING
+custom,etlMatch_SUB_SMP,(ODS) 成交事件(複委託定期定額_成交分配),etl_version,ETL事件版本,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),ALLOCA_ORD_NO,分配後新委託書號,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),ALLOCA_QTY,分配股數(豐台股),NUMBER
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),ALLOCA_RATIO,分配比率,NUMBER
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),AMT,分配成交價金(豐台股),NUMBER
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),BNK_CREDIT,圈存銀行別(豐台股),STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),BNK_ERRO,銀行回覆錯誤代碼,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),BNK_NO,銀行代號,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),BNK_PROC,處理批次,NUMBER
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),BNK_SNO,序號,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),BROKERNO3_SACNO,BROKERNO3_SACNO,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),CREDIT_AMT,圈存金額,NUMBER
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),DATE_YMD,日期,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),FEE,(O)手續費/舊:手續費,NUMBER
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),IO_AMT,(O)應收付金額,NUMBER
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),MDATE,(X)維護MDATE,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),MUSER,(X)維護者MUSER,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),Market,#市場別,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),PRICE,成交價位,NUMBER
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),ProductNo,#產品別,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),Qty,#交易數量,NUMBER
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),SALE_NO,(C)#營業員員編,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),STOCK_NO,(O)商品代號/舊:商品代號,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),S_ACNO,#客戶帳號,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),SubProduct,#子產品別,STRING
+custom,etlMatch_ST_SIP,(ODS) 成交事件(台股定期定額),etl_version,ETL事件版本,STRING
+custom,richclub_register_click,點擊立即報名,lesson_id,課程ID,STRING
+custom,richclub_register_click,點擊立即報名,lesson_title,課程標題,STRING
+custom,richclub_register_click,點擊立即報名,lesson_type,課程類型,STRING
+custom,event_login,#活動登錄,S_IDNO,去識別化ID,STRING
+custom,event_login,#活動登錄,birthdt_evlogin,#活動登錄-生日,DATETIME
+custom,event_login,#活動登錄,gift_card_serial_number,#禮券序號,STRING
+custom,event_login,#活動登錄,jointime,#活動登錄-時間,DATETIME
+custom,event_login,#活動登錄,platform,#觸發平台,STRING
+custom,event_login,#活動登錄,task_mail,#活動登錄-信箱,STRING
+custom,event_login,#活動登錄,task_mobile,#活動登錄-手機,STRING
+custom,richclub_register_confirm,確認報名（免費）,order_email,訂購人信箱,STRING
+custom,richclub_register_confirm,確認報名（免費）,order_id,訂單編號,STRING
+custom,richclub_register_confirm,確認報名（免費）,plan_id,方案ID,STRING
+custom,richclub_register_confirm,確認報名（免費）,plan_name,方案名稱,STRING
+custom,richclub_register_confirm,確認報名（免費）,product_id,商品ID,STRING
+custom,richclub_register_confirm,確認報名（免費）,product_title,商品標題,STRING
+custom,ChoiceBankact,開_01-3-1 選擇交割戶,ButtonName,#按鈕名稱,STRING
+custom,ChoiceBankact,開_01-3-1 選擇交割戶,platform,#觸發平台,STRING
+custom,ShortageNoticeEvent,(X)券差通知,AccountNo,(C)#客戶帳號,STRING
+custom,ShortageNoticeEvent,(X)券差通知,BatchStep,#通知批次,STRING
+custom,ShortageNoticeEvent,(X)券差通知,BrokerID,#分公司代碼,STRING
+custom,ShortageNoticeEvent,(X)券差通知,DeptName,(C)#隸屬分公司部門,STRING
+custom,ShortageNoticeEvent,(X)券差通知,MissMoney,#不足金額,NUMBER
+custom,ShortageNoticeEvent,(X)券差通知,Mobile,#開戶手機,STRING
+custom,ShortageNoticeEvent,(X)券差通知,NoticeName,#通知項目,STRING
+custom,ShortageNoticeEvent,(X)券差通知,ProductNo,#產品別,STRING
+custom,ShortageNoticeEvent,(X)券差通知,SettleAmt,#交割金額,NUMBER
+custom,gift_card_purchase,03_訂單成立,Currency,(C)#幣別代碼,STRING
+custom,gift_card_purchase,03_訂單成立,cart_number,#購物車編號,STRING
+custom,gift_card_purchase,03_訂單成立,item_denominations,#商品面額,NUMBER
+custom,gift_card_purchase,03_訂單成立,item_id,#商品編號,STRING
+custom,gift_card_purchase,03_訂單成立,item_name,#商品名稱,STRING
+custom,gift_card_purchase,03_訂單成立,item_price,#商品金額,NUMBER
+custom,gift_card_purchase,03_訂單成立,item_quantity,#商品數量,NUMBER
+custom,gift_card_purchase,03_訂單成立,order_email,訂購人信箱,STRING
+custom,gift_card_purchase,03_訂單成立,transaction_id,#訂單編號,STRING
+custom,gift_card_purchase,03_訂單成立,transaction_price,#訂單金額,NUMBER
+custom,article_click,#文章點擊,ButtonName,#按鈕名稱,STRING
+custom,article_click,#文章點擊,author_dep,#內容單位,STRING
+custom,article_click,#文章點擊,menu,#目錄,STRING
+custom,article_click,#文章點擊,platform,#觸發平台,STRING
+custom,article_click,#文章點擊,section,#區塊目錄,STRING
+custom,article_click,#文章點擊,sub_menu,#子目錄,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),BA_DATE,抽籤日,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),BROKERNO3_SACNO,BROKERNO3_SACNO,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),FAIL_CANCEL,扣款不足刪除註記,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),FAIL_CODE,扣款不足註記,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),FAIL_DATE,扣款不足日期,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),FAIL_TO_R6,扣款不足上傳R6註記,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),FEE,(O)手續費/舊:手續費,NUMBER
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),MDATE,(X)維護MDATE,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),NET_BACK,網路申購回覆碼,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),NET_NO,網路申購流水號,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),ORD_CANCEL,委託刪除註記,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),ORD_DATE,委託日期,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),ORD_NO,委託書編號,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),ORD_TO_R6,委託上傳R6註記,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),ORD_TYPE,委託方式,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),ProductNo,#產品別,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),SALE_EMP_BELONG,業績歸屬營業員員工代號,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),SALE_NO_BELONG,(O)業績歸屬營業員代號,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),STOCK_NO,(O)商品代號/舊:商品代號,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),S_ACNO,#客戶帳號,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),SubProduct,#子產品別,STRING
+custom,etlMatch_ST_SUBSCR,(ODS) 成交事件(申購),etl_version,ETL事件版本,STRING
+custom,Sensors_Mail_Open,#Webhhok-EDM開信,EMail,#開戶信箱,STRING
+custom,Sensors_Mail_Open,#Webhhok-EDM開信,Name,#開戶姓名,STRING
+custom,Sensors_Mail_Open,#Webhhok-EDM開信,sf_plan_name,(SF)EDM 推播計劃名稱,STRING
+custom,Sensors_Mail_Open,#Webhhok-EDM開信,sf_strategy_unit_name,(SF)#流程畫布條件名稱,STRING
+custom,gift_card_uniocde_replenish,06_儲值通用碼,S_IDNO,去識別化ID,STRING
+custom,gift_card_uniocde_replenish,06_儲值通用碼,gift_card_recipient_acno,#兌換帳號,STRING
+custom,gift_card_uniocde_replenish,06_儲值通用碼,gift_card_recipient_brokerid,#兌換分公司,STRING
+custom,gift_card_uniocde_replenish,06_儲值通用碼,gift_card_recipient_unicode,#兌換通用碼,STRING
+custom,gift_card_uniocde_replenish,06_儲值通用碼,gift_card_serial_number,#禮券序號,STRING
+custom,gift_card_uniocde_replenish,06_儲值通用碼,item_price,#商品金額,NUMBER
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),ALLOCA_PER,分配比率ALLOCA_PER,NUMBER
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),ALLOCA_PRICE,分配成交價金(豐美股),NUMBER
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),ALLOCA_STOCK,分配股數(豐美股),NUMBER
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),BANK_REPLY,銀行回覆錯誤代碼BANK_REPLY,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),BATCH,處理批次BATCH,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),BROKERNO4_SACNO,BROKERNO4_SACNO,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),BROKER_NO4,(O)券商代號,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),CIRCLE_BANK,圈存銀行別(豐美股),STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),CIRCLE_DATE,豐美股圈存日期,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),CIRCLE_MONEY,實際圈存金額,NUMBER
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),CLOSE_PRICE,收盤價,NUMBER
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),COMP_SOURCE,來源公司,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),Currency,(C)#幣別代碼,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),DUE_STOCK,扣款股數,NUMBER
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),EX_RATE,平均匯率,NUMBER
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),FEE,(O)手續費/舊:手續費,NUMBER
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),INVEST,投資標的,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),MAIN_DATE,(X)維護MAIN_DATE,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),MAIN_USER,(X)維護者MAIN_USER,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),PAY_MONEY,客戶應付金額,NUMBER
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),ProductNo,#產品別,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),SALE_EMP_BELONG,業績歸屬營業員員工代號,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),SALE_NO,(C)#營業員員編,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),SEQNO,序號SEQNO,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),S_ACNO,#客戶帳號,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),SubProduct,#子產品別,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),TRAN_NO,交易所代碼,STRING
+custom,etlMatch_SUB_SFP,(ODS) 成交事件(複委託定期定股_成交分配),etl_version,ETL事件版本,STRING
+custom,event_dailynews,開啟庫存日報EDM,eventtime,事件發生時間,DATETIME
+custom,event_dailynews,開啟庫存日報EDM,open_time,當日首次開信時間,NUMBER
+custom,event_dailynews,開啟庫存日報EDM,send_date,EDM寄發日期,NUMBER
+custom,egift_booking,預約電子紀念品,evoting,電子投票,BOOL
+custom,egift_booking,預約電子紀念品,normal,原實體發放,BOOL
+custom,egift_booking,預約電子紀念品,unlimited,無領取限制,BOOL
+custom,egift_booking,預約電子紀念品,companycode,公司代碼,STRING
+custom,egift_booking,預約電子紀念品,companyname,公司名稱,STRING
+custom,egift_booking,預約電子紀念品,latest_member_email,會員信箱(最近一次),STRING
+custom,egift_booking,預約電子紀念品,member_email,會員信箱,STRING
+custom,egift_booking,預約電子紀念品,st_platform,平台,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),BROKERNO4_SACNO,BROKERNO4_SACNO,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),BROKER_NO4,(O)券商代號,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),BUY_SALE,買賣別 B/S,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),Currency,(C)#幣別代碼,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),EX_RATE,平均匯率,NUMBER
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),FEE,(O)手續費/舊:手續費,NUMBER
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),INVEST,投資標的,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),MARKET_NO,市場代碼,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),MTH_DATE,(O)成交日期/舊:委託日期,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),MTH_MONEY,成交金額 MTH_MONEY,NUMBER
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),MTH_NO,成交單號 MTH_NO,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),MTH_PRICE,成交價格,NUMBER
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),MTH_STOCK,成交股數(豐美股),NUMBER
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),ORDER_NO,委託單日期,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),PAY_MONEY,客戶應付金額,NUMBER
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),ProductNo,#產品別,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),SALE_EMP_BELONG,業績歸屬營業員員工代號,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),S_ACNO,#客戶帳號,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),SubProduct,#子產品別,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),TAX_MTH,交易稅,NUMBER
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),TAX_SETTLE,交收稅,NUMBER
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),TAX_STAMP,印花稅TAX_STAMP,NUMBER
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),TRAN_NO,交易所代碼,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),US_DELIVERY,美股交割方式,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),WEB_NO,WEB 流水序號,STRING
+custom,etlMatch_SUB_SMP_S,(ODS) 成交事件(複委託定期定額_賣出),etl_version,ETL事件版本,STRING
+custom,etlOpenAccountDone_ST_SS_N,(ODS)開戶事件(借券),BROKERNO3_SACNO,BROKERNO3_SACNO,STRING
+custom,etlOpenAccountDone_ST_SS_N,(ODS)開戶事件(借券),BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlOpenAccountDone_ST_SS_N,(ODS)開戶事件(借券),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlOpenAccountDone_ST_SS_N,(ODS)開戶事件(借券),OPEN_SOURCE,客戶開戶來源平台,STRING
+custom,etlOpenAccountDone_ST_SS_N,(ODS)開戶事件(借券),ProductNo,#產品別,STRING
+custom,etlOpenAccountDone_ST_SS_N,(ODS)開戶事件(借券),SALE_EMP_BELON,(O)業績歸屬營業員工號,STRING
+custom,etlOpenAccountDone_ST_SS_N,(ODS)開戶事件(借券),SALE_NO_BELONG,(O)業績歸屬營業員代號,STRING
+custom,etlOpenAccountDone_ST_SS_N,(ODS)開戶事件(借券),S_ACNO,#客戶帳號,STRING
+custom,etlOpenAccountDone_ST_SS_N,(ODS)開戶事件(借券),S_ODATE,(O)開戶日期,STRING
+custom,etlOpenAccountDone_ST_SS_N,(ODS)開戶事件(借券),SubProduct,#子產品別,STRING
+custom,etlOpenAccountDone_ST_SS_N,(ODS)開戶事件(借券),etl_version,ETL事件版本,STRING
+custom,DeletePurchase,存_停扣 01觸發,purchaset_date,#申購日期(L),LIST
+custom,DeletePurchase,存_停扣 01觸發,$receive_time,寫入資料庫時間,NUMBER
+custom,DeletePurchase,存_停扣 01觸發,ButtonName,#按鈕名稱,STRING
+custom,DeletePurchase,存_停扣 01觸發,BuyOrSell,#交易買賣,STRING
+custom,DeletePurchase,存_停扣 01觸發,Kind,#商品別,STRING
+custom,DeletePurchase,存_停扣 01觸發,Market,#市場別,STRING
+custom,DeletePurchase,存_停扣 01觸發,StockID,#商品代號,STRING
+custom,DeletePurchase,存_停扣 01觸發,StockName,#標的名稱,STRING
+custom,DeletePurchase,存_停扣 01觸發,platform,#觸發平台,STRING
+custom,gift_card_payment,04_付款完成,S_IDNO,去識別化ID,STRING
+custom,gift_card_payment,04_付款完成,gift_card_serial_number,#禮券序號,STRING
+custom,gift_card_payment,04_付款完成,gift_card_use_status,#禮券狀態,STRING
+custom,gift_card_payment,04_付款完成,item_denominations,#商品面額,NUMBER
+custom,gift_card_payment,04_付款完成,item_id,#商品編號,STRING
+custom,gift_card_payment,04_付款完成,item_name,#商品名稱,STRING
+custom,gift_card_payment,04_付款完成,item_price,#商品金額,NUMBER
+custom,gift_card_payment,04_付款完成,transaction_denominations,#訂單面額,NUMBER
+custom,gift_card_payment,04_付款完成,transaction_id,#訂單編號,STRING
+custom,gift_card_payment,04_付款完成,transaction_price,#訂單金額,NUMBER
+custom,gift_card_payment,04_付款完成,transaction_status,#訂單狀態,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),AREA_NO_EX,(O)區別,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),BROKERNO3_SACNO,BROKERNO3_SACNO,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),BS_STATUS,(O)買賣別/舊:#交易買賣,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),EX_CORP_FLAG,(O)組織註記,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),EX_CREDIT_FLAG,(O)信用註記,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),EX_CTRADE_FLAG,(O)附屬代號,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),EX_MAKET_FLAG,(O)(舊)市場註記,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),EX_TRADE_FLAG,(O)委託管道類別,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),FEE,(O)手續費/舊:手續費,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA09,(O)市場註記/舊:市場別,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA10,劃撥方式,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA11,(O)交割員代碼,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA12,(O)沖消方式,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA20,(O)網路傳統,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA27,逾期違約金,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA34,退還擔保品金額,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA35,退還保證金,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA37,借券費,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA38,代扣利息稅款,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA40,擔保品金額,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA41,保證金,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA42,保證品折合價金,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA43,(O)保證品碼,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA44,銀行別,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA45,(O)代理碼,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA46,收足款券或全額碼,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA47,原始委託書編號,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),HAA48,預留,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),INT_B_DATE,(O)起息日,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),INT_E_DATE,(O)訖息日,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),IO_AMT,(O)應收付金額,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),IS_SW,(O)永豐發行權證,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),IS_W,(O)權證,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),MP_AMT,融資金額,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),MP_IN_AMT,(O)融資利息,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),MP_OWN_AMT,融資自備款,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),MP_RE_AMT,償還融資金額,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),MTH_AMT,(O)成交金額,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),MTH_DATE,(O)成交日期/舊:委託日期,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),MTH_PRICE,成交價格,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),MTH_QTY,(O)成交股數/舊:交易數量,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),NET,(O)淨收付金額-淨收入,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),ORD_NO,委託書編號,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),PROC_DATE,資料處理日,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),ProductNo,#產品別,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),RVINT,債息,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),SALE_EMP_BELON,(O)業績歸屬營業員工號,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),SALE_NO,(C)#營業員員編,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),SALE_NO_BELONG,(O)業績歸屬營業員代號,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),SS_FEE,(O)融券手續費,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),SS_OUT_AMT,(O)應付利息,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),STOCK_NAME,商品名稱,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),STOCK_NO,(O)商品代號/舊:商品代號,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),S_ACNO,#客戶帳號,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),SubProduct,#子產品別,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),TAX,(O)代扣稅款/交易稅,NUMBER
+custom,etlMatch_ST,(ODS) 成交事件(證券),TRADE_KIND1,(O)交易票別/舊:交易類別,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),TRADE_KIND2,(O)交易種類,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),VALUE_DAY,(O)交割日期VALUE_DAY,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),VIP_CODE,VIP 代號,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),VIP_GROUP,VIP GROUP,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),WEB_ID,WEB_ID 委單管道別/舊:#觸發平台,STRING
+custom,etlMatch_ST,(ODS) 成交事件(證券),etl_version,ETL事件版本,STRING
+custom,Sell,存_賣出 01,purchaset_date,#申購日期(L),LIST
+custom,Sell,存_賣出 01,$receive_time,寫入資料庫時間,NUMBER
+custom,Sell,存_賣出 01,ButtonName,#按鈕名稱,STRING
+custom,Sell,存_賣出 01,BuyOrSell,#交易買賣,STRING
+custom,Sell,存_賣出 01,Kind,#商品別,STRING
+custom,Sell,存_賣出 01,Market,#市場別,STRING
+custom,Sell,存_賣出 01,StockID,#商品代號,STRING
+custom,Sell,存_賣出 01,StockName,#標的名稱,STRING
+custom,Sell,存_賣出 01,page_url_path,(X)#網頁網址 page url,STRING
+custom,Sell,存_賣出 01,platform,#觸發平台,STRING
+custom,OpenActEX,#線上加開,$receive_time,寫入資料庫時間,NUMBER
+custom,OpenActEX,#線上加開,Account,#開戶帳號類別,STRING
+custom,OpenActEX,#線上加開,ButtonName,#按鈕名稱,STRING
+custom,OpenActEX,#線上加開,platform,#觸發平台,STRING
+custom,clickRecomProd,點擊主題推薦商品,StockID,#商品代號,STRING
+custom,clickRecomProd,點擊主題推薦商品,platform,#觸發平台,STRING
+custom,clickRecomProd,點擊主題推薦商品,recomType,#推薦類型,STRING
+custom,clickRecomProd,點擊主題推薦商品,tab,#推薦分類,STRING
+custom,clickRecomProd,點擊主題推薦商品,testGroup,#分群,STRING
+custom,mgm_open_acct,MGM開立帳戶,AccountNo,(C)#客戶帳號,STRING
+custom,mgm_open_acct,MGM開立帳戶,BrokerID,#分公司代碼,STRING
+custom,mgm_open_acct,MGM開立帳戶,code,(L)邀請碼,STRING
+custom,etlOpenAccountDone_ST_SS,(ODS)開戶事件(借券)_O,BROKERNO3_SACNO,BROKERNO3_SACNO,STRING
+custom,etlOpenAccountDone_ST_SS,(ODS)開戶事件(借券)_O,BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlOpenAccountDone_ST_SS,(ODS)開戶事件(借券)_O,BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlOpenAccountDone_ST_SS,(ODS)開戶事件(借券)_O,OPEN_SOURCE,客戶開戶來源平台,STRING
+custom,etlOpenAccountDone_ST_SS,(ODS)開戶事件(借券)_O,ProductNo,#產品別,STRING
+custom,etlOpenAccountDone_ST_SS,(ODS)開戶事件(借券)_O,SALE_EMP_BELON,(O)業績歸屬營業員工號,STRING
+custom,etlOpenAccountDone_ST_SS,(ODS)開戶事件(借券)_O,SALE_NO_BELONG,(O)業績歸屬營業員代號,STRING
+custom,etlOpenAccountDone_ST_SS,(ODS)開戶事件(借券)_O,S_ACNO,#客戶帳號,STRING
+custom,etlOpenAccountDone_ST_SS,(ODS)開戶事件(借券)_O,S_ODATE,(O)開戶日期,STRING
+custom,etlOpenAccountDone_ST_SS,(ODS)開戶事件(借券)_O,SubProduct,#子產品別,STRING
+custom,etlOpenAccountDone_ST_SS,(ODS)開戶事件(借券)_O,etl_version,ETL事件版本,STRING
+custom,PurchaseComplete,存_申購 04完成,BuyOrSell,#交易買賣,STRING
+custom,PurchaseComplete,存_申購 04完成,Kind,#商品別,STRING
+custom,PurchaseComplete,存_申購 04完成,Market,#市場別,STRING
+custom,PurchaseComplete,存_申購 04完成,Pricetype,#申購類別,STRING
+custom,PurchaseComplete,存_申購 04完成,PurchaseCost,#申購金額,NUMBER
+custom,PurchaseComplete,存_申購 04完成,PurchasetDate,#申購日期,STRING
+custom,PurchaseComplete,存_申購 04完成,Qty,#交易數量,NUMBER
+custom,PurchaseComplete,存_申購 04完成,SharesUnit,#交易單位,STRING
+custom,PurchaseComplete,存_申購 04完成,StockID,#商品代號,STRING
+custom,PurchaseComplete,存_申購 04完成,StockName,#標的名稱,STRING
+custom,PurchaseComplete,存_申購 04完成,fault_reason,#失敗原因,STRING
+custom,PurchaseComplete,存_申購 04完成,outcome_status,#交易狀態,STRING
+custom,PurchaseComplete,存_申購 04完成,platform,#觸發平台,STRING
+custom,MatchGrade,(X)#月均成交金額分級,AccountNo,(C)#客戶帳號,STRING
+custom,MatchGrade,(X)#月均成交金額分級,BrokerID,#分公司代碼,STRING
+custom,MatchGrade,(X)#月均成交金額分級,BrokerName,#分公司名稱,STRING
+custom,MatchGrade,(X)#月均成交金額分級,BuyOrSell,#交易買賣,STRING
+custom,MatchGrade,(X)#月均成交金額分級,Currency,(C)#幣別代碼,STRING
+custom,MatchGrade,(X)#月均成交金額分級,DataDate,(C)#資料日期,DATETIME
+custom,MatchGrade,(X)#月均成交金額分級,MarchAmt,(C)#合計成交約當台幣金額,NUMBER
+custom,MatchGrade,(X)#月均成交金額分級,OrderDate,(C)#委託日期,DATETIME
+custom,MatchGrade,(X)#月均成交金額分級,ProductNo,#產品別,STRING
+custom,MatchGrade,(X)#月均成交金額分級,StockID,#商品代號,STRING
+custom,MatchGrade,(X)#月均成交金額分級,StockName,#標的名稱,STRING
+custom,MatchGrade,(X)#月均成交金額分級,platform,#觸發平台,STRING
+custom,star_member,01_開始註冊會員,ButtonName,#按鈕名稱,STRING
+custom,star_member,01_開始註冊會員,latest_member_email,會員信箱(最近一次),STRING
+custom,star_member,01_開始註冊會員,latest_member_phone,會員手機(最近一次),NUMBER
+custom,star_member,01_開始註冊會員,member_email,會員信箱,STRING
+custom,star_member,01_開始註冊會員,member_id,會員帳號,STRING
+custom,star_member,01_開始註冊會員,member_phone,會員手機,STRING
+custom,star_member,01_開始註冊會員,platform,#觸發平台,STRING
+custom,star_member,01_開始註冊會員,st_platform,平台,STRING
+custom,Event_20230307,任務-投資不滅島(2023Q2),jointime,#活動登錄-時間,DATETIME
+custom,buy_now,00-2_直接購買,Currency,(C)#幣別代碼,STRING
+custom,buy_now,00-2_直接購買,cart_price,#商品總額,NUMBER
+custom,buy_now,00-2_直接購買,item_denominations,#商品面額,NUMBER
+custom,buy_now,00-2_直接購買,item_id,#商品編號,STRING
+custom,buy_now,00-2_直接購買,item_name,#商品名稱,STRING
+custom,buy_now,00-2_直接購買,item_price,#商品金額,NUMBER
+custom,buy_now,00-2_直接購買,item_quantity,#商品數量,NUMBER
+custom,richclub_lesson_watch,觀看課程,lesson_id,課程ID,STRING
+custom,richclub_lesson_watch,觀看課程,lesson_title,課程標題,STRING
+custom,richclub_lesson_watch,觀看課程,lesson_type,課程類型,STRING
+custom,ShareButton,#分享按鈕,$receive_time,寫入資料庫時間,NUMBER
+custom,ShareButton,#分享按鈕,ButtonName,#按鈕名稱,STRING
+custom,ShareButton,#分享按鈕,platform,#觸發平台,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,AccountNo,(C)#客戶帳號,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,Bank_Digital,(C)#銀行大戶註記,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,BrokerID,#分公司代碼,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,BrokerName,#分公司名稱,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,DeptName,(C)#隸屬分公司部門,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,E_EMP,(C)#是否為員工戶,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,E_Gender,(C)#客戶性別,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,E_NP,(C)#是否為自然人,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,E_OTYPE,(C)#是否為大戶投,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,ORG_TYPE,(C)#客戶身分說明,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,OpenSureDate,(C)#開戶完成日期,DATETIME
+custom,OpenAccountDone,(C)開_08 開戶完成,ProductNo,#產品別,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,SALE_NO,(C)#營業員員編,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,WebCategoryCn,(C)#進件來源子項,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,WebCn,(C)#開戶來源(數位/指定),STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,WebMCategoryCn,(C)#進件來源主項 strWeb,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,WebOpactCN,(C)#進件來源(數位/指定),STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,WebPlatformCn,(C)#開戶來源(線上/臨櫃),STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,WebProjectCn,(C)#進件專案 strProd,STRING
+custom,OpenAccountDone,(C)開_08 開戶完成,subplatfromCn,(C)#加開戶來源,STRING
+custom,richclub_order_confirm,瀏覽訂單確認頁,order_amount,訂單金額,NUMBER
+custom,richclub_order_confirm,瀏覽訂單確認頁,plan_id,方案ID,STRING
+custom,richclub_order_confirm,瀏覽訂單確認頁,plan_name,方案名稱,STRING
+custom,richclub_order_confirm,瀏覽訂單確認頁,product_id,商品ID,STRING
+custom,richclub_order_confirm,瀏覽訂單確認頁,product_title,商品標題,STRING
+custom,member_join,02_註冊會員成功,latest_member_email,會員信箱(最近一次),STRING
+custom,member_join,02_註冊會員成功,latest_member_phone,會員手機(最近一次),NUMBER
+custom,member_join,02_註冊會員成功,member_email,會員信箱,STRING
+custom,member_join,02_註冊會員成功,member_id,會員帳號,STRING
+custom,member_join,02_註冊會員成功,member_phone,會員手機,STRING
+custom,member_join,02_註冊會員成功,mid_fail_reason,MID失敗原因,NUMBER
+custom,member_join,02_註冊會員成功,mid_status,MID驗證結果,STRING
+custom,member_join,02_註冊會員成功,mid_success,MID是否成功,BOOL
+custom,member_join,02_註冊會員成功,platform,#觸發平台,STRING
+custom,member_join,02_註冊會員成功,sinomember,永豐金客戶,BOOL
+custom,member_join,02_註冊會員成功,st_platform,平台,STRING
+custom,AddBankact,開_01-3-2 綁定交割戶,Bankact,#分戶帳帳戶,STRING
+custom,AddBankact,開_01-3-2 綁定交割戶,ButtonName,#按鈕名稱,STRING
+custom,AddBankact,開_01-3-2 綁定交割戶,platform,#觸發平台,STRING
+custom,ConfirmID,開_01 驗證ID,ADNO,#營業員員編,STRING
+custom,ConfirmID,開_01 驗證ID,ADNO_Name,#營業員姓名,STRING
+custom,ConfirmID,開_01 驗證ID,BrokerID,#分公司代碼,STRING
+custom,ConfirmID,開_01 驗證ID,BrokerName,#分公司名稱,STRING
+custom,ConfirmID,開_01 驗證ID,ButtonName,#按鈕名稱,STRING
+custom,ConfirmID,開_01 驗證ID,LoginType,#登入帳號類別,STRING
+custom,ConfirmID,開_01 驗證ID,birthDT_ConfirmID,#生日_驗證ID,DATETIME
+custom,ConfirmID,開_01 驗證ID,is_digital,#是否為數位引流,BOOL
+custom,ConfirmID,開_01 驗證ID,is_success,是否成功,BOOL
+custom,ConfirmID,開_01 驗證ID,platform,#觸發平台,STRING
+custom,uploadid,開_03 上傳證件,ButtonName,#按鈕名稱,STRING
+custom,uploadid,開_03 上傳證件,platform,#觸發平台,STRING
+custom,ChangeComfirm,存_變更 03確認,purchaset_date,#申購日期(L),LIST
+custom,ChangeComfirm,存_變更 03確認,$receive_time,寫入資料庫時間,NUMBER
+custom,ChangeComfirm,存_變更 03確認,ButtonName,#按鈕名稱,STRING
+custom,ChangeComfirm,存_變更 03確認,BuyOrSell,#交易買賣,STRING
+custom,ChangeComfirm,存_變更 03確認,Kind,#商品別,STRING
+custom,ChangeComfirm,存_變更 03確認,Market,#市場別,STRING
+custom,ChangeComfirm,存_變更 03確認,Pricetype,#申購類別,STRING
+custom,ChangeComfirm,存_變更 03確認,PurchaseCost,#申購金額,NUMBER
+custom,ChangeComfirm,存_變更 03確認,PurchasetDate,#申購日期,STRING
+custom,ChangeComfirm,存_變更 03確認,Qty,#交易數量,NUMBER
+custom,ChangeComfirm,存_變更 03確認,SharesUnit,#交易單位,STRING
+custom,ChangeComfirm,存_變更 03確認,StockID,#商品代號,STRING
+custom,ChangeComfirm,存_變更 03確認,StockName,#標的名稱,STRING
+custom,ChangeComfirm,存_變更 03確認,platform,#觸發平台,STRING
+custom,meeting_reissue,補發開會通知書,companycode,公司代碼,STRING
+custom,meeting_reissue,補發開會通知書,companyname,公司名稱,STRING
+custom,meeting_reissue,補發開會通知書,latest_member_email,會員信箱(最近一次),STRING
+custom,meeting_reissue,補發開會通知書,member_email,會員信箱,STRING
+custom,meeting_reissue,補發開會通知書,platform,#觸發平台,STRING
+custom,meeting_reissue,補發開會通知書,st_platform,平台,STRING
+custom,richclub_pay_complete,購買結果,coupon_code,折扣碼序號,STRING
+custom,richclub_pay_complete,購買結果,coupon_id,折扣碼ID,STRING
+custom,richclub_pay_complete,購買結果,coupon_name,折扣碼名稱,STRING
+custom,richclub_pay_complete,購買結果,discount,折扣金額,NUMBER
+custom,richclub_pay_complete,購買結果,fail_reason,失敗原因,STRING
+custom,richclub_pay_complete,購買結果,is_success,是否成功,BOOL
+custom,richclub_pay_complete,購買結果,order_amount,訂單金額,NUMBER
+custom,richclub_pay_complete,購買結果,order_id,訂單編號,STRING
+custom,richclub_pay_complete,購買結果,order_price,折扣前訂單金額,NUMBER
+custom,richclub_pay_complete,購買結果,permission_enddate,權限截止日,DATETIME
+custom,richclub_pay_complete,購買結果,permission_id,權限ID,STRING
+custom,richclub_pay_complete,購買結果,permission_startdate,權限起始日,DATETIME
+custom,richclub_pay_complete,購買結果,plan_id,方案ID,STRING
+custom,richclub_pay_complete,購買結果,plan_name,方案名稱,STRING
+custom,richclub_pay_complete,購買結果,product_id,商品ID,STRING
+custom,richclub_pay_complete,購買結果,product_title,商品標題,STRING
+custom,richclub_pay_complete,購買結果,user_coupon_id,用戶折扣碼ID,STRING
+custom,Download,#下載檔案(APP/AP),$receive_time,寫入資料庫時間,NUMBER
+custom,Download,#下載檔案(APP/AP),ButtonName,#按鈕名稱,STRING
+custom,Download,#下載檔案(APP/AP),DownloadType,#下載檔案類型,STRING
+custom,Download,#下載檔案(APP/AP),platform,#觸發平台,STRING
+custom,richclub_enjoy_click,點擊立即XX按鈕,button_type,點擊按鈕類型,STRING
+custom,richclub_enjoy_click,點擊立即XX按鈕,plan_id,方案ID,STRING
+custom,richclub_enjoy_click,點擊立即XX按鈕,plan_name,方案名稱,STRING
+custom,richclub_enjoy_click,點擊立即XX按鈕,product_id,商品ID,STRING
+custom,richclub_enjoy_click,點擊立即XX按鈕,product_title,商品標題,STRING
+custom,B27Record,(B)#B27理三查詢記錄,CancelDate,(C)#銷戶日期,DATETIME
+custom,B27Record,(B)#B27理三查詢記錄,AccStat,(C)#帳戶狀態,STRING
+custom,B27Record,(B)#B27理三查詢記錄,AccountNo,(C)#客戶帳號,STRING
+custom,B27Record,(B)#B27理三查詢記錄,AllTradeLimit,(C)#本公司總歸戶單日買賣額度,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,BrokerID,#分公司代碼,STRING
+custom,B27Record,(B)#B27理三查詢記錄,BrokerName,#分公司名稱,STRING
+custom,B27Record,(B)#B27理三查詢記錄,DataDate,(C)#資料日期,DATETIME
+custom,B27Record,(B)#B27理三查詢記錄,DayECTradeLimit,(C)#本公司電子單日買賣額度,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,DayTradeLimit,(C)#本公司單日買賣額度,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,DeptName,(C)#隸屬分公司部門,STRING
+custom,B27Record,(B)#B27理三查詢記錄,FinalTradeDate,(C)#最後交易日,DATETIME
+custom,B27Record,(B)#B27理三查詢記錄,OpenSureDate,(C)#開戶完成日期,DATETIME
+custom,B27Record,(B)#B27理三查詢記錄,ProductNo,#產品別,STRING
+custom,B27Record,(B)#B27理三查詢記錄,QryStat,(B)#查找狀態,STRING
+custom,B27Record,(B)#B27理三查詢記錄,balanceOverDoue,(B)#借貸款項屆期未清償餘額萬,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,baseOpen,(B)#證券戶數,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,borrowLoanBalance,(B)#融券總餘額萬元,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,borrowLoanCredit,(B)#融券總授信額度,STRING
+custom,B27Record,(B)#B27理三查詢記錄,ceditOpen,(B)#信用戶數,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,centerLoanBlance,(B)#借券中心借券餘額仟,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,financingBalance,(B)#借貸款項融通總餘額萬,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,financingCredit,(B)#借貸款項融通授信額度萬,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,futuresOpen,(B)#期貨戶數,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,loanAcc,(B)#借貸戶數,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,loanContract,(B)#借貸款項契約數,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,marginLoanBalance,(B)#融資總餘額萬元,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,marginLoanCredit,(B)#融資總授信額度,STRING
+custom,B27Record,(B)#B27理三查詢記錄,stockBorrowLoanBalance,(B)#證券借貸借券餘額仟,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,stockMarginLoanBalance,(B)#證券借貸可借券總額度萬,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,tradingLimit,(B)#單日買賣最高額度萬元,NUMBER
+custom,B27Record,(B)#B27理三查詢記錄,violate,(B)#有無違約,STRING
+custom,Event_20240502,任務-投資特訓班(2024Q2),jointime,#活動登錄-時間,DATETIME
+custom,Event_20240502,任務-投資特訓班(2024Q2),task_mail,#活動登錄-信箱,STRING
+custom,Event_20240502,任務-投資特訓班(2024Q2),task_mobile,#活動登錄-手機,STRING
+custom,PurchaseSend,存_申購 02設定,purchaset_date,#申購日期(L),LIST
+custom,PurchaseSend,存_申購 02設定,$receive_time,寫入資料庫時間,NUMBER
+custom,PurchaseSend,存_申購 02設定,ButtonName,#按鈕名稱,STRING
+custom,PurchaseSend,存_申購 02設定,BuyOrSell,#交易買賣,STRING
+custom,PurchaseSend,存_申購 02設定,Kind,#商品別,STRING
+custom,PurchaseSend,存_申購 02設定,Market,#市場別,STRING
+custom,PurchaseSend,存_申購 02設定,Pricetype,#申購類別,STRING
+custom,PurchaseSend,存_申購 02設定,PurchaseCost,#申購金額,NUMBER
+custom,PurchaseSend,存_申購 02設定,PurchasetDate,#申購日期,STRING
+custom,PurchaseSend,存_申購 02設定,Qty,#交易數量,NUMBER
+custom,PurchaseSend,存_申購 02設定,SharesUnit,#交易單位,STRING
+custom,PurchaseSend,存_申購 02設定,StockID,#商品代號,STRING
+custom,PurchaseSend,存_申購 02設定,StockName,#標的名稱,STRING
+custom,PurchaseSend,存_申購 02設定,platform,#觸發平台,STRING
+custom,GoToSSP,#去豐存股,$receive_time,寫入資料庫時間,NUMBER
+custom,GoToSSP,#去豐存股,ButtonName,#按鈕名稱,STRING
+custom,GoToSSP,#去豐存股,platform,#觸發平台,STRING
+custom,review_start_2024,跟風潮股開始_2024,jointime,#活動登錄-時間,DATETIME
+custom,review_start_2024,跟風潮股開始_2024,platform,#觸發平台,STRING
+custom,edm_stockaffairs,申請股務鬧鈴,companycode,公司代碼,STRING
+custom,edm_stockaffairs,申請股務鬧鈴,companyname,公司名稱,STRING
+custom,edm_stockaffairs,申請股務鬧鈴,latest_member_email,會員信箱(最近一次),STRING
+custom,edm_stockaffairs,申請股務鬧鈴,license,永久授權,BOOL
+custom,edm_stockaffairs,申請股務鬧鈴,member_email,會員信箱,STRING
+custom,edm_stockaffairs,申請股務鬧鈴,platform,#觸發平台,STRING
+custom,edm_stockaffairs,申請股務鬧鈴,st_platform,平台,STRING
+custom,richclub_register_complete,報名結果,fail_reason,失敗原因,STRING
+custom,richclub_register_complete,報名結果,is_success,是否成功,BOOL
+custom,richclub_register_complete,報名結果,order_id,訂單編號,STRING
+custom,richclub_register_complete,報名結果,permission_enddate,權限截止日,DATETIME
+custom,richclub_register_complete,報名結果,permission_id,權限ID,STRING
+custom,richclub_register_complete,報名結果,permission_startdate,權限起始日,DATETIME
+custom,richclub_register_complete,報名結果,plan_id,方案ID,STRING
+custom,richclub_register_complete,報名結果,plan_name,方案名稱,STRING
+custom,richclub_register_complete,報名結果,product_id,商品ID,STRING
+custom,richclub_register_complete,報名結果,product_title,商品標題,STRING
+custom,subscribe,#學堂關注,ButtonName,#按鈕名稱,STRING
+custom,subscribe,#學堂關注,platform,#觸發平台,STRING
+custom,subscribe,#學堂關注,subscribe_channel,#訂閱頻道,STRING
+custom,subscribe,#學堂關注,subscribe_type,#訂閱類別,STRING
+custom,Surveycake_formSubmit,Surveycake_formSubmit,form_id,form_id,STRING
+custom,Surveycake_formSubmit,Surveycake_formSubmit,form_status,form_status,STRING
+custom,Surveycake_formSubmit,Surveycake_formSubmit,form_submit_time,form_submit_time,DATETIME
+custom,Surveycake_formSubmit,Surveycake_formSubmit,form_title,問卷名稱 form_title,STRING
+custom,Sensors_Mail_Delivery,#Webhhok-EDM送達,EMail,#開戶信箱,STRING
+custom,Sensors_Mail_Delivery,#Webhhok-EDM送達,Name,#開戶姓名,STRING
+custom,Sensors_Mail_Delivery,#Webhhok-EDM送達,sf_plan_name,(SF)EDM 推播計劃名稱,STRING
+custom,Sensors_Mail_Delivery,#Webhhok-EDM送達,sf_strategy_unit_name,(SF)#流程畫布條件名稱,STRING
+custom,Review2020_Award_Button,(X)頒獎按鈕點擊_數位回顧2020,Review2020_btnCount,(X)#頒獎按鈕__數位回顧2020,NUMBER
+custom,Review2020_Award_Button,(X)頒獎按鈕點擊_數位回顧2020,Review2020_groupCount,(X)#用戶分組__數位回顧2020,NUMBER
+custom,st_inout_stock,股票匯撥,BROKER_NO4,(O)券商代號,STRING
+custom,st_inout_stock,股票匯撥,FOP_DATE,集保傳送日期,DATETIME
+custom,st_inout_stock,股票匯撥,FOP_QTY,異動股數,NUMBER
+custom,st_inout_stock,股票匯撥,HG104,匯出券商,STRING
+custom,st_inout_stock,股票匯撥,HG105,匯出帳號,STRING
+custom,st_inout_stock,股票匯撥,HG107,交易代號,STRING
+custom,st_inout_stock,股票匯撥,HG108,有價證券類別,STRING
+custom,st_inout_stock,股票匯撥,HG109,交易序號,STRING
+custom,st_inout_stock,股票匯撥,STOCK_NO,(O)商品代號/舊:商品代號,STRING
+custom,st_inout_stock,股票匯撥,S_ACNO,#客戶帳號,STRING
+custom,OrderMatch,(C)#成交交易(已下線),AccountNo,(C)#客戶帳號,STRING
+custom,OrderMatch,(C)#成交交易(已下線),BrokerID,#分公司代碼,STRING
+custom,OrderMatch,(C)#成交交易(已下線),BrokerName,#分公司名稱,STRING
+custom,OrderMatch,(C)#成交交易(已下線),BuyOrSell,#交易買賣,STRING
+custom,OrderMatch,(C)#成交交易(已下線),Currency,(C)#幣別代碼,STRING
+custom,OrderMatch,(C)#成交交易(已下線),DataDate,(C)#資料日期,DATETIME
+custom,OrderMatch,(C)#成交交易(已下線),Is_AccFirstTrade,(C)#是否為此帳號首日交易,BOOL
+custom,OrderMatch,(C)#成交交易(已下線),MarchAmt,(C)#合計成交約當台幣金額,NUMBER
+custom,OrderMatch,(C)#成交交易(已下線),MarchBStkAmt,(C)#資券當沖金額約當台幣,NUMBER
+custom,OrderMatch,(C)#成交交易(已下線),MarchLStkAmt,(C)#融券成交金額約當台幣,NUMBER
+custom,OrderMatch,(C)#成交交易(已下線),MarchLoanAmt,(C)#融資成交金額約當台幣,NUMBER
+custom,OrderMatch,(C)#成交交易(已下線),MarchNStkAmt,(C)#現股當沖金額約當台幣,NUMBER
+custom,OrderMatch,(C)#成交交易(已下線),MarchOAmt,(C)#合計成交原幣金額,NUMBER
+custom,OrderMatch,(C)#成交交易(已下線),Market,#市場別,STRING
+custom,OrderMatch,(C)#成交交易(已下線),MatchDiffODays,(C)#成交日距開戶完成天數,NUMBER
+custom,OrderMatch,(C)#成交交易(已下線),MatchStatus,(C)#成交狀態,BOOL
+custom,OrderMatch,(C)#成交交易(已下線),OpenSureDate,(C)#開戶完成日期,DATETIME
+custom,OrderMatch,(C)#成交交易(已下線),OrderDate,(C)#委託日期,DATETIME
+custom,OrderMatch,(C)#成交交易(已下線),ProductNo,#產品別,STRING
+custom,OrderMatch,(C)#成交交易(已下線),Qty,#交易數量,NUMBER
+custom,OrderMatch,(C)#成交交易(已下線),SettleBankAcc3No,(C)#交割帳號(前三碼),STRING
+custom,OrderMatch,(C)#成交交易(已下線),StockID,#商品代號,STRING
+custom,OrderMatch,(C)#成交交易(已下線),StockName,#標的名稱,STRING
+custom,OrderMatch,(C)#成交交易(已下線),SubProduct,#子產品別,STRING
+custom,OrderMatch,(C)#成交交易(已下線),TradeFees,(C)#手續費,NUMBER
+custom,OrderMatch,(C)#成交交易(已下線),TxCode,(C)#交易類別,STRING
+custom,OrderMatch,(C)#成交交易(已下線),is_digital,#是否為數位引流,BOOL
+custom,OrderMatch,(C)#成交交易(已下線),platform,#觸發平台,STRING
+custom,Event_20240101,任務-紅包發起來(2024Q1),jointime,#活動登錄-時間,DATETIME
+custom,Event_20240101,任務-紅包發起來(2024Q1),task_mail,#活動登錄-信箱,STRING
+custom,Event_20240101,任務-紅包發起來(2024Q1),task_mobile,#活動登錄-手機,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),BROKERNO4_SACNO,BROKERNO4_SACNO,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),BROKER_NO4,(O)券商代號,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),BUY_SALE,買賣別 B/S,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),Currency,(C)#幣別代碼,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),EX_RATE,平均匯率,NUMBER
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),FEE,(O)手續費/舊:手續費,NUMBER
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),INVEST,投資標的,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),MARKET_NO,市場代碼,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),MTH_DATE,(O)成交日期/舊:委託日期,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),MTH_MONEY,成交金額 MTH_MONEY,NUMBER
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),MTH_NO,成交單號 MTH_NO,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),MTH_PRICE,成交價格,NUMBER
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),MTH_STOCK,成交股數(豐美股),NUMBER
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),ORDER_NO,委託單日期,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),PAY_MONEY,客戶應付金額,NUMBER
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),ProductNo,#產品別,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),SALE_EMP_BELONG,業績歸屬營業員員工代號,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),S_ACNO,#客戶帳號,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),SubProduct,#子產品別,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),TAX_MTH,交易稅,NUMBER
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),TAX_SETTLE,交收稅,NUMBER
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),TAX_STAMP,印花稅TAX_STAMP,NUMBER
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),TRAN_NO,交易所代碼,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),US_DELIVERY,美股交割方式,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),WEB_NO,WEB 流水序號,STRING
+custom,etlMatch_SUB_SFP_S,(ODS) 成交事件(複委託定期定股_賣出),etl_version,ETL事件版本,STRING
+custom,begin_checkout,01_開始結帳,Currency,(C)#幣別代碼,STRING
+custom,begin_checkout,01_開始結帳,cart_number,#購物車編號,STRING
+custom,begin_checkout,01_開始結帳,item_denominations,#商品面額,NUMBER
+custom,begin_checkout,01_開始結帳,item_id,#商品編號,STRING
+custom,begin_checkout,01_開始結帳,item_name,#商品名稱,STRING
+custom,begin_checkout,01_開始結帳,item_price,#商品金額,NUMBER
+custom,begin_checkout,01_開始結帳,item_quantity,#商品數量,NUMBER
+custom,begin_checkout,01_開始結帳,transaction_denominations,#訂單面額,NUMBER
+custom,begin_checkout,01_開始結帳,transaction_price,#訂單金額,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),ANTE_FEE_CY,上手手續費幣別,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),ANTE_ID,上手編號,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),ANTE_MATCH_NO,上手成交單號,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),BANK_1,銀行1,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),BANK_2,銀行2,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),BANK_ACNO_1,帳號1,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),BANK_ACNO_2,帳號2,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),BANK_BRANCE_1,分行1,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),BANK_BRANCE_2,分行2,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),BROKERNO4_SACNO,BROKERNO4_SACNO,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),BROKER_NO4,(O)券商代號,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),BS_STATUS,(O)買賣別/舊:#交易買賣,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),CBT_DATE,交割日期(複委託),STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),COMMISSION,上手手續費,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),COMMISSION_TW,上手手續費(台幣),NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),Currency,(C)#幣別代碼,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),EXPENSE1,印花稅,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),EXPENSE2,交所費,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),EXPENSE3,匯費,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),EX_CODE,交易所代號,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),FEE,(O)手續費/舊:手續費,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),FEE_CY,手續費幣別,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),FEE_TW,手續費(台幣),NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),INOUT_AMT_1,應收付金額1,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),INOUT_AMT_2,應收付金額2,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),INOUT_AMT_2_CY,收付幣別2,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),MATCH_NO,成交單號,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),MTH_AMT,(O)成交金額,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),MTH_AMT_TW,(O)成交金額(台幣),NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),MTH_DATE,(O)成交日期/舊:委託日期,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),OPEN_BELONG,開戶所屬分公司,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),ORD_DATE,委託日期,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),ORD_NO,委託書編號,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),O_INOUT_AMT_1,收付金額1,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),O_INOUT_AMT_2,收付金額2,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),PRICE,成交價位,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),ProductNo,#產品別,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),Qty,#交易數量,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),SALE_EMP_BELONG,業績歸屬營業員員工代號,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),SALE_EMP_NO,營業員,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),SINO_EMP_NO,理財專員工號,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),STOCK_NO,(O)商品代號/舊:商品代號,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),S_ACNO,#客戶帳號,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),SubProduct,#子產品別,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),TAX,(O)代扣稅款/交易稅,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),TRN35,使用額度,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),TRN36,平倉數量,NUMBER
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),TRN37,最近平倉日,STRING
+custom,etlMatch_SUB,(ODS) 成交事件(複委託證券),etl_version,ETL事件版本,STRING
+custom,order,#下單 01,ButtonName,#按鈕名稱,STRING
+custom,order,#下單 01,Market,#市場別,STRING
+custom,order,#下單 01,StockID,#商品代號,STRING
+custom,order,#下單 01,StockName,#標的名稱,STRING
+custom,order,#下單 01,platform,#觸發平台,STRING
+custom,openact_assignbranch,開_01-2 分公司/營業員,$receive_time,寫入資料庫時間,NUMBER
+custom,openact_assignbranch,開_01-2 分公司/營業員,ADNO,#營業員員編,STRING
+custom,openact_assignbranch,開_01-2 分公司/營業員,ADNO_Name,#營業員姓名,STRING
+custom,openact_assignbranch,開_01-2 分公司/營業員,AssignType,(X)#指定營業員,STRING
+custom,openact_assignbranch,開_01-2 分公司/營業員,BrokerID,#分公司代碼,STRING
+custom,openact_assignbranch,開_01-2 分公司/營業員,BrokerName,#分公司名稱,STRING
+custom,openact_assignbranch,開_01-2 分公司/營業員,ButtonName,#按鈕名稱,STRING
+custom,openact_assignbranch,開_01-2 分公司/營業員,is_digital,#是否為數位引流,BOOL
+custom,openact_assignbranch,開_01-2 分公司/營業員,page_url_path,(X)#網頁網址 page url,STRING
+custom,openact_assignbranch,開_01-2 分公司/營業員,platform,#觸發平台,STRING
+custom,add_payment_info,02_訂單明細,Currency,(C)#幣別代碼,STRING
+custom,add_payment_info,02_訂單明細,cart_number,#購物車編號,STRING
+custom,add_payment_info,02_訂單明細,item_denominations,#商品面額,NUMBER
+custom,add_payment_info,02_訂單明細,item_id,#商品編號,STRING
+custom,add_payment_info,02_訂單明細,item_name,#商品名稱,STRING
+custom,add_payment_info,02_訂單明細,item_price,#商品金額,NUMBER
+custom,add_payment_info,02_訂單明細,item_quantity,#商品數量,NUMBER
+custom,add_payment_info,02_訂單明細,transaction_denominations,#訂單面額,NUMBER
+custom,add_payment_info,02_訂單明細,transaction_price,#訂單金額,NUMBER
+custom,ChangeSend,存_變更 02設定,purchaset_date,#申購日期(L),LIST
+custom,ChangeSend,存_變更 02設定,$receive_time,寫入資料庫時間,NUMBER
+custom,ChangeSend,存_變更 02設定,ButtonName,#按鈕名稱,STRING
+custom,ChangeSend,存_變更 02設定,BuyOrSell,#交易買賣,STRING
+custom,ChangeSend,存_變更 02設定,Kind,#商品別,STRING
+custom,ChangeSend,存_變更 02設定,Market,#市場別,STRING
+custom,ChangeSend,存_變更 02設定,Pricetype,#申購類別,STRING
+custom,ChangeSend,存_變更 02設定,PurchaseCost,#申購金額,NUMBER
+custom,ChangeSend,存_變更 02設定,PurchasetDate,#申購日期,STRING
+custom,ChangeSend,存_變更 02設定,Qty,#交易數量,NUMBER
+custom,ChangeSend,存_變更 02設定,SharesUnit,#交易單位,STRING
+custom,ChangeSend,存_變更 02設定,StockID,#商品代號,STRING
+custom,ChangeSend,存_變更 02設定,StockName,#標的名稱,STRING
+custom,ChangeSend,存_變更 02設定,platform,#觸發平台,STRING
+custom,dwt_flashorder,大戶投閃電下單,dwt_flashorder_ip,#閃電下單IP,STRING
+custom,dwt_flashorder,大戶投閃電下單,dwt_flashorder_number,#網路單號,STRING
+custom,dwt_flashorder,大戶投閃電下單,dwt_flashorder_ordrectimer,#閃電下單委託到委回持續時間,NUMBER
+custom,dwt_flashorder,大戶投閃電下單,dwt_flashorder_successful,#閃電下單委託是否錯誤,BOOL
+custom,richclub_otp_result,豐雲學堂OTP驗證,fail_reason,失敗原因,STRING
+custom,richclub_otp_result,豐雲學堂OTP驗證,is_success,是否成功,BOOL
+custom,richclub_otp_result,豐雲學堂OTP驗證,order_phone,豐雲學堂訂購人手機號碼,STRING
+custom,ConfirmID_fail,開_01 驗證ID_失敗,ADNO,#營業員員編,STRING
+custom,ConfirmID_fail,開_01 驗證ID_失敗,ADNO_Name,#營業員姓名,STRING
+custom,ConfirmID_fail,開_01 驗證ID_失敗,BrokerID,#分公司代碼,STRING
+custom,ConfirmID_fail,開_01 驗證ID_失敗,BrokerName,#分公司名稱,STRING
+custom,ConfirmID_fail,開_01 驗證ID_失敗,ButtonName,#按鈕名稱,STRING
+custom,ConfirmID_fail,開_01 驗證ID_失敗,LoginType,#登入帳號類別,STRING
+custom,ConfirmID_fail,開_01 驗證ID_失敗,is_digital,#是否為數位引流,BOOL
+custom,ConfirmID_fail,開_01 驗證ID_失敗,is_success,是否成功,BOOL
+custom,ConfirmID_fail,開_01 驗證ID_失敗,platform,#觸發平台,STRING
+custom,SellSend,存_賣出 02送出,purchaset_date,#申購日期(L),LIST
+custom,SellSend,存_賣出 02送出,$receive_time,寫入資料庫時間,NUMBER
+custom,SellSend,存_賣出 02送出,ButtonName,#按鈕名稱,STRING
+custom,SellSend,存_賣出 02送出,BuyOrSell,#交易買賣,STRING
+custom,SellSend,存_賣出 02送出,Kind,#商品別,STRING
+custom,SellSend,存_賣出 02送出,Market,#市場別,STRING
+custom,SellSend,存_賣出 02送出,PriceCost,#交易價格(委託/申購),NUMBER
+custom,SellSend,存_賣出 02送出,Pricetype,#申購類別,STRING
+custom,SellSend,存_賣出 02送出,Qty,#交易數量,NUMBER
+custom,SellSend,存_賣出 02送出,SharesUnit,#交易單位,STRING
+custom,SellSend,存_賣出 02送出,StockID,#商品代號,STRING
+custom,SellSend,存_賣出 02送出,StockName,#標的名稱,STRING
+custom,SellSend,存_賣出 02送出,platform,#觸發平台,STRING
+custom,review_download_2025,跟風潮股下載_2025,jointime,#活動登錄-時間,DATETIME
+custom,review_download_2025,跟風潮股下載_2025,platform,#觸發平台,STRING
+custom,openact_confirm_mobile,開_02 初次OTP,ButtonName,#按鈕名稱,STRING
+custom,openact_confirm_mobile,開_02 初次OTP,Mobile,#開戶手機,STRING
+custom,openact_confirm_mobile,開_02 初次OTP,platform,#觸發平台,STRING
+custom,richclub_lesson_click,點擊課程,lesson_id,課程ID,STRING
+custom,richclub_lesson_click,點擊課程,lesson_title,課程標題,STRING
+custom,richclub_lesson_click,點擊課程,lesson_type,課程類型,STRING
+custom,review_download_2023,跟風潮股下載_2023,LoginType,#登入帳號類別,STRING
+custom,review_download_2023,跟風潮股下載_2023,jointime,#活動登錄-時間,DATETIME
+custom,review_download_2023,跟風潮股下載_2023,page_type,跟風潮股下載頁面類型,STRING
+custom,review_download_2023,跟風潮股下載_2023,platform,#觸發平台,STRING
+custom,add_subscription_order,申購商品,AccountNo,(C)#客戶帳號,STRING
+custom,add_subscription_order,申購商品,BrokerID,#分公司代碼,STRING
+custom,add_subscription_order,申購商品,StockID,#商品代號,STRING
+custom,add_subscription_order,申購商品,callback,完成回呼連結設定,STRING
+custom,add_subscription_order,申購商品,redirect,轉至指定銀行app,STRING
+custom,Event_20250502,任務-投資腦筋亮晶晶(2025Q2),jointime,#活動登錄-時間,DATETIME
+custom,Event_20250502,任務-投資腦筋亮晶晶(2025Q2),task_mail,#活動登錄-信箱,STRING
+custom,Event_20250502,任務-投資腦筋亮晶晶(2025Q2),task_mobile,#活動登錄-手機,STRING
+custom,add_to_cart,00-1_加入購物車,Currency,(C)#幣別代碼,STRING
+custom,add_to_cart,00-1_加入購物車,cart_price,#商品總額,NUMBER
+custom,add_to_cart,00-1_加入購物車,item_denominations,#商品面額,NUMBER
+custom,add_to_cart,00-1_加入購物車,item_id,#商品編號,STRING
+custom,add_to_cart,00-1_加入購物車,item_name,#商品名稱,STRING
+custom,add_to_cart,00-1_加入購物車,item_price,#商品金額,NUMBER
+custom,add_to_cart,00-1_加入購物車,item_quantity,#商品數量,NUMBER
+custom,ChangeComplete,存_變更 04完成,BuyOrSell,#交易買賣,STRING
+custom,ChangeComplete,存_變更 04完成,Kind,#商品別,STRING
+custom,ChangeComplete,存_變更 04完成,Market,#市場別,STRING
+custom,ChangeComplete,存_變更 04完成,Pricetype,#申購類別,STRING
+custom,ChangeComplete,存_變更 04完成,PurchaseCost,#申購金額,NUMBER
+custom,ChangeComplete,存_變更 04完成,PurchasetDate,#申購日期,STRING
+custom,ChangeComplete,存_變更 04完成,Qty,#交易數量,NUMBER
+custom,ChangeComplete,存_變更 04完成,SharesUnit,#交易單位,STRING
+custom,ChangeComplete,存_變更 04完成,StockID,#商品代號,STRING
+custom,ChangeComplete,存_變更 04完成,StockName,#標的名稱,STRING
+custom,ChangeComplete,存_變更 04完成,fault_reason,#失敗原因,STRING
+custom,ChangeComplete,存_變更 04完成,outcome_status,#交易狀態,STRING
+custom,ChangeComplete,存_變更 04完成,platform,#觸發平台,STRING
+custom,Login,#登入(客戶/社群),$receive_time,寫入資料庫時間,NUMBER
+custom,Login,#登入(客戶/社群),ButtonName,#按鈕名稱,STRING
+custom,Login,#登入(客戶/社群),LoginTime,(X)#登入時間,DATETIME
+custom,Login,#登入(客戶/社群),LoginType,#登入帳號類別,STRING
+custom,Login,#登入(客戶/社群),SNSLoginEmail,#社群登入帳號,STRING
+custom,Login,#登入(客戶/社群),is_background,(C)#是否內部資料,BOOL
+custom,Login,#登入(客戶/社群),is_first_login,#是否首次登入,BOOL
+custom,Login,#登入(客戶/社群),is_login,(X)#是否登入,BOOL
+custom,Login,#登入(客戶/社群),is_success,是否成功,BOOL
+custom,Login,#登入(客戶/社群),page_url_path,(X)#網頁網址 page url,STRING
+custom,Login,#登入(客戶/社群),platform,#觸發平台,STRING
+custom,dwf_appclick,大戶豐點擊,dwf_appclick_content,大戶豐點擊內容,NUMBER
+custom,dwf_appclick,大戶豐點擊,dwf_appclick_content_,大戶豐點擊內容(新),STRING
+custom,dwf_appclick,大戶豐點擊,dwf_appclick_name_,大戶豐點擊名稱(新),STRING
+custom,dwf_appclick,大戶豐點擊,dwf_appclick_tag_,大戶豐點擊標籤(新),STRING
+custom,viewProduct,瀏覽商品頁,platform,#觸發平台,STRING
+custom,viewProduct,瀏覽商品頁,recomType,#推薦類型,STRING
+custom,viewProduct,瀏覽商品頁,tab,#推薦分類,STRING
+custom,viewProduct,瀏覽商品頁,testGroup,#分群,STRING
+custom,Sensors_Mail_Unsubscribe,#Webhhok-EDM取消訂閱,EMail,#開戶信箱,STRING
+custom,Sensors_Mail_Unsubscribe,#Webhhok-EDM取消訂閱,Name,#開戶姓名,STRING
+custom,Sensors_Mail_Unsubscribe,#Webhhok-EDM取消訂閱,sf_plan_name,(SF)EDM 推播計劃名稱,STRING
+custom,Sensors_Mail_Unsubscribe,#Webhhok-EDM取消訂閱,unsubscribe_reason,#EDM取消訂閱原因,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),CARRY_AMT_TYPE,撥款註記,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),PART_IDNO,11碼客戶ID之後三碼,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),PRJ_CODE1,專案代碼,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),PRJ_CODE2,優惠代碼,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),ANTE_ID,上手編號,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),BROKERNO4_SACNO,BROKERNO4_SACNO,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),BROKER_NO4,(O)券商代號,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),BR_FEE,分公司手續費,NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),BS_STATUS,(O)買賣別/舊:#交易買賣,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),CARRY_AMT_DATE,撥款日期,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),CARRY_BROKER,入帳分公司,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),COMMISSION_O,上手手續費(原幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),COMMISSION_OTH_O,上手其他費用(原幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),COMMISSION_OTH_TW,上手其他費用(台幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),COMMISSION_TAX_O,上手交易稅(原幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),COMMISSION_TAX_TW,上手交易稅(台幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),COMMISSION_TW,上手手續費(台幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),CURRENT_TYPE,委託業務別,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),CURR_RATE,台幣匯率,NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),CUS_PRICE,客戶價,NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),DELIVERY_DATE,交割日期 DELIVERY_DATE,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),EX_INTEREST,前手息,NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),EX_ITEM,預留欄位,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),FEE_O,手續費(原幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),FEE_RATE_1,實收手續費率,NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),FEE_RATE_2,應收手續費率,NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),FEE_TW,手續費(台幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),HOLD_COM,保管機構,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),HQ_FEE,總公司手續費,NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),ID_TYPE,身分種類,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),INOUT_AMT_O,應收付金額(原幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),INOUT_AMT_TW,應收付金額(台幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),IO_BANK_ACNO,入扣帳帳號,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),IO_BANK_NAME,入扣帳銀行,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MATCH_NO,成交單號,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MA_AMT_O,保管費(原幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MA_AMT_TW,保管費(台幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MDATE,(X)維護MDATE,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MPGM,(X)維護MPGM,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MTH_AMT_O,成交金額(原幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MTH_AMT_TW,(O)成交金額(台幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MTH_COST_O,成本金額(原幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MTH_COST_TW,成本金額(台幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MTH_O_AMT,成交或贖回面額,NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MTH_O_MINUS,贖回扣款(原幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MTH_O_QTY,成交或贖回單位,NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MTH_TW_MINUS_TW,贖回扣款(台幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MTH_YMD,分配日期,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MTIME,(X)維護MTIME,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),MUSR,(X)維護者MUSR,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),ORD_DATE,委託日期,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),ORD_NO,委託書編號,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),ORD_TYPE_1,"下單方式(初級,次級)",STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),ORD_TYPE_2,"下單方式(個人,集體)",STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),PO_BANK_ACNO,收益帳號,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),PO_BANK_NAME,收益銀行,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),ProductNo,#產品別,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),SALE_EMP_BELONG,業績歸屬營業員員工代號,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),SALE_EMP_NO,營業員,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),STOCK_NO,(O)商品代號/舊:商品代號,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),S_ACNO,#客戶帳號,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),SubProduct,#子產品別,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),TAX_O,交易稅(原幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),TAX_TW,交易稅(台幣),NUMBER
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),TFDATE,轉檔日期,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),TRUST_ACNO,信託帳號,STRING
+custom,etlMatch_SUB_BOND,(ODS) 成交事件(複委託債券),etl_version,ETL事件版本,STRING
+custom,SellComfirm,存_賣出 03確認,purchaset_date,#申購日期(L),LIST
+custom,SellComfirm,存_賣出 03確認,$receive_time,寫入資料庫時間,NUMBER
+custom,SellComfirm,存_賣出 03確認,ButtonName,#按鈕名稱,STRING
+custom,SellComfirm,存_賣出 03確認,BuyOrSell,#交易買賣,STRING
+custom,SellComfirm,存_賣出 03確認,Kind,#商品別,STRING
+custom,SellComfirm,存_賣出 03確認,Market,#市場別,STRING
+custom,SellComfirm,存_賣出 03確認,PriceCost,#交易價格(委託/申購),NUMBER
+custom,SellComfirm,存_賣出 03確認,Pricetype,#申購類別,STRING
+custom,SellComfirm,存_賣出 03確認,Qty,#交易數量,NUMBER
+custom,SellComfirm,存_賣出 03確認,SharesUnit,#交易單位,STRING
+custom,SellComfirm,存_賣出 03確認,StockID,#商品代號,STRING
+custom,SellComfirm,存_賣出 03確認,StockName,#標的名稱,STRING
+custom,SellComfirm,存_賣出 03確認,fault_reason,#失敗原因,STRING
+custom,SellComfirm,存_賣出 03確認,outcome_status,#交易狀態,STRING
+custom,SellComfirm,存_賣出 03確認,platform,#觸發平台,STRING
+custom,Credit,開_05 徵信資料,ButtonName,#按鈕名稱,STRING
+custom,Credit,開_05 徵信資料,platform,#觸發平台,STRING
+custom,dwt_appclick,大戶投點擊,dwt_appclick_content,大戶投點擊內容_,STRING
+custom,dwt_appclick,大戶投點擊,dwt_appclick_name,大戶投點擊名稱,STRING
+custom,dwt_appclick,大戶投點擊,dwt_appclick_tag,大戶投點擊標籤_,STRING
+custom,Surveycake_formSubmitDetail,Surveycake_formSubmitDetail,form_id,form_id,STRING
+custom,Surveycake_formSubmitDetail,Surveycake_formSubmitDetail,form_label,form_label,STRING
+custom,Surveycake_formSubmitDetail,Surveycake_formSubmitDetail,form_subject_answer,form_subject_answer,LIST
+custom,Surveycake_formSubmitDetail,Surveycake_formSubmitDetail,form_subject_answer_list,form_subject_answer_list,LIST
+custom,Surveycake_formSubmitDetail,Surveycake_formSubmitDetail,form_subject_number,form_subject_number,NUMBER
+custom,Surveycake_formSubmitDetail,Surveycake_formSubmitDetail,form_subject_otheranswer,form_subject_otheranswer,LIST
+custom,Surveycake_formSubmitDetail,Surveycake_formSubmitDetail,form_subject_title,問卷題目 form_subject_title,STRING
+custom,Surveycake_formSubmitDetail,Surveycake_formSubmitDetail,form_subject_type,form_subject_type,STRING
+custom,Surveycake_formSubmitDetail,Surveycake_formSubmitDetail,form_submit_time,form_submit_time,DATETIME
+custom,Surveycake_formSubmitDetail,Surveycake_formSubmitDetail,form_title,問卷名稱 form_title,STRING
+custom,richclub_lesson_page_view,瀏覽課程頁,lesson_id,課程ID,STRING
+custom,richclub_lesson_page_view,瀏覽課程頁,lesson_title,課程標題,STRING
+custom,richclub_lesson_page_view,瀏覽課程頁,lesson_type,課程類型,STRING
+custom,review_start_2025,跟風潮股開始_2025,jointime,#活動登錄-時間,DATETIME
+custom,review_start_2025,跟風潮股開始_2025,platform,#觸發平台,STRING
+custom,TradeLimit,(C)#數業理三變更額度,AccStat,(C)#帳戶狀態,STRING
+custom,TradeLimit,(C)#數業理三變更額度,AccountNo,(C)#客戶帳號,STRING
+custom,TradeLimit,(C)#數業理三變更額度,AllTradeLimit,(C)#本公司總歸戶單日買賣額度,NUMBER
+custom,TradeLimit,(C)#數業理三變更額度,BrokerID,#分公司代碼,STRING
+custom,TradeLimit,(C)#數業理三變更額度,BrokerName,#分公司名稱,STRING
+custom,TradeLimit,(C)#數業理三變更額度,DataDate,(C)#資料日期,DATETIME
+custom,TradeLimit,(C)#數業理三變更額度,DayECTradeLimit,(C)#本公司電子單日買賣額度,NUMBER
+custom,TradeLimit,(C)#數業理三變更額度,DayTradeLimit,(C)#本公司單日買賣額度,NUMBER
+custom,TradeLimit,(C)#數業理三變更額度,DeptName,(C)#隸屬分公司部門,STRING
+custom,TradeLimit,(C)#數業理三變更額度,FinalTradeDate,(C)#最後交易日,DATETIME
+custom,TradeLimit,(C)#數業理三變更額度,OpenSureDate,(C)#開戶完成日期,DATETIME
+custom,TradeLimit,(C)#數業理三變更額度,ProductNo,#產品別,STRING
+custom,TradeLimit,(C)#數業理三變更額度,QryStat,(B)#查找狀態,STRING
+custom,TradeLimit,(C)#數業理三變更額度,centerLoanBlance,(B)#借券中心借券餘額仟,NUMBER
+custom,TradeLimit,(C)#數業理三變更額度,stockBorrowLoanBalance,(B)#證券借貸借券餘額仟,NUMBER
+custom,TradeLimit,(C)#數業理三變更額度,stockMarginLoanBalance,(B)#證券借貸可借券總額度萬,NUMBER
+custom,ads_section,#廣告版位,ButtonName,#按鈕名稱,STRING
+custom,ads_section,#廣告版位,platform,#觸發平台,STRING
+custom,ads_section,#廣告版位,section_type,#版位類型,STRING
+custom,dwt_feedback,大戶投意見回饋,dwt_feedback_excellent,#很棒呦送出鍵,BOOL
+custom,dwt_feedback,大戶投意見回饋,dwt_feedback_notgood,#再加油送出鍵,BOOL
+custom,Sensors_Mail_Click,#Webhhok-EDM點擊,EMail,#開戶信箱,STRING
+custom,Sensors_Mail_Click,#Webhhok-EDM點擊,Name,#開戶姓名,STRING
+custom,Sensors_Mail_Click,#Webhhok-EDM點擊,button_code,#EDM原始碼(CTA),STRING
+custom,Sensors_Mail_Click,#Webhhok-EDM點擊,sf_plan_name,(SF)EDM 推播計劃名稱,STRING
+custom,Sensors_Mail_Click,#Webhhok-EDM點擊,target_url,#點擊連結 Click Url,STRING
+custom,etlOpenAccountDone_ST_LNA,(ODS)開戶事件(不限用途)_O,BROKERNO3_SACNO,BROKERNO3_SACNO,STRING
+custom,etlOpenAccountDone_ST_LNA,(ODS)開戶事件(不限用途)_O,BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlOpenAccountDone_ST_LNA,(ODS)開戶事件(不限用途)_O,BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlOpenAccountDone_ST_LNA,(ODS)開戶事件(不限用途)_O,ProductNo,#產品別,STRING
+custom,etlOpenAccountDone_ST_LNA,(ODS)開戶事件(不限用途)_O,SALE_EMP_BELON,(O)業績歸屬營業員工號,STRING
+custom,etlOpenAccountDone_ST_LNA,(ODS)開戶事件(不限用途)_O,SALE_NO_BELONG,(O)業績歸屬營業員代號,STRING
+custom,etlOpenAccountDone_ST_LNA,(ODS)開戶事件(不限用途)_O,S_ACNO,#客戶帳號,STRING
+custom,etlOpenAccountDone_ST_LNA,(ODS)開戶事件(不限用途)_O,S_ODATE,(O)開戶日期,STRING
+custom,etlOpenAccountDone_ST_LNA,(ODS)開戶事件(不限用途)_O,SubProduct,#子產品別,STRING
+custom,etlOpenAccountDone_ST_LNA,(ODS)開戶事件(不限用途)_O,etl_version,ETL事件版本,STRING
+custom,OpenAct,#線上開戶,$receive_time,寫入資料庫時間,NUMBER
+custom,OpenAct,#線上開戶,Account,#開戶帳號類別,STRING
+custom,OpenAct,#線上開戶,ButtonName,#按鈕名稱,STRING
+custom,OpenAct,#線上開戶,is_login,(X)#是否登入,BOOL
+custom,OpenAct,#線上開戶,platform,#觸發平台,STRING
+custom,Review2020_Share_Button,(X)享按鈕點擊_數位回顧2020,Review2020_groupCount,(X)#用戶分組__數位回顧2020,NUMBER
+custom,NoticeEvent,(C)#通知事件,AccountNo,(C)#客戶帳號,STRING
+custom,NoticeEvent,(C)#通知事件,BatchStep,#通知批次,STRING
+custom,NoticeEvent,(C)#通知事件,BrokerID,#分公司代碼,STRING
+custom,NoticeEvent,(C)#通知事件,DeptName,(C)#隸屬分公司部門,STRING
+custom,NoticeEvent,(C)#通知事件,MissMoney,#不足金額,NUMBER
+custom,NoticeEvent,(C)#通知事件,Mobile,#開戶手機,STRING
+custom,NoticeEvent,(C)#通知事件,NoticeName,#通知項目,STRING
+custom,NoticeEvent,(C)#通知事件,ProductNo,#產品別,STRING
+custom,NoticeEvent,(C)#通知事件,SettleAmt,#交割金額,NUMBER
+custom,etl_Login,(TRAN) 登入事件,etl_version,ETL事件版本,STRING
+custom,etl_Login,(TRAN) 登入事件,login_date,登入日期,STRING
+custom,etl_Login,(TRAN) 登入事件,login_time,登入時間,STRING
+custom,etl_Login,(TRAN) 登入事件,msg,備註,STRING
+custom,etl_Login,(TRAN) 登入事件,platform,#觸發平台,STRING
+custom,EnableAct,開_09帳戶啟用,Account,#開戶帳號類別,STRING
+custom,EnableAct,開_09帳戶啟用,ButtonName,#按鈕名稱,STRING
+custom,EnableAct,開_09帳戶啟用,platform,#觸發平台,STRING
+custom,view_gift,瀏覽紀念品,companycode,公司代碼,STRING
+custom,view_gift,瀏覽紀念品,companyname,公司名稱,STRING
+custom,view_gift,瀏覽紀念品,group,分群,STRING
+custom,view_gift,瀏覽紀念品,platform,#觸發平台,STRING
+custom,view_gift,瀏覽紀念品,st_platform,平台,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),BANK3_NO,(O)分行代號,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),BROKERNO4_SACNO,BROKERNO4_SACNO,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),BROKER_NO4,(O)券商代號,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),CNAME,(O)姓名,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),CUST_SOC,(O)客戶來源別(複委託),STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),ONLINE_CUS,(O)線上開戶(複委託),STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),OPEN_SOC,(O)客戶開戶來源別,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),O_MM_BRANCH,(O)推介分行別,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),O_MM_CORP,(O)推介單位,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),O_MM_EMP_NO,(O)推介行員代號,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),ProductNo,#產品別,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),S_ACNO,#客戶帳號,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),S_ODATE,(O)開戶日期,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),SubProduct,#子產品別,STRING
+custom,etlOpenAccountDone_SUB,(ODS) 開戶事件(複委託),etl_version,ETL事件版本,STRING
+custom,Sensors_Mail_Complain,#Webhhok-EDM抱怨,EMail,#開戶信箱,STRING
+custom,Sensors_Mail_Complain,#Webhhok-EDM抱怨,Name,#開戶姓名,STRING
+custom,Sensors_Mail_Complain,#Webhhok-EDM抱怨,sf_plan_name,(SF)EDM 推播計劃名稱,STRING
+custom,edm_sinopac,訂閱電子報,edm,訂閱電子報,BOOL
+custom,edm_sinopac,訂閱電子報,industry_tag,喜好標籤,STRING
+custom,edm_sinopac,訂閱電子報,latest_member_email,會員信箱(最近一次),STRING
+custom,edm_sinopac,訂閱電子報,member_email,會員信箱,STRING
+custom,edm_sinopac,訂閱電子報,platform,#觸發平台,STRING
+custom,edm_sinopac,訂閱電子報,st_platform,平台,STRING
+custom,DailyLabel,(C)#標籤事件,Label_Name,(C)#標籤名稱,STRING
+custom,DailyLabel,(C)#標籤事件,Label_Value,(C)#標籤值,STRING
+custom,Purchase,存_申購 01觸發,$receive_time,寫入資料庫時間,NUMBER
+custom,Purchase,存_申購 01觸發,ButtonName,#按鈕名稱,STRING
+custom,Purchase,存_申購 01觸發,BuyOrSell,#交易買賣,STRING
+custom,Purchase,存_申購 01觸發,Kind,#商品別,STRING
+custom,Purchase,存_申購 01觸發,Market,#市場別,STRING
+custom,Purchase,存_申購 01觸發,StockID,#商品代號,STRING
+custom,Purchase,存_申購 01觸發,StockName,#標的名稱,STRING
+custom,Purchase,存_申購 01觸發,platform,#觸發平台,STRING
+custom,ShortUrlRedirect,(SFN)#縮網址點擊,short_url_key,(X)#縮網址 key,STRING
+custom,ShortUrlRedirect,(SFN)#縮網址點擊,strProd,(X)#開戶專案 strProd,STRING
+custom,edm_stockaffairs_update,更新持股公司,companycode,公司代碼,STRING
+custom,edm_stockaffairs_update,更新持股公司,companyname,公司名稱,STRING
+custom,edm_stockaffairs_update,更新持股公司,latest_member_email,會員信箱(最近一次),STRING
+custom,edm_stockaffairs_update,更新持股公司,member_email,會員信箱,STRING
+custom,edm_stockaffairs_update,更新持股公司,platform,#觸發平台,STRING
+custom,edm_stockaffairs_update,更新持股公司,st_platform,平台,STRING
+custom,get_subbrokerage_quote,複委託查詢報價,StockID,#商品代號,STRING
+custom,get_subbrokerage_quote,複委託查詢報價,StockName,#標的名稱,STRING
+custom,get_subbrokerage_quote,複委託查詢報價,quoteType,連線機制,STRING
+custom,TouchPriceX,(L)iLeader觸價單設定記錄,BatchStep,#通知批次,STRING
+custom,TouchPriceX,(L)iLeader觸價單設定記錄,NoticeName,#通知項目,STRING
+custom,TouchPriceX,(L)iLeader觸價單設定記錄,ProductNo,#產品別,STRING
+custom,TouchPriceX,(L)iLeader觸價單設定記錄,SettleAmt,#交割金額,NUMBER
+custom,clickRecomTab,點擊主題推薦,platform,#觸發平台,STRING
+custom,clickRecomTab,點擊主題推薦,recomType,#推薦類型,STRING
+custom,clickRecomTab,點擊主題推薦,tab,#推薦分類,STRING
+custom,clickRecomTab,點擊主題推薦,testGroup,#分群,STRING
+custom,openact_mobile,開_02 開戶手機,$receive_time,寫入資料庫時間,NUMBER
+custom,openact_mobile,開_02 開戶手機,ButtonName,#按鈕名稱,STRING
+custom,openact_mobile,開_02 開戶手機,Mobile,#開戶手機,STRING
+custom,openact_mobile,開_02 開戶手機,page_url_path,(X)#網頁網址 page url,STRING
+custom,openact_mobile,開_02 開戶手機,platform,#觸發平台,STRING
+custom,Event_20230701,任務-旅遊金帶你飛(2023Q3),jointime,#活動登錄-時間,DATETIME
+custom,FormSubmit,(N)問卷提交,$receive_time,寫入資料庫時間,NUMBER
+custom,FormSubmit,(N)問卷提交,Feedback,(N)問卷意見,STRING
+custom,FormSubmit,(N)問卷提交,NpsScore,(N)NPS分數,NUMBER
+custom,FormSubmit,(N)問卷提交,ProjName,(N)節點名稱,STRING
+custom,FormSubmit,(N)問卷提交,ProjScore,(N)節點滿意度,NUMBER
+custom,FormSubmit,(N)問卷提交,RecommendProj,(N)推薦項目清單,LIST
+custom,Contract,開_06 契約簽署,ButtonName,#按鈕名稱,STRING
+custom,Contract,開_06 契約簽署,platform,#觸發平台,STRING
+custom,Sensors_Mail_Bounce,#Webhhok-EDM退信,EMail,#開戶信箱,STRING
+custom,Sensors_Mail_Bounce,#Webhhok-EDM退信,Name,#開戶姓名,STRING
+custom,Sensors_Mail_Bounce,#Webhhok-EDM退信,bounce_code,#EDM退件原因代碼,STRING
+custom,Sensors_Mail_Bounce,#Webhhok-EDM退信,bounce_reason,#EDM退件原因,STRING
+custom,Sensors_Mail_Bounce,#Webhhok-EDM退信,bounce_type,#EDM退件類別,STRING
+custom,Sensors_Mail_Bounce,#Webhhok-EDM退信,sf_plan_name,(SF)EDM 推播計劃名稱,STRING
+custom,PurchaseComfirm,存_申購 03確認,purchaset_date,#申購日期(L),LIST
+custom,PurchaseComfirm,存_申購 03確認,$receive_time,寫入資料庫時間,NUMBER
+custom,PurchaseComfirm,存_申購 03確認,ButtonName,#按鈕名稱,STRING
+custom,PurchaseComfirm,存_申購 03確認,BuyOrSell,#交易買賣,STRING
+custom,PurchaseComfirm,存_申購 03確認,Kind,#商品別,STRING
+custom,PurchaseComfirm,存_申購 03確認,Market,#市場別,STRING
+custom,PurchaseComfirm,存_申購 03確認,Pricetype,#申購類別,STRING
+custom,PurchaseComfirm,存_申購 03確認,PurchaseCost,#申購金額,NUMBER
+custom,PurchaseComfirm,存_申購 03確認,PurchasetDate,#申購日期,STRING
+custom,PurchaseComfirm,存_申購 03確認,Qty,#交易數量,NUMBER
+custom,PurchaseComfirm,存_申購 03確認,SharesUnit,#交易單位,STRING
+custom,PurchaseComfirm,存_申購 03確認,StockID,#商品代號,STRING
+custom,PurchaseComfirm,存_申購 03確認,StockName,#標的名稱,STRING
+custom,PurchaseComfirm,存_申購 03確認,platform,#觸發平台,STRING
+custom,gift_card_redeemed,05_兌換完成,S_IDNO,去識別化ID,STRING
+custom,gift_card_redeemed,05_兌換完成,gift_card_recipient,#兌換人ID,STRING
+custom,gift_card_redeemed,05_兌換完成,gift_card_recipient_acno,#兌換帳號,STRING
+custom,gift_card_redeemed,05_兌換完成,gift_card_recipient_brokerid,#兌換分公司,STRING
+custom,gift_card_redeemed,05_兌換完成,gift_card_recipient_unicode,#兌換通用碼,STRING
+custom,gift_card_redeemed,05_兌換完成,gift_card_serial_number,#禮券序號,STRING
+custom,gift_card_redeemed,05_兌換完成,gift_card_use_status,#禮券狀態,STRING
+custom,gift_card_redeemed,05_兌換完成,item_denominations,#商品面額,NUMBER
+custom,gift_card_redeemed,05_兌換完成,item_id,#商品編號,STRING
+custom,gift_card_redeemed,05_兌換完成,item_name,#商品名稱,STRING
+custom,gift_card_redeemed,05_兌換完成,item_price,#商品金額,NUMBER
+custom,gift_card_redeemed,05_兌換完成,transaction_denominations,#訂單面額,NUMBER
+custom,gift_card_redeemed,05_兌換完成,transaction_id,#訂單編號,STRING
+custom,gift_card_redeemed,05_兌換完成,transaction_price,#訂單金額,NUMBER
+custom,etlOpenAccountDone_ST_MT_N,(ODS) 開戶事件(信用),BROKERNO3_MT_ACNO,(Item_id) 分公司+信用戶帳號,STRING
+custom,etlOpenAccountDone_ST_MT_N,(ODS) 開戶事件(信用),BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlOpenAccountDone_ST_MT_N,(ODS) 開戶事件(信用),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlOpenAccountDone_ST_MT_N,(ODS) 開戶事件(信用),MT_ACNO,信用戶帳號,STRING
+custom,etlOpenAccountDone_ST_MT_N,(ODS) 開戶事件(信用),MT_ODATE,信用戶開戶日期,STRING
+custom,etlOpenAccountDone_ST_MT_N,(ODS) 開戶事件(信用),MT_OP_NO,信用戶開戶序號,STRING
+custom,etlOpenAccountDone_ST_MT_N,(ODS) 開戶事件(信用),ProductNo,#產品別,STRING
+custom,etlOpenAccountDone_ST_MT_N,(ODS) 開戶事件(信用),S_ACNO,#客戶帳號,STRING
+custom,etlOpenAccountDone_ST_MT_N,(ODS) 開戶事件(信用),SubProduct,#子產品別,STRING
+custom,etlOpenAccountDone_ST_MT_N,(ODS) 開戶事件(信用),etl_version,ETL事件版本,STRING
+custom,OpenBank,#銀行開戶,$receive_time,寫入資料庫時間,NUMBER
+custom,OpenBank,#銀行開戶,ButtonName,#按鈕名稱,STRING
+custom,OpenBank,#銀行開戶,platform,#觸發平台,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,AccountNo,(C)#客戶帳號,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,Bank_Digital,(C)#銀行大戶註記,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,BrokerID,#分公司代碼,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,BrokerName,#分公司名稱,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,DeptName,(C)#隸屬分公司部門,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,E_EMP,(C)#是否為員工戶,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,E_Gender,(C)#客戶性別,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,E_NP,(C)#是否為自然人,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,E_OTYPE,(C)#是否為大戶投,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,ORG_TYPE,(C)#客戶身分說明,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,OpenSureDate,(C)#開戶完成日期,DATETIME
+custom,OpenAccountSub,(C) 加開戶_開戶完成,ProductNo,#產品別,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,SALE_NO,(C)#營業員員編,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,SubProduct,#子產品別,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,WebCn,(C)#開戶來源(數位/指定),STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,WebMCategoryCn,(C)#進件來源主項 strWeb,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,WebOpactCN,(C)#進件來源(數位/指定),STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,WebPlatformCn,(C)#開戶來源(線上/臨櫃),STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,WebProjectCn,(C)#進件專案 strProd,STRING
+custom,OpenAccountSub,(C) 加開戶_開戶完成,subplatfromCn,(C)#加開戶來源,STRING
+custom,SignUp,#註冊會員,$receive_time,寫入資料庫時間,NUMBER
+custom,SignUp,#註冊會員,ButtonName,#按鈕名稱,STRING
+custom,SignUp,#註冊會員,menu,#目錄,STRING
+custom,SignUp,#註冊會員,platform,#觸發平台,STRING
+custom,SignUp,#註冊會員,section,#區塊目錄,STRING
+custom,SignUp,#註冊會員,signup_type,#註冊帳號類別,STRING
+custom,SignUp,#註冊會員,sub_menu,#子目錄,STRING
+custom,etl_Settlement_Lack,(ODS) 缺款通知,BATCHNOTIFY,通知批次,STRING
+custom,etl_Settlement_Lack,(ODS) 缺款通知,BROKER_NO4,(O)券商代號,STRING
+custom,etl_Settlement_Lack,(ODS) 缺款通知,CUS_MTEL,(O)手機電話,STRING
+custom,etl_Settlement_Lack,(ODS) 缺款通知,DATE_YMD,日期,STRING
+custom,etl_Settlement_Lack,(ODS) 缺款通知,LACK,不足金額,NUMBER
+custom,etl_Settlement_Lack,(ODS) 缺款通知,SETTLEMENT_MOUNT,交割金額,NUMBER
+custom,etl_Settlement_Lack,(ODS) 缺款通知,S_ACNO,#客戶帳號,STRING
+custom,etl_Settlement_Lack,(ODS) 缺款通知,etl_version,ETL事件版本,STRING
+custom,get_subbrokerage_api,複委託資料取得,endpoint,類型,STRING
+custom,Change,存_變更 01觸發,purchaset_date,#申購日期(L),LIST
+custom,Change,存_變更 01觸發,$receive_time,寫入資料庫時間,NUMBER
+custom,Change,存_變更 01觸發,ButtonName,#按鈕名稱,STRING
+custom,Change,存_變更 01觸發,BuyOrSell,#交易買賣,STRING
+custom,Change,存_變更 01觸發,Kind,#商品別,STRING
+custom,Change,存_變更 01觸發,Market,#市場別,STRING
+custom,Change,存_變更 01觸發,Pricetype,#申購類別,STRING
+custom,Change,存_變更 01觸發,PurchaseCost,#申購金額,NUMBER
+custom,Change,存_變更 01觸發,PurchasetDate,#申購日期,STRING
+custom,Change,存_變更 01觸發,Qty,#交易數量,NUMBER
+custom,Change,存_變更 01觸發,SharesUnit,#交易單位,STRING
+custom,Change,存_變更 01觸發,StockID,#商品代號,STRING
+custom,Change,存_變更 01觸發,StockName,#標的名稱,STRING
+custom,Change,存_變更 01觸發,platform,#觸發平台,STRING
+custom,egift_take,領取電子紀念品,companycode,公司代碼,STRING
+custom,egift_take,領取電子紀念品,companyname,公司名稱,STRING
+custom,egift_take,領取電子紀念品,latest_member_email,會員信箱(最近一次),STRING
+custom,egift_take,領取電子紀念品,member_email,會員信箱,STRING
+custom,egift_take,領取電子紀念品,platform,#觸發平台,STRING
+custom,egift_take,領取電子紀念品,st_platform,平台,STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),BROKERNO3_SACNO,BROKERNO3_SACNO,STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),CUADL,(O)線上開戶註記 / 舊:開戶來源(線上/臨櫃),STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),CUADM,(O)E_MAIL 位址,STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),CUAER,(O)客戶來源別(證券)/舊:開戶來源(數位/指定),STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),CUS_MTEL,(O)手機電話,STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),ProductNo,#產品別,STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),REF_BUS,(O)介紹單位,STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),REF_DEPT,(O)分行單位代號,STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),S_ACNO,#客戶帳號,STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),S_NAME,(O)個人姓名/公司簡稱,STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),S_ODATE,(O)開戶日期,STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),SubProduct,#子產品別,STRING
+custom,etlOpenAccountDone_ST,(ODS) 開戶事件(證券),etl_version,ETL事件版本,STRING
+custom,openact_profile,開_04 基本資料,$receive_time,寫入資料庫時間,NUMBER
+custom,openact_profile,開_04 基本資料,ButtonName,#按鈕名稱,STRING
+custom,openact_profile,開_04 基本資料,EMail,#開戶信箱,STRING
+custom,openact_profile,開_04 基本資料,MarketingAgree,#是否共同行銷,BOOL
+custom,openact_profile,開_04 基本資料,Mobile,#開戶手機,STRING
+custom,openact_profile,開_04 基本資料,Name,#開戶姓名,STRING
+custom,openact_profile,開_04 基本資料,page_url_path,(X)#網頁網址 page url,STRING
+custom,openact_profile,開_04 基本資料,platform,#觸發平台,STRING
+custom,etlOpenAccountDone_ST_LNA_N,(ODS)開戶事件(不限用途),BROKERNO3_SACNO,BROKERNO3_SACNO,STRING
+custom,etlOpenAccountDone_ST_LNA_N,(ODS)開戶事件(不限用途),BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlOpenAccountDone_ST_LNA_N,(ODS)開戶事件(不限用途),BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlOpenAccountDone_ST_LNA_N,(ODS)開戶事件(不限用途),ProductNo,#產品別,STRING
+custom,etlOpenAccountDone_ST_LNA_N,(ODS)開戶事件(不限用途),SALE_EMP_BELON,(O)業績歸屬營業員工號,STRING
+custom,etlOpenAccountDone_ST_LNA_N,(ODS)開戶事件(不限用途),SALE_NO_BELONG,(O)業績歸屬營業員代號,STRING
+custom,etlOpenAccountDone_ST_LNA_N,(ODS)開戶事件(不限用途),S_ACNO,#客戶帳號,STRING
+custom,etlOpenAccountDone_ST_LNA_N,(ODS)開戶事件(不限用途),S_ODATE,(O)開戶日期,STRING
+custom,etlOpenAccountDone_ST_LNA_N,(ODS)開戶事件(不限用途),SubProduct,#子產品別,STRING
+custom,etlOpenAccountDone_ST_LNA_N,(ODS)開戶事件(不限用途),etl_version,ETL事件版本,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),REBATE_DATE,REBATE實際撥扣日,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),TDCC_CODE,結構債TDCC CODE,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),ACC_TYPE,帳務別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),ANTE_BNK_ACC,上手保銀帳號,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),ANTE_BNK_CODE,上手保銀代號,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),ANTE_ID,上手編號,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),ANTE_NAME,上手名稱,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),APPLY_REP_DATE,申請匯回日,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),BE_BUSS_GROUP,歸屬事業群,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),BE_EMP_NAME,介紹人姓名,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),BE_EMP_NO,介紹人工號,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),BOND_TYPE,債券商品類別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),BROKERNO4_SACNO,BROKERNO4_SACNO,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),BROKER_NO4,(O)券商代號,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),BS_STATUS,(O)買賣別/舊:#交易買賣,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),COMMISSION,上手手續費,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),COMMISSION_CURR,上手手續費幣別(OSU),STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),COMMI_INOUT_DATE,上手收付日,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),COMMI_IN_DATE,上手匯入日,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),CUS_TYPE,客戶性質,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),Currency,(C)#幣別代碼,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),DATA_D,資料明細類別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),DATA_M,資料主類別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),DATA_S,資料次類別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),DEBIT_DATE,DEBIT_DATE,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),DELIVERY_DATE,交割日期 DELIVERY_DATE,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),DELIVERY_TYPE,客戶交割戶類別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),DELIVERY_WAY,交割方式,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),DIAL_DATE,撥客戶日,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),DOM_DWELLER,本國居民,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),DVP,DVP,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),EXCH_DATE,匯上手日,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),EXG,交收費,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),EXPENSE1,印花稅,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),EX_CODE,交易所代號,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),EX_INTEREST,前手息,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),EX_NAME,交易所名稱,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),FEE,(O)手續費/舊:手續費,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),FEE_CHG_DATE,手續費轉自有日期,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),FEE_CURR,客戶手續費幣別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),FEE_TW,手續費(台幣),NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),HANDLE_COMMI,上手應付金額_OSU,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),HANDLE_CUS,客戶應付金額_OSU,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),HOSTING_TYPE,託管類型,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),INOUT_CURR,應收付金額幣別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),INOUT_DATE,收付日,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),INVESTOR_PRO,商品限專業投資人,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),IS_STAFF,內部員工,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),IS_US,美國人,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),KYC_RANK_CODE,KYC,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),MAKET_FLAG,市場,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),MANAGE,管理費,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),MATCH_NO,成交單號,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),MTH_AMT,(O)成交金額,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),MTH_AMT_TW,(O)成交金額(台幣),NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),MTH_DATE,(O)成交日期/舊:委託日期,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),NET_FEE_CURR,淨收手費收入幣別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),NET_FEE_ORG,淨收手費,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),NET_FEE_TW,淨手續費 (約當台幣),NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),ORD_DATE,委託日期,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),ORD_NO,委託書編號,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),OTHER_FEE,其它費用,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),OTHER_FEE_CURR,其它費用幣別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),PAY_TYPE,款項別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),PI,PI,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),PLUS_FEE,外加手續費,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),PRICE,成交價位,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),PROC_DATE,資料處理日,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),ProductNo,#產品別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),Qty,#交易數量,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),RATE_DATE,匯率日期,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),RATE_TW,匯率(台幣),NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),RATE_USD,匯率(美元),NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),REBATE,REBATE,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),SALE_EMP_BELONG,業績歸屬營業員員工代號,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),SALE_EMP_NAME,營業員姓名,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),SALE_EMP_NO,營業員,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),SERVE,服務費,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),SETTLE,結算費,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),STOCKIN_EFFEC_DATE,庫存生效日,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),STOCK_FLAG,商品別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),STOCK_NAME,商品名稱,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),STOCK_NO,(O)商品代號/舊:商品代號,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),STOCK_TYPE,商品類型,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),S_ACNO,#客戶帳號,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),S_IDNO,去識別化ID,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),S_NAME,(O)個人姓名/公司簡稱,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),SubProduct,#子產品別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),TAX,(O)代扣稅款/交易稅,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),TOTAL_FEE,手續費總額,NUMBER
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),TRADE_FLAG,交易單類別,STRING
+custom,etlMatch_SUB_OSU,(ODS) 成交事件(複委託證券OSU),etl_version,ETL事件版本,STRING
+custom,review_download_2024,跟風潮股下載_2024,jointime,#活動登錄-時間,DATETIME
+custom,review_download_2024,跟風潮股下載_2024,page_type,跟風潮股下載頁面類型,STRING
+custom,review_download_2024,跟風潮股下載_2024,platform,#觸發平台,STRING
+custom,richclub_pay_confirm,確認付款（付費）,coupon_code,折扣碼序號,STRING
+custom,richclub_pay_confirm,確認付款（付費）,coupon_id,折扣碼ID,STRING
+custom,richclub_pay_confirm,確認付款（付費）,coupon_name,折扣碼名稱,STRING
+custom,richclub_pay_confirm,確認付款（付費）,discount,折扣金額,NUMBER
+custom,richclub_pay_confirm,確認付款（付費）,order_amount,訂單金額,NUMBER
+custom,richclub_pay_confirm,確認付款（付費）,order_email,訂購人信箱,STRING
+custom,richclub_pay_confirm,確認付款（付費）,order_id,訂單編號,STRING
+custom,richclub_pay_confirm,確認付款（付費）,order_price,折扣前訂單金額,NUMBER
+custom,richclub_pay_confirm,確認付款（付費）,plan_id,方案ID,STRING
+custom,richclub_pay_confirm,確認付款（付費）,plan_name,方案名稱,STRING
+custom,richclub_pay_confirm,確認付款（付費）,product_id,商品ID,STRING
+custom,richclub_pay_confirm,確認付款（付費）,product_title,商品標題,STRING
+custom,richclub_pay_confirm,確認付款（付費）,user_coupon_id,用戶折扣碼ID,STRING
+custom,etlCustomer_Tag,客戶標籤,PROCESS_DT,資料更新日期,STRING
+custom,etlCustomer_Tag,客戶標籤,ProductNo,#產品別,STRING
+custom,etlCustomer_Tag,客戶標籤,TAG_DATE,標籤基準日期,DATETIME
+custom,etlCustomer_Tag,客戶標籤,TAG_NAME,標籤名稱,STRING
+custom,etlCustomer_Tag,客戶標籤,TAG_OWNER,標籤擁有者,STRING
+custom,etlCustomer_Tag,客戶標籤,TAG_TYPE,標籤類型,STRING
+custom,etlCustomer_Tag,客戶標籤,UUID,UUID,STRING
+custom,etlCustomer_Tag,客戶標籤,etl_version,ETL事件版本,STRING
+custom,etlOpenAccountDone_ST_MT,(ODS) 開戶事件(信用)_O,BROKERNO3_MT_ACNO,(Item_id) 分公司+信用戶帳號,STRING
+custom,etlOpenAccountDone_ST_MT,(ODS) 開戶事件(信用)_O,BROKER_NO3,(O)公司代號(3碼),STRING
+custom,etlOpenAccountDone_ST_MT,(ODS) 開戶事件(信用)_O,BROKER_NO4_EX,(O)分公司(9Axx)/部門代號(4碼)/舊:分公司代碼,STRING
+custom,etlOpenAccountDone_ST_MT,(ODS) 開戶事件(信用)_O,MT_ACNO,信用戶帳號,STRING
+custom,etlOpenAccountDone_ST_MT,(ODS) 開戶事件(信用)_O,MT_ODATE,信用戶開戶日期,STRING
+custom,etlOpenAccountDone_ST_MT,(ODS) 開戶事件(信用)_O,MT_OP_NO,信用戶開戶序號,STRING
+custom,etlOpenAccountDone_ST_MT,(ODS) 開戶事件(信用)_O,ProductNo,#產品別,STRING
+custom,etlOpenAccountDone_ST_MT,(ODS) 開戶事件(信用)_O,S_ACNO,#客戶帳號,STRING
+custom,etlOpenAccountDone_ST_MT,(ODS) 開戶事件(信用)_O,SubProduct,#子產品別,STRING
+custom,etlOpenAccountDone_ST_MT,(ODS) 開戶事件(信用)_O,etl_version,ETL事件版本,STRING
+custom,DeletePurchaseComfirm,存_停扣 02確認,purchaset_date,#申購日期(L),LIST
+custom,DeletePurchaseComfirm,存_停扣 02確認,$receive_time,寫入資料庫時間,NUMBER
+custom,DeletePurchaseComfirm,存_停扣 02確認,ButtonName,#按鈕名稱,STRING
+custom,DeletePurchaseComfirm,存_停扣 02確認,BuyOrSell,#交易買賣,STRING
+custom,DeletePurchaseComfirm,存_停扣 02確認,Kind,#商品別,STRING
+custom,DeletePurchaseComfirm,存_停扣 02確認,Market,#市場別,STRING
+custom,DeletePurchaseComfirm,存_停扣 02確認,Pricetype,#申購類別,STRING
+custom,DeletePurchaseComfirm,存_停扣 02確認,PurchaseCost,#申購金額,NUMBER
+custom,DeletePurchaseComfirm,存_停扣 02確認,PurchasetDate,#申購日期,STRING
+custom,DeletePurchaseComfirm,存_停扣 02確認,Qty,#交易數量,NUMBER
+custom,DeletePurchaseComfirm,存_停扣 02確認,SharesUnit,#交易單位,STRING
+custom,DeletePurchaseComfirm,存_停扣 02確認,StockID,#商品代號,STRING
+custom,DeletePurchaseComfirm,存_停扣 02確認,StockName,#標的名稱,STRING
+custom,DeletePurchaseComfirm,存_停扣 02確認,fault_reason,#失敗原因,STRING
+custom,DeletePurchaseComfirm,存_停扣 02確認,outcome_status,#交易狀態,STRING
+custom,DeletePurchaseComfirm,存_停扣 02確認,platform,#觸發平台,STRING
+autotrack,$AppEnd,App 退出,$anonymization_id,匿名化 ID,STRING
+autotrack,$AppEnd,App 退出,$app_id,APP ID,STRING
+autotrack,$AppEnd,App 退出,$app_name,APP名稱,STRING
+autotrack,$AppEnd,App 退出,$app_version,APP版本,STRING
+autotrack,$AppEnd,App 退出,$brand,裝置品牌(僅安卓),STRING
+autotrack,$AppEnd,App 退出,$carrier,電信公司,STRING
+autotrack,$AppEnd,App 退出,$city,城市,STRING
+autotrack,$AppEnd,App 退出,$country,國家,STRING
+autotrack,$AppEnd,App 退出,$device_id,設備ID first id,STRING
+autotrack,$AppEnd,App 退出,$event_duration,事件時長,NUMBER
+autotrack,$AppEnd,App 退出,$hdfs_import_batch_name,(X)數據清理用 2,STRING
+autotrack,$AppEnd,App 退出,$idmap_reason,關聯結果原因,STRING
+autotrack,$AppEnd,App 退出,$ip,IP位址,STRING
+autotrack,$AppEnd,App 退出,$is_first_day,是否首次發生,BOOL
+autotrack,$AppEnd,App 退出,$is_login_id,是否登入,BOOL
+autotrack,$AppEnd,App 退出,$latest_utm_campaign,utm_campaign 活動(最近一次),STRING
+autotrack,$AppEnd,App 退出,$latest_utm_content,utm_content 内容(最近一次),STRING
+autotrack,$AppEnd,App 退出,$latest_utm_medium,utm_medium 媒介(最近一次),STRING
+autotrack,$AppEnd,App 退出,$latest_utm_source,utm_source 來源(最近一次非即時),STRING
+autotrack,$AppEnd,App 退出,$latest_utm_term,utm_term 關鍵字(最近一次),STRING
+autotrack,$AppEnd,App 退出,$lib,SDK 類型,STRING
+autotrack,$AppEnd,App 退出,$lib_method,埋點類型(預設/自訂義),STRING
+autotrack,$AppEnd,App 退出,$lib_plugin_version,SDK 擴充元件版本,LIST
+autotrack,$AppEnd,App 退出,$lib_version,SDK 版本,STRING
+autotrack,$AppEnd,App 退出,$manufacturer,裝置品牌,STRING
+autotrack,$AppEnd,App 退出,$model,裝置型號,STRING
+autotrack,$AppEnd,App 退出,$network_type,網路類型,STRING
+autotrack,$AppEnd,App 退出,$os,作業系統,STRING
+autotrack,$AppEnd,App 退出,$os_version,作業系統版本,STRING
+autotrack,$AppEnd,App 退出,$province,省份,STRING
+autotrack,$AppEnd,App 退出,$receive_time,寫入資料庫時間,NUMBER
+autotrack,$AppEnd,App 退出,$referrer_title,前頁WebTitle,STRING
+autotrack,$AppEnd,App 退出,$screen_height,螢幕高度,NUMBER
+autotrack,$AppEnd,App 退出,$screen_name,APP 頁面名稱,STRING
+autotrack,$AppEnd,App 退出,$screen_orientation,螢幕方向,STRING
+autotrack,$AppEnd,App 退出,$screen_width,螢幕寬度,NUMBER
+autotrack,$AppEnd,App 退出,$timezone_offset,時區偏移量,NUMBER
+autotrack,$AppEnd,App 退出,$title,頁面標題,STRING
+autotrack,$AppEnd,App 退出,$track_signup_original_id,關聯匿名ID,STRING
+autotrack,$AppEnd,App 退出,$wifi,是否使用WIFI,BOOL
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$anonymization_id,匿名化 ID,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$app_id,APP ID,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$app_name,APP名稱,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$app_remote_config,(X)远程控制配置信息,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$app_version,APP版本,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$brand,裝置品牌(僅安卓),STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$carrier,電信公司,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$city,城市,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$country,國家,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$device_id,設備ID first id,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$hdfs_import_batch_name,(X)數據清理用 2,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$idmap_reason,關聯結果原因,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$ip,IP位址,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$is_first_day,是否首次發生,BOOL
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$is_login_id,是否登入,BOOL
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$latest_utm_campaign,utm_campaign 活動(最近一次),STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$latest_utm_content,utm_content 内容(最近一次),STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$latest_utm_medium,utm_medium 媒介(最近一次),STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$latest_utm_source,utm_source 來源(最近一次非即時),STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$latest_utm_term,utm_term 關鍵字(最近一次),STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$lib,SDK 類型,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$lib_method,埋點類型(預設/自訂義),STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$lib_version,SDK 版本,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$manufacturer,裝置品牌,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$model,裝置型號,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$network_type,網路類型,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$os,作業系統,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$os_version,作業系統版本,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$province,省份,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$receive_time,寫入資料庫時間,NUMBER
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$referrer_title,前頁WebTitle,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$screen_height,螢幕高度,NUMBER
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$screen_orientation,螢幕方向,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$screen_width,螢幕寬度,NUMBER
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$timezone_offset,時區偏移量,NUMBER
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$track_signup_original_id,關聯匿名ID,STRING
+autotrack,$AppRemoteConfigChanged,(X)远程控制配置变化,$wifi,是否使用WIFI,BOOL
+autotrack,$AppClick,App 點擊,nps_trade_record,點擊_交易紀錄_行為數據,STRING
+autotrack,$AppClick,App 點擊,$anonymization_id,匿名化 ID,STRING
+autotrack,$AppClick,App 點擊,$app_id,APP ID,STRING
+autotrack,$AppClick,App 點擊,$app_name,APP名稱,STRING
+autotrack,$AppClick,App 點擊,$app_version,APP版本,STRING
+autotrack,$AppClick,App 點擊,$brand,裝置品牌(僅安卓),STRING
+autotrack,$AppClick,App 點擊,$carrier,電信公司,STRING
+autotrack,$AppClick,App 點擊,$city,城市,STRING
+autotrack,$AppClick,App 點擊,$country,國家,STRING
+autotrack,$AppClick,App 點擊,$device_id,設備ID first id,STRING
+autotrack,$AppClick,App 點擊,$element_content,元素內容 Element Text,STRING
+autotrack,$AppClick,App 點擊,$element_id,元素ID Element ID,STRING
+autotrack,$AppClick,App 點擊,$element_path,元素根目錄 Element Path,STRING
+autotrack,$AppClick,App 點擊,$element_position,元素位置,STRING
+autotrack,$AppClick,App 點擊,$element_selector,元素篩選器 CSS選擇器,STRING
+autotrack,$AppClick,App 點擊,$element_type,元素類別 Element Type,STRING
+autotrack,$AppClick,App 點擊,$hdfs_import_batch_name,(X)數據清理用 2,STRING
+autotrack,$AppClick,App 點擊,$idmap_reason,關聯結果原因,STRING
+autotrack,$AppClick,App 點擊,$ip,IP位址,STRING
+autotrack,$AppClick,App 點擊,$is_first_day,是否首次發生,BOOL
+autotrack,$AppClick,App 點擊,$is_login_id,是否登入,BOOL
+autotrack,$AppClick,App 點擊,$latest_utm_campaign,utm_campaign 活動(最近一次),STRING
+autotrack,$AppClick,App 點擊,$latest_utm_content,utm_content 内容(最近一次),STRING
+autotrack,$AppClick,App 點擊,$latest_utm_medium,utm_medium 媒介(最近一次),STRING
+autotrack,$AppClick,App 點擊,$latest_utm_source,utm_source 來源(最近一次非即時),STRING
+autotrack,$AppClick,App 點擊,$latest_utm_term,utm_term 關鍵字(最近一次),STRING
+autotrack,$AppClick,App 點擊,$lib,SDK 類型,STRING
+autotrack,$AppClick,App 點擊,$lib_method,埋點類型(預設/自訂義),STRING
+autotrack,$AppClick,App 點擊,$lib_plugin_version,SDK 擴充元件版本,LIST
+autotrack,$AppClick,App 點擊,$lib_version,SDK 版本,STRING
+autotrack,$AppClick,App 點擊,$manufacturer,裝置品牌,STRING
+autotrack,$AppClick,App 點擊,$model,裝置型號,STRING
+autotrack,$AppClick,App 點擊,$network_type,網路類型,STRING
+autotrack,$AppClick,App 點擊,$os,作業系統,STRING
+autotrack,$AppClick,App 點擊,$os_version,作業系統版本,STRING
+autotrack,$AppClick,App 點擊,$province,省份,STRING
+autotrack,$AppClick,App 點擊,$receive_time,寫入資料庫時間,NUMBER
+autotrack,$AppClick,App 點擊,$referrer_title,前頁WebTitle,STRING
+autotrack,$AppClick,App 點擊,$screen_height,螢幕高度,NUMBER
+autotrack,$AppClick,App 點擊,$screen_name,APP 頁面名稱,STRING
+autotrack,$AppClick,App 點擊,$screen_orientation,螢幕方向,STRING
+autotrack,$AppClick,App 點擊,$screen_width,螢幕寬度,NUMBER
+autotrack,$AppClick,App 點擊,$timezone_offset,時區偏移量,NUMBER
+autotrack,$AppClick,App 點擊,$title,頁面標題,STRING
+autotrack,$AppClick,App 點擊,$track_signup_original_id,關聯匿名ID,STRING
+autotrack,$AppClick,App 點擊,$wifi,是否使用WIFI,BOOL
+autotrack,$WechatServiceMsgSendDone,微信客服消息终态信息,$sf_component_id,(SF)組件 ID,STRING
+autotrack,$WechatServiceMsgSendDone,微信客服消息终态信息,$sf_plan_version,(SF)畫布版本,STRING
+autotrack,$PlanSMSArrived,短信已送达,$sf_enter_strategy_unit_time,(SF)進入畫布策略時間,DATETIME
+autotrack,$PlanSMSArrived,短信已送达,$sf_event_receive_time,(SF)回執事件上報時間,DATETIME
+autotrack,$PlanSMSArrived,短信已送达,$sf_from_component_id,(SF)上一個畫布節點 ID,STRING
+autotrack,$PlanSMSArrived,短信已送达,$sf_project_id,(SF)項目ID,NUMBER
+autotrack,$PlanSMSArrived,短信已送达,$sf_send_time,(SF)訊息發送時間,DATETIME
+autotrack,$PlanSMSArrived,短信已送达,$sf_template_id,通道模板 ID,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$ip,IP位址,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$is_login_id,是否登入,BOOL
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$lib,SDK 類型,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$lib_version,SDK 版本,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_channel_category,(SF)推播管道類型,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_channel_id,(SF)推播管道ID,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_channel_service_name,(SF)推播管道廠商,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_component_id,(SF)組件 ID,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_enter_plan_time,(SF)推播發送時間,DATETIME
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_enter_strategy_unit_time,(SF)進入畫布策略時間,DATETIME
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_event_receive_time,(SF)回執事件上報時間,DATETIME
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_from_component_id,(SF)上一個畫布節點 ID,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_msg_id,(SF)推播內容ID,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_msg_recipient,收件人,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_msg_status,(SF)推播訊息狀態,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_plan_id,(SF)推播計劃 Plan ID,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_plan_strategy_id,(SF)對照組ID,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_plan_type,(SF)推播計畫類型,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_plan_version,(SF)畫布版本,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_project_id,(SF)項目ID,NUMBER
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_send_id,(SF)推播訊息發送 ID,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_send_time,(SF)訊息發送時間,DATETIME
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_strategy_unit_id,(SF)流程畫布策略器名稱,STRING
+autotrack,$PlanEDMShow,(SFN)郵件開啟,$sf_template_id,通道模板 ID,STRING
+autotrack,$AppPushClick,App 推送点击,$sf_enter_strategy_unit_time,(SF)進入畫布策略時間,DATETIME
+autotrack,$AppPushClick,App 推送点击,$sf_event_receive_time,(SF)回執事件上報時間,DATETIME
+autotrack,$AppPushClick,App 推送点击,$sf_from_component_id,(SF)上一個畫布節點 ID,STRING
+autotrack,$AppPushClick,App 推送点击,$sf_project_id,(SF)項目ID,NUMBER
+autotrack,$AppPushClick,App 推送点击,$sf_send_time,(SF)訊息發送時間,DATETIME
+autotrack,$AppPushClick,App 推送点击,$sf_template_id,通道模板 ID,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$app_id,APP ID,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$app_name,APP名稱,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$app_version,APP版本,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$brand,裝置品牌(僅安卓),STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$carrier,電信公司,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$city,城市,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$country,國家,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$deeplink_url,深層連結 Deeplink Url,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$device_id,設備ID first id,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$idmap_reason,關聯結果原因,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$ip,IP位址,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$is_first_day,是否首次發生,BOOL
+autotrack,$AppViewScreen,(X)App 瀏覽,$is_login_id,是否登入,BOOL
+autotrack,$AppViewScreen,(X)App 瀏覽,$latest_utm_campaign,utm_campaign 活動(最近一次),STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$latest_utm_medium,utm_medium 媒介(最近一次),STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$latest_utm_source,utm_source 來源(最近一次非即時),STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$lib,SDK 類型,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$lib_method,埋點類型(預設/自訂義),STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$lib_plugin_version,SDK 擴充元件版本,LIST
+autotrack,$AppViewScreen,(X)App 瀏覽,$lib_version,SDK 版本,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$manufacturer,裝置品牌,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$model,裝置型號,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$network_type,網路類型,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$os,作業系統,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$os_version,作業系統版本,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$province,省份,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$referrer,前頁URL,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$screen_height,螢幕高度,NUMBER
+autotrack,$AppViewScreen,(X)App 瀏覽,$screen_name,APP 頁面名稱,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$screen_width,螢幕寬度,NUMBER
+autotrack,$AppViewScreen,(X)App 瀏覽,$timezone_offset,時區偏移量,NUMBER
+autotrack,$AppViewScreen,(X)App 瀏覽,$title,頁面標題,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$track_signup_original_id,關聯匿名ID,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$url,page url 網頁網址,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$utm_campaign,utm_campaign 活動,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$utm_medium,utm_medium 媒介,STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$utm_source,utm_source 來源(即時),STRING
+autotrack,$AppViewScreen,(X)App 瀏覽,$wifi,是否使用WIFI,BOOL
+autotrack,$WechatClickMenu,点击微信公众号菜单,$mp_event_key,公众号事件 KEY,STRING
+autotrack,$WechatClickMenu,点击微信公众号菜单,$mp_menu_id,公众号菜单 ID,STRING
+autotrack,$WechatClickMenu,点击微信公众号菜单,$mp_url,公众号消息链接,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$bot_name,爬蟲名稱,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$browser,瀏覽器名稱,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$browser_version,瀏覽器版本,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$channel_link_id,管道連結 ID,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$city,城市,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$country,國家,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$ip,IP位址,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$is_login_id,是否登入,BOOL
+autotrack,$AppChannelMatching,APP 管道比對,$manufacturer,裝置品牌,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$matching_key_list,渠道匹配关键字列表,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$model,裝置型號,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$os,作業系統,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$os_version,作業系統版本,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$province,省份,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$short_url_key,縮網址 Key,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$short_url_target,縮網址 到達網頁 Click Url,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$utm_campaign,utm_campaign 活動,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$utm_content,utm_content 内容,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$utm_matching_type,渠道追踪匹配模式,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$utm_medium,utm_medium 媒介,STRING
+autotrack,$AppChannelMatching,APP 管道比對,$utm_source,utm_source 來源(即時),STRING
+autotrack,$AppChannelMatching,APP 管道比對,$utm_term,utm_term 關鍵字,STRING
+autotrack,$AppChannelMatching,APP 管道比對,dd,静默创建_dd,STRING
+autotrack,$AppChannelMatching,APP 管道比對,strProd,(X)#開戶專案 strProd,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$ip,IP位址,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$is_login_id,是否登入,BOOL
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$lib,SDK 類型,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$lib_version,SDK 版本,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_channel_category,(SF)推播管道類型,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_channel_id,(SF)推播管道ID,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_channel_service_name,(SF)推播管道廠商,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_component_id,(SF)組件 ID,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_enter_plan_time,(SF)推播發送時間,DATETIME
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_enter_strategy_unit_time,(SF)進入畫布策略時間,DATETIME
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_event_receive_time,(SF)回執事件上報時間,DATETIME
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_from_component_id,(SF)上一個畫布節點 ID,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_msg_id,(SF)推播內容ID,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_msg_status,(SF)推播訊息狀態,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_plan_id,(SF)推播計劃 Plan ID,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_plan_strategy_id,(SF)對照組ID,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_plan_type,(SF)推播計畫類型,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_plan_version,(SF)畫布版本,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_project_id,(SF)項目ID,NUMBER
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_send_id,(SF)推播訊息發送 ID,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_send_time,(SF)訊息發送時間,DATETIME
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_strategy_unit_id,(SF)流程畫布策略器名稱,STRING
+autotrack,$PlanMsgArrived,(SFN)推播訊息到達,$sf_template_id,通道模板 ID,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,_latest_hashKey,最新一次_hashKey,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,_latest_ivKey,最新一次_ivKey,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,_latest_svid,最新一次_svid,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$bot_name,爬蟲名稱,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$browser,瀏覽器名稱,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$browser_version,瀏覽器版本,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$city,城市,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$country,國家,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$ip,IP位址,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$is_login_id,是否登入,BOOL
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$lib,SDK 類型,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$lib_version,SDK 版本,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$manufacturer,裝置品牌,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$model,裝置型號,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$os,作業系統,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$os_version,作業系統版本,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$province,省份,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$short_url_key,縮網址 Key,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$short_url_target,縮網址 到達網頁 Click Url,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$utm_campaign,utm_campaign 活動,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$utm_content,utm_content 内容,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$utm_medium,utm_medium 媒介,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$utm_source,utm_source 來源(即時),STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,$utm_term,utm_term 關鍵字,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,WebMCategoryCn,(C)#進件來源主項 strWeb,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,WebProjectCn,(C)#進件專案 strProd,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,hashKey,静默创建_hashKey,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,ivKey,静默创建_ivKey,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,strProd,(X)#開戶專案 strProd,STRING
+autotrack,$ShortUrlRedirect,$ShortUrlRedirect,svid,静默创建_svid,STRING
+autotrack,$WebPageLeave,Web 页面离开,$app_id,APP ID,STRING
+autotrack,$WebPageLeave,Web 页面离开,$app_name,APP名稱,STRING
+autotrack,$WebPageLeave,Web 页面离开,$app_version,APP版本,STRING
+autotrack,$WebPageLeave,Web 页面离开,$bot_name,爬蟲名稱,STRING
+autotrack,$WebPageLeave,Web 页面离开,$brand,裝置品牌(僅安卓),STRING
+autotrack,$WebPageLeave,Web 页面离开,$browser,瀏覽器名稱,STRING
+autotrack,$WebPageLeave,Web 页面离开,$browser_version,瀏覽器版本,STRING
+autotrack,$WebPageLeave,Web 页面离开,$carrier,電信公司,STRING
+autotrack,$WebPageLeave,Web 页面离开,$city,城市,STRING
+autotrack,$WebPageLeave,Web 页面离开,$country,國家,STRING
+autotrack,$WebPageLeave,Web 页面离开,$device_id,設備ID first id,STRING
+autotrack,$WebPageLeave,Web 页面离开,$event_duration,事件時長,NUMBER
+autotrack,$WebPageLeave,Web 页面离开,$idmap_reason,關聯結果原因,STRING
+autotrack,$WebPageLeave,Web 页面离开,$ip,IP位址,STRING
+autotrack,$WebPageLeave,Web 页面离开,$is_first_day,是否首次發生,BOOL
+autotrack,$WebPageLeave,Web 页面离开,$is_login_id,是否登入,BOOL
+autotrack,$WebPageLeave,Web 页面离开,$latest_referrer,推薦連結(最近一次),STRING
+autotrack,$WebPageLeave,Web 页面离开,$latest_search_keyword,搜索關鍵字(最近一次),STRING
+autotrack,$WebPageLeave,Web 页面离开,$latest_traffic_source_type,站外流量來源類型(最近一次),STRING
+autotrack,$WebPageLeave,Web 页面离开,$latest_utm_campaign,utm_campaign 活動(最近一次),STRING
+autotrack,$WebPageLeave,Web 页面离开,$latest_utm_content,utm_content 内容(最近一次),STRING
+autotrack,$WebPageLeave,Web 页面离开,$latest_utm_medium,utm_medium 媒介(最近一次),STRING
+autotrack,$WebPageLeave,Web 页面离开,$latest_utm_source,utm_source 來源(最近一次非即時),STRING
+autotrack,$WebPageLeave,Web 页面离开,$latest_utm_term,utm_term 關鍵字(最近一次),STRING
+autotrack,$WebPageLeave,Web 页面离开,$lib,SDK 類型,STRING
+autotrack,$WebPageLeave,Web 页面离开,$lib_version,SDK 版本,STRING
+autotrack,$WebPageLeave,Web 页面离开,$manufacturer,裝置品牌,STRING
+autotrack,$WebPageLeave,Web 页面离开,$model,裝置型號,STRING
+autotrack,$WebPageLeave,Web 页面离开,$network_type,網路類型,STRING
+autotrack,$WebPageLeave,Web 页面离开,$os,作業系統,STRING
+autotrack,$WebPageLeave,Web 页面离开,$os_version,作業系統版本,STRING
+autotrack,$WebPageLeave,Web 页面离开,$province,省份,STRING
+autotrack,$WebPageLeave,Web 页面离开,$referrer,前頁URL,STRING
+autotrack,$WebPageLeave,Web 页面离开,$referrer_host,前頁Domain,STRING
+autotrack,$WebPageLeave,Web 页面离开,$screen_height,螢幕高度,NUMBER
+autotrack,$WebPageLeave,Web 页面离开,$screen_width,螢幕寬度,NUMBER
+autotrack,$WebPageLeave,Web 页面离开,$timezone_offset,時區偏移量,NUMBER
+autotrack,$WebPageLeave,Web 页面离开,$title,頁面標題,STRING
+autotrack,$WebPageLeave,Web 页面离开,$track_signup_original_id,關聯匿名ID,STRING
+autotrack,$WebPageLeave,Web 页面离开,$url,page url 網頁網址,STRING
+autotrack,$WebPageLeave,Web 页面离开,$url_host,page host 網頁主域,STRING
+autotrack,$WebPageLeave,Web 页面离开,$url_path,page path 網頁根目錄,STRING
+autotrack,$WebPageLeave,Web 页面离开,$viewport_height,可見高度,NUMBER
+autotrack,$WebPageLeave,Web 页面离开,$viewport_position,已瀏覽頁面長度,NUMBER
+autotrack,$WebPageLeave,Web 页面离开,$viewport_width,可見寬度,NUMBER
+autotrack,$WebPageLeave,Web 页面离开,$wifi,是否使用WIFI,BOOL
+autotrack,$AppStartPassively,App 被啟動(for iOS),$anonymization_id,匿名化 ID,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$app_id,APP ID,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$app_name,APP名稱,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$app_version,APP版本,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$carrier,電信公司,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$city,城市,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$country,國家,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$device_id,設備ID first id,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$hdfs_import_batch_name,(X)數據清理用 2,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$idmap_reason,關聯結果原因,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$ip,IP位址,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$is_first_day,是否首次發生,BOOL
+autotrack,$AppStartPassively,App 被啟動(for iOS),$is_first_time,是否首次觸發,BOOL
+autotrack,$AppStartPassively,App 被啟動(for iOS),$is_login_id,是否登入,BOOL
+autotrack,$AppStartPassively,App 被啟動(for iOS),$lib,SDK 類型,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$lib_method,埋點類型(預設/自訂義),STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$lib_version,SDK 版本,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$manufacturer,裝置品牌,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$model,裝置型號,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$network_type,網路類型,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$os,作業系統,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$os_version,作業系統版本,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$province,省份,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$receive_time,寫入資料庫時間,NUMBER
+autotrack,$AppStartPassively,App 被啟動(for iOS),$resume_from_background,是否從背景啟動,BOOL
+autotrack,$AppStartPassively,App 被啟動(for iOS),$screen_height,螢幕高度,NUMBER
+autotrack,$AppStartPassively,App 被啟動(for iOS),$screen_width,螢幕寬度,NUMBER
+autotrack,$AppStartPassively,App 被啟動(for iOS),$timezone_offset,時區偏移量,NUMBER
+autotrack,$AppStartPassively,App 被啟動(for iOS),$track_signup_original_id,關聯匿名ID,STRING
+autotrack,$AppStartPassively,App 被啟動(for iOS),$wifi,是否使用WIFI,BOOL
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$city,城市,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$country,國家,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$hdfs_import_batch_name,(X)數據清理用 2,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$ip,IP位址,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$is_login_id,是否登入,BOOL
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$lib,SDK 類型,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$lib_version,SDK 版本,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$province,省份,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$receive_time,寫入資料庫時間,NUMBER
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$sf_audience_id,(SF)推播群組ID,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$sf_component_id,(SF)組件 ID,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$sf_conversion_attribution,(SF)目標轉化歸因類型,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$sf_convert_id,(SF)推播轉換ID(設置的目標順序),STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$sf_enter_plan_time,(SF)推播發送時間,DATETIME
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$sf_plan_id,(SF)推播計劃 Plan ID,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$sf_plan_strategy_id,(SF)對照組ID,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$sf_plan_type,(SF)推播計畫類型,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$sf_plan_version,(SF)畫布版本,STRING
+autotrack,$PlanConverted,(SF)推播轉換(目標完成指標),$sf_strategy_unit_id,(SF)流程畫布策略器名稱,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$city,城市,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$country,國家,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$hdfs_import_batch_name,(X)數據清理用 2,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$ip,IP位址,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$is_login_id,是否登入,BOOL
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$lib,SDK 類型,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$lib_version,SDK 版本,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$province,省份,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$receive_time,寫入資料庫時間,NUMBER
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_audience_id,(SF)推播群組ID,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_channel_category,(SF)推播管道類型,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_channel_id,(SF)推播管道ID,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_channel_service_name,(SF)推播管道廠商,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_component_id,(SF)組件 ID,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_enter_plan_time,(SF)推播發送時間,DATETIME
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_fail_reason,(SF)推播失敗原因,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_msg_content,(SF)推播內容,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_msg_id,(SF)推播內容ID,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_plan_id,(SF)推播計劃 Plan ID,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_plan_strategy_id,(SF)對照組ID,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_plan_type,(SF)推播計畫類型,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_plan_version,(SF)畫布版本,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_send_fail_code,(SF)通道發送失敗錯誤碼,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_send_id,(SF)推播訊息發送 ID,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_strategy_unit_id,(SF)流程畫布策略器名稱,STRING
+autotrack,$PlanMsgSendDone,(SFN)完成推播,$sf_succeed,(SF)是否推播成功,BOOL
+autotrack,$PlanMsgWouldNotSend,(SFN)推播訊息未送出,$ip,IP位址,STRING
+autotrack,$PlanMsgWouldNotSend,(SFN)推播訊息未送出,$is_login_id,是否登入,BOOL
+autotrack,$PlanMsgWouldNotSend,(SFN)推播訊息未送出,$lib,SDK 類型,STRING
+autotrack,$PlanMsgWouldNotSend,(SFN)推播訊息未送出,$lib_version,SDK 版本,STRING
+autotrack,$PlanMsgWouldNotSend,(SFN)推播訊息未送出,$sf_component_id,(SF)組件 ID,STRING
+autotrack,$PlanMsgWouldNotSend,(SFN)推播訊息未送出,$sf_enter_plan_time,(SF)推播發送時間,DATETIME
+autotrack,$PlanMsgWouldNotSend,(SFN)推播訊息未送出,$sf_not_send_reason,(SF)訊息未發送原因,STRING
+autotrack,$PlanMsgWouldNotSend,(SFN)推播訊息未送出,$sf_plan_id,(SF)推播計劃 Plan ID,STRING
+autotrack,$PlanMsgWouldNotSend,(SFN)推播訊息未送出,$sf_plan_strategy_id,(SF)對照組ID,STRING
+autotrack,$PlanMsgWouldNotSend,(SFN)推播訊息未送出,$sf_plan_type,(SF)推播計畫類型,STRING
+autotrack,$PlanMsgWouldNotSend,(SFN)推播訊息未送出,$sf_plan_version,(SF)畫布版本,STRING
+autotrack,$PlanMsgWouldNotSend,(SFN)推播訊息未送出,$sf_strategy_unit_id,(SF)流程畫布策略器名稱,STRING
+autotrack,$AppStart,App 啟動,$anonymization_id,匿名化 ID,STRING
+autotrack,$AppStart,App 啟動,$app_id,APP ID,STRING
+autotrack,$AppStart,App 啟動,$app_name,APP名稱,STRING
+autotrack,$AppStart,App 啟動,$app_version,APP版本,STRING
+autotrack,$AppStart,App 啟動,$brand,裝置品牌(僅安卓),STRING
+autotrack,$AppStart,App 啟動,$carrier,電信公司,STRING
+autotrack,$AppStart,App 啟動,$city,城市,STRING
+autotrack,$AppStart,App 啟動,$country,國家,STRING
+autotrack,$AppStart,App 啟動,$deeplink_url,深層連結 Deeplink Url,STRING
+autotrack,$AppStart,App 啟動,$device_id,設備ID first id,STRING
+autotrack,$AppStart,App 啟動,$hdfs_import_batch_name,(X)數據清理用 2,STRING
+autotrack,$AppStart,App 啟動,$idmap_reason,關聯結果原因,STRING
+autotrack,$AppStart,App 啟動,$ip,IP位址,STRING
+autotrack,$AppStart,App 啟動,$is_first_day,是否首次發生,BOOL
+autotrack,$AppStart,App 啟動,$is_first_time,是否首次觸發,BOOL
+autotrack,$AppStart,App 啟動,$is_login_id,是否登入,BOOL
+autotrack,$AppStart,App 啟動,$latest_utm_campaign,utm_campaign 活動(最近一次),STRING
+autotrack,$AppStart,App 啟動,$latest_utm_content,utm_content 内容(最近一次),STRING
+autotrack,$AppStart,App 啟動,$latest_utm_medium,utm_medium 媒介(最近一次),STRING
+autotrack,$AppStart,App 啟動,$latest_utm_source,utm_source 來源(最近一次非即時),STRING
+autotrack,$AppStart,App 啟動,$latest_utm_term,utm_term 關鍵字(最近一次),STRING
+autotrack,$AppStart,App 啟動,$lib,SDK 類型,STRING
+autotrack,$AppStart,App 啟動,$lib_method,埋點類型(預設/自訂義),STRING
+autotrack,$AppStart,App 啟動,$lib_plugin_version,SDK 擴充元件版本,LIST
+autotrack,$AppStart,App 啟動,$lib_version,SDK 版本,STRING
+autotrack,$AppStart,App 啟動,$manufacturer,裝置品牌,STRING
+autotrack,$AppStart,App 啟動,$model,裝置型號,STRING
+autotrack,$AppStart,App 啟動,$network_type,網路類型,STRING
+autotrack,$AppStart,App 啟動,$os,作業系統,STRING
+autotrack,$AppStart,App 啟動,$os_version,作業系統版本,STRING
+autotrack,$AppStart,App 啟動,$province,省份,STRING
+autotrack,$AppStart,App 啟動,$receive_time,寫入資料庫時間,NUMBER
+autotrack,$AppStart,App 啟動,$referrer_title,前頁WebTitle,STRING
+autotrack,$AppStart,App 啟動,$resume_from_background,是否從背景啟動,BOOL
+autotrack,$AppStart,App 啟動,$screen_height,螢幕高度,NUMBER
+autotrack,$AppStart,App 啟動,$screen_name,APP 頁面名稱,STRING
+autotrack,$AppStart,App 啟動,$screen_orientation,螢幕方向,STRING
+autotrack,$AppStart,App 啟動,$screen_width,螢幕寬度,NUMBER
+autotrack,$AppStart,App 啟動,$timezone_offset,時區偏移量,NUMBER
+autotrack,$AppStart,App 啟動,$title,頁面標題,STRING
+autotrack,$AppStart,App 啟動,$track_signup_original_id,關聯匿名ID,STRING
+autotrack,$AppStart,App 啟動,$utm_campaign,utm_campaign 活動,STRING
+autotrack,$AppStart,App 啟動,$utm_content,utm_content 内容,STRING
+autotrack,$AppStart,App 啟動,$utm_medium,utm_medium 媒介,STRING
+autotrack,$AppStart,App 啟動,$utm_source,utm_source 來源(即時),STRING
+autotrack,$AppStart,App 啟動,$utm_term,utm_term 關鍵字,STRING
+autotrack,$AppStart,App 啟動,$wifi,是否使用WIFI,BOOL
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$anonymization_id,匿名化 ID,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$app_id,APP ID,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$app_name,APP名稱,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$app_version,APP版本,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$brand,裝置品牌(僅安卓),STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$carrier,電信公司,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$city,城市,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$country,國家,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$deeplink_url,深層連結 Deeplink Url,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$device_id,設備ID first id,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$hdfs_import_batch_name,(X)數據清理用 2,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$idmap_reason,關聯結果原因,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$ip,IP位址,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$is_first_day,是否首次發生,BOOL
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$is_login_id,是否登入,BOOL
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$latest_utm_campaign,utm_campaign 活動(最近一次),STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$latest_utm_content,utm_content 内容(最近一次),STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$latest_utm_medium,utm_medium 媒介(最近一次),STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$latest_utm_source,utm_source 來源(最近一次非即時),STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$latest_utm_term,utm_term 關鍵字(最近一次),STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$lib,SDK 類型,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$lib_method,埋點類型(預設/自訂義),STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$lib_plugin_version,SDK 擴充元件版本,LIST
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$lib_version,SDK 版本,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$manufacturer,裝置品牌,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$model,裝置型號,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$network_type,網路類型,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$os,作業系統,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$os_version,作業系統版本,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$province,省份,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$receive_time,寫入資料庫時間,NUMBER
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$referrer_title,前頁WebTitle,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$sat_has_installed_app,互动事件是否为激活事件触发,BOOL
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$screen_height,螢幕高度,NUMBER
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$screen_width,螢幕寬度,NUMBER
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$timezone_offset,時區偏移量,NUMBER
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$track_signup_original_id,關聯匿名ID,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$utm_campaign,utm_campaign 活動,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$utm_content,utm_content 内容,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$utm_medium,utm_medium 媒介,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$utm_source,utm_source 來源(即時),STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$utm_term,utm_term 關鍵字,STRING
+autotrack,$AppDeeplinkLaunch,App 深層連結跳轉,$wifi,是否使用WIFI,BOOL
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$city,城市,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$country,國家,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$hdfs_import_batch_name,(X)數據清理用 2,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$ip,IP位址,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$is_login_id,是否登入,BOOL
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$lib,SDK 類型,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$lib_version,SDK 版本,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$province,省份,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$receive_time,寫入資料庫時間,NUMBER
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$sf_audience_id,(SF)推播群組ID,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$sf_channel_category,(SF)推播管道類型,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$sf_channel_id,(SF)推播管道ID,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$sf_channel_service_name,(SF)推播管道廠商,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$sf_component_id,(SF)組件 ID,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$sf_enter_plan_time,(SF)推播發送時間,DATETIME
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$sf_msg_id,(SF)推播內容ID,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$sf_plan_id,(SF)推播計劃 Plan ID,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$sf_plan_strategy_id,(SF)對照組ID,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$sf_plan_type,(SF)推播計畫類型,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$sf_plan_version,(SF)畫布版本,STRING
+autotrack,$PlanMsgSendPrepare,(SFN)準備推播,$sf_strategy_unit_id,(SF)流程畫布策略器名稱,STRING
+autotrack,$SignUp,關聯 ID,$anonymization_id,匿名化 ID,STRING
+autotrack,$SignUp,關聯 ID,$app_id,APP ID,STRING
+autotrack,$SignUp,關聯 ID,$app_name,APP名稱,STRING
+autotrack,$SignUp,關聯 ID,$app_version,APP版本,STRING
+autotrack,$SignUp,關聯 ID,$bot_name,爬蟲名稱,STRING
+autotrack,$SignUp,關聯 ID,$brand,裝置品牌(僅安卓),STRING
+autotrack,$SignUp,關聯 ID,$browser,瀏覽器名稱,STRING
+autotrack,$SignUp,關聯 ID,$browser_version,瀏覽器版本,STRING
+autotrack,$SignUp,關聯 ID,$carrier,電信公司,STRING
+autotrack,$SignUp,關聯 ID,$city,城市,STRING
+autotrack,$SignUp,關聯 ID,$country,國家,STRING
+autotrack,$SignUp,關聯 ID,$device_id,設備ID first id,STRING
+autotrack,$SignUp,關聯 ID,$hdfs_import_batch_name,(X)數據清理用 2,STRING
+autotrack,$SignUp,關聯 ID,$idmap_reason,關聯結果原因,STRING
+autotrack,$SignUp,關聯 ID,$ip,IP位址,STRING
+autotrack,$SignUp,關聯 ID,$is_first_day,是否首次發生,BOOL
+autotrack,$SignUp,關聯 ID,$is_login_id,是否登入,BOOL
+autotrack,$SignUp,關聯 ID,$latest_referrer,推薦連結(最近一次),STRING
+autotrack,$SignUp,關聯 ID,$latest_search_keyword,搜索關鍵字(最近一次),STRING
+autotrack,$SignUp,關聯 ID,$latest_traffic_source_type,站外流量來源類型(最近一次),STRING
+autotrack,$SignUp,關聯 ID,$latest_utm_campaign,utm_campaign 活動(最近一次),STRING
+autotrack,$SignUp,關聯 ID,$latest_utm_content,utm_content 内容(最近一次),STRING
+autotrack,$SignUp,關聯 ID,$latest_utm_medium,utm_medium 媒介(最近一次),STRING
+autotrack,$SignUp,關聯 ID,$latest_utm_source,utm_source 來源(最近一次非即時),STRING
+autotrack,$SignUp,關聯 ID,$latest_utm_term,utm_term 關鍵字(最近一次),STRING
+autotrack,$SignUp,關聯 ID,$lib,SDK 類型,STRING
+autotrack,$SignUp,關聯 ID,$lib_method,埋點類型(預設/自訂義),STRING
+autotrack,$SignUp,關聯 ID,$lib_version,SDK 版本,STRING
+autotrack,$SignUp,關聯 ID,$manufacturer,裝置品牌,STRING
+autotrack,$SignUp,關聯 ID,$model,裝置型號,STRING
+autotrack,$SignUp,關聯 ID,$network_type,網路類型,STRING
+autotrack,$SignUp,關聯 ID,$os,作業系統,STRING
+autotrack,$SignUp,關聯 ID,$os_version,作業系統版本,STRING
+autotrack,$SignUp,關聯 ID,$province,省份,STRING
+autotrack,$SignUp,關聯 ID,$referrer_title,前頁WebTitle,STRING
+autotrack,$SignUp,關聯 ID,$screen_height,螢幕高度,NUMBER
+autotrack,$SignUp,關聯 ID,$screen_width,螢幕寬度,NUMBER
+autotrack,$SignUp,關聯 ID,$timezone_offset,時區偏移量,NUMBER
+autotrack,$SignUp,關聯 ID,$title,頁面標題,STRING
+autotrack,$SignUp,關聯 ID,$track_signup_original_id,關聯匿名ID,STRING
+autotrack,$SignUp,關聯 ID,$url,page url 網頁網址,STRING
+autotrack,$SignUp,關聯 ID,$url_host,page host 網頁主域,STRING
+autotrack,$SignUp,關聯 ID,$viewport_height,可見高度,NUMBER
+autotrack,$SignUp,關聯 ID,$viewport_width,可見寬度,NUMBER
+autotrack,$SignUp,關聯 ID,$wifi,是否使用WIFI,BOOL
+autotrack,$SignUp,關聯 ID,is_login,(X)#是否登入,BOOL
+autotrack,$SignUp,關聯 ID,platform,#觸發平台,STRING
+autotrack,$PlanAudienceEnter,(SF)受眾用戶進入,$ip,IP位址,STRING
+autotrack,$PlanAudienceEnter,(SF)受眾用戶進入,$is_login_id,是否登入,BOOL
+autotrack,$PlanAudienceEnter,(SF)受眾用戶進入,$lib,SDK 類型,STRING
+autotrack,$PlanAudienceEnter,(SF)受眾用戶進入,$lib_version,SDK 版本,STRING
+autotrack,$PlanAudienceEnter,(SF)受眾用戶進入,$sf_component_id,(SF)組件 ID,STRING
+autotrack,$PlanAudienceEnter,(SF)受眾用戶進入,$sf_enter_plan_time,(SF)推播發送時間,DATETIME
+autotrack,$PlanAudienceEnter,(SF)受眾用戶進入,$sf_plan_id,(SF)推播計劃 Plan ID,STRING
+autotrack,$PlanAudienceEnter,(SF)受眾用戶進入,$sf_plan_type,(SF)推播計畫類型,STRING
+autotrack,$PlanAudienceEnter,(SF)受眾用戶進入,$sf_plan_version,(SF)畫布版本,STRING
+autotrack,$PlanAudienceEnter,(SF)受眾用戶進入,$sf_relevance_properties_value,关联属性值,STRING
+autotrack,$PlanAudienceEnter,(SF)受眾用戶進入,$sf_strategy_unit_id,(SF)流程畫布策略器名稱,STRING
+autotrack,$JourneyComponentEnter,旅程组件进入,$sf_component_id,(SF)組件 ID,STRING
+autotrack,$JourneyComponentEnter,旅程组件进入,$sf_plan_version,(SF)畫布版本,STRING
+autotrack,$WebClick,Web 點擊,$app_id,APP ID,STRING
+autotrack,$WebClick,Web 點擊,$app_name,APP名稱,STRING
+autotrack,$WebClick,Web 點擊,$app_version,APP版本,STRING
+autotrack,$WebClick,Web 點擊,$bot_name,爬蟲名稱,STRING
+autotrack,$WebClick,Web 點擊,$brand,裝置品牌(僅安卓),STRING
+autotrack,$WebClick,Web 點擊,$browser,瀏覽器名稱,STRING
+autotrack,$WebClick,Web 點擊,$browser_version,瀏覽器版本,STRING
+autotrack,$WebClick,Web 點擊,$carrier,電信公司,STRING
+autotrack,$WebClick,Web 點擊,$city,城市,STRING
+autotrack,$WebClick,Web 點擊,$country,國家,STRING
+autotrack,$WebClick,Web 點擊,$device_id,設備ID first id,STRING
+autotrack,$WebClick,Web 點擊,$element_class_name,元素類型 Element Class,STRING
+autotrack,$WebClick,Web 點擊,$element_content,元素內容 Element Text,STRING
+autotrack,$WebClick,Web 點擊,$element_id,元素ID Element ID,STRING
+autotrack,$WebClick,Web 點擊,$element_name,元素名稱 Element Name,STRING
+autotrack,$WebClick,Web 點擊,$element_path,元素根目錄 Element Path,STRING
+autotrack,$WebClick,Web 點擊,$element_position,元素位置,STRING
+autotrack,$WebClick,Web 點擊,$element_selector,元素篩選器 CSS選擇器,STRING
+autotrack,$WebClick,Web 點擊,$element_target_url,元素點擊網址 Click Url,STRING
+autotrack,$WebClick,Web 點擊,$element_type,元素類別 Element Type,STRING
+autotrack,$WebClick,Web 點擊,$hdfs_import_batch_name,(X)數據清理用 2,STRING
+autotrack,$WebClick,Web 點擊,$idmap_reason,關聯結果原因,STRING
+autotrack,$WebClick,Web 點擊,$ip,IP位址,STRING
+autotrack,$WebClick,Web 點擊,$is_first_day,是否首次發生,BOOL
+autotrack,$WebClick,Web 點擊,$is_login_id,是否登入,BOOL
+autotrack,$WebClick,Web 點擊,$latest_referrer,推薦連結(最近一次),STRING
+autotrack,$WebClick,Web 點擊,$latest_search_keyword,搜索關鍵字(最近一次),STRING
+autotrack,$WebClick,Web 點擊,$latest_traffic_source_type,站外流量來源類型(最近一次),STRING
+autotrack,$WebClick,Web 點擊,$latest_utm_campaign,utm_campaign 活動(最近一次),STRING
+autotrack,$WebClick,Web 點擊,$latest_utm_content,utm_content 内容(最近一次),STRING
+autotrack,$WebClick,Web 點擊,$latest_utm_medium,utm_medium 媒介(最近一次),STRING
+autotrack,$WebClick,Web 點擊,$latest_utm_source,utm_source 來源(最近一次非即時),STRING
+autotrack,$WebClick,Web 點擊,$latest_utm_term,utm_term 關鍵字(最近一次),STRING
+autotrack,$WebClick,Web 點擊,$lib,SDK 類型,STRING
+autotrack,$WebClick,Web 點擊,$lib_version,SDK 版本,STRING
+autotrack,$WebClick,Web 點擊,$manufacturer,裝置品牌,STRING
+autotrack,$WebClick,Web 點擊,$model,裝置型號,STRING
+autotrack,$WebClick,Web 點擊,$network_type,網路類型,STRING
+autotrack,$WebClick,Web 點擊,$os,作業系統,STRING
+autotrack,$WebClick,Web 點擊,$os_version,作業系統版本,STRING
+autotrack,$WebClick,Web 點擊,$page_x,页面 X 坐标,NUMBER
+autotrack,$WebClick,Web 點擊,$page_y,页面 Y 坐标,NUMBER
+autotrack,$WebClick,Web 點擊,$province,省份,STRING
+autotrack,$WebClick,Web 點擊,$receive_time,寫入資料庫時間,NUMBER
+autotrack,$WebClick,Web 點擊,$screen_height,螢幕高度,NUMBER
+autotrack,$WebClick,Web 點擊,$screen_width,螢幕寬度,NUMBER
+autotrack,$WebClick,Web 點擊,$timezone_offset,時區偏移量,NUMBER
+autotrack,$WebClick,Web 點擊,$title,頁面標題,STRING
+autotrack,$WebClick,Web 點擊,$track_signup_original_id,關聯匿名ID,STRING
+autotrack,$WebClick,Web 點擊,$url,page url 網頁網址,STRING
+autotrack,$WebClick,Web 點擊,$url_host,page host 網頁主域,STRING
+autotrack,$WebClick,Web 點擊,$url_path,page path 網頁根目錄,STRING
+autotrack,$WebClick,Web 點擊,$viewport_height,可見高度,NUMBER
+autotrack,$WebClick,Web 點擊,$viewport_width,可見寬度,NUMBER
+autotrack,$WebClick,Web 點擊,$wifi,是否使用WIFI,BOOL
+autotrack,$WebClick,Web 點擊,is_login,(X)#是否登入,BOOL
+autotrack,$WebClick,Web 點擊,platform,#觸發平台,STRING
+autotrack,AppCrashed,App 崩溃,$anonymization_id,匿名化 ID,STRING
+autotrack,AppCrashed,App 崩溃,$app_id,APP ID,STRING
+autotrack,AppCrashed,App 崩溃,$app_name,APP名稱,STRING
+autotrack,AppCrashed,App 崩溃,$app_version,APP版本,STRING
+autotrack,AppCrashed,App 崩溃,$brand,裝置品牌(僅安卓),STRING
+autotrack,AppCrashed,App 崩溃,$carrier,電信公司,STRING
+autotrack,AppCrashed,App 崩溃,$city,城市,STRING
+autotrack,AppCrashed,App 崩溃,$country,國家,STRING
+autotrack,AppCrashed,App 崩溃,$device_id,設備ID first id,STRING
+autotrack,AppCrashed,App 崩溃,$idmap_reason,關聯結果原因,STRING
+autotrack,AppCrashed,App 崩溃,$ip,IP位址,STRING
+autotrack,AppCrashed,App 崩溃,$is_first_day,是否首次發生,BOOL
+autotrack,AppCrashed,App 崩溃,$is_login_id,是否登入,BOOL
+autotrack,AppCrashed,App 崩溃,$latest_utm_campaign,utm_campaign 活動(最近一次),STRING
+autotrack,AppCrashed,App 崩溃,$latest_utm_content,utm_content 内容(最近一次),STRING
+autotrack,AppCrashed,App 崩溃,$latest_utm_medium,utm_medium 媒介(最近一次),STRING
+autotrack,AppCrashed,App 崩溃,$latest_utm_source,utm_source 來源(最近一次非即時),STRING
+autotrack,AppCrashed,App 崩溃,$latest_utm_term,utm_term 關鍵字(最近一次),STRING
+autotrack,AppCrashed,App 崩溃,$lib,SDK 類型,STRING
+autotrack,AppCrashed,App 崩溃,$lib_method,埋點類型(預設/自訂義),STRING
+autotrack,AppCrashed,App 崩溃,$lib_plugin_version,SDK 擴充元件版本,LIST
+autotrack,AppCrashed,App 崩溃,$lib_version,SDK 版本,STRING
+autotrack,AppCrashed,App 崩溃,$manufacturer,裝置品牌,STRING
+autotrack,AppCrashed,App 崩溃,$model,裝置型號,STRING
+autotrack,AppCrashed,App 崩溃,$network_type,網路類型,STRING
+autotrack,AppCrashed,App 崩溃,$os,作業系統,STRING
+autotrack,AppCrashed,App 崩溃,$os_version,作業系統版本,STRING
+autotrack,AppCrashed,App 崩溃,$province,省份,STRING
+autotrack,AppCrashed,App 崩溃,$referrer_title,前頁WebTitle,STRING
+autotrack,AppCrashed,App 崩溃,$screen_height,螢幕高度,NUMBER
+autotrack,AppCrashed,App 崩溃,$screen_width,螢幕寬度,NUMBER
+autotrack,AppCrashed,App 崩溃,$timezone_offset,時區偏移量,NUMBER
+autotrack,AppCrashed,App 崩溃,$track_signup_original_id,關聯匿名ID,STRING
+autotrack,AppCrashed,App 崩溃,$wifi,是否使用WIFI,BOOL
+autotrack,$WebStay,Web 停留,$app_id,APP ID,STRING
+autotrack,$WebStay,Web 停留,$app_name,APP名稱,STRING
+autotrack,$WebStay,Web 停留,$app_version,APP版本,STRING
+autotrack,$WebStay,Web 停留,$bot_name,爬蟲名稱,STRING
+autotrack,$WebStay,Web 停留,$brand,裝置品牌(僅安卓),STRING
+autotrack,$WebStay,Web 停留,$browser,瀏覽器名稱,STRING
+autotrack,$WebStay,Web 停留,$browser_version,瀏覽器版本,STRING
+autotrack,$WebStay,Web 停留,$carrier,電信公司,STRING
+autotrack,$WebStay,Web 停留,$city,城市,STRING
+autotrack,$WebStay,Web 停留,$country,國家,STRING
+autotrack,$WebStay,Web 停留,$device_id,設備ID first id,STRING
+autotrack,$WebStay,Web 停留,$event_duration,事件時長,NUMBER
+autotrack,$WebStay,Web 停留,$hdfs_import_batch_name,(X)數據清理用 2,STRING
+autotrack,$WebStay,Web 停留,$idmap_reason,關聯結果原因,STRING
+autotrack,$WebStay,Web 停留,$ip,IP位址,STRING
+autotrack,$WebStay,Web 停留,$is_first_day,是否首次發生,BOOL
+autotrack,$WebStay,Web 停留,$is_login_id,是否登入,BOOL
+autotrack,$WebStay,Web 停留,$latest_referrer,推薦連結(最近一次),STRING
+autotrack,$WebStay,Web 停留,$latest_search_keyword,搜索關鍵字(最近一次),STRING
+autotrack,$WebStay,Web 停留,$latest_traffic_source_type,站外流量來源類型(最近一次),STRING
+autotrack,$WebStay,Web 停留,$latest_utm_campaign,utm_campaign 活動(最近一次),STRING
+autotrack,$WebStay,Web 停留,$latest_utm_content,utm_content 内容(最近一次),STRING
+autotrack,$WebStay,Web 停留,$latest_utm_medium,utm_medium 媒介(最近一次),STRING
+autotrack,$WebStay,Web 停留,$latest_utm_source,utm_source 來源(最近一次非即時),STRING
+autotrack,$WebStay,Web 停留,$latest_utm_term,utm_term 關鍵字(最近一次),STRING
+autotrack,$WebStay,Web 停留,$lib,SDK 類型,STRING
+autotrack,$WebStay,Web 停留,$lib_version,SDK 版本,STRING
+autotrack,$WebStay,Web 停留,$manufacturer,裝置品牌,STRING
+autotrack,$WebStay,Web 停留,$model,裝置型號,STRING
+autotrack,$WebStay,Web 停留,$network_type,網路類型,STRING
+autotrack,$WebStay,Web 停留,$os,作業系統,STRING
+autotrack,$WebStay,Web 停留,$os_version,作業系統版本,STRING
+autotrack,$WebStay,Web 停留,$province,省份,STRING
+autotrack,$WebStay,Web 停留,$receive_time,寫入資料庫時間,NUMBER
+autotrack,$WebStay,Web 停留,$screen_height,螢幕高度,NUMBER
+autotrack,$WebStay,Web 停留,$screen_width,螢幕寬度,NUMBER
+autotrack,$WebStay,Web 停留,$timezone_offset,時區偏移量,NUMBER
+autotrack,$WebStay,Web 停留,$title,頁面標題,STRING
+autotrack,$WebStay,Web 停留,$track_signup_original_id,關聯匿名ID,STRING
+autotrack,$WebStay,Web 停留,$url,page url 網頁網址,STRING
+autotrack,$WebStay,Web 停留,$url_host,page host 網頁主域,STRING
+autotrack,$WebStay,Web 停留,$url_path,page path 網頁根目錄,STRING
+autotrack,$WebStay,Web 停留,$viewport_height,可見高度,NUMBER
+autotrack,$WebStay,Web 停留,$viewport_position,已瀏覽頁面長度,NUMBER
+autotrack,$WebStay,Web 停留,$viewport_width,可見寬度,NUMBER
+autotrack,$WebStay,Web 停留,$wifi,是否使用WIFI,BOOL
+autotrack,$WebStay,Web 停留,is_login,(X)#是否登入,BOOL
+autotrack,$WebStay,Web 停留,platform,#觸發平台,STRING
+autotrack,$JourneyExit,旅程退出,$sf_component_id,(SF)組件 ID,STRING
+autotrack,$JourneyExit,旅程退出,$sf_exit_reason,退出原因,STRING
+autotrack,$JourneyExit,旅程退出,$sf_plan_version,(SF)畫布版本,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$ip,IP位址,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$is_login_id,是否登入,BOOL
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$lib,SDK 類型,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$lib_version,SDK 版本,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_channel_category,(SF)推播管道類型,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_channel_id,(SF)推播管道ID,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_channel_service_name,(SF)推播管道廠商,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_component_id,(SF)組件 ID,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_enter_plan_time,(SF)推播發送時間,DATETIME
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_enter_strategy_unit_time,(SF)進入畫布策略時間,DATETIME
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_event_receive_time,(SF)回執事件上報時間,DATETIME
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_from_component_id,(SF)上一個畫布節點 ID,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_msg_id,(SF)推播內容ID,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_msg_recipient,收件人,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_msg_status,(SF)推播訊息狀態,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_plan_id,(SF)推播計劃 Plan ID,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_plan_strategy_id,(SF)對照組ID,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_plan_type,(SF)推播計畫類型,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_plan_version,(SF)畫布版本,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_project_id,(SF)項目ID,NUMBER
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_send_id,(SF)推播訊息發送 ID,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_send_time,(SF)訊息發送時間,DATETIME
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_strategy_unit_id,(SF)流程畫布策略器名稱,STRING
+autotrack,$PlanEDMClick,(SFN)郵件點擊,$sf_template_id,通道模板 ID,STRING
+autotrack,$pageview,Web 瀏覽(PV),$app_id,APP ID,STRING
+autotrack,$pageview,Web 瀏覽(PV),$app_name,APP名稱,STRING
+autotrack,$pageview,Web 瀏覽(PV),$app_version,APP版本,STRING
+autotrack,$pageview,Web 瀏覽(PV),$bot_name,爬蟲名稱,STRING
+autotrack,$pageview,Web 瀏覽(PV),$brand,裝置品牌(僅安卓),STRING
+autotrack,$pageview,Web 瀏覽(PV),$browser,瀏覽器名稱,STRING
+autotrack,$pageview,Web 瀏覽(PV),$browser_version,瀏覽器版本,STRING
+autotrack,$pageview,Web 瀏覽(PV),$carrier,電信公司,STRING
+autotrack,$pageview,Web 瀏覽(PV),$city,城市,STRING
+autotrack,$pageview,Web 瀏覽(PV),$country,國家,STRING
+autotrack,$pageview,Web 瀏覽(PV),$device_id,設備ID first id,STRING
+autotrack,$pageview,Web 瀏覽(PV),$hdfs_import_batch_name,(X)數據清理用 2,STRING
+autotrack,$pageview,Web 瀏覽(PV),$idmap_reason,關聯結果原因,STRING
+autotrack,$pageview,Web 瀏覽(PV),$ip,IP位址,STRING
+autotrack,$pageview,Web 瀏覽(PV),$is_first_day,是否首次發生,BOOL
+autotrack,$pageview,Web 瀏覽(PV),$is_first_time,是否首次觸發,BOOL
+autotrack,$pageview,Web 瀏覽(PV),$is_login_id,是否登入,BOOL
+autotrack,$pageview,Web 瀏覽(PV),$latest_referrer,推薦連結(最近一次),STRING
+autotrack,$pageview,Web 瀏覽(PV),$latest_search_keyword,搜索關鍵字(最近一次),STRING
+autotrack,$pageview,Web 瀏覽(PV),$latest_traffic_source_type,站外流量來源類型(最近一次),STRING
+autotrack,$pageview,Web 瀏覽(PV),$latest_utm_campaign,utm_campaign 活動(最近一次),STRING
+autotrack,$pageview,Web 瀏覽(PV),$latest_utm_content,utm_content 内容(最近一次),STRING
+autotrack,$pageview,Web 瀏覽(PV),$latest_utm_medium,utm_medium 媒介(最近一次),STRING
+autotrack,$pageview,Web 瀏覽(PV),$latest_utm_source,utm_source 來源(最近一次非即時),STRING
+autotrack,$pageview,Web 瀏覽(PV),$latest_utm_term,utm_term 關鍵字(最近一次),STRING
+autotrack,$pageview,Web 瀏覽(PV),$lib,SDK 類型,STRING
+autotrack,$pageview,Web 瀏覽(PV),$lib_version,SDK 版本,STRING
+autotrack,$pageview,Web 瀏覽(PV),$manufacturer,裝置品牌,STRING
+autotrack,$pageview,Web 瀏覽(PV),$model,裝置型號,STRING
+autotrack,$pageview,Web 瀏覽(PV),$network_type,網路類型,STRING
+autotrack,$pageview,Web 瀏覽(PV),$os,作業系統,STRING
+autotrack,$pageview,Web 瀏覽(PV),$os_version,作業系統版本,STRING
+autotrack,$pageview,Web 瀏覽(PV),$province,省份,STRING
+autotrack,$pageview,Web 瀏覽(PV),$receive_time,寫入資料庫時間,NUMBER
+autotrack,$pageview,Web 瀏覽(PV),$referrer,前頁URL,STRING
+autotrack,$pageview,Web 瀏覽(PV),$referrer_host,前頁Domain,STRING
+autotrack,$pageview,Web 瀏覽(PV),$screen_height,螢幕高度,NUMBER
+autotrack,$pageview,Web 瀏覽(PV),$screen_width,螢幕寬度,NUMBER
+autotrack,$pageview,Web 瀏覽(PV),$timezone_offset,時區偏移量,NUMBER
+autotrack,$pageview,Web 瀏覽(PV),$title,頁面標題,STRING
+autotrack,$pageview,Web 瀏覽(PV),$track_signup_original_id,關聯匿名ID,STRING
+autotrack,$pageview,Web 瀏覽(PV),$url,page url 網頁網址,STRING
+autotrack,$pageview,Web 瀏覽(PV),$url_host,page host 網頁主域,STRING
+autotrack,$pageview,Web 瀏覽(PV),$url_path,page path 網頁根目錄,STRING
+autotrack,$pageview,Web 瀏覽(PV),$utm_campaign,utm_campaign 活動,STRING
+autotrack,$pageview,Web 瀏覽(PV),$utm_content,utm_content 内容,STRING
+autotrack,$pageview,Web 瀏覽(PV),$utm_medium,utm_medium 媒介,STRING
+autotrack,$pageview,Web 瀏覽(PV),$utm_source,utm_source 來源(即時),STRING
+autotrack,$pageview,Web 瀏覽(PV),$utm_term,utm_term 關鍵字,STRING
+autotrack,$pageview,Web 瀏覽(PV),$viewport_height,可見高度,NUMBER
+autotrack,$pageview,Web 瀏覽(PV),$viewport_width,可見寬度,NUMBER
+autotrack,$pageview,Web 瀏覽(PV),$wifi,是否使用WIFI,BOOL
+autotrack,$pageview,Web 瀏覽(PV),is_login,(X)#是否登入,BOOL
+autotrack,$pageview,Web 瀏覽(PV),platform,#觸發平台,STRING
