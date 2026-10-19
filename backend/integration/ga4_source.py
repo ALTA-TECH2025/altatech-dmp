@@ -20,8 +20,9 @@ BigQuery 讀取以注入的 client 進行（正式：google-cloud-bigquery Stora
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
@@ -57,9 +58,51 @@ PARAM_MAP = {"ga_session_id": "$session_id", "ga_session_number": "$session_numb
              "page_title": "$title", "engagement_time_msec": "$engagement_ms", "firebase_screen": "$screen_name"}
 
 
-def flatten(ev: dict[str, Any], bridge: dict[str, str], project: str, source: str, batch_id: str, ingest_ms: int) -> dict[str, Any]:
-    """一筆 GA4 匯出列 → dmp.events 的 JSONEachRow 列（ga4_mapping.yaml 的規則）。"""
+COMMON_PARAMS = {"symbol", "side", "amount", "channel", "entity_type", "entity_id", "market", "screen_class", "page_path", "link_url", "link_text", "method", "search_term",
+                 "content_type", "item_id", "item_name", "value", "currency", "transaction_id", "campaign", "source", "medium", "term", "content", "percent_scrolled", "video_title"}
+
+
+def allowed_params(events: dict[str, dict[str, Any]] | None = None, dims: Iterable[str] = (), extra: Iterable[str] = ()) -> set[str]:
+    """event_params 允許清單：GA 標準參數（PARAM_MAP）＋ 事件字典登記的 required／properties 鍵 ＋ dimensions.yaml 的維度 ＋ 常見 GA 參數 ＋ 任務自訂 extra_params。
+    不在清單的參數不進 props（計數回報，請到元事件管理登記）；這是 R04 的「允許欄位清單」。"""
+    out = set(PARAM_MAP) | set(COMMON_PARAMS) | set(dims) | set(extra)
+    for e in (events or {}).values():
+        out |= set(e.get("required") or [])
+        props = e.get("properties") or []
+        out |= {p.get("key") or p.get("name") for p in props if isinstance(p, dict)} | {p for p in props if isinstance(p, str)}
+    return {k for k in out if k}
+
+
+@dataclass
+class Gate:
+    """入倉守門（與 modeling 的 pii_scan 共用規則）：forbidden_l4 鍵名 + 巢狀個資樣式 → 隔離；allowed 是 event_params 允許清單（None＝不過濾）。"""
+    forbidden_l4: set[str]
+    allowed: set[str] | None = None
+
+    @classmethod
+    def load(cls, extra: Iterable[str] = ()) -> Gate:
+        from .modeling import Semantic
+        sem = Semantic.load()
+        dims = [d["name"] for d in yaml.safe_load((ROOT / "semantic" / "dimensions.yaml").read_text(encoding="utf-8")).get("dimensions", []) if d.get("name")]
+        return cls(forbidden_l4=set(sem.forbidden_l4), allowed=allowed_params(sem.events, dims, extra))
+
+    def reason(self, row: dict[str, Any]) -> str | None:
+        """整列（含 props 巢狀物件與陣列）掃一遍；有任何 L4 鍵或個資樣式就回隔離原因。"""
+        from .transforms import pii_scan_deep
+        hits = pii_scan_deep(row, forbidden_keys=self.forbidden_l4)
+        return ",".join(hits[:5]) if hits else None
+
+
+def flatten(ev: dict[str, Any], bridge: dict[str, str], project: str, source: str, batch_id: str, ingest_ms: int,
+            allowed: set[str] | None = None, dropped: dict[str, int] | None = None, forbidden: set[str] | None = None) -> dict[str, Any]:
+    """一筆 GA4 匯出列 → dmp.events 的 JSONEachRow 列（ga4_mapping.yaml 的規則）。allowed 給了就只保留清單內的 event_params（丟掉的計到 dropped）；
+    forbidden（L4 名稱）的鍵故意不丟，留給守門把整列隔離——追蹤碼送 L4 進來是要被看見的事故，不是靜默吞掉。"""
     params = _params(ev)
+    if allowed is not None:
+        for k in list(params):
+            if k not in allowed and str(k).lstrip("$") not in (forbidden or ()):
+                if dropped is not None: dropped[k] = dropped.get(k, 0) + 1
+                del params[k]
     name = ev["event_name"]; event = bridge.get(name, "ga." + name)
     ts_ms = int(ev["event_timestamp"]) // 1000
     pseudo = ev.get("user_pseudo_id") or ""; uid = ev.get("user_id") or ""
@@ -95,10 +138,14 @@ class Ga4Batch:
     unknown_events: dict[str, int]
     table: str
     skipped_reason: str | None = None
+    quarantined: list[tuple[dict[str, Any], str]] = field(default_factory=list)   # 入倉守門擋下的列（原列 + 原因），由 runner 寫 dmp.quarantine
+    dropped_params: dict[str, int] = field(default_factory=dict)                    # 不在允許清單、被丟掉的 event_params 鍵 → 次數
 
 
-def read(client: BigQueryLike, src: dict[str, Any], *, watermark: str | None, now: datetime, batch_id: str, project: str = "altatech_dmp") -> Ga4Batch:
-    """src: {kind: ga4, dataset: 'analytics_123', table_kind: intraday|fresh|daily|restate, tz: 'Asia/Taipei', day_offset?: int}"""
+def read(client: BigQueryLike, src: dict[str, Any], *, watermark: str | None, now: datetime, batch_id: str, project: str = "altatech_dmp", gate: Gate | None = None) -> Ga4Batch:
+    """src: {kind: ga4, dataset: 'analytics_123', table_kind: intraday|fresh|daily|restate, tz: 'Asia/Taipei', day_offset?: int, extra_params?: [..]}
+    gate 不給就用語意層預設（forbidden_l4 + 允許清單）；含 L4 鍵或個資樣式的列不進 rows，放 quarantined。"""
+    gate = gate or Gate.load(src.get("extra_params") or [])
     tz_off = int(src.get("tz_offset_hours", 8)); local = now + timedelta(hours=tz_off)
     kind = src["table_kind"]; ds = src["dataset"]; bridge = _bridge(); ingest_ms = int(now.timestamp() * 1000)
     if kind in ("intraday", "fresh"):
@@ -122,12 +169,16 @@ def read(client: BigQueryLike, src: dict[str, Any], *, watermark: str | None, no
         else:
             raw = list(client.rows(table)); wm = int(client.row_count(table))
         source = "ga360_daily"
-    rows, unknown = [], {}
+    rows, unknown, quarantined, dropped = [], {}, [], {}
     for ev in raw:
-        r = flatten(ev, bridge, project, source, batch_id, ingest_ms); rows.append(r)
+        r = flatten(ev, bridge, project, source, batch_id, ingest_ms, allowed=gate.allowed, dropped=dropped, forbidden=gate.forbidden_l4)
+        why = gate.reason(r)
+        if why:
+            quarantined.append((r, why)); continue
+        rows.append(r)
         if r["event"].startswith("ga."):
             unknown[r["event"]] = unknown.get(r["event"], 0) + 1
-    return Ga4Batch(rows, str(wm) if wm is not None else None, unknown, table)
+    return Ga4Batch(rows, str(wm) if wm is not None else None, unknown, table, quarantined=quarantined, dropped_params=dropped)
 
 
 class BigQueryClient:
@@ -202,4 +253,16 @@ if __name__ == "__main__":
     # 拒絕同意 → 不歸戶到客戶代碼
     ev = ga4_row(1, base, uid="v1_abc"); ev["privacy_info"] = {"analytics_storage": "No"}
     assert flatten(ev, {}, "p", "s", "b", 0)["one_id"] == "p1"
+    # 入倉守門（R04）：event_params 帶 email（L4 鍵）或值像個資（手機／身分證／email，含巢狀）→ 隔離不進 rows；未登記參數丟掉並計數；巢狀 $identities 正常保留
+    gate = Gate.load(); assert "email" in gate.forbidden_l4 and "symbol" in gate.allowed and "ga_session_id" in gate.allowed
+    bad1 = ga4_row(200, base + 200 * 60_000_000, "kh_apply", uid="v1_abc"); bad1["event_params"].append({"key": "email", "value": {"string_value": "fixture@example.test"}})
+    bad2 = ga4_row(201, base + 201 * 60_000_000, "kh_apply"); bad2["event_params"].append({"key": "page_location", "value": {"string_value": "https://sbp/x?tel=0912345678"}})
+    bad3 = ga4_row(202, base + 202 * 60_000_000, "kh_apply"); bad3["event_params"].append({"key": "search_term", "value": {"string_value": "A123456789"}})
+    odd = ga4_row(203, base + 203 * 60_000_000, "kh_apply"); odd["event_params"].append({"key": "my_custom_thing", "value": {"string_value": "x"}})
+    bq.tables["ds.events_intraday_20261017"] = [ga4_row(0, base + 86_400_000_000, uid="v1_abc"), bad1, bad2, bad3, odd]
+    g = read(bq, {"kind": "ga4", "dataset": "ds", "table_kind": "intraday"}, watermark=None, now=now + timedelta(days=1), batch_id="g")
+    assert len(g.rows) == 2 and len(g.quarantined) == 3 and g.dropped_params == {"my_custom_thing": 1}, (len(g.rows), g.quarantined, g.dropped_params)
+    reasons = sorted(r for _, r in g.quarantined); assert reasons == ["l4:props.email", "pii:props.$page_url:mobile", "pii:props.search_term:tw_id"], reasons
+    assert all("example.test" not in json.dumps(r) and "my_custom_thing" not in r["props"] for r in g.rows) and g.rows[0]["props"]["$identities"]["$identity_login_id"] == "v1_abc"
+    assert read(bq, {"kind": "ga4", "dataset": "ds", "table_kind": "intraday", "extra_params": ["my_custom_thing"]}, watermark=None, now=now + timedelta(days=1), batch_id="g2").dropped_params == {}
     print("ga4_source ok")

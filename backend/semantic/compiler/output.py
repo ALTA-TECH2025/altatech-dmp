@@ -14,6 +14,7 @@ from .catalog import Catalog
 from .events import Compiled, Ctx, group_sql, q
 from .parser import Query, TimeRange, parse_filters
 from .policy import budget, inject, mask_sql
+from .users import props_key_blocked
 
 EVENT_COLS: dict[str, str] = {"event": "string", "time": "date", "event_date": "date", "source": "string", "platform": "string", "app_id": "string", "symbol": "string", "side": "string",
                               "channel": "string", "amount": "number", "utm_source": "string", "utm_campaign": "string", "entity_type": "string", "entity_id": "string", "session_id": "string",
@@ -35,7 +36,7 @@ def check_columns(columns: list[str], cat: Catalog, decision: Any) -> tuple[list
     for c in columns:
         base = c.split(".", 1)[1] if c.startswith(("props.", "user.")) else c
         lv = level_of(c); pol = fp.get(base.lstrip("$"), fp.get(c, "plain"))
-        if base.lstrip("$") in cat.forbidden_l4 or lv in ("L3", "L4") or pol == "hide" or base == "one_id":
+        if base.lstrip("$") in cat.forbidden_l4 or lv in ("L3", "L4") or pol == "hide" or base == "one_id" or (c.startswith("props.") and props_key_blocked(base, cat, fp)):
             rejected.append(c); out.append({"name": c, "level": "L4" if base.lstrip("$") in cat.forbidden_l4 else lv, "policy": "rejected"}); continue
         out.append({"name": c, "level": lv, "policy": pol})
     return out, rejected

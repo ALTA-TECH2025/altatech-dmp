@@ -69,6 +69,7 @@
 | 保存到中間表（SQL 任務 → 任務管理 + 數據表管理）；添加到業務集市 | 相同（中間表可被標籤與分析引用） |
 | 跨專案查詢（平台帳號） | 保留：證券示範專案為單一專案 |
 | 脫敏預校驗：SQL 涉及脫敏欄位直接報錯 | 相同；另限制唯讀（SELECT／WITH），DDL／DML 拒絕 |
+| `props` 的查法 | 與時間軸／資料輸出同一套清理政策：`props` 整包（含 `toString(props)`、`JSONExtract*(props, …)`）不給查，因為巢狀 `$identities` 會跟著出來；`props.<鍵>` 逐鍵看，身分識別（`$identit*`）、L4 名稱、hide 策略的鍵拒絕，其餘照查 |
 
 執行引擎：Trino 做權限與遮罩改寫後下推 ClickHouse；資源群組 `dmp`（掃描 2 TB／查詢、逾時 300 s、每人 5 併發）；審計 `query.sql`、`export`。
 

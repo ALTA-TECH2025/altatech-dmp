@@ -25,7 +25,7 @@ from ..approvals.engine import ApprovalService, Conflict
 from ..security.policy import Subject, authorize, has_grant
 from ..semantic.compiler.catalog import Catalog
 from ..semantic.compiler.output import check_columns, compile_event_rows, count_event_rows
-from ..semantic.compiler.users import compile_estimate, compile_export, parse_users
+from ..semantic.compiler.users import compile_estimate, compile_export, parse_users, strip_props
 from .transport import OutboxUploader, Uploader
 
 TYPES = ("realtime", "once", "daily")
@@ -237,7 +237,7 @@ class OutputService:
         n = self._estimate(t, d, partition)
         if n > self.max_rows: warnings.append(f"預估 {n:,} 列超過單次上限 {self.max_rows:,}；請縮小事件清單或期間")
         comp = self._compile(t, d, partition, PREVIEW_ROWS)
-        sample = [self._public_row(r, t) for r in self._rows(comp.sql, comp.settings)]
+        sample = [self._public_row(r, t, d.field_policies) for r in self._rows(comp.sql, comp.settings)]
         self.store.audit("output_task.previewed", {"user": subject.user_id, "kind": kind, "rows_estimate": n, "columns": [c["name"] for c in plan]})
         return {"columns": [{**c, "cn": self._cn(c["name"])} for c in plan], "rejected": rejected, "rows_estimate": n, "scan_rows_estimate": n, "sample": sample, "warnings": warnings + comp.warnings,
                 "partition_date": partition.isoformat() if partition else None}
@@ -311,8 +311,8 @@ class OutputService:
         return self._public(t)
 
     # ---------------------------------------------------------------- 執行
-    def _public_row(self, r: dict[str, Any], t: dict[str, Any]) -> dict[str, Any]:
-        """內部 _one_id → 識別子欄；其餘照查出的（已遮罩）值。"""
+    def _public_row(self, r: dict[str, Any], t: dict[str, Any], fp: dict[str, str] | None = None) -> dict[str, Any]:
+        """內部 _one_id → 識別子欄；props 整包經共用清理（巢狀身分識別、L4、hide 都拿掉）；其餘照查出的（已遮罩）值。"""
         out: dict[str, Any] = {}
         oid = r.get("_one_id") if "_one_id" in r else r.get("one_id")
         ident = t["content"]["identifier"]
@@ -320,6 +320,7 @@ class OutputService:
             out[ident] = oid if ident == "one_id" else customer_code(str(oid), self.code_key)
         for k, v in r.items():
             if k in ("_one_id", "one_id", "_s", "_u"): continue
+            if k == "props": v = json.dumps(strip_props(v, self.cat, fp or {}), ensure_ascii=False)
             out[k] = v
         return out
 
@@ -340,7 +341,7 @@ class OutputService:
             owner = Subject(t["owner"], list(subject.roles) if subject.user_id == t["owner"] else self._owner_roles(t["owner"]))
             d = self._decision(owner, kind, export=True, approval_id=t["approval_id"])
             comp = self._compile(t, d, partition, self.max_rows + 1)
-            rows = [self._public_row(r, t) for r in self._rows(comp.sql, comp.settings)]
+            rows = [self._public_row(r, t, d.field_policies) for r in self._rows(comp.sql, comp.settings)]
             if len(rows) > self.max_rows: raise Conflict(f"列數超過單次上限 {self.max_rows:,}")
             wm = hashlib.sha256(f"{t['id']}|{run['id']}|{t['owner']}|{self._ts()}".encode()).hexdigest()[:12]
             files = self._write(t, run, rows, wm, partition)

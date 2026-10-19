@@ -18,6 +18,7 @@ from sqlglot import exp
 from ..semantic.compiler import Catalog
 from ..semantic.compiler.events import Compiled
 from ..semantic.compiler.events import q as sql_quote
+from ..semantic.compiler.users import props_key_blocked
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE_TABLES = ["events", "users", "user_tags", "segment_members"]
@@ -157,6 +158,17 @@ def compile_sql(sql: str, params: dict[str, Any] | None, decision: Any, cat: Cat
     hit += sorted({str(i.this) for i in root.find_all(exp.Identifier) if str(i.this) in blocked} - set(hit))
     if hit:
         raise SandboxError(f"SQL 涉及脫敏欄位，不可直接查詢：{', '.join(hit)}（可用 one_id_uint 做去重／關聯；明細請走用戶列表與揭露申請）")
+    # props 與時間軸／資料輸出同一套清理政策：整包（含 toString(props)、JSONExtract(props, …)）不給查，因為巢狀 $identities 會跟著出來；
+    # props.<鍵> 逐鍵看，身分識別／L4／hide 的鍵擋下。
+    fp = dict(getattr(decision, "field_policies", None) or {})
+    for c in root.find_all(exp.Column):
+        parts = [p.name for p in c.parts]
+        if "props" not in parts: continue
+        path = parts[parts.index("props") + 1:]
+        if not path:
+            raise SandboxError("props 整包不可直接查詢（含巢狀身分識別）：請指定 props.<鍵>，例如 props.market")
+        if any(props_key_blocked(p, cat, fp) for p in path):
+            raise SandboxError(f"props.{'.'.join(path)} 是身分識別／L4／隱藏欄位，不可查詢")
     limit = max(1, min(int(limit or MAX_LIMIT), MAX_LIMIT))
     inner = root.sql(dialect="clickhouse")
     wrapped = f"SELECT * FROM ({inner}) AS _q LIMIT {limit}"
@@ -175,11 +187,15 @@ def selftest() -> None:
     assert c2.sql.endswith("LIMIT 10") and c2.lineage == ["dmp.events"]
     for bad, why in [("INSERT INTO dmp.events SELECT 1", "SELECT"), ("DROP TABLE dmp.events", "SELECT"), ("SELECT 1; SELECT 2", "一條"), ("SELECT * FROM dmp.events SETTINGS max_threads=1", "SETTINGS"),
                      ("SELECT * FROM dmp.id_map", "權限"), ("SELECT * FROM other.events", "dmp"), ("SELECT * FROM file('x.csv')", "表函數"), ("SELECT one_id FROM dmp.events", "脫敏"),
-                     ("SELECT amount FROM dmp.events", "脫敏"), ("SELECT 1", "數據表"), ("SELECT * FROM dmp.events INTO OUTFILE 'x'", "OUTFILE")]:
+                     ("SELECT amount FROM dmp.events", "脫敏"), ("SELECT 1", "數據表"), ("SELECT * FROM dmp.events INTO OUTFILE 'x'", "OUTFILE"),
+                     ("SELECT props FROM dmp.events", "整包"), ("SELECT toString(e.props) FROM dmp.events e", "整包"), ("SELECT JSONExtractString(props, '$identity_login_id') FROM dmp.events", "整包"),
+                     ("SELECT props.`$identities` FROM dmp.events", "身分識別"), ("SELECT e.props.`$identities`.`$identity_login_id` FROM dmp.events e", "身分識別"),
+                     ("SELECT props.`$identity_login_id` FROM dmp.events", "身分識別"), ("SELECT props.email FROM dmp.events", "不可")]:
         try:
             compile_sql(bad, None, mkt if "amount" in bad else ana, cat, ["marketing"] if "amount" in bad else ["data_analyst"]); raise AssertionError(bad)
         except SandboxError as e:
             assert why in str(e) or why.lower() in str(e).lower(), (bad, str(e))
+    cp = compile_sql("SELECT props.market AS m, count() AS n FROM dmp.events GROUP BY m", None, ana, cat, ["data_analyst"]); assert "props.market" in cp.sql, cp.sql   # 一般鍵照查
     assert "amount" not in blocked_columns(["data_analyst"], cat) and "amount" in blocked_columns(["marketing"], cat) and "one_id" in blocked_columns(["data_analyst"], cat) and "one_id" not in blocked_columns(["admin"], cat)
     c3 = compile_sql("SELECT count() FROM dmp.events WHERE platform = {{p}} AND event_date >= {{d}}", {"p": "iOS", "d": "2026-10-01"}, ana, cat, ["data_analyst"])
     assert "'iOS'" in c3.sql and "'2026-10-01'" in c3.sql
@@ -198,7 +214,7 @@ def selftest() -> None:
     names = [t["name"] for t in tc["tables"]]; assert "dmp.events" in names and "dmp.id_map" not in names and "dmp.mid_vip" in names and "dmp.dim_instrument" in names
     ev = next(t for t in tc["tables"] if t["name"] == "dmp.events"); assert next(c for c in ev["columns"] if c["name"] == "one_id")["allowed"] is False and next(c for c in ev["columns"] if c["name"] == "amount")["allowed"] is True
     assert "dmp.id_map" in [t["name"] for t in table_catalog(["it_admin"], authorize(Subject("i", ["it_admin"]), "use", "events"), cat)["tables"]]
-    print("sql sandbox self-test ok: parse/readonly/tables/masked columns/params/row-level/catalog")
+    print("sql sandbox self-test ok: parse/readonly/tables/masked columns/props policy/params/row-level/catalog")
 
 
 if __name__ == "__main__":

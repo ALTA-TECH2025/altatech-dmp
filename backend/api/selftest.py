@@ -47,6 +47,8 @@ class FakeClickHouse:
         if "/* output_task_count */" in sql:
             return '{"n":2}\n'
         if "/* output_task */" in sql:                                                   # 資料輸出：事件明細（金額已在 SQL 端區間化）
+            if "toString(e.props)" in sql:                                           # 整包 props：倉裡有巢狀 $identities，輸出前要清掉
+                return '{"_one_id":"v1_abcdef1234","event":"bond_deal","props":"{\\"market\\":\\"TSE\\",\\"$identities\\":{\\"$identity_login_id\\":\\"L00001\\"},\\"nested\\":{\\"ok\\":[{\\"k\\":1,\\"$identity_login_id\\":\\"L00001\\"}],\\"email\\":\\"a@b.co\\"}}"}\n'
             return '{"_one_id":"v1_abcdef1234","event":"bond_deal","time":"2026-10-15 09:00:00.000","platform":"iOS","amount":"100000–500000","props.market":"TSE"}\n{"_one_id":"v1_zz","event":"bond_deal","time":"2026-10-15 09:05:00.000","platform":"Web","amount":"<0","props.market":"OTC"}\n'
         if "bitmapCardinality(" in sql:
             return '{"users":123}\n'
@@ -67,7 +69,7 @@ class FakeClickHouse:
         if "FROM dmp.segment_members WHERE one_id" in sql:
             return '{"segment_id":"vip"}\n'
         if "ORDER BY e.time DESC" in sql:
-            return '{"time":"2026-10-15 09:00:00.000","event":"bond_deal","platform":"iOS","channel":"app","symbol":"2330","side":"B","amount":"100000–500000","entity_type":"account","entity_id":"A1","session_id":"s1","event_id":"e1","props":{"market":"TSE","mobile":"0912","$identity_mobile_hash":"x"}}\n'
+            return '{"time":"2026-10-15 09:00:00.000","event":"bond_deal","platform":"iOS","channel":"app","symbol":"2330","side":"B","amount":"100000–500000","entity_type":"account","entity_id":"A1","session_id":"s1","event_id":"e1","props":{"market":"TSE","mobile":"0912","$identity_mobile_hash":"x","$identities":{"$identity_login_id":"L00001","$identity_cookie_id":"c1"},"nested":{"ok":[{"k":1,"$identity_login_id":"L00001"}],"email":"a@b.co"}}}\n'
         if "FROM dmp.id_edges" in sql:
             return '{"id_type_a":"login_id","id_a":"L00001","id_type_b":"device_id","id_b":"D00001a","source":"ga360.login","evidence_event_id":"ev1","first_seen":"2026-09-01 00:00:00.000","last_seen":"2026-10-15 12:00:00.000","seen_count":3,"confidence":1.0,"status":"active"}\n'
         if "ARRAY JOIN range(" in sql and "cohort" in sql:
@@ -223,7 +225,7 @@ def main(store: Any | None = None) -> None:
     pb = pr.json(); assert pb["one_id"] == "v1_abc****" and pb["props"]["aum"] == 1500000 and pb["segments"] == ["vip"] and pb["summary"]["total"] == 10 and pb["summary"]["events"][0]["cn"] and pb["masked"] == {"one_id": "mask_tail(4)"}, pb
     assert c.get("/v1/profiles/nope?reason=客訴單 C-1001").status_code == 404
     tl = c.get("/v1/profiles/v1_abcdef1234/timeline?reason=客訴單 C-1001&from=2026-10-01&to=2026-10-16&events=bond_deal&limit=50"); assert tl.status_code == 200, tl.text
-    tb = tl.json(); assert tb["rows"][0]["props"] == {"market": "TSE"} and tb["rows"][0]["cn"] and tb["next_cursor"] is None and "e.event IN ('bond_deal')" in tb["sql"], tb
+    tb = tl.json(); assert tb["rows"][0]["props"] == {"market": "TSE", "nested": {"ok": [{"k": 1}]}} and tb["rows"][0]["cn"] and tb["next_cursor"] is None and "e.event IN ('bond_deal')" in tb["sql"], tb
     ig = c.get("/v1/profiles/v1_abcdef1234/identities?reason=客訴單 C-1001").json()
     assert [n["value"] for n in ig["nodes"]] == ["L0****", "D00****"] and ig["edges"][0]["source"] == "ga360.login" and ig["masked"] == {"id": "mask_tail(4)"}, ig
     pv = [x for x in store.audit_tail(50) if x["event"] == "profile.viewed"]; assert pv and pv[-1]["reason"] == "客訴單 C-1001" and len(pv[-1]["one_id_hash"]) == 16 and "one_id" not in pv[-1]
@@ -356,6 +358,7 @@ def main(store: Any | None = None) -> None:
     sq = c.post("/v1/sql/query", json={"sql": "SELECT event_date AS bucket, count() AS m1 FROM dmp.events WHERE event = 'bond_deal' GROUP BY bucket", "limit": 100}); assert sq.status_code == 200, sq.text
     sqj = sq.json(); assert sqj["rows"] and sqj["sql_effective"].startswith("SELECT * FROM (") and sqj["sql_effective"].endswith("LIMIT 100") and sqj["lineage"] == ["dmp.events"] and sqj["scan_rows_estimate"] == 16384
     assert c.post("/v1/sql/query", json={"sql": "SELECT one_id FROM dmp.events"}).status_code == 400 and c.post("/v1/sql/query", json={"sql": "DROP TABLE dmp.events"}).status_code == 400
+    assert c.post("/v1/sql/query", json={"sql": "SELECT props FROM dmp.events"}).status_code == 400 and c.post("/v1/sql/query", json={"sql": "SELECT props.`$identities` FROM dmp.events"}).status_code == 400   # props 整包／身分識別鍵走同一套清理政策
     assert c.post("/v1/sql/query", json={"sql": "SELECT count() FROM dmp.events", "explain": True}).json()["explained"] is True
     hist = c.get("/v1/sql/history").json(); assert hist and hist[0]["status"] == "ok" and hist[0]["rows"] >= 1
     dl = c.get(f"/v1/sql/query/{sqj['run_id']}/download"); assert dl.status_code == 200 and dl.text.startswith("# AltaTech DMP 自定義 SQL") and "_watermark" in dl.text
@@ -702,6 +705,10 @@ def main(store: Any | None = None) -> None:
     _r = c.post("/v1/exports/tasks/preview", json={**body, "content": {**body["content"], "identifier": "one_id"}}); assert _r.status_code == 422, _r.text                 # 沒有揭露的分析師不能明文 one_id
     login(c, sm, ["data_analyst"], "ana")
     _r = c.post("/v1/exports/tasks/preview", json={**body, "type": "realtime"}); assert _r.status_code == 422, _r.text                                                   # realtime 不接 sftp
+    for col in ("props.$identities", "props.$identity_login_id", "props.email"):   # 身分識別／L4 鍵的 props.<鍵> 與時間軸同一套政策：不可輸出
+        _r = c.post("/v1/exports/tasks/preview", json={**body, "content": {**body["content"], "columns": ["event", col]}}); assert _r.status_code == 422 and col in _r.text, (col, _r.text)
+    pw = c.post("/v1/exports/tasks/preview", json={**body, "content": {**body["content"], "columns": ["event", "props"]}}); assert pw.status_code == 200, pw.text
+    pw = pw.json(); assert json.loads(pw["sample"][0]["props"]) == {"market": "TSE", "nested": {"ok": [{"k": 1}]}}, pw   # 整包 props 走共用清理：巢狀身分識別／L4 都拿掉
     pv = c.post("/v1/exports/tasks/preview", json=body); assert pv.status_code == 200, pv.text
     pv = pv.json(); assert pv["rows_estimate"] == 2 and pv["rejected"] == [] and next(x for x in pv["columns"] if x["name"] == "amount")["policy"] == "bucket" and pv["sample"][0]["customer_code"].startswith("cust_") and "_one_id" not in pv["sample"][0] and pv["sample"][0]["amount"] == "100000–500000", pv
     ot = c.post("/v1/exports/tasks", json=body); assert ot.status_code == 201, ot.text
