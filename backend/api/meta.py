@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..security.policy import Subject, authorize
 from ..semantic.compiler import Catalog
+from . import meta_templates as tpl
 from .analytics import Executor
 from .store import Store
 
@@ -616,5 +617,152 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
         store.put_item("virtual_property", v)
         store.audit("meta.virtual_property.created", {"user": subject.user_id, "name": name, "uses": uses})
         return {**v, "origin": "registered"}
+
+    # ---------- 範本下載／上傳（openapi /v1/meta/templates/{kind}）----------
+    def template_items(kind: str, subject: Subject) -> list[dict[str, Any]]:
+        if kind == "events":
+            return merged_events()
+        if kind == "properties":
+            return merged_properties()
+        return user_properties(subject)["items"]
+
+    @r.get("/v1/meta/templates/{kind}")
+    def download_template(kind: str, filled: bool = False, subject: Subject = Depends(get_subject)) -> Any:
+        need(subject, "view")
+        if kind not in tpl.KINDS:
+            raise HTTPException(404, f"kind 只能是 {tpl.KINDS}")
+        items = template_items(kind, subject) if filled else []
+        if filled:
+            store.audit("meta.template.downloaded", {"user": subject.user_id, "kind": kind, "rows": len(items)})
+        from fastapi.responses import Response
+        name = f"dmp-{kind}-{'export' if filled else 'template'}.csv"
+        return Response(tpl.to_csv(kind, items), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    def _plan_event(row: dict[str, Any], cur: dict[str, Any] | None, existing: set[str]) -> tuple[str, dict[str, Any], list[str]]:
+        if cur is None:
+            body = {**row, "status": row.get("status") or "draft", "entity": row.get("entity") or "user", "kind": row.get("kind") or "behavior"}
+            errs = check_event(body, existing, cat.forbidden_l4, is_new=True)
+            if body["status"] not in ("draft", "live"):
+                return "error", body, ["新事件 status 只能是 draft 或 live"]
+            hard = [x for x in errs if "L4" in x or "名稱" in x]           # 個資與命名任何狀態都擋；其餘缺漏（負責人等）草稿可先建
+            return ("error", body, errs) if hard or (body["status"] == "live" and errs) else ("create", body, [])
+        fields = {k: row[k] for k in ("cn", "group", "owner", "note", "source", "kind", "entity", "platforms") if row.get(k) and row[k] != (cur.get(k) or "")}
+        if row["properties"] and [(p["key"], p["required"]) for p in row["properties"]] != [(p["key"], p.get("required", True)) for p in cur.get("properties") or []]:
+            fields["properties"] = row["properties"]
+            bad = [p["key"] for p in row["properties"] if p.get("sensitivity") == "L4" or p["key"] in cat.forbidden_l4]
+            if bad:
+                return "error", fields, [f"屬性 {', '.join(bad)} 為 L4 個資，不得入倉"]
+        if not fields:
+            return "unchanged", fields, []
+        if cur.get("pending_change"):
+            return "error", fields, [f"已有待審變更單 {cur['pending_change']}，審完再改"]
+        big = cur["status"] == "live" and any(k in fields for k in ("properties", "entity", "kind"))
+        return ("change_request" if big else "update"), fields, []
+
+    def _plan_property(row: dict[str, Any], cur: dict[str, Any] | None) -> tuple[str, dict[str, Any], list[str]]:
+        key = row["key"]
+        body = {**(cur or {}), **{k: v for k, v in row.items() if v not in ("", [])}}
+        errs = []
+        if cur is None and not re.fullmatch(r"^\$?[a-z][a-z0-9_.]{0,63}$", key):
+            errs.append("新屬性名稱須為小寫英數與 _ .")
+        if body.get("sensitivity") == "L4" or key in cat.forbidden_l4:
+            errs.append("L4 個資屬性一律拒絕入倉")
+        if body.get("type") not in PROP_TYPES:
+            errs.append(f"type 只能是 {sorted(PROP_TYPES)}")
+        if body.get("sensitivity") not in LEVELS:
+            errs.append("sensitivity 只能是 L1–L3")
+        if cur and not errs:
+            if LEVELS.index(str(body["sensitivity"])) < LEVELS.index(cur["sensitivity"]):
+                errs.append(f"敏感等級只能升不能降（目前 {cur['sensitivity']}）")
+            if cur["type"] == "number" and body["type"] != "number":
+                errs.append("型別只能放寬，不能把數值改成其他型別")
+        if errs:
+            return "error", body, errs
+        if cur is None:
+            return "create", body, []
+        diff = [k for k in ("cn", "type", "scope", "sensitivity", "source", "enum", "unit") if row.get(k) not in ("", []) and row[k] != cur.get(k)]
+        return ("update" if diff else "unchanged"), {**body, "_changes": diff}, []
+
+    def _plan_user_prop(row: dict[str, Any], cur: dict[str, Any] | None) -> tuple[str, dict[str, Any], list[str]]:
+        key = row["key"]
+        body = {**(cur or {}), **{k: v for k, v in row.items() if v not in ("", [])}}
+        errs = []
+        if not re.fullmatch(r"^[a-z][a-z0-9_]{1,40}$", key):
+            errs.append("屬性名稱須為小寫英數底線")
+        if body.get("sensitivity") == "L4" or key in cat.forbidden_l4:
+            errs.append("L4 個資屬性永不入倉")
+        if body.get("sensitivity") not in LEVELS[:4]:
+            errs.append("sensitivity 只能是 L1–L3")
+        if errs:
+            return "error", body, errs
+        if cur is None:
+            return "create", body, []
+        diff = [k for k in ("cn", "type", "values", "source", "update", "sensitivity", "filterable", "groupable", "note") if row.get(k) not in ("", []) and row[k] != cur.get(k)]
+        if not diff:
+            return "unchanged", body, []
+        if cur.get("origin") == "catalog":
+            return "error", body, [f"語意層屬性（{', '.join(diff)}）的修改要走契約 PR，這裡不能直接改"]
+        if LEVELS.index(str(body["sensitivity"])) < LEVELS.index(str(cur.get("sensitivity") or "L1")):
+            return "error", body, [f"敏感等級只能升不能降（目前 {cur.get('sensitivity')}）"]
+        return "update", {**body, "_changes": diff}, []
+
+    @r.post("/v1/meta/templates/{kind}/import")
+    def import_template(kind: str, body: dict[str, Any], dry_run: bool = True, subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "use")
+        try:
+            rows = tpl.parse(kind, str(body.get("csv") or ""))
+        except tpl.TemplateError as e:
+            raise HTTPException(400, str(e)) from None
+        seen: set[str] = set(); out: list[dict[str, Any]] = []
+        if kind == "events":
+            cur = {e["name"]: e for e in merged_events()}
+        elif kind == "properties":
+            cur = {p["key"]: p for p in merged_properties()}
+        else:
+            cur = {p["key"]: p for p in user_properties(subject)["items"]}
+        for line, row, fmt_errs in rows:
+            key = str(row.get("name") or row.get("key") or "")
+            if not key:
+                out.append({"line": line, "key": "", "action": "error", "changes": [], "errors": ["第一欄（名稱）不可空白"]}); continue
+            if key in seen:
+                out.append({"line": line, "key": key, "action": "error", "changes": [], "errors": ["同一檔案內重複"]}); continue
+            seen.add(key)
+            if kind == "events":
+                action, payload, errs = _plan_event(row, cur.get(key), set(cur))
+            elif kind == "properties":
+                action, payload, errs = _plan_property(row, cur.get(key))
+            else:
+                action, payload, errs = _plan_user_prop(row, cur.get(key))
+            errs = fmt_errs + errs
+            if errs:
+                action = "error"
+            diff = payload.pop("_changes", [])
+            changes = (sorted(payload) if kind == "events" else diff) if action in ("update", "change_request") else []
+            res = {"line": line, "key": key, "action": action, "changes": changes, "errors": errs}
+            if not dry_run and action in ("create", "update", "change_request"):
+                try:
+                    if kind == "events":
+                        if action == "create":
+                            create_event(payload, subject)
+                        else:
+                            patch_event(key, {**payload, "reason": "範本上傳"}, subject)
+                    elif kind == "properties":
+                        p = {"id": key, "key": key, "cn": str(payload.get("cn") or key), "type": payload["type"], "scope": payload.get("scope") or "event", "sensitivity": payload["sensitivity"],
+                             "source": str(payload.get("source", "")), "enum": list(payload.get("enum") or []), "unit": str(payload.get("unit", "")), "status": "live", "registered_by": subject.user_id, "at": _now()}
+                        store.put_item("meta_property", p)
+                        store.audit("meta.property.registered", {"user": subject.user_id, "property": key, "sensitivity": p["sensitivity"], "update": action == "update", "via": "template"})
+                    elif action == "create":
+                        create_user_property(payload, subject)
+                    else:
+                        o = {k: v for k, v in payload.items() if k not in ("coverage", "stored", "hot", "origin")}
+                        store.put_item("user_property", {**o, "id": key, "updated_by": subject.user_id, "at": _now()})
+                        store.audit("meta.user_property.registered", {"user": subject.user_id, "property": key, "sensitivity": o.get("sensitivity"), "update": True, "via": "template"})
+                except HTTPException as e:
+                    res = {**res, "action": "error", "errors": [e.detail if isinstance(e.detail, str) else json.dumps(e.detail, ensure_ascii=False)]}
+            out.append(res)
+        summary = {a: sum(1 for x in out if x["action"] == a) for a in ("create", "update", "change_request", "unchanged", "error")}
+        if not dry_run:
+            store.audit("meta.template.imported", {"user": subject.user_id, "kind": kind, "rows": len(out), **summary})
+        return {"kind": kind, "applied": not dry_run, "total": len(out), "summary": summary, "rows": out}
 
     return r

@@ -582,6 +582,23 @@ def main(store: Any | None = None) -> None:
     assert c.post("/v1/meta/user-properties", json={"key": "cus_mtel", "cn": "手機", "type": "string", "sensitivity": "L4"}).status_code == 422
     assert c.post("/v1/meta/user-properties", json={"key": "tier", "cn": "x", "type": "enum"}).status_code == 409
     assert c.post("/v1/meta/user-properties", json={"key": "risk_level", "cn": "風險屬性", "type": "enum", "values": ["C1", "C2", "C3", "C4"], "source": "crm.cdc", "sensitivity": "L2"}).json()["status"] == "pending_contract"
+    from .meta_templates import selftest as templates_selftest
+    templates_selftest()
+    # 範本下載／上傳：先預覽不寫入，套用沿用單筆規則（L4 拒絕、等級只升、語意層屬性走契約）
+    t = c.get("/v1/meta/templates/events"); assert t.status_code == 200 and t.headers["content-type"].startswith("text/csv") and t.text.startswith("\ufeffname,cn,group")
+    assert "bond_order" in c.get("/v1/meta/templates/events", params={"filled": "true"}).text and c.get("/v1/meta/templates/nope").status_code == 404
+    hdr = "name,cn,group,entity,source,kind,platforms,owner,properties,status,note\n"
+    ev_csv = hdr + "fund_switch,基金轉換,基金,user,基金平台,business,服務端,財富管理,fund_code:string:L1; switch_fee:number:L2,draft,\nfund_redeem,基金贖回（新）,,,,,,,,,\nbad_pii,含個資,基金,user,基金平台,business,服務端,x,mobile:string:L4,draft,\nfund_switch,重複,,,,,,,,,\n#fund_x,說明列,,,,,,,,,\n"
+    pv = c.post("/v1/meta/templates/events/import", json={"csv": ev_csv}).json()
+    assert pv["applied"] is False and [x["action"] for x in pv["rows"]] == ["create", "update", "error", "error"] and pv["rows"][2]["line"] == 4 and "L4" in pv["rows"][2]["errors"][0], pv
+    assert not any(e["name"] == "fund_switch" for e in c.get("/v1/meta/events").json()["items"])           # 預覽不寫入
+    ap = c.post("/v1/meta/templates/events/import", params={"dry_run": "false"}, json={"csv": ev_csv}).json()
+    assert ap["applied"] and ap["summary"]["create"] == 1 and c.get("/v1/meta/events/fund_switch").json()["status"] == "draft" and c.get("/v1/meta/events/fund_redeem").json()["cn"] == "基金贖回（新）"
+    pr = c.post("/v1/meta/templates/properties/import", params={"dry_run": "false"}, json={"csv": "key,cn,type,scope,sensitivity,source,enum,unit\nswitch_reason,轉換原因,string,event,L1,基金平台,,\namount,金額,number,event,L1,,,\nplan_type,方案類型,string,event,L1,,,\n"}).json()
+    assert [x["action"] for x in pr["rows"]] == ["create", "error", "unchanged"] and "只能升" in pr["rows"][1]["errors"][0], pr
+    upr = c.post("/v1/meta/templates/user-properties/import", params={"dry_run": "false"}, json={"csv": "key,cn,type,values,source,update,sensitivity,filterable,groupable,note\ntier,等級X,,,,,,,,\nrisk_level,,,,,,L3,true,false,\nkyc_date,KYC 日期,date,,crm.cdc,daily,L2,true,false,\ncus_mtel,手機,string,,,,L4,false,false,\n"}).json()
+    assert [x["action"] for x in upr["rows"]] == ["error", "update", "create", "error"] and "契約" in upr["rows"][0]["errors"][0], upr
+    assert c.post("/v1/meta/templates/events/import", json={"csv": "cn,name\n"}).status_code == 400
     oi = c.get("/v1/meta/oneid/rules").json(); assert oi["ids"][0]["key"] == "$identity_login_id" and oi["strong_ids"] and oi["override"] is None
     ids = [{"key": i["key"], "priority": i["priority"], "max_count": i.get("max_count"), "over_limit": i.get("over_limit"), "status": i.get("status", "enabled")} for i in oi["ids"]]
     login(c, sm, ["digital_ops"], "ops"); assert c.put("/v1/meta/oneid/rules", json={"ids": ids}).status_code == 403     # 數位經營只能看
