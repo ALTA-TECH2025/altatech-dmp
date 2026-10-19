@@ -723,13 +723,26 @@ components:
       required: [metric, time]
       properties:
         metric: { type: string }
-        time: { type: object, properties: { from: { type: string }, to: { type: string }, grain: { type: string, enum: [hour, day, week, month] } } }
-        filters: { type: array, items: { type: object, properties: { dimension: { type: string }, op: { type: string }, value: {} } } }
-        group_by: { type: array, items: { type: string } }
+        time: { type: object, properties: { from: { type: string }, to: { type: string }, grain: { type: string, enum: [minute, hour, day, week, month, total] }, now: { type: string } } }
+        filters: { description: '全局篩選：陣列（＝且）或 { op: and|or, items: [條件或子群組] } 可巢狀；條件 { field, op, value }（事件欄位、維度、props.<key>、user.<key>、seg.<id>）', oneOf: [{ type: array, items: { type: object, properties: { field: { type: string }, op: { type: string }, value: {} } } }, { type: object, properties: { op: { type: string, enum: [and, or] }, items: { type: array, items: { type: object } } } }] }
+        group_by: { type: array, maxItems: 3, items: { type: string } }
         segment: { type: string }
+        behaviors: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/UsersBehavior' }, description: '行為篩選「用戶做過／未做過」：與用戶列表 behaviors 同一套（事件 × 指標 × 比較 × 期間 × 事件屬性條件）；行為的 time 未給時以查詢的 time 為期間（last_days 以 time.now 回推）；只算符合的用戶的事件，一律走明細層' }
+        behaviors_op: { type: string, enum: [and, or], default: and, description: 多條行為之間的組合 }
+        cohorts: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/Cohort' }, description: '對照組（最多 10 組）：每組一套篩選（filters／segment／behaviors），與全局篩選取交集後各算一次；結果每列多一欄 cohort（組名），rows 依組名順序串接；與 compare 可並用（每組各自比上期）' }
         compare: { type: string, enum: [previous_period, segment] }
         exact: { type: boolean, default: false, description: 'true＝一律走明細、不用日聚合層（次數／金額在聚合層本來就精確，這個開關用於對帳）' }
         estimate: { type: boolean, default: false, description: '快速估算（docs/04 §1.3）：true 時人數可走日聚合層（uniqMerge，近似值），回應 warnings 標示；預設 false＝人數精確去重。與 exact 同時為 true 時以 exact 為準' }
+    Cohort:
+      type: object
+      required: [name]
+      description: 對照組一組：名稱 + 自己的篩選；三種條件之間取交集（且）
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40, description: 組名（結果的 cohort 欄；同一查詢內不可重複） }
+        filters: { description: 同 SemanticQuery.filters（陣列或且／或樹） }
+        segment: { type: string, description: 等同 filters 加 seg.<id> in }
+        behaviors: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/UsersBehavior' } }
+        behaviors_op: { type: string, enum: [and, or], default: and }
     PathQuery:
       type: object
       required: [anchor, time]
@@ -803,10 +816,13 @@ components:
         metric: { type: string, enum: [users, times], default: users, description: times 需指定 relation（計算流程數） }
         group_by: { type: array, maxItems: 1, items: { type: string }, description: 分組值取自第一步事件 }
         trend: { type: string, enum: [day, week, month], description: 依第一步發生日期分桶 }
-        filters: { type: object, description: 全局篩選（同 SemanticQuery.filters） }
+        filters: { description: 全局篩選（同 SemanticQuery.filters：陣列或且／或樹） }
         segment: { type: string }
+        behaviors: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/UsersBehavior' }, description: 行為篩選（同 SemanticQuery.behaviors；只作用於進漏斗的用戶） }
+        behaviors_op: { type: string, enum: [and, or], default: and }
+        cohorts: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/Cohort' }, description: 對照組（同 SemanticQuery.cohorts；每列多一欄 cohort） }
         sample: { type: number, description: 按用戶抽樣比例 (0,1) }
-        time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string } } }
+        time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string }, now: { type: string } } }
     RetentionQuery:
       type: object
       required: [initial, time]
@@ -819,14 +835,17 @@ components:
         periods: { type: integer, minimum: 1, maximum: 90, default: 7 }
         include_day0: { type: boolean, default: false, description: 輸出第 0 期（當期回訪） }
         group_by: { type: array, maxItems: 1, items: { type: string }, description: 分組值取自初始事件 }
-        filters: { type: object }
+        filters: { description: 全局篩選（同 SemanticQuery.filters；只作用於初始行為） }
         segment: { type: string }
+        behaviors: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/UsersBehavior' }, description: 行為篩選（同 SemanticQuery.behaviors；只作用於進同期群的用戶） }
+        behaviors_op: { type: string, enum: [and, or], default: and }
+        cohorts: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/Cohort' }, description: 對照組（同 SemanticQuery.cohorts；每列多一欄 cohort） }
         sample: { type: number }
         time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string } }, description: 初始行為的日期範圍（同期群） }
     RetentionResult:
       type: object
       properties:
-        rows: { type: array, items: { type: object, properties: { cohort: { type: string }, g1: { type: string }, period: { type: integer }, users: { type: integer, nullable: true, description: 同期群人數 }, retained: { type: integer, nullable: true }, rate: { type: number, nullable: true }, complete: { type: boolean, description: 該期是否已過（未過的期數為不完整） }, suppressed: { type: boolean } } } }
+        rows: { type: array, items: { type: object, properties: { cohort: { type: string, description: 同期群（起始日期）；有 cohorts 時對照組名放 cohort_name }, cohort_name: { type: string, description: 對照組名（有 cohorts 時才有） }, g1: { type: string }, period: { type: integer }, users: { type: integer, nullable: true, description: 同期群人數 }, retained: { type: integer, nullable: true }, rate: { type: number, nullable: true }, complete: { type: boolean, description: 該期是否已過（未過的期數為不完整） }, suppressed: { type: boolean } } } }
         sql: { type: string }
         lineage: { type: array, items: { type: string } }
         cost: { type: object }
@@ -1056,7 +1075,8 @@ components:
         title: { type: string, minLength: 1, maxLength: 80 }
         kind: { type: string, enum: [events, funnel, retention, path, attribution, sql] }
         query: { type: object, additionalProperties: true, description: '對應 /v1/analytics/{kind} 的請求本體（EventsQuery／FunnelQuery／RetentionQuery／PathQuery／AttributionQuery）' }
-        chart: { type: string, enum: [auto, line, bar, stat, table], default: auto }
+        chart: { type: string, enum: [auto, line, area, bar, stacked, pie, percent, stat, table], default: auto, description: 'auto 依粒度與分組自動選；area 面積、stacked 堆疊長條、pie 圓餅（總量切片）、percent 百分比堆疊；只對 events／sql 卡片有意義' }
+        format: { type: string, enum: [auto, int, dec2, pct0, pct2, twd0, twd2], default: auto, description: '數值格式：auto 自動縮寫（萬／億）、int 取整、dec2 兩位小數、pct0／pct2 百分比、twd0／twd2 貨幣 NT$' }
         width: { type: integer, enum: [1, 2], default: 1, description: '1 = 半寬、2 = 全寬' }
         note: { type: string, maxLength: 200 }
     DashboardCard:
@@ -1114,7 +1134,7 @@ components:
     FunnelResult:
       type: object
       properties:
-        rows: { type: array, items: { type: object, properties: { bucket: { type: string }, g1: { type: string }, step: { type: integer }, alias: { type: string }, event: { type: string }, users: { type: integer, nullable: true }, rate_prev: { type: number, nullable: true }, rate_first: { type: number, nullable: true }, suppressed: { type: boolean } } } }
+        rows: { type: array, items: { type: object, properties: { cohort: { type: string, description: 有 cohorts 時才有 }, bucket: { type: string }, g1: { type: string }, step: { type: integer }, alias: { type: string }, event: { type: string }, users: { type: integer, nullable: true }, rate_prev: { type: number, nullable: true }, rate_first: { type: number, nullable: true }, suppressed: { type: boolean } } } }
         sql: { type: string }
         lineage: { type: array, items: { type: string } }
         cost: { type: object }
@@ -1129,7 +1149,8 @@ components:
     AnalyticsResult:
       type: object
       properties:
-        rows: { type: array, items: { type: object } }
+        rows: { type: array, items: { type: object }, description: '長表：[cohort,] [bucket,] g1..gn, 指標別名…, 公式別名…, _k, suppressed；有 cohorts 時第一欄是 cohort；compare 時每個指標多一欄 <別名>_prev' }
+        columns: { type: array, items: { type: string } }
         chart_spec: { type: object }
         sql: { type: string }
         lineage: { type: array, items: { type: string } }
@@ -1143,7 +1164,8 @@ components:
         description: { type: string, maxLength: 400 }
         kind: { type: string, enum: [events, funnel, retention, path, attribution, sql], description: 'sql = 自定義 SQL（query 為 {sql, params?}；以沙盒規則驗證，卡片以表格或折線／長條呈現）' }
         query: { type: object, additionalProperties: true }
-        chart: { type: string, enum: [auto, line, bar, stat, table], default: auto }
+        chart: { type: string, enum: [auto, line, area, bar, stacked, pie, percent, stat, table], default: auto, description: 'auto 依粒度與分組自動選；area 面積、stacked 堆疊長條、pie 圓餅（總量切片）、percent 百分比堆疊；只對 events／sql 卡片有意義' }
+        format: { type: string, enum: [auto, int, dec2, pct0, pct2, twd0, twd2], default: auto, description: '數值格式：auto 自動縮寫（萬／億）、int 取整、dec2 兩位小數、pct0／pct2 百分比、twd0／twd2 貨幣 NT$' }
         shared: { type: object, properties: { roles: { type: array, items: { type: string } }, users: { type: array, items: { type: string } } } }
         add_to: { type: array, items: { type: string }, description: 同時加進這些看板（id）；或用 new_dashboard 新建 }
         new_dashboard: { type: string, description: 新建看板名稱並加入 }
