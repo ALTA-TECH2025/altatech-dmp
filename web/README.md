@@ -53,7 +53,11 @@ npm run build          # dist/（由 apps.web 映像的 nginx 提供，與 API �
 `npm run build:demo`（`VITE_DEMO=1`）建置的版本不打後端：`src/demo/fetch.ts` 以 `src/demo/fixtures.json` 回答所有請求（固定資料由 `backend/tools/demo_fill.py` + `demo_capture.py` 從單機後端與合成黃金資料集擷取；無真實客戶資料，密鑰在回應裡本來就是遮罩），登入頁改為選角色進入、頂欄可切換角色，寫入動作只回「模擬成功」。原型保留在 `/prototype/`。重新擷取：
 
 ```bash
-deploy/quickstart/run_local.sh up && DMP_SEED_PASSWORD=… deploy/quickstart/run_local.sh seed
+deploy/quickstart/run_local.sh up
+# 100 萬人模擬資料（依神策埋點規格：262 個事件、用戶表可遷移欄位；完全合成），單機約 30–40 分鐘
+CLICKHOUSE_URL=http://127.0.0.1:8123 CLICKHOUSE_PASSWORD=dmp-local python3 -m backend.tools.synth_sensors --users 1000000 --events 12000000 --compact
+export DMP_DEMO_PROJECT=sinopac_demo        # 範例儀表板、demo_fill、demo_capture 都查這份資料；不設則用黃金資料集（golden）
+DMP_SEED_PASSWORD=… deploy/quickstart/run_local.sh seed
 DMP_LOCAL_ACCOUNTS=~/dmp-local/accounts.json DMP_SEED_PASSWORD=… python3 -m backend.tools.demo_fill && python3 -m backend.tools.demo_capture
 cd web && npm run build:demo
 ```

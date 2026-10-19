@@ -5,7 +5,8 @@ import { askRules } from './ask';
 import { firstColumn, TEMPLATE_KEYS, toCsv, type TemplateKind } from '@/governance/templates';
 import { demoRole, setDemoRole } from './mode';
 
-interface Fixtures { captured_at: string; roles: Record<string, unknown>; routes: Record<string, unknown> }
+interface Fixtures { captured_at: string; project?: string; roles: Record<string, unknown>; routes: Record<string, unknown> }
+let demoProject = 'golden';                                  // 擷取時的 project（fixtures.project）；示範站新建的分群／名單沿用
 let loading: Promise<Fixtures> | null = null;
 const load = (): Promise<Fixtures> => (loading ??= import('./fixtures.json').then((m) => m.default as unknown as Fixtures));
 const LITERAL = new Set(['cards', 'data', 'versions', 'latest', 'members', 'lineage', 'preview', 'privileges', 'test', 'runs', 'rotate', 'rescan', 'run', 'status', 'decide', 'sync', 'rerun', 'timeline', 'identities', 'estimate', 'list', 'simulate', 'refresh', 'copy', 'recycle', 'pause', 'resume', 'purge', 'submit', 'compile', 'catalog', 'scope', 'rules', 'oneid', 'change-requests']);
@@ -30,6 +31,7 @@ export const demoFetch: typeof fetch = async (input, init) => {
   const url = new URL(raw, 'http://demo.local');
   const method = (init?.method ?? 'GET').toUpperCase();
   const fx = await load();
+  demoProject = fx.project ?? 'golden';
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   const path = url.pathname;
   if (path === '/v1/iam/me') return json(fx.roles[demoRole()] ?? fx.roles.admin);
@@ -171,7 +173,7 @@ function segOverlay(method: string, seg: string[], b: Obj, fx: Fixtures, who: st
       const good = vals.filter((v) => re.test(v)); const distinct = new Set(good).size;
       if (!distinct) return { body: { detail: '清單裡沒有格式正確的值' }, status: 400 };
       const matched = Math.round(distinct * 0.93);                                  // 示範：約 93% 對到用戶表
-      const rec: Obj = { id: `im_${Math.random().toString(16).slice(2, 12).padEnd(10, '0')}`, project: 'golden', id_type: b.id_type ?? 'customer_code', label: b.label ?? '', total: vals.length, distinct, matched, unmatched: distinct - matched, invalid: vals.length - good.length, created_by: who, created_at: now() };
+      const rec: Obj = { id: `im_${Math.random().toString(16).slice(2, 12).padEnd(10, '0')}`, project: demoProject, id_type: b.id_type ?? 'customer_code', label: b.label ?? '', total: vals.length, distinct, matched, unmatched: distinct - matched, invalid: vals.length - good.length, created_by: who, created_at: now() };
       imports.set(String(rec.id), rec); return { body: rec, status: 201 };
     }
     const rec = sub ? imports.get(sub) : undefined; return rec ? { body: rec } : { body: { detail: '不存在' }, status: 404 };
@@ -200,7 +202,7 @@ function createSeg(b: Obj, who: string, latestUsers?: number): Obj {
   const update = kind === 'import' ? { mode: 'manual', freq: 'daily', earliest: '02:00', keep: 1 } : { mode: 'routine', freq: 'daily', earliest: '02:00', keep: 7, ...((b.update as Obj) ?? {}) };
   const pending = role === 'marketing';
   const latest = latestUsers == null ? null : { version: 1, basetime: now().slice(0, 10), users: latestUsers, status: 'success', computed_at: now(), ms: 38, trigger: 'manual', error: null };
-  const s: Obj = { id: nid('sg'), name: String(b.name ?? '未命名分群').slice(0, 60), description: b.description ?? '', kind, rule: { project: 'golden', ...rule }, project: 'golden', update, tz: 'Asia/Taipei', status: pending ? 'pending_approval' : 'active', owner: who, created_at: now(), updated_at: now(),
+  const s: Obj = { id: nid('sg'), name: String(b.name ?? '未命名分群').slice(0, 60), description: b.description ?? '', kind, rule: { project: demoProject, ...rule }, project: demoProject, update, tz: 'Asia/Taipei', status: pending ? 'pending_approval' : 'active', owner: who, created_at: now(), updated_at: now(),
     approval: { status: pending ? 'pending' : 'none', by: null, at: null, note: '' }, latest, versions: latest ? [latest] : [], lineage: { up: kind === 'import' ? ['dmp.segment_imports'] : ['dmp.users', 'dmp.events'], down: [] }, recycled_at: null };
   segMem.set(String(s.id), s); return s;
 }
@@ -261,7 +263,7 @@ function cardOf(bm: Obj, who: string, width: 1 | 2): Obj {
 function askOverlay(question: string, dashboard: string | null, fx: Fixtures): { body: unknown; status?: number } {
   const cat = (fx.routes['GET /v1/semantic/catalog'] ?? { events: [], dimensions: [] }) as { events: { name: string; cn: string; status?: string }[]; dimensions: { name: string; cn: string }[] };
   if (!question.trim()) return { body: { detail: 'question 必填' }, status: 400 };
-  const r = askRules(question, cat, { defaultTime: { from: '2026-09-17', to: '2026-10-16', grain: 'day' }, project: 'golden', dashboard });
+  const r = askRules(question, cat, { defaultTime: { from: '2026-09-17', to: '2026-10-16', grain: 'day' }, project: demoProject, dashboard });
   if (!r.cards.length) return { body: { detail: { message: '問題對不上任何分析模型或語意層事件', unmatched: r.unmatched } }, status: 422 };
   return { body: r };
 }

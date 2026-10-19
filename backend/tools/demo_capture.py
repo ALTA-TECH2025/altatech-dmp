@@ -12,9 +12,10 @@ from ..auth.local import LocalAccounts
 from .demo_fill import login
 
 OUT = Path(__file__).resolve().parents[2] / "web" / "src" / "demo" / "fixtures.json"
+DEMO_PROJECT = os.environ.get("DMP_DEMO_PROJECT", "golden")   # 示範資料查哪個 project（sinopac_demo＝100 萬人模擬資料）
 ROLES = ["admin", "marketing", "analyst", "ops", "it"]
 T = {"from": "2026-10-01", "to": "2026-10-16", "grain": "day", "pinned": True}
-UQ = {"project": "golden", "filters": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}], "behaviors": [{"event": "bond_deal", "count": {"op": "gte", "value": 3}, "time": {"from": "2026-10-01", "to": "2026-10-16"}}]}
+UQ = {"project": DEMO_PROJECT, "filters": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}], "behaviors": [{"event": "bond_deal", "count": {"op": "gte", "value": 3}, "time": {"from": "2026-10-01", "to": "2026-10-16"}}]}
 GETS = ["/auth/providers", "/v1/dashboards", "/v1/bookmarks", "/v1/exports", "/v1/reveals", "/v1/segments", "/v1/segments?status=recycled", "/v1/semantic/catalog", "/v1/audit?n=200", "/v1/audit?n=100", "/v1/audit?n=500", "/v1/audit?n=1000",
         "/v1/approvals?scope=to_me", "/v1/approvals?scope=mine", "/v1/approvals?scope=all",
         "/v1/iam/roles", "/v1/iam/assignments", "/v1/iam/sessions", "/v1/iam/sessions?scope=all", "/v1/iam/users", "/v1/iam/changes", "/v1/iam/masking", "/v1/iam/modules",
@@ -25,12 +26,12 @@ GETS = ["/auth/providers", "/v1/dashboards", "/v1/bookmarks", "/v1/exports", "/v
         "/v1/migration/inventory", "/v1/migration/bridge", "/v1/migration/exports", "/v1/migration/reconcile?days=28&project=migration_demo",
         "/v1/ops/pipeline", "/v1/ops/query-perf?window=1h", "/v1/ops/query-perf?window=24h", "/v1/ops/query-perf?window=7d", "/v1/ops/batch-jobs", "/v1/ops/alerts", "/v1/ops/series?hours=1", "/v1/ops/series?hours=6", "/v1/ops/series?hours=24", "/v1/ops/notify", "/v1/ops/notify/history?limit=50"]
 POSTS: list[tuple[str, dict[str, Any]]] = [
-    ("/v1/analytics/events", {"project": "golden", "metrics": [{"event": "bond_deal", "agg": "total", "alias": "deals"}, {"event": "bond_deal", "agg": "users", "alias": "deal_users"}], "group_by": ["platform"], "time": T}),
-    ("/v1/analytics/funnel", {"project": "golden", "steps": [{"event": "hq_stockdetail_view", "alias": "看盤"}, {"event": "bond_order", "alias": "委託"}, {"event": "bond_deal", "alias": "成交"}], "window": {"value": 7, "unit": "day"}, "time": T}),
-    ("/v1/analytics/retention", {"project": "golden", "initial": {"event": "app_login_success"}, "return": {"event": "app_login_success"}, "model": "interval", "unit": "week", "periods": 3, "time": {"from": "2026-09-20", "to": "2026-10-16", "pinned": True}}),
-    ("/v1/analytics/path", {"project": "golden", "anchor": {"event": "app_login_success"}, "steps": 3, "sample": None, "time": T}),
-    ("/v1/analytics/attribution", {"project": "golden", "target": {"event": "bond_deal", "value_field": "amount"}, "touches": [{"event": "$pageview", "alias": "瀏覽"}, {"event": "hq_stockdetail_view", "alias": "看盤"}, {"event": "app_login_success", "alias": "登入"}], "models": ["first", "linear"], "window_days": 7, "time": T}),
-    ("/v1/semantic/compile", {"project": "golden", "metrics": [{"event": "bond_deal", "agg": "total"}], "time": T}),
+    ("/v1/analytics/events", {"project": DEMO_PROJECT, "metrics": [{"event": "bond_deal", "agg": "total", "alias": "deals"}, {"event": "bond_deal", "agg": "users", "alias": "deal_users"}], "group_by": ["platform"], "time": T}),
+    ("/v1/analytics/funnel", {"project": DEMO_PROJECT, "steps": [{"event": "hq_stockdetail_view", "alias": "看盤"}, {"event": "bond_order", "alias": "委託"}, {"event": "bond_deal", "alias": "成交"}], "window": {"value": 7, "unit": "day"}, "time": T}),
+    ("/v1/analytics/retention", {"project": DEMO_PROJECT, "initial": {"event": "app_login_success"}, "return": {"event": "app_login_success"}, "model": "interval", "unit": "week", "periods": 3, "time": {"from": "2026-09-20", "to": "2026-10-16", "pinned": True}}),
+    ("/v1/analytics/path", {"project": DEMO_PROJECT, "anchor": {"event": "app_login_success"}, "steps": 3, "sample": None, "time": T}),
+    ("/v1/analytics/attribution", {"project": DEMO_PROJECT, "target": {"event": "bond_deal", "value_field": "amount"}, "touches": [{"event": "$pageview", "alias": "瀏覽"}, {"event": "hq_stockdetail_view", "alias": "看盤"}, {"event": "app_login_success", "alias": "登入"}], "models": ["first", "linear"], "window_days": 7, "time": T}),
+    ("/v1/semantic/compile", {"project": DEMO_PROJECT, "metrics": [{"event": "bond_deal", "agg": "total"}], "time": T}),
     ("/v1/users/estimate", UQ), ("/v1/users/list", {**UQ, "columns": ["tier", "lifecycle", "aum", "churn_score", "branch_id", "last_active_at"], "page_size": 50}),
     ("/v1/segments/estimate", {"rule": UQ}), ("/v1/iam/scope/simulate", {"role": "marketing", "scope": {}}),
 ]
@@ -40,7 +41,7 @@ def main() -> None:
     la = LocalAccounts(Path(os.environ["DMP_LOCAL_ACCOUNTS"]), allowed_roles=["*"]); pw = os.environ["DMP_SEED_PASSWORD"]
     sessions = {u: login(u, la, pw) for u in ROLES}
     adm = sessions["admin"]
-    fx: dict[str, Any] = {"captured_at": __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()), "roles": {}, "routes": {}}
+    fx: dict[str, Any] = {"captured_at": __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()), "project": DEMO_PROJECT, "roles": {}, "routes": {}}
     for u, s in sessions.items():
         fx["roles"][u] = s.call("GET", "/v1/iam/me")
     def put(method: str, path: str, body: Any) -> None:

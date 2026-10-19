@@ -17,8 +17,9 @@ from urllib import request as _rq
 from ..auth.local import LocalAccounts, totp_code
 
 API = os.environ.get("DMP_API", "http://127.0.0.1:8000")
+DEMO_PROJECT = os.environ.get("DMP_DEMO_PROJECT", "golden")   # 示範資料查哪個 project（sinopac_demo＝100 萬人模擬資料）
 # 神策式規則：用戶屬性樹（且）× 行為（近 N 天以計算日回推、指標比較、事件屬性）
-UQ = {"project": "golden", "filters": {"op": "and", "items": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}]},
+UQ = {"project": DEMO_PROJECT, "filters": {"op": "and", "items": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}]},
       "behaviors": [{"event": "bond_deal", "measure": {"agg": "count"}, "cmp": {"op": "gte", "value": 3}, "time": {"last_days": 30}}]}
 
 
@@ -77,12 +78,12 @@ def main() -> None:
     if "高價值活躍交易客" not in segs:
         ana.call("POST", "/v1/segments", {"name": "高價值活躍交易客", "kind": "rule", "rule": UQ, "schedule": {"mode": "daily"}, "note": "P1／P2 且近期成交 ≥ 3 筆"})
     if "行銷：沉睡客喚醒名單" not in segs:
-        mkt.call("POST", "/v1/segments", {"name": "行銷：沉睡客喚醒名單", "kind": "rule", "rule": {"project": "golden", "filters": [{"field": "user.lifecycle", "op": "in", "value": ["沉睡"]}]}, "note": "推播喚醒"})
+        mkt.call("POST", "/v1/segments", {"name": "行銷：沉睡客喚醒名單", "kind": "rule", "rule": {"project": DEMO_PROJECT, "filters": [{"field": "user.lifecycle", "op": "in", "value": ["沉睡"]}]}, "note": "推播喚醒"})
     # 2. 匯出申請（分析師）→ 數位經營審批其中一件
     exps = ana.call("GET", "/v1/exports")
     if not exps:
         ana.call("POST", "/v1/exports", {"kind": "users", "rule": UQ, "purpose": "Q4 名單交付 MA（保存 30 天）", "retention_days": 30})
-        ana.call("POST", "/v1/exports", {"kind": "users", "rule": {"project": "golden", "filters": [{"field": "user.aum_bucket", "op": "in", "value": ["≥1000萬"]}]}, "purpose": "財富管理 VIP 活動邀請名單", "retention_days": 14})
+        ana.call("POST", "/v1/exports", {"kind": "users", "rule": {"project": DEMO_PROJECT, "filters": [{"field": "user.aum_bucket", "op": "in", "value": ["≥1000萬"]}]}, "purpose": "財富管理 VIP 活動邀請名單", "retention_days": 14})
     pend = ops.call("GET", "/v1/approvals?scope=to_me")
     for a in [x for x in pend if x.get("status") == "pending"][:1]:
         with contextlib.suppress(RuntimeError):
@@ -127,7 +128,7 @@ def main() -> None:
     # 6. 權限中心：自訂角色（送審 → 數位經營核可）、本機帳號 vendor-a、本地指派；留一筆角色修改與一筆臨時提權待複核，示範「變更審核」
     grants = {"overview": ["view"], "events": ["view", "use"], "funnel": ["view", "use"], "segments": ["view"], "ai_ask": ["use"], "audit": ["view"]}
     if "custom_vendor_analyst" not in {r["key"] for r in adm.call("GET", "/v1/iam/roles")}:
-        r = adm.call("POST", "/v1/iam/roles", {"key": "custom_vendor_analyst", "name": "外包分析（專案限定）", "description": "外包廠商：只看 golden 專案、回溯 180 天、不可匯出", "scope": "project", "lookback_days": 180, "grants": grants})
+        r = adm.call("POST", "/v1/iam/roles", {"key": "custom_vendor_analyst", "name": "外包分析（專案限定）", "description": f"外包廠商：只看 {DEMO_PROJECT} 專案、回溯 180 天、不可匯出", "scope": "project", "lookback_days": 180, "grants": grants})
         if isinstance(r, dict) and r.get("approval"):
             ops.call("POST", f"/v1/approvals/{r['approval']}/decide", {"approve": True, "note": "專案合約期內，範圍與回溯天數符合外包規範"})
     members = {m["username"]: m for m in adm.call("GET", "/v1/iam/users")}
@@ -136,7 +137,7 @@ def main() -> None:
         members = {m["username"]: m for m in adm.call("GET", "/v1/iam/users")}
     vid = members["vendor-a"]["id"]
     if not [a for a in adm.call("GET", "/v1/iam/assignments") if a.get("user_id") == vid]:
-        adm.call("POST", "/v1/iam/assignments", {"user_id": vid, "roles": ["custom_vendor_analyst"], "scope": {"projects": ["golden"], "lookback_days": 180}, "expires_at": "2026-12-31", "reason": "外包分析專案（合約至 2026-12-31）"})
+        adm.call("POST", "/v1/iam/assignments", {"user_id": vid, "roles": ["custom_vendor_analyst"], "scope": {"projects": [DEMO_PROJECT], "lookback_days": 180}, "expires_at": "2026-12-31", "reason": "外包分析專案（合約至 2026-12-31）"})
     changes = adm.call("GET", "/v1/iam/changes")
     if not any(c["kind"] == "break_glass" for c in changes) and "it" in members:
         adm.call("POST", "/v1/iam/assignments", {"user_id": members["it"]["id"], "roles": ["admin"], "break_glass": True, "hours": 2, "reason": "事故單 INC-2041：凌晨批次失敗，需調整排程與重跑"})
@@ -149,11 +150,11 @@ def main() -> None:
     if not ana.call("GET", "/v1/bookmarks"):
         T2 = {"from": "2026-10-01", "to": "2026-10-16", "grain": "day"}
         b1 = ana.call("POST", "/v1/bookmarks", {"name": "成交筆數（日）", "description": "bond_deal 每日總次數，口徑同神策『成交』", "kind": "events", "chart": "line", "shared": {"roles": ["marketing", "digital_ops"]},
-                                               "query": {"project": "golden", "metrics": [{"event": "bond_deal", "agg": "total", "alias": "deals"}], "time": T2}, "new_dashboard": "行銷週報", "width": 2})
+                                               "query": {"project": DEMO_PROJECT, "metrics": [{"event": "bond_deal", "agg": "total", "alias": "deals"}], "time": T2}, "new_dashboard": "行銷週報", "width": 2})
         wid = b1["added_to"][0]["dashboard"]
         ana.call("POST", "/v1/bookmarks", {"name": "看盤 → 委託 → 成交（7 天窗）", "kind": "funnel", "shared": {"roles": ["marketing"]}, "add_to": [wid],
-                                          "query": {"project": "golden", "steps": [{"event": "hq_stockdetail_view", "alias": "看盤"}, {"event": "bond_order", "alias": "委託"}, {"event": "bond_deal", "alias": "成交"}], "window": {"value": 7, "unit": "day"}, "order": "loose", "metric": "users", "time": {"from": "2026-10-01", "to": "2026-10-16"}}})
-        ana.call("POST", "/v1/bookmarks", {"name": "登入後 4 週留存", "kind": "retention", "query": {"project": "golden", "initial": {"event": "app_login_success"}, "return": {"event": "app_login_success"}, "model": "interval", "unit": "week", "periods": 3, "time": {"from": "2026-09-20", "to": "2026-10-16"}}})
+                                          "query": {"project": DEMO_PROJECT, "steps": [{"event": "hq_stockdetail_view", "alias": "看盤"}, {"event": "bond_order", "alias": "委託"}, {"event": "bond_deal", "alias": "成交"}], "window": {"value": 7, "unit": "day"}, "order": "loose", "metric": "users", "time": {"from": "2026-10-01", "to": "2026-10-16"}}})
+        ana.call("POST", "/v1/bookmarks", {"name": "登入後 4 週留存", "kind": "retention", "query": {"project": DEMO_PROJECT, "initial": {"event": "app_login_success"}, "return": {"event": "app_login_success"}, "model": "interval", "unit": "week", "periods": 3, "time": {"from": "2026-09-20", "to": "2026-10-16"}}})
     # 7. 儀表板定時寄送：範例看板留一筆待審批
     seed = next((d for d in adm.call("GET", "/v1/dashboards") if d.get("seed")), None)
     if seed and not adm.call("GET", f"/v1/dashboards/{seed['id']}/schedules"):
@@ -171,22 +172,22 @@ def main() -> None:
     # 9. 標籤與推送：分析師建「價值分級」標籤（分群對應值）並計算；數位經營建兩個目的地（本機接收端 CRM、MA）；分析師對分群建推送單 → 首次目的地需核可 → 執行
     if not any(t["id"] == "tier_grade" for t in ana.call("GET", "/v1/tags")):
         ana.call("POST", "/v1/tags", {"name": "價值分級", "key": "tier_grade", "directory": "客戶價值", "description": "依 user.tier 對應 P1／P2／P3；名單推送附帶", "kind": "values",
-                                     "values": [{"value": v, "rule": {"project": "golden", "filters": [{"field": "user.tier", "op": "in", "value": [v]}]}} for v in ("P1", "P2", "P3")],
+                                     "values": [{"value": v, "rule": {"project": DEMO_PROJECT, "filters": [{"field": "user.tier", "op": "in", "value": [v]}]}} for v in ("P1", "P2", "P3")],
                                      "update": {"mode": "routine", "freq": "daily", "earliest": "06:00", "keep": 7}, "fields": {"department": "數位金融", "requester": "王小明", "category": "名單推送"}})
         ana.call("POST", "/v1/tags/tier_grade/compute", {})
         ana.call("POST", "/v1/tags", {"name": "近 30 天成交筆數（SQL）", "key": "deals_30d", "directory": "交易活躍", "kind": "sql", "dtype": "number",
                                      "sql": "SELECT one_id_uint, toString(count()) AS tag_value\nFROM dmp.events WHERE event = 'bond_deal' AND event_date >= today() - 30 GROUP BY one_id_uint"})
         ana.call("POST", "/v1/tags/deals_30d/compute", {})
-        ana.call("POST", "/v1/tags", {"name": "近 90 天成交筆數分級", "key": "deals_90d_level", "directory": "交易活躍", "kind": "metric", "project": "golden", "description": "基礎指標值：成交次數分桶，推送時當交易活躍度",
+        ana.call("POST", "/v1/tags", {"name": "近 90 天成交筆數分級", "key": "deals_90d_level", "directory": "交易活躍", "kind": "metric", "project": DEMO_PROJECT, "description": "基礎指標值：成交次數分桶，推送時當交易活躍度",
                                      "spec": {"event": "bond_deal", "agg": "count", "window_days": 90, "buckets": [1, 3, 10]}, "update": {"mode": "routine", "freq": "daily", "earliest": "06:30", "keep": 7}, "fields": {"department": "數位金融", "category": "名單推送"}})
         ana.call("POST", "/v1/tags/deals_90d_level/compute", {})
-        ana.call("POST", "/v1/tags", {"name": "首次成交商品", "key": "first_deal_symbol", "directory": "交易偏好", "kind": "firstlast", "project": "golden", "description": "首末次特徵：第一筆成交的商品代碼，看入門商品",
+        ana.call("POST", "/v1/tags", {"name": "首次成交商品", "key": "first_deal_symbol", "directory": "交易偏好", "kind": "firstlast", "project": DEMO_PROJECT, "description": "首末次特徵：第一筆成交的商品代碼，看入門商品",
                                      "spec": {"event": "bond_deal", "which": "first", "feature": "field", "field": "symbol", "window_days": 0}})
         ana.call("POST", "/v1/tags/first_deal_symbol/compute", {})
-        ana.call("POST", "/v1/tags", {"name": "RFM 客群（近 90 天成交）", "key": "rfm_90d", "directory": "客戶價值", "kind": "rfm", "project": "golden", "description": "R 最近成交距今、F 成交次數、M 成交金額各分 5 級，輸出八類客群",
+        ana.call("POST", "/v1/tags", {"name": "RFM 客群（近 90 天成交）", "key": "rfm_90d", "directory": "客戶價值", "kind": "rfm", "project": DEMO_PROJECT, "description": "R 最近成交距今、F 成交次數、M 成交金額各分 5 級，輸出八類客群",
                                      "spec": {"event": "bond_deal", "amount_field": "amount", "window_days": 90, "bins": 5, "output": "segment"}, "update": {"mode": "routine", "freq": "weekly", "earliest": "07:00", "keep": 8}, "fields": {"department": "財富管理", "category": "分析分群"}})
         ana.call("POST", "/v1/tags/rfm_90d/compute", {})
-        mkt.call("POST", "/v1/tags", {"name": "Q4 活動名單（待審）", "key": "campaign_q4", "directory": "行銷", "kind": "values", "values": [{"value": "A 組", "rule": {"project": "golden", "combine": "or", "filters": {"op": "or", "items": [{"field": "user.lifecycle", "op": "in", "value": ["沉睡"]}, {"op": "and", "items": [{"field": "user.churn_score", "op": "gte", "value": 70}, {"field": "user.has_margin", "op": "false"}]}]},
+        mkt.call("POST", "/v1/tags", {"name": "Q4 活動名單（待審）", "key": "campaign_q4", "directory": "行銷", "kind": "values", "values": [{"value": "A 組", "rule": {"project": DEMO_PROJECT, "combine": "or", "filters": {"op": "or", "items": [{"field": "user.lifecycle", "op": "in", "value": ["沉睡"]}, {"op": "and", "items": [{"field": "user.churn_score", "op": "gte", "value": 70}, {"field": "user.has_margin", "op": "false"}]}]},
                                                                            "behaviors": [{"event": "bond_deal", "measure": {"agg": "sum", "field": "amount"}, "cmp": {"op": "lt", "value": 100000}, "time": {"last_days": 30}}]}}]})
     dests = {d["name"]: d for d in ops.call("GET", "/v1/destinations")}
     if "CRM 客戶系統" not in dests:
