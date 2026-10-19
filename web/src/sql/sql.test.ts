@@ -18,6 +18,8 @@ describe('自定義 SQL：參數型別、格式化、生成 SELECT', () => {
     expect(f).toBe("SELECT\n  a,\n  count() AS n\nFROM dmp.events\nWHERE event = 'x,y'\n  AND d >= {{from}}\nGROUP BY a\nORDER BY n DESC\nLIMIT 10");
     expect(formatSql('select n from t where d between {{from}} and {{to}} and x = 1')).toBe('SELECT\n  n\nFROM t\nWHERE d BETWEEN {{from}} AND {{to}}\n  AND x = 1');
     expect(formatSql('select x from (select x, y from t where y > 1) as s')).toBe('SELECT\n  x\nFROM (SELECT x, y FROM t WHERE y > 1) AS s');
+    expect(formatSql("select a -- pick a\nfrom t where x = '--not a comment' /* block\n comment */ and y = 1")).toBe("SELECT\n  a -- pick a\nFROM t\nWHERE x = '--not a comment' /* block\n comment */\n  AND y = 1");   // 行註解不吞掉後面的子句；字串裡的 -- 與區塊註解原樣保留
+    expect(formatSql('select a from t -- trailing')).toBe('SELECT\n  a\nFROM t -- trailing');
   });
   it('勾選欄位生成 SELECT', () => {
     expect(selectFor('events', [{ name: 'event', type: 'String' }, { name: 'platform', type: 'String' }], true)).toBe('SELECT\n  event,\n  platform\nFROM dmp.events\nWHERE event_date BETWEEN {{from}} AND {{to}}\nLIMIT 500');

@@ -3,7 +3,8 @@
 import { useMemo } from 'react';
 import { Text } from '@mantine/core';
 import { Chart, HATCH, cssVar, type ChartOption } from '@/ds/Chart';
-import { fmtValue, pieSlices, type ChartKind, type NumFormat } from './events';
+import { escapeHtml } from '@/lib/html';
+import { fmtValue, pieSlices, pieTop, type ChartKind, type NumFormat } from './events';
 import type { Series } from './series';
 
 export type LineChartKind = Exclude<ChartKind, 'table'>;
@@ -18,9 +19,9 @@ export function LineChart({ series, kind = 'line', height = 280, format = 'auto'
     const fmt = (v: unknown) => (kind === 'percent' ? `${Number(v).toFixed(1)}%` : fmtValue(v, format));
     const legend = shown.length > 1 ? { top: 0, left: 0, icon: 'roundRect', itemWidth: 10, itemHeight: 10, type: 'scroll' as const, selector: [{ type: 'all' as const, title: '全選' }, { type: 'inverse' as const, title: '反選' }], selectorLabel: { fontSize: 11 } } : undefined;
     if (kind === 'pie') {
-      const data = pieSlices(series);
-      return { legend, tooltip: { trigger: 'item', formatter: (p) => { const q = p as { name: string; value: number; percent: number }; return `${q.name}：${fmtValue(q.value, format)}（${q.percent}%）`; } },
-        series: [{ type: 'pie', radius: ['38%', '68%'], center: ['50%', '55%'], data: data.slice(0, 12), itemStyle: { borderColor: panel, borderWidth: 2 }, label: { formatter: '{b}', fontSize: 11 }, emphasis: { scale: false } }] };
+      const data = pieTop(pieSlices(series), 12);                                 // 超過 12 類併成「其他」，百分比分母仍是全部
+      return { legend, tooltip: { trigger: 'item', formatter: (p) => { const q = p as { name: string; value: number; percent: number }; return `${escapeHtml(q.name)}：${fmtValue(q.value, format)}（${q.percent}%）`; } },
+        series: [{ type: 'pie', radius: ['38%', '68%'], center: ['50%', '55%'], data, itemStyle: { borderColor: panel, borderWidth: 2 }, label: { formatter: '{b}', fontSize: 11 }, emphasis: { scale: false } }] };
     }
     const endLabels = kind === 'line' && shown.length > 1 && shown.length <= 4;
     const stacked = kind === 'stacked' || kind === 'percent';

@@ -38,7 +38,7 @@ const CLAUSES = ['WITH', 'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'HAVING', 'ORDER
 const KEYWORDS = [...CLAUSES, 'AS', 'IN', 'NOT', 'IS', 'NULL', 'BETWEEN', 'LIKE', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'DISTINCT', 'DESC', 'ASC', 'ARRAY JOIN', 'PREWHERE', 'SAMPLE'];
 export function formatSql(sql: string): string {
   const strs: string[] = [];
-  let s = sql.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`[^`]*`|\{\{[^}]*\}\}/g, (m) => { strs.push(m); return `\u0000${strs.length - 1}\u0000`; });   // 字串／識別字／動態參數先收起來，不動內容
+  let s = sql.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`[^`]*`|\{\{[^}]*\}\}|--[^\n]*|\/\*[\s\S]*?\*\//g, (m) => { strs.push(m); return `\u0000${strs.length - 1}\u0000`; });   // 字串／識別字／動態參數／註解先收起來，不動內容（字串裡的 -- 不算註解；行註解還原時補回換行）
   s = s.replace(/\s+/g, ' ').trim();
   for (const k of KEYWORDS) s = s.replace(new RegExp(`\\b${k.replace(' ', '\\s+')}\\b`, 'gi'), k);
   let depth = 0; let out = ''; let i = 0; let between = false;                  // BETWEEN a AND b 的 AND 不換行
@@ -61,7 +61,7 @@ export function formatSql(sql: string): string {
     out += ch; i++;
   }
   out = out.replace(/^SELECT (?=\S)/m, 'SELECT\n  ').replace(/\nSELECT (?=\S)/g, '\nSELECT\n  ');
-  return out.replace(/\u0000(\d+)\u0000/g, (_, n) => strs[Number(n)]).replace(/ +\n/g, '\n').trim();
+  return out.replace(/\u0000(\d+)\u0000/g, (_, n) => (strs[Number(n)].startsWith('--') ? `${strs[Number(n)]}\n` : strs[Number(n)])).replace(/ +\n/g, '\n').replace(/\n{2,}/g, '\n').trim();
 }
 
 // ---- 勾選欄位 → SELECT ----
