@@ -237,7 +237,7 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
 def agg_stage(ch: ClickHouseHTTP) -> None:
     """R12 回歸：同一事件直接寫兩次（繞過載入路徑）→ 底表 FINAL 1 筆、MV 彙總 2 筆（Codex 的重現）；重建該日分區後彙總回到 1。
     再走載入路徑（LocalRunner GA4）重插同一事件：內容相同 → 不寫入，彙總不變；內容不同（utm 補齊）→ 寫入新版本 + 該日重建，彙總仍 = 1。"""
-    from .aggregates import dedupe, rebuild, verify
+    from .aggregates import dedupe, purge_stale, rebuild, verify
     from .ga4_source import FakeBigQuery, ga4_row
     row = {"project": "altatech_dmp", "time": "2026-09-01 01:00:00.000", "event": "bond_deal", "source": "e2e_dup", "one_id": "v1_dup", "entity_type": "", "entity_id": "", "distinct_id": "",
            "session_id": "", "event_id": "agg-dup-1", "platform": "iOS", "app_id": "", "symbol": "2330", "side": "B", "channel": "app", "amount": 100.0, "utm_source": "", "utm_campaign": "",
@@ -247,8 +247,8 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
     v = verify(ch, "2026-09-01"); assert v["events_cnt"] == 1 and v["agg_cnt"] == 2, v                      # 修正前的狀態：MV 每次 INSERT 都累加
     assert rebuild(ch, ["2026-09-01"]) == ["2026-09-01"]
     v = verify(ch, "2026-09-01"); assert v["events_cnt"] == 1 and v["agg_cnt"] == 1 and v["agg_users"] == 1 and v["amount_diff"] < 1e-6, v
-    keep, skipped, rb = dedupe(ch, [row]); assert keep == [] and skipped == 1 and rb == set(), (keep, skipped, rb)          # 載入路徑：一模一樣 → no-op
-    keep, skipped, rb = dedupe(ch, [{**row, "utm_source": "google"}]); assert len(keep) == 1 and rb == {"2026-09-01"}, (skipped, rb)   # 內容變 → 新版本 + 重建
+    d0 = dedupe(ch, [row]); assert d0.rows == [] and d0.skipped == 1 and d0.rebuild == set(), d0          # 載入路徑：一模一樣 → no-op
+    d0 = dedupe(ch, [{**row, "utm_source": "google"}]); assert len(d0.rows) == 1 and d0.rebuild == {"2026-09-01"} and d0.stale == [], d0   # 內容變 → 新版本 + 重建
     bq = FakeBigQuery(); runner = LocalRunner(ch, bq_clients={"bq": bq})
     base_us = int(datetime(2026, 9, 2, 0, 0, tzinfo=UTC).timestamp() * 1_000_000)
     bq.tables["ds.events_intraday_20260902"] = [ga4_row(i, base_us + i * 60_000_000, "kh_apply", uid="v1_abc") for i in range(50)]
@@ -264,7 +264,32 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
     ch.query("OPTIMIZE TABLE dmp.events PARTITION '202609' FINAL")
     v = verify(ch, "2026-09-02"); assert v["events_cnt"] == v["agg_cnt"] == 50 and v["agg_users"] == 1, v   # 新版本寫入、該日重建 → 彙總仍 = 去重後底表
     assert ch.scalar("SELECT countMerge(cnt) FROM dmp.events_daily_agg WHERE event_date = toDate('2026-09-02') AND utm_source = 'google'") == 50
-    print("daily_agg idempotency: direct double insert → agg 2 vs base 1 → rebuild → 1; runner re-read → skipped 50; changed content → rebuilt → 50")
+    # 複審 P1：只改非彙總欄位也要入倉；排序鍵變了（跨日／同日時間更正、歸戶改寫）要清掉舊版本，舊日期歸零、新日期一筆
+    fx = {**row, "event_id": "agg-fix-1", "props": {"market": "TSE"}, "batch_id": "f0"}
+    ch.insert_json("dmp.events", [fx]); rebuild(ch, ["2026-09-01"])
+    d1 = dedupe(ch, [{**fx, "props": {"market": "US"}, "utm_campaign": "new_campaign", "ingest_time": "2026-09-01 02:00:00.000", "batch_id": "f1"}])
+    assert len(d1.rows) == 1 and d1.skipped == 0 and d1.rebuild == {"2026-09-01"} and d1.stale == [], d1                        # props／utm_campaign 變 → 寫入 + 重建，排序鍵沒變不清
+    ch.insert_json("dmp.events", d1.rows); rebuild(ch, d1.rebuild); ch.query("OPTIMIZE TABLE dmp.events PARTITION '202609' FINAL")
+    assert ch.query("SELECT props.market, utm_campaign FROM dmp.events FINAL WHERE event_id = 'agg-fix-1' FORMAT TSV").strip() == "US\tnew_campaign"
+    v = verify(ch, "2026-09-01"); assert v["events_cnt"] == v["agg_cnt"] == 2, v                                                   # agg-dup-1 + agg-fix-1
+    assert dedupe(ch, [{**fx, "props": {"market": "US"}, "utm_campaign": "new_campaign", "batch_id": "f1b"}]).skipped == 1       # 同版本重讀 → 略過
+    fx2 = {**fx, "props": {"market": "US"}, "utm_campaign": "new_campaign", "time": "2026-09-02 10:00:00.100", "ingest_time": "2026-09-01 03:00:00.000", "batch_id": "f2"}   # 跨日時間更正
+    d2 = dedupe(ch, [fx2]); assert len(d2.rows) == 1 and d2.rebuild == {"2026-09-01", "2026-09-02"} and d2.stale == [("agg-fix-1", "2026-09-01 01:00:00.000", "v1_dup")], d2
+    assert purge_stale(ch, d2.stale) == 1; ch.insert_json("dmp.events", d2.rows); rebuild(ch, d2.rebuild)
+    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_id = 'agg-fix-1'") == 1 and ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_id = 'agg-fix-1' AND event_date = toDate('2026-09-02')") == 1
+    v1, v2 = verify(ch, "2026-09-01"), verify(ch, "2026-09-02"); assert v1["events_cnt"] == v1["agg_cnt"] == 1 and v2["events_cnt"] == v2["agg_cnt"] == 51, (v1, v2)   # 舊日期少一筆、新日期多一筆（50 筆 GA4 + 1）
+    fx3 = {**fx2, "time": "2026-09-02 11:00:00.100", "ingest_time": "2026-09-01 04:00:00.000", "batch_id": "f3"}                 # 同日時間更正
+    d3 = dedupe(ch, [fx3]); assert d3.stale == [("agg-fix-1", "2026-09-02 10:00:00.100", "v1_dup")] and d3.rebuild == {"2026-09-02"}, d3
+    purge_stale(ch, d3.stale); ch.insert_json("dmp.events", d3.rows); rebuild(ch, d3.rebuild)
+    assert ch.query("SELECT toString(time) FROM dmp.events FINAL WHERE event_id = 'agg-fix-1' FORMAT TSV").strip() == "2026-09-02 11:00:00.100"
+    fx4 = {**fx3, "one_id": "v1_rewritten", "ingest_time": "2026-09-01 05:00:00.000", "batch_id": "f4"}                            # 歸戶改寫
+    d4 = dedupe(ch, [fx4]); assert d4.stale == [("agg-fix-1", "2026-09-02 11:00:00.100", "v1_dup")], d4
+    purge_stale(ch, d4.stale); ch.insert_json("dmp.events", d4.rows); rebuild(ch, d4.rebuild)
+    assert ch.query("SELECT one_id FROM dmp.events FINAL WHERE event_id = 'agg-fix-1' FORMAT TSV").strip() == "v1_rewritten"
+    v2 = verify(ch, "2026-09-02"); assert v2["events_cnt"] == v2["agg_cnt"] == 51 and v2["events_users"] == v2["agg_users"] == 2, v2   # v1_abc + v1_rewritten
+    assert ch.scalar("SELECT uniqMerge(users) FROM dmp.events_daily_agg WHERE event_date = toDate('2026-09-02') AND event = 'bond_deal'") == 1
+    print("daily_agg idempotency: direct double insert → agg 2 vs base 1 → rebuild → 1; runner re-read → skipped 50; changed content → rebuilt → 50; "
+          "props-only change stored; cross-day/same-day/one_id corrections purge stale versions (old date 0, new date 1)")
 
 
 def dbapi_stage(ch: ClickHouseHTTP | None, work: Path, rows: list[dict[str, Any]]) -> None:

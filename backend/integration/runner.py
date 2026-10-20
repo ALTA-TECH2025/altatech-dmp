@@ -107,13 +107,14 @@ class LocalRunner:
             log(f"unknown GA event names (kept with ga. prefix; register in 元事件管理): {b.unknown_events}")
         if self.ch is None or not b.rows:
             res.rows_loaded = res.rows_ok; return res
-        rows, skipped, rebuild_dates = aggregates.dedupe(self.ch, b.rows)        # 同 event_id 內容相同（重疊窗口重讀、重試）不再寫入 → 日彙總不會多算
-        for i in range(0, len(rows), 50_000):
-            self.ch.insert_json("dmp.events", rows[i:i + 50_000])
-        res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'") + skipped   # 略過的列早已在倉裡，對帳上算已載入
-        if rebuild_dates:
-            log(f"daily_agg rebuilt for {aggregates.rebuild(self.ch, rebuild_dates)} (re-inserted event_ids with changed content)")
-        log(f"dedupe: skipped={skipped} identical rows already in dmp.events")
+        d = aggregates.dedupe(self.ch, b.rows)                                    # 完整版本相同（重疊窗口重讀、重試）不再寫入；有變的寫新版本 → 日彙總不會多算
+        if d.stale: log(f"purged {aggregates.purge_stale(self.ch, d.stale)} stale versions (sort key changed)")
+        for i in range(0, len(d.rows), 50_000):
+            self.ch.insert_json("dmp.events", d.rows[i:i + 50_000])
+        res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'") + d.skipped   # 略過的列早已在倉裡，對帳上算已載入
+        if d.rebuild:
+            log(f"daily_agg rebuilt for {aggregates.rebuild(self.ch, d.rebuild)} (re-inserted event_ids with changed content)")
+        log(f"dedupe: skipped={d.skipped} identical rows already in dmp.events")
         at = now.strftime("%Y-%m-%d %H:%M:%S.") + f"{now.microsecond // 1000:03d}"
         self.ch.insert_json("dmp.ingest_recon", [{"task_id": task["id"], "batch_id": batch_id, "at": at, "rows_in": res.rows_in, "rows_ok": res.rows_ok,
                                                   "rows_quarantined": 0, "rows_rejected": 0, "rows_loaded": res.rows_loaded}])
@@ -155,7 +156,9 @@ class LocalRunner:
         target_rows = [modeling.to_ch_row(model, r, self.project, ingest_ms) for r in out.ok]
         skipped, rebuild_dates = 0, set()
         if model.entity == "event":
-            target_rows, skipped, rebuild_dates = aggregates.dedupe(self.ch, target_rows)   # 重試／重跑窗口的同一事件不再寫入；內容變了的記下分區
+            d = aggregates.dedupe(self.ch, target_rows)                        # 重試／重跑窗口的同一事件不再寫入；內容變了的寫新版本並記下分區
+            if d.stale: log(f"purged {aggregates.purge_stale(self.ch, d.stale)} stale versions (sort key changed)")
+            target_rows, skipped, rebuild_dates = d.rows, d.skipped, d.rebuild
         for i in range(0, len(target_rows), 50_000):
             self.ch.insert_json(model.target_table, target_rows[i:i + 50_000])
         at = now.strftime("%Y-%m-%d %H:%M:%S.") + f"{now.microsecond // 1000:03d}"

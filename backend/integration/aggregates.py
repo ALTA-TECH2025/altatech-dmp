@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Protocol
 
@@ -22,9 +23,12 @@ AGG_TABLE, AGG_STAGE = "dmp.events_daily_agg", "dmp.events_daily_agg_stage"
 AGG_KEYS = ("project", "event_date", "event", "platform", "channel", "utm_source")
 AGG_SELECT = ("SELECT project, event_date, event, platform, channel, utm_source, countState() AS cnt, uniqState(one_id) AS users, sumState(coalesce(amount, 0)) AS amount "
               "FROM dmp.events FINAL WHERE event_date = toDate('{d}') GROUP BY project, event_date, event, platform, channel, utm_source")
-# 去重比對的欄位：彙總鍵 + 彙總值會用到的欄位（one_id 進 uniq、amount 進 sum）+ source／time（日批覆蓋串流、時間更正要視為新版本）；
-# 其他欄位（props、utm_campaign…）不影響彙總，不比
-DEDUPE_COLS = ("event", "one_id", "platform", "channel", "utm_source", "amount", "source", "time")
+# 「完整版本」比對的欄位：事件內容全部（彙總鍵／值 + props、utm_campaign、symbol…），載入元資料（ingest_time、batch_id、late）不算。
+# 相同 → 不寫入；任何欄位不同 → 寫入新版本並重建該日彙總（MV 是累加的，哪怕只改 props 也會多算一筆）。
+CONTENT_COLS = ("time", "event", "source", "one_id", "entity_type", "entity_id", "distinct_id", "session_id", "platform", "app_id", "symbol", "side", "channel",
+                "amount", "utm_source", "utm_campaign", "props", "schema_version")
+# ReplacingMergeTree 的排序鍵裡會變的欄位：這些一變，舊列就是另一個排序鍵，FINAL 不會把它換掉 → 要主動清掉舊版本
+SORT_KEY_COLS = ("event_date", "event", "one_id", "time")
 TZ_OFFSET = timedelta(hours=8)                      # event_date = toDate(time, 'Asia/Taipei')（無日光節約）
 CHUNK = 5_000                                        # 一次 IN 幾千個 event_id：查詢文字約 180 KB，加上 max_query_size 放寬，不會撞到預設 256 KB 上限
 
@@ -52,14 +56,44 @@ def _num(v: Any) -> float | None:
     except (TypeError, ValueError): return None
 
 
-def _same(a: dict[str, Any], b: dict[str, Any]) -> bool:
-    for c in DEDUPE_COLS:
+def _expand_dotted(v: Any) -> Any:
+    """ClickHouse 的 JSON 型別把帶點的鍵（consent.analytics）存成巢狀路徑（consent → analytics）：比對前把新列也展成同樣的結構。"""
+    if isinstance(v, list): return [_expand_dotted(x) for x in v]
+    if not isinstance(v, dict): return v
+    out: dict[str, Any] = {}
+    for k, val in v.items():
+        parts = str(k).split(".") if "." in str(k) else [str(k)]
+        cur = out
+        for seg in parts[:-1]:
+            nxt = cur.get(seg)
+            if not isinstance(nxt, dict): nxt = {}; cur[seg] = nxt
+            cur = nxt
+        leaf = _expand_dotted(val)
+        if isinstance(leaf, dict) and isinstance(cur.get(parts[-1]), dict): cur[parts[-1]].update(leaf)
+        else: cur[parts[-1]] = leaf
+    return out
+
+
+def _props_norm(v: Any) -> str:
+    """props 正規化成可比對的字串：倉裡回來的是 JSON 字串、新列是 dict；帶點的鍵展成巢狀，再轉成鍵排序的 JSON。"""
+    if isinstance(v, str):
+        try: v = json.loads(v) if v.strip() else {}
+        except ValueError: return v
+    return json.dumps(_expand_dotted(v if v is not None else {}), sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def _same(a: dict[str, Any], b: dict[str, Any], cols: tuple[str, ...] = CONTENT_COLS) -> bool:
+    for c in cols:
         if c == "amount":
             x, y = _num(a.get(c)), _num(b.get(c))
             if (x is None) != (y is None) or (x is not None and abs(x - y) > 1e-9): return False
         elif c == "time":
-            if str(a.get(c) or "")[:19] != str(b.get(c) or "")[:19]: return False
-        elif str(a.get(c) or "") != str(b.get(c) or ""):
+            if str(a.get(c) or "")[:23] != str(b.get(c) or "")[:23]: return False
+        elif c == "props":
+            if _props_norm(a.get(c)) != _props_norm(b.get(c)): return False
+        elif c == "event_date":
+            if str(a.get(c) or "")[:10] != event_date_of(b): return False
+        elif str(a.get(c) if a.get(c) is not None else "") != str(b.get(c) if b.get(c) is not None else ""):
             return False
     return True
 
@@ -70,9 +104,9 @@ def existing_versions(ch: CH, event_ids: Iterable[str]) -> dict[str, dict[str, A
     ids = sorted({str(e) for e in event_ids if e})
     for i in range(0, len(ids), CHUNK):
         lst = ", ".join("'" + x.replace("\\", "\\\\").replace("'", "\\'") + "'" for x in ids[i:i + CHUNK])
-        sql = (f"SELECT event_id, argMax(event, ingest_time) AS event, argMax(one_id, ingest_time) AS one_id, argMax(platform, ingest_time) AS platform, "
-               f"argMax(channel, ingest_time) AS channel, argMax(utm_source, ingest_time) AS utm_source, argMax(amount, ingest_time) AS amount, "
-               f"argMax(source, ingest_time) AS source, toString(argMax(time, ingest_time)) AS time, toString(argMax(event_date, ingest_time)) AS event_date "
+        cols = ", ".join(f"argMax({c}, ingest_time) AS {c}" for c in CONTENT_COLS if c not in ("time", "props"))
+        sql = (f"SELECT event_id, {cols}, toString(argMax(time, ingest_time)) AS time, argMax(toString(props), ingest_time) AS props, "
+               f"toString(argMax(event_date, ingest_time)) AS event_date "
                f"FROM dmp.events WHERE event_id IN ({lst}) GROUP BY event_id FORMAT JSONEachRow")
         for line in ch.query(sql, settings={"max_query_size": 4_000_000}).splitlines():
             if line.strip():
@@ -80,9 +114,17 @@ def existing_versions(ch: CH, event_ids: Iterable[str]) -> dict[str, dict[str, A
     return out
 
 
-def dedupe(ch: CH, rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int, set[str]]:
-    """回 (要寫入的列, 略過的相同列數, 需要重建的 event_date 集合)。
-    同 event_id 已在倉裡且內容相同 → 略過；內容不同 → 寫入（新版本）並把該分區列入重建；同一批內重複的 event_id 只留最後一筆。"""
+@dataclass
+class DedupeResult:
+    rows: list[dict[str, Any]]                      # 要寫入的列（新事件 + 內容有變的新版本）
+    skipped: int = 0                                # 完整版本相同、不寫入的列數
+    rebuild: set[str] = field(default_factory=set)  # 要重算日彙總的 event_date（新版本的日期；排序鍵變了連舊日期一起）
+    stale: list[tuple[str, str, str]] = field(default_factory=list)   # 要清掉的舊版本 (event_id, time, one_id)：排序鍵變了，FINAL 不會替換
+
+
+def dedupe(ch: CH, rows: list[dict[str, Any]]) -> DedupeResult:
+    """同 event_id 已在倉裡且「完整版本」相同（CONTENT_COLS 全同）→ 略過；任何內容不同 → 寫入新版本並重建該日彙總；
+    排序鍵（event_date／event／one_id／time）有變 → 另外記下舊版本要清掉（purge_stale），否則 ReplacingMergeTree 會留兩版。同一批內重複的 event_id 只留最後一筆。"""
     last: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     for r in rows:
@@ -90,16 +132,27 @@ def dedupe(ch: CH, rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], in
         if k not in last: order.append(k)
         last[k] = r
     existing = existing_versions(ch, order)
-    keep: list[dict[str, Any]] = []; skipped = 0; rebuild: set[str] = set()
+    out = DedupeResult(rows=[])
     for k in order:
         r = last[k]; old = existing.get(k)
         if old is None:
-            keep.append(r); continue
+            out.rows.append(r); continue
         if _same(old, r):
-            skipped += 1; continue
-        keep.append(r); rebuild.add(event_date_of(r))
-        if old.get("event_date"): rebuild.add(str(old["event_date"])[:10])     # 時間更正跨日：舊分區的彙總也要重算
-    return keep, skipped, rebuild
+            out.skipped += 1; continue
+        out.rows.append(r); out.rebuild.add(event_date_of(r))
+        if old.get("event_date"): out.rebuild.add(str(old["event_date"])[:10])
+        if not _same(old, r, SORT_KEY_COLS):
+            out.stale.append((k, str(old.get("time") or "")[:23], str(old.get("one_id") or "")))
+    return out
+
+
+def purge_stale(ch: CH, stale: Iterable[tuple[str, str, str]]) -> int:
+    """清掉排序鍵已變的舊版本（lightweight DELETE，立即對查詢生效）：同 event_id 只留新版本，舊日期的 FINAL 與彙總才會歸零。"""
+    keys = [k for k in stale if k[0]]
+    for i in range(0, len(keys), CHUNK):
+        tuples = ", ".join(f"('{e.replace(chr(39), chr(92) + chr(39))}', toDateTime64('{t}', 3, 'UTC'), '{o.replace(chr(39), chr(92) + chr(39))}')" for e, t, o in keys[i:i + CHUNK])
+        ch.query(f"DELETE FROM dmp.events WHERE (event_id, time, one_id) IN ({tuples})", settings={"max_query_size": 4_000_000})
+    return len(keys)
 
 
 def rebuild(ch: CH, dates: Iterable[str]) -> list[str]:
@@ -144,27 +197,37 @@ def selftest() -> None:
                 return "\n".join(json.dumps({"event_id": k, **v}) for k, v in self.existing.items() if f"'{k}'" in sql)
             return ""
         def scalar(self, sql: str) -> Any: return 0
-    base = {"event": "bond_deal", "one_id": "v1_a", "platform": "iOS", "channel": "app", "utm_source": "", "amount": 100.0, "source": "ga360_intraday"}
-    old = {"e1": {**base, "time": "2026-10-16 01:00:00.000", "event_date": "2026-10-16"},
-           "e2": {**base, "time": "2026-10-16 02:00:00.000", "event_date": "2026-10-16"},
-           "e4": {**base, "time": "2026-10-16 15:30:00.000", "event_date": "2026-10-16"}}
-    rows = [{"event_id": "e1", "time": "2026-10-16 01:00:00.000", **base, "amount": 100},                                       # 一模一樣（重疊窗口重讀）→ 略過
-            {"event_id": "e2", "time": "2026-10-16 02:00:00.000", **base, "utm_source": "google"},                             # utm 補齊 → 新版本 + 重建當天
-            {"event_id": "e3", "time": "2026-10-17 02:00:00.000", "event": "kh_apply", "one_id": "v1_b", "platform": "WEB", "channel": "", "utm_source": "", "amount": None, "source": "ga360_intraday"},   # 新的
-            {"event_id": "e3", "time": "2026-10-17 02:00:00.000", "event": "kh_apply", "one_id": "v1_b", "platform": "WEB", "channel": "", "utm_source": "x", "amount": None, "source": "ga360_intraday"},    # 同批重複 → 留最後一筆
-            {"event_id": "e4", "time": "2026-10-16 16:30:00.000", **base}]                                                     # 時間更正跨台北日（15:30Z=16 日 23:30 → 16:30Z=17 日）→ 兩天都重建
+    base = {"event": "bond_deal", "one_id": "v1_a", "platform": "iOS", "channel": "app", "utm_source": "", "amount": 100.0, "source": "ga360_intraday", "entity_type": "", "entity_id": "",
+            "distinct_id": "", "session_id": "", "app_id": "", "symbol": "2330", "side": "B", "utm_campaign": "", "schema_version": 1}
+    old = {"e1": {**base, "time": "2026-10-16 01:00:00.000", "event_date": "2026-10-16", "props": '{"market":"TSE","n":1}'},
+           "e2": {**base, "time": "2026-10-16 02:00:00.000", "event_date": "2026-10-16", "props": "{}"},
+           "e4": {**base, "time": "2026-10-16 15:30:00.000", "event_date": "2026-10-16", "props": "{}"},
+           "e5": {**base, "time": "2026-10-16 03:00:00.000", "event_date": "2026-10-16", "props": '{"market":"TSE"}'},
+           "e6": {**base, "time": "2026-10-16 04:00:00.000", "event_date": "2026-10-16", "props": "{}"}}
+    rows = [{"event_id": "e1", "time": "2026-10-16 01:00:00.000", **base, "amount": 100, "props": {"n": 1, "market": "TSE"}},     # 一模一樣（重疊窗口重讀；props 鍵序不同也算同）→ 略過
+            {"event_id": "e2", "time": "2026-10-16 02:00:00.000", **base, "utm_source": "google", "props": {}},                 # utm 補齊 → 新版本 + 重建當天
+            {"event_id": "e3", "time": "2026-10-17 02:00:00.000", **base, "event": "kh_apply", "one_id": "v1_b", "props": {}},  # 新的
+            {"event_id": "e3", "time": "2026-10-17 02:00:00.000", **base, "event": "kh_apply", "one_id": "v1_b", "utm_source": "x", "props": {}},   # 同批重複 → 留最後一筆
+            {"event_id": "e4", "time": "2026-10-16 16:30:00.000", **base, "props": {}},                                         # 時間更正跨台北日（15:30Z=16 日 23:30 → 16:30Z=17 日）→ 兩天重建 + 清舊版本
+            {"event_id": "e5", "time": "2026-10-16 03:00:00.000", **base, "props": {"market": "US"}, "utm_campaign": "new"},    # 只改 props／utm_campaign（不影響彙總）→ 仍要入倉 + 重建（MV 累加）；排序鍵沒變 → 不清
+            {"event_id": "e6", "time": "2026-10-16 04:00:00.000", **base, "one_id": "v1_rewritten", "props": {}}]              # 歸戶改寫 → 新版本 + 清舊版本
     ch = Fake(old)
-    keep, skipped, rb = dedupe(ch, rows)
-    assert [r["event_id"] for r in keep] == ["e2", "e3", "e4"] and skipped == 1 and rb == {"2026-10-16", "2026-10-17"} and keep[1]["utm_source"] == "x", (keep, skipped, rb)
-    assert dedupe(Fake(old), [{"event_id": "e1", "time": "2026-10-16 01:00:00.000", **base, "source": "ga360_daily"}])[0], "日批覆蓋串流：source 不同就是新版本"
-    assert _same({"amount": "100.0"}, {"amount": 100}) and not _same({"amount": None}, {"amount": 0}) and _same({"one_id": None}, {"one_id": ""}) and _same({"time": "2026-10-16 01:00:00"}, {"time": "2026-10-16 01:00:00.000"})
+    d = dedupe(ch, rows)
+    assert [r["event_id"] for r in d.rows] == ["e2", "e3", "e4", "e5", "e6"] and d.skipped == 1 and d.rebuild == {"2026-10-16", "2026-10-17"} and d.rows[1]["utm_source"] == "x", d
+    assert d.stale == [("e4", "2026-10-16 15:30:00.000", "v1_a"), ("e6", "2026-10-16 04:00:00.000", "v1_a")], d.stale
+    assert dedupe(Fake(old), [{"event_id": "e1", "time": "2026-10-16 01:00:00.000", **base, "props": {"market": "TSE", "n": 1}, "source": "ga360_daily"}]).rows, "日批覆蓋串流：source 不同就是新版本"
+    assert _same({"amount": "100.0"}, {"amount": 100}, ("amount",)) and not _same({"amount": None}, {"amount": 0}, ("amount",)) and _same({"one_id": None}, {"one_id": ""}, ("one_id",))
+    assert _same({"time": "2026-10-16 01:00:00.000"}, {"time": "2026-10-16 01:00:00.000"}, ("time",)) and not _same({"time": "2026-10-16 01:00:00.100"}, {"time": "2026-10-16 01:00:00.000"}, ("time",))   # 毫秒也算
+    assert _same({"props": '{"b":1,"a":"x"}'}, {"props": {"a": "x", "b": 1}}, ("props",)) and not _same({"props": "{}"}, {"props": {"a": 1}}, ("props",))
+    assert _same({"props": '{"consent":{"analytics":true},"a":{"b":{"c":1}}}'}, {"props": {"consent.analytics": True, "a.b.c": 1}}, ("props",))   # 帶點的鍵＝ClickHouse 的巢狀路徑
+    ch.sql.clear(); assert purge_stale(ch, d.stale) == 2 and ch.sql[0].startswith("DELETE FROM dmp.events WHERE (event_id, time, one_id) IN (('e4', toDateTime64('2026-10-16 15:30:00.000', 3, 'UTC'), 'v1_a')"), ch.sql[0]
     assert event_date_of({"time": datetime(2026, 10, 16, 15, 59)}) == "2026-10-16" and event_date_of({"time": datetime(2026, 10, 16, 16, 0, tzinfo=UTC)}) == "2026-10-17"
     assert event_date_of({"time": "2026-10-16 01:00:00.000"}) == "2026-10-16" and event_date_of({"time": "2026-10-16 17:00:00.000"}) == "2026-10-17" and event_date_of({"time": date(2026, 10, 16)}) == "2026-10-16"
     ch.sql.clear(); assert rebuild(ch, ["2026-10-17", "2026-10-16", "2026-10-16"]) == ["2026-10-16", "2026-10-17"]
     assert [s.split(" ")[0:3] for s in ch.sql[:4]] == [["ALTER", "TABLE", AGG_STAGE], ["INSERT", "INTO", AGG_STAGE], ["ALTER", "TABLE", AGG_TABLE], ["ALTER", "TABLE", AGG_STAGE]], ch.sql[:4]
     assert "REPLACE PARTITION ID '20261016' FROM dmp.events_daily_agg_stage" in ch.sql[2] and "FROM dmp.events FINAL WHERE event_date = toDate('2026-10-16')" in ch.sql[1]
-    assert dedupe(ch, []) == ([], 0, set())
-    print("aggregates self-test ok: dedupe(same/changed/new/in-batch dup)/event_date/rebuild(stage → replace partition → drop stage)")
+    assert dedupe(ch, []) == DedupeResult(rows=[])
+    print("aggregates self-test ok: dedupe(full-version same/changed/new/in-batch dup/sort-key change → stale)/purge_stale/event_date/rebuild(stage → replace partition → drop stage)")
 
 
 def main(argv: list[str]) -> int:
