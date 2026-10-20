@@ -16,6 +16,7 @@ from ..activation.service import httpx_transport as _httpx_transport
 from ..approvals import ApprovalService, ExportService, RevealService
 from ..auth.api import AuthService, subject_from_request
 from ..auth.api import build_router as auth_router
+from ..auth.mapping import overlay_assignments
 from ..integration.runner import LocalRunner
 from ..integration.scheduler import Scheduler
 from ..ops import metrics as _metrics
@@ -26,6 +27,7 @@ from ..segments import SegmentService
 from ..semantic.compiler import Catalog
 from . import activation, analytics, ask, bookmarks, dashboards, exports, iam, integration, meta, migration, ops, output, segments, sql, sysadmin, tags, users
 from .store import Store
+from .sysadmin import member_directory
 
 
 def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_service: SegmentService | None = None, export_dir: Any | None = None, approval_service: ApprovalService | None = None,
@@ -47,18 +49,51 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
 
     # auth 的審計寫進同一個 store（SessionManager 建立時已綁 audit callable；這裡只補 store 的 audit 給 iam／analytics）
     auth.assignments = store.assignments
-    app.include_router(auth_router(auth))
     local_provider = auth.providers.get("local")
     accounts = getattr(local_provider, "accounts", None)
+
+    def local_base_roles(user_id: str, now: float) -> list[str] | None:
+        """本機帳號的基底角色（每個請求與背景排程共用同一條規則）：帳號不存在／停用／鎖定／到期 → None（沒有任何角色）。"""
+        if accounts is None: return None
+        acc = next((a for a in accounts.list() if f"local:{a['subject']}" == user_id), None)
+        if acc is None or acc.get("disabled") or acc.get("locked") or (acc.get("expires_at") and float(acc["expires_at"]) < now): return None
+        return [r for r in acc["roles"] if accounts.role_allowed(r)]
+
+    def base_roles_of(s: Any) -> list[str] | None:
+        """每個請求的基底角色：本機帳號重讀帳號（停用／鎖定／到期／刪除 → None；改角色即時生效）；SSO 用登入時記下的基底角色，
+        升版前的 session 沒記 → None（沒有可靠的基底，不能拿混了指派的歷史角色充數；要重新登入）。"""
+        if s.provider == "local":
+            return local_base_roles(s.user_id, time.time())
+        b = s.attrs.get("base_roles")
+        return list(b) if isinstance(b, list) else None
+
+    auth.sessions.assignments = store.assignments                          # 有效授權每個請求重算（R07）：指派新增／撤銷／到期／deny 立刻反映
+    auth.sessions.base_roles_of = base_roles_of
+    app.include_router(auth_router(auth))
+
+    def owner_roles(user_id: str) -> list[str] | None:
+        """排程以任務擁有者「現在」的權限跑。基底角色與指派分開：本機帳號每次重讀帳號（停用／鎖定／到期／不存在 → None）；
+        SSO 用登入時記下的基底角色（群組映射，不含當時的指派；舊審計沒記 → None，要重新登入一次），再疊「現在」的本機指派（到期、deny、撤銷即時生效）。
+        不用成員目錄合成後的 roles：那份含歷史指派，到期／刪除的角色會永遠留著。"""
+        now = time.time()
+        m = next((x for x in member_directory(store, accounts, auth.sessions.store, now) if x["id"] == user_id), None)
+        if m is None: return None
+        if m.get("source") == "local":
+            base = local_base_roles(user_id, now)
+            if base is None: return None
+        else:
+            if m.get("status") in ("disabled", "locked", "expired", "never_logged_in") or m.get("base_roles") is None: return None
+            base = list(m["base_roles"])
+        roles, _, _ = overlay_assignments((user_id, m.get("username") or user_id), base, store.assignments(), now)
+        return roles
     app.include_router(iam.build_router(store, get_subject, approvals))
     app.include_router(sysadmin.build_router(store, get_subject, accounts, auth.sessions.store, auth.cfg, approvals))
     app.include_router(analytics.build_router(store, get_subject, ch))
     import tempfile
 
     from .dashboard_share import DashboardShare
-    from .sysadmin import member_directory
     share = DashboardShare(store, ch, Catalog(), Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports", approvals, mailer,
-                           recipients=lambda roles: [m["email"] for m in member_directory(store, accounts, auth.sessions.store) if m.get("email") and set(m.get("roles") or []) & set(roles)],
+                           recipients=lambda roles: [m["email"] for m in member_directory(store, accounts, auth.sessions.store) if m.get("email") and set(m.get("roles") or []) & set(roles)], roles_of=owner_roles,
                            mail_domains=mail_domains, render_key=render_key, base_url=base_url, llm=llm)
     app.state.dashboard_share = share
     app.include_router(ask.build_router(store, get_subject, share.cat, llm))
@@ -79,25 +114,8 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     app.include_router(users.build_router(store, get_subject, ch))
     exp = ExportService(store, ch, approvals, Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports", members_rule=seg_svc.members_rule)
     app.include_router(segments.build_router(store, get_subject, seg_svc))
-    from ..auth.mapping import overlay_assignments
     from ..output import OutputService
 
-    def owner_roles(user_id: str) -> list[str] | None:
-        """排程以任務擁有者「現在」的權限跑。基底角色與指派分開：本機帳號每次重讀帳號（停用／鎖定／到期／不存在 → None）；
-        SSO 用登入時記下的基底角色（群組映射，不含當時的指派；舊審計沒記 → None，要重新登入一次），再疊「現在」的本機指派（到期、deny、撤銷即時生效）。
-        不用成員目錄合成後的 roles：那份含歷史指派，到期／刪除的角色會永遠留著。"""
-        now = time.time()
-        m = next((x for x in member_directory(store, accounts, auth.sessions.store, now) if x["id"] == user_id), None)
-        if m is None: return None
-        if m.get("source") == "local":
-            acc = next((a for a in accounts.list() if f"local:{a['subject']}" == user_id), None) if accounts is not None else None
-            if acc is None or acc.get("disabled") or acc.get("locked") or (acc.get("expires_at") and float(acc["expires_at"]) < now): return None
-            base = [r for r in acc["roles"] if accounts.role_allowed(r)]
-        else:
-            if m.get("status") in ("disabled", "locked", "expired", "never_logged_in") or m.get("base_roles") is None: return None
-            base = list(m["base_roles"])
-        roles, _, _ = overlay_assignments((user_id, m.get("username") or user_id), base, store.assignments(), now)
-        return roles
 
     out_svc = OutputService(store, ch, approvals, (Path(export_dir) if export_dir else Path(tempfile.gettempdir()) / "dmp-exports") / "output", share.cat, members_rule=seg_svc.members_rule, code_key=act_svc.code_key,
                             roles_of=owner_roles)

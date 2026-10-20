@@ -148,6 +148,24 @@ def main() -> None:
         sm.create(user_id="entra:oid-ana", username="ana", name="林雅婷", email="", provider="entra", roles=["data_analyst"], groups=[], amr=["pwd", "mfa"], auth_time=int(clock()))
     assert len(sm.store.list_user("entra:oid-ana")) == CFG["session"]["concurrent_sessions"] and any(a["event"] == "auth.session.evicted" for a in audit)
     hdrs = sm.cookie_headers(sm.store.list_user("entra:oid-ana")[-1])
+    # 3b. 既有 session 的有效授權每次請求重算（R07）：接上指派來源後，指派新增／到期／deny／scope 變更不用重新登入就反映；本機帳號停用 → 沒有角色
+    live_asg: list[dict[str, Any]] = []; disabled = {"v": False}
+    sm.assignments = lambda: live_asg
+    sm.base_roles_of = lambda x: (None if disabled["v"] else ["data_analyst"]) if x.provider == "local" else x.attrs.get("base_roles")
+    s_live = sm.create(user_id="entra:oid-live", username="live", name="L", email="", provider="entra", roles=["data_analyst"], groups=[], amr=["pwd", "mfa"], auth_time=int(clock()), base_roles=["data_analyst"])
+    assert sm.subject(s_live).roles == ["data_analyst"] and sm.subject(s_live).branches == []
+    live_asg.append({"id": "l1", "user_id": "entra:oid-live", "roles": ["marketing"], "scope": {"branches": ["B01"]}, "expires_at": clock() + 600})
+    sub = sm.subject(s_live); assert sub.roles == ["data_analyst", "marketing"] and sub.branches == ["B01"], (sub.roles, sub.branches)   # 新指派：同一個 session 立刻有
+    clock.t += 601; sub = sm.subject(s_live); assert sub.roles == ["data_analyst"] and sub.branches == [], (sub.roles, sub.branches)       # 到期：立刻沒有（session 未重新登入）
+    live_asg.append({"id": "l2", "user_id": "entra:oid-live", "roles": ["data_analyst"], "deny": True}); assert sm.subject(s_live).roles == []   # deny：立刻拿掉
+    live_asg.clear(); assert sm.subject(s_live).roles == ["data_analyst"]
+    s_loc = sm.create(user_id="local:sub1", username="loc", name="", email="", provider="local", roles=["data_analyst"], groups=[], amr=["pwd"], auth_time=int(clock()), base_roles=["data_analyst"])
+    assert sm.subject(s_loc).roles == ["data_analyst"]; disabled["v"] = True; assert sm.subject(s_loc).roles == []                                # 本機帳號停用：立刻沒有角色
+    s_old = sm.create(user_id="entra:oid-old", username="old", name="", email="", provider="entra", roles=["data_analyst"], groups=[], amr=["pwd", "mfa"], auth_time=int(clock()))   # 升版前的 session：沒記 base_roles
+    live_asg.append({"id": "l3", "user_id": "entra:oid-old", "roles": ["data_analyst"], "expires_at": clock() - 1})
+    assert sm.subject(s_old).roles == [], "舊 session 的 roles 混了指派，不能當基底：沒有角色，要重新登入"
+    sm.assignments = sm.base_roles_of = None
+    assert sm.subject(s_old).roles == ["data_analyst"]                                                                                                               # 沒接來源（單元測試）才沿用快照
     assert any("dmp_sid=" in v and "HttpOnly" in v and "Secure" in v and "SameSite=Lax" in v for _, v in hdrs) and any("dmp_csrf=" in v and "HttpOnly" not in v for _, v in hdrs)
     # 6. API token（RS256，15 分鐘）：簽發 → 驗證回 Subject；竄改／過期被擋
     tokens = ApiTokens(CFG["session"]["api_token"], priv, pub, now=clock)

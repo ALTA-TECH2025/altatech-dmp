@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 from fastapi import HTTPException
 
 from ..render import svg
-from ..security.policy import MASK, RBAC, Subject
+from ..security.policy import MASK, RBAC, Subject, authorize
 from ..semantic.compiler import Catalog
 from .analytics import Executor, execute_kind
 from .store import Store
@@ -38,6 +38,10 @@ def resolve_card(store: Store, c: dict[str, Any]) -> tuple[str, dict[str, Any], 
 
 TZ = ZoneInfo("Asia/Taipei")
 RENDER_KIND, SCHED_KIND = "dashboard_render", "dashboard_schedule"
+
+
+class AuthorizationLost(RuntimeError):
+    """排程建立者現在已沒有執行所需的授權。"""
 L3_FIELDS = {f["name"] for f in MASK.get("fields", []) if f.get("level") in ("L3", "L4")} | {"one_id", "cust_code", "account_no", "customer_code"}
 AGG_CN = {"total": "總次數", "users": "觸發用戶數", "avg_per_user": "人均次數", "uniq": "去重數", "sum": "數值求和", "avg": "數值均值", "max": "最大值", "min": "最小值", "p50": "中位數", "p90": "P90", "mau": "MAU"}
 
@@ -207,8 +211,10 @@ def explain_summary(period: str, cards: list[dict[str, Any]]) -> list[str]:
 
 class DashboardShare:
     def __init__(self, store: Store, ch: Executor | None, cat: Catalog, render_dir: Path, approvals: Any | None = None, mailer: Callable[[list[str], str, str], None] | None = None,
-                 recipients: Callable[[list[str]], list[str]] | None = None, mail_domains: list[str] | None = None, render_key: str | None = None, base_url: str = "", llm: Any | None = None):
+                 recipients: Callable[[list[str]], list[str]] | None = None, mail_domains: list[str] | None = None, render_key: str | None = None, base_url: str = "", llm: Any | None = None,
+                 roles_of: Callable[[str], list[str] | None] | None = None):
         self.store, self.ch, self.cat, self.approvals, self.mailer, self.recipients, self.llm = store, ch, cat, approvals, mailer, recipients or (lambda roles: []), llm
+        self.roles_of = roles_of                 # 排程執行時查建立者「現在」的角色（含指派撤銷／到期／停用）；None＝沿用建立時快照（單元測試）
         self.dir = Path(render_dir) / "dashboards"; self.dir.mkdir(parents=True, exist_ok=True)
         self.mail_domains = [d.lower().lstrip("@") for d in (mail_domains or []) if d]
         self.base_url = base_url.rstrip("/")
@@ -395,7 +401,7 @@ class DashboardShare:
         try:
             if not d:
                 raise RuntimeError("儀表板已刪除")
-            subject = Subject(s["created_by"], list(s.get("creator_roles") or []))
+            subject = self._schedule_subject(s)
             art = self.render(d, subject, {"audience": "定時寄送", "expires_days": s["expires_days"], "include_explain": s["include_explain"]}, apply_time, k)
             run["artifact_id"] = art["artifact_id"]
             to = sorted(set(self.recipients(s["audience"].get("roles") or [])) | set(s["audience"].get("emails") or []))
@@ -405,11 +411,26 @@ class DashboardShare:
             else:
                 self.mailer(to, f"[DMP] {d['name']} {datetime.now(TZ).strftime('%Y-%m-%d')}", f'<p>看板連結（到期 {art["expires_at"][:10]}）：<a href="{art["share_url"]}">{art["share_url"]}</a></p>')
                 run["status"] = "sent"
+        except AuthorizationLost as e:                                  # 建立者授權已失效：停送並留原因（R09）
+            run["error"] = str(e)[:300]; s["status"] = "paused"; s["paused_reason"] = str(e)[:300]
+            self.store.audit("dashboard.schedule.paused", {"user": s["created_by"], "schedule": s["id"], "dashboard": s["dashboard"], "reason": str(e)[:300]})
         except Exception as e:
             run["error"] = str(e)[:300]
         s["last_run"] = run; self.store.put_item(SCHED_KIND, s)
         self.store.audit("dashboard.schedule.ran", {"user": s["created_by"], "schedule": s["id"], "dashboard": s["dashboard"], **{k2: v for k2, v in run.items() if k2 != "at"}})
         return run
+
+    def _schedule_subject(self, s: dict[str, Any]) -> Subject:
+        """排程的執行身分 = 建立者現在的有效角色（不是建立時的 creator_roles 快照）；查不到、沒角色或已無 overview.use → AuthorizationLost。"""
+        if self.roles_of is None:
+            return Subject(s["created_by"], list(s.get("creator_roles") or []))
+        roles = self.roles_of(s["created_by"])
+        if roles is None:
+            raise AuthorizationLost("建立者帳號已停用或不存在，定時寄送已暫停")
+        d = authorize(Subject(s["created_by"], roles), "use", "overview")
+        if not roles or not d.allowed:
+            raise AuthorizationLost(f"建立者授權已失效（目前角色：{', '.join(roles) or '無'}），定時寄送已暫停")
+        return Subject(s["created_by"], roles)
 
     def tick(self, apply_time: Callable[..., dict[str, Any]], k: int, now: datetime | None = None) -> list[dict[str, Any]]:
         now = now or datetime.now(TZ); ran = []
