@@ -82,7 +82,7 @@ class FakeClickHouse:
 
 
 def login(c: TestClient, sm: SessionManager, roles: list[str], user: str) -> None:
-    s = sm.create(user_id=f"entra:{user}", username=user, name=user, email=f"{user}@corp.internal", provider="entra", roles=roles, groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()))
+    s = sm.create(user_id=f"entra:{user}", username=user, name=user, email=f"{user}@corp.internal", provider="entra", roles=roles, groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()), base_roles=roles)
     c.cookies.set("dmp_sid", s.sid); c.cookies.set("dmp_csrf", s.csrf)
     c.headers["X-CSRF-Token"] = s.csrf
 
@@ -690,6 +690,7 @@ def main(store: Any | None = None) -> None:
     login(c, sm, ["digital_ops"], "ops")
     assert c.post("/v1/destinations", json={"name": "批次 SFTP", "type": "sftp", "secret_ref": "kv/data/dmp/prod/sftp#password", "config": {"host": "sftp.internal", "path": "/dmp/out", "username": "dmp", "password": "plain"}}).status_code == 400
     assert c.post("/v1/destinations", json={"name": "批次 SFTP", "type": "sftp", "secret_ref": "kv/data/dmp/prod/sftp#password", "config": {"host": "sftp.internal"}}).status_code == 400
+    assert c.post("/v1/destinations", json={"name": "批次 SFTP", "type": "sftp", "secret_ref": "kv/data/dmp/prod/sftp#password", "config": {"host": "sftp.internal", "path": "/dmp/../out", "username": "dmp"}}).status_code == 400   # 路徑含 ..
     sf = c.post("/v1/destinations", json={"name": "批次 SFTP", "type": "sftp", "secret_ref": "kv/data/dmp/prod/sftp#password", "config": {"host": "sftp.internal", "path": "/dmp/out", "username": "dmp", "auth": "key"}}); assert sf.status_code == 201, sf.text
     sf = sf.json(); assert sf["type"] == "sftp" and sf["config"]["port"] == 22 and sf["url"] == "" and sf["secret"] == "••••••••", sf
     st = c.post(f"/v1/destinations/{sf['id']}/test").json(); assert st["status"] == "ok" and [x["step"] for x in st["steps"]] == ["dns", "tcp", "auth", "write_probe"], st
@@ -702,6 +703,13 @@ def main(store: Any | None = None) -> None:
     _r = c.post("/v1/exports/tasks/preview", json={**body, "content": {**body["content"], "identifier": "one_id"}}); assert _r.status_code == 422, _r.text                 # 沒有揭露的分析師不能明文 one_id
     login(c, sm, ["data_analyst"], "ana")
     _r = c.post("/v1/exports/tasks/preview", json={**body, "type": "realtime"}); assert _r.status_code == 422, _r.text                                                   # realtime 不接 sftp
+    for bad in ("../../escaped_{seq}.{ext}", "/abs/{task}_{seq}.{ext}", "{task}/../{seq}.{ext}"):
+        _r = c.post("/v1/exports/tasks/preview", json={**body, "format": {"type": "csv", "file_pattern": bad}}); assert _r.status_code == 422 and (".." in _r.text or "絕對" in _r.text), (bad, _r.text)   # 檔名樣板不能越出目的地目錄
+    ub = {**body, "name": "用戶寬表（P1）", "content": {"kind": "users", "columns": ["tier", "aum"], "filters": [{"field": "user.tier", "op": "in", "value": ["P1"]}], "time": {"from": "2026-10-01", "to": "2026-10-16"}, "identifier": "customer_code"}}
+    upv = c.post("/v1/exports/tasks/preview", json=ub); assert upv.status_code == 200, upv.text
+    upv = upv.json(); usql = next(x for x in reversed(ch.sqls) if "bitmapContains(" in x)
+    assert "e.updated_at >= toDateTime64('2026-10-01 00:00:00'" in usql and "'2026-10-17 00:00:00'" in usql and "repeat(" not in usql, usql                           # 用戶寬表套 updated_at 期間；內部取原始 one_id
+    assert "one_id" not in upv["sample"][0] and "_one_id" not in upv["sample"][0] and any("updated_at" in w for w in upv["warnings"]), upv
     pv = c.post("/v1/exports/tasks/preview", json=body); assert pv.status_code == 200, pv.text
     pv = pv.json(); assert pv["rows_estimate"] == 2 and pv["rejected"] == [] and next(x for x in pv["columns"] if x["name"] == "amount")["policy"] == "bucket" and pv["sample"][0]["customer_code"].startswith("cust_") and "_one_id" not in pv["sample"][0] and pv["sample"][0]["amount"] == "100000–500000", pv
     ot = c.post("/v1/exports/tasks", json=body); assert ot.status_code == 201, ot.text
@@ -713,8 +721,15 @@ def main(store: Any | None = None) -> None:
     login(c, sm, ["digital_ops"], "ops")
     oaps = [a for a in c.get("/v1/approvals?scope=to_me").json() if a["type"] == "output_task" and a["status"] == "pending"]; assert len(oaps) == 2 and any("目的地首次使用" in a["summary"] for a in oaps), oaps
     for a in oaps: assert c.post(f"/v1/approvals/{a['id']}/decide", json={"approve": True, "note": "ok"}).status_code == 200
-    assert c.get(f"/v1/exports/tasks/{ot['id']}").json()["status"] == "approved" and c.get(f"/v1/exports/tasks/{dy['id']}").json()["status"] == "active"
-    assert c.post(f"/v1/exports/tasks/{ot['id']}/run").status_code == 403                                                                           # 非建立者不能執行
+    _t = c.get(f"/v1/exports/tasks/{ot['id']}").json(); assert _t["status"] == "pending_approval" and _t["pending_approvals"] == [_t["destination_approval_id"]], _t       # 目的地首次使用：還差系統管理員那一道
+    assert not [a for a in c.get("/v1/approvals?scope=to_me").json() if a["type"] == "destination_first_use" and a["status"] == "pending"]                              # 數位經營看不到也不能審目的地那張
+    login(c, sm, ["data_analyst"], "ana"); assert c.post(f"/v1/exports/tasks/{ot['id']}/run").status_code == 409                                    # 一道核可不能跑
+    login(c, sm, ["admin"], "adm")
+    daps = [a for a in c.get("/v1/approvals?scope=to_me").json() if a["type"] == "destination_first_use" and a["status"] == "pending"]; assert len(daps) == 2 and len(daps[0]["detail"]["config_version"]) == 16 and daps[0]["detail"]["config_version"] == daps[1]["detail"]["config_version"] == app.state.output._dest_version(app.state.output._destination(sf["id"])), daps
+    for a in daps: assert c.post(f"/v1/approvals/{a['id']}/decide", json={"approve": True, "note": "SFTP 主機在白名單"}).status_code == 200
+    _t = c.get(f"/v1/exports/tasks/{ot['id']}").json(); assert _t["status"] == "approved" and _t["pending_approvals"] == [] and _t["destination_approved"]["by"] == "entra:adm", _t
+    assert c.get(f"/v1/exports/tasks/{dy['id']}").json()["status"] == "active"
+    login(c, sm, ["digital_ops"], "ops"); assert c.post(f"/v1/exports/tasks/{ot['id']}/run").status_code == 403                                     # 非建立者不能執行
     login(c, sm, ["data_analyst"], "ana")
     rn = c.post(f"/v1/exports/tasks/{ot['id']}/run"); assert rn.status_code == 202, rn.text
     rn = rn.json(); assert rn["status"] == "ok" and rn["rows"] == 2 and [f["path"].split("/")[-1] for f in rn["files"]] == [f"{ot['id']}_2026-10-16_0001.csv.gz", "manifest.json"] and rn["watermark"] and all(len(f["checksum"]) == 64 for f in rn["files"]), rn
@@ -723,13 +738,83 @@ def main(store: Any | None = None) -> None:
     txt = _gz.decompress(outbox.read_bytes()).decode("utf-8"); assert txt.splitlines()[0] == "customer_code,event,time,platform,amount,props.market,_wm" and rn["watermark"] in txt and "v1_abcdef1234" not in txt, txt
     man = json.loads((outbox.parent / "manifest.json").read_text(encoding="utf-8")); assert man["rows"] == 2 and man["masked"] == {"amount": "bucket"} and man["approval"] == ot["approval_id"], man
     assert c.get(f"/v1/exports/tasks/{ot['id']}").json()["status"] == "ended" and c.get(f"/v1/exports/tasks/{ot['id']}/runs").json()[0]["id"] == rn["id"]
-    tk = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 17, 2, 5, tzinfo=ZoneInfo("Asia/Taipei"))); assert tk["ran"] and tk["ran"][0]["task"] == dy["id"] and tk["ran"][0]["status"] == "ok", tk
+    tk = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 17, 2, 5, tzinfo=ZoneInfo("Asia/Taipei"))); assert tk["ran"] and tk["ran"][0]["task"] == dy["id"] and tk["ran"][0].get("status") == "ok", tk
     tk2 = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 17, 2, 6, tzinfo=ZoneInfo("Asia/Taipei"))); assert tk2["ran"] == [], tk2                     # 同一分區不重跑
     runs = c.get(f"/v1/exports/tasks/{dy['id']}/runs").json(); assert runs[0]["trigger"] == "schedule" and runs[0]["partition_date"] == "2026-10-16", runs
+    login(c, sm, ["digital_ops"], "ops"); assert c.post(f"/v1/destinations/{sf['id']}/pause").json()["status"] == "paused"                            # 目的地暫停：排程不得產檔
+    _n = len(ch.sqls); tk3 = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 18, 2, 5, tzinfo=ZoneInfo("Asia/Taipei")))
+    assert tk3["ran"] and "已暫停" in tk3["ran"][0]["error"] and len(ch.sqls) == _n, (tk3, len(ch.sqls) - _n)
+    runs = c.get(f"/v1/exports/tasks/{dy['id']}/runs").json(); assert runs[0]["status"] == "skipped" and "已暫停" in runs[0]["error"] and runs[0]["files"] == [], runs[0]
+    assert c.post(f"/v1/destinations/{sf['id']}/pause").json()["status"] == "active"
+    tk4 = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 18, 2, 6, tzinfo=ZoneInfo("Asia/Taipei"))); assert tk4["ran"][0]["status"] == "ok", tk4   # 恢復後照跑（分區 10-17）
+    store.put_assignment({"id": "as_deny_ana", "user_id": "entra:ana", "roles": ["data_analyst"], "deny": True})                                     # 撤權：排程以擁有者現在的角色跑 → 不產檔
+    _n = len(ch.sqls); tk5 = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 19, 2, 5, tzinfo=ZoneInfo("Asia/Taipei")))
+    assert tk5["ran"] and tk5["ran"][0].get("error") and len(ch.sqls) == _n, (tk5, len(ch.sqls) - _n)
+    assert c.get(f"/v1/exports/tasks/{dy['id']}/runs").json()[0]["status"] == "failed" and [x for x in store.audit_tail(20) if x["event"] == "output_task.run_failed"], "撤權要記 run_failed"
+    store.delete_assignment("as_deny_ana")
+    login(c, sm, ["data_analyst"], "ana")
     assert c.post(f"/v1/exports/tasks/{dy['id']}/pause").json()["status"] == "paused" and c.post(f"/v1/exports/tasks/{dy['id']}/run").status_code == 409
     up = c.put(f"/v1/exports/tasks/{dy['id']}", json={**body, "name": "成交明細每日 v2", "type": "daily", "schedule": {"at": "03:00"}, "content": {**body["content"], "events": ["bond_order"]}}); assert up.status_code == 200 and up.json()["status"] == "pending_approval", up.text   # 改內容重走審批
     assert c.delete(f"/v1/exports/tasks/{dy['id']}").status_code == 204 and all(t["id"] != dy["id"] for t in c.get("/v1/exports/tasks").json())
-    evo = [x["event"] for x in store.audit_tail(200)]; assert {"output_task.previewed", "output_task.created", "output_task.approved", "output_task.run", "output_task.paused", "output_task.updated", "output_task.deleted", "destination.tested"} <= set(evo), set(evo)
+    # 複審 P1（a）：排程身分解析走 create_app 注入的 resolver —— 基底角色與指派分開；SSO 用登入時記下的基底角色，本機帳號重讀帳號
+    oroles = app.state.output._owner_roles
+    assert oroles("entra:ana") == ["data_analyst"] and oroles("entra:nobody") is None
+    store.put_assignment({"id": "as_exp_ana", "user_id": "entra:ana", "roles": ["marketing"], "expires_at": time.time() - 1}); assert oroles("entra:ana") == ["data_analyst"]; store.delete_assignment("as_exp_ana")   # 到期指派不算
+    store.put_assignment({"id": "as_tmp_leg", "user_id": "entra:tmpleg", "roles": ["data_analyst"], "expires_at": time.time() + 3600})                                        # 登入時靠臨時指派拿到角色（基底角色空）
+    sm.create(user_id="entra:tmpleg", username="tmpleg", name="", email="", provider="entra", roles=["data_analyst"], groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()), base_roles=[])
+    assert oroles("entra:tmpleg") == ["data_analyst"]
+    _asg = next(x for x in store.assignments() if x["id"] == "as_tmp_leg"); _asg["expires_at"] = time.time() - 1; store.put_assignment(_asg); assert oroles("entra:tmpleg") == []   # 指派到期：不沿用登入快照
+    store.delete_assignment("as_tmp_leg"); assert oroles("entra:tmpleg") == []                                                                                              # 指派刪除：同樣沒有角色
+    store.audit("auth.login.success", {"user": "entra:legacy", "provider": "entra", "roles": ["data_analyst"], "amr": ["pwd", "mfa"]}); assert oroles("entra:legacy") is None   # 舊審計沒記基底角色 → 不拿合成快照當基底
+    la = local.accounts; la.add("sched-bot", "Correct-Horse-Battery-14!", ["marketing"], totp=False); _sub = la.public("sched-bot")["subject"]
+    assert oroles(f"local:{_sub}") == ["marketing"]
+    la.data["accounts"]["sched-bot"]["expires_at"] = int(time.time()) - 1; la._save(); assert oroles(f"local:{_sub}") is None                                             # 本機帳號到期
+    la.data["accounts"]["sched-bot"]["expires_at"] = int(time.time()) + 86400; la.set_disabled("sched-bot", True); assert oroles(f"local:{_sub}") is None; la.set_disabled("sched-bot", False)
+    la.data["accounts"]["sched-bot"]["locked_until"] = time.time() + 600; assert oroles(f"local:{_sub}") is None; la.data["accounts"]["sched-bot"]["locked_until"] = 0; la._save(); assert oroles(f"local:{_sub}") == ["marketing"]
+    # 複審 P1（b）：目的地核准綁目的地 ID 與設定摘要；待審期間換目的地 → 舊審批作廢、重開兩道
+    login(c, sm, ["digital_ops"], "ops")
+    sfa = c.post("/v1/destinations", json={"name": "SFTP A", "type": "sftp", "secret_ref": "kv/data/dmp/prod/sftp#password", "config": {"host": "a.internal", "path": "/a", "username": "dmp", "auth": "key"}}).json()
+    sfb = c.post("/v1/destinations", json={"name": "SFTP B", "type": "sftp", "secret_ref": "kv/data/dmp/prod/sftp#password", "config": {"host": "b.internal", "path": "/b", "username": "dmp", "auth": "key"}}).json()
+    login(c, sm, ["data_analyst"], "ana")
+    t2 = c.post("/v1/exports/tasks", json={**body, "name": "換目的地", "type": "daily", "schedule": {"at": "02:00"}, "destination_id": sfa["id"]}); assert t2.status_code == 201, t2.text
+    t2 = t2.json()
+    login(c, sm, ["admin"], "adm"); dap = next(a for a in c.get("/v1/approvals?scope=to_me").json() if a["type"] == "destination_first_use" and a["status"] == "pending" and a["detail"]["destination_id"] == sfa["id"])
+    assert c.post(f"/v1/approvals/{dap['id']}/decide", json={"approve": True, "note": "A ok"}).status_code == 200
+    login(c, sm, ["data_analyst"], "ana")
+    up2 = c.put(f"/v1/exports/tasks/{t2['id']}", json={**body, "name": "換目的地", "type": "daily", "schedule": {"at": "02:00"}, "destination_id": sfb["id"]}); assert up2.status_code == 200, up2.text
+    t2b = up2.json(); assert t2b["status"] == "pending_approval" and t2b["destination_approved"] is None and len(t2b["pending_approvals"]) == 2 and t2b["approval_id"] != t2["approval_id"], t2b
+    assert next(a for a in store.items("approvals") if a["id"] == t2["approval_id"])["status"] == "rejected", "待審期間換目的地：舊的待審單作廢"   # A 的核准紀錄留著但已從任務上清掉（下面驗套不到 B）
+    login(c, sm, ["digital_ops"], "ops"); assert c.post(f"/v1/approvals/{t2b['approval_id']}/decide", json={"approve": True}).status_code == 200
+    login(c, sm, ["data_analyst"], "ana"); assert c.get(f"/v1/exports/tasks/{t2['id']}").json()["status"] == "pending_approval" and c.post(f"/v1/exports/tasks/{t2['id']}/run").status_code == 409   # B 還沒經系統管理員核可
+    _rec = app.state.output.get(t2["id"]); _rec["destination_approved"] = {"by": "entra:adm", "at": "x", "approval": dap["id"], "destination": sfa["id"], "config_version": app.state.output._dest_version(app.state.output._destination(sfa["id"]))}
+    assert app.state.output._dest_needs_admin(_rec, app.state.output._destination(sfb["id"])) is True                                                                    # A 的核准紀錄套不到 B
+    login(c, sm, ["admin"], "adm"); dapb = next(a for a in c.get("/v1/approvals?scope=to_me").json() if a["type"] == "destination_first_use" and a["status"] == "pending" and a["detail"]["destination_id"] == sfb["id"])
+    assert c.post(f"/v1/approvals/{dapb['id']}/decide", json={"approve": True, "note": "B ok"}).status_code == 200
+    t2c = app.state.output.get(t2["id"]); assert t2c["status"] == "active" and t2c["destination_approved"]["destination"] == sfb["id"], t2c
+    login(c, sm, ["data_analyst"], "ana"); assert c.post(f"/v1/exports/tasks/{t2['id']}/pause").json()["status"] == "paused"
+    # 複審 P1（c）：執行時重驗 one_id 明文權限 —— admin 建立並核可 identifier=one_id 的用戶寬表任務，執行身分降成 data_analyst → 不查、不產檔、任務暫停
+    login(c, sm, ["admin"], "adm")
+    u1 = c.post("/v1/exports/tasks", json={**ub, "name": "用戶寬表 one_id", "type": "daily", "schedule": {"at": "02:00"}, "content": {**ub["content"], "identifier": "one_id"}}); assert u1.status_code == 201, u1.text
+    u1 = u1.json()
+    login(c, sm, ["digital_ops"], "ops"); assert c.post(f"/v1/approvals/{u1['approval_id']}/decide", json={"approve": True}).status_code == 200
+    assert app.state.output.get(u1["id"])["status"] == "active"                                                                                                           # sf 已送過：不需目的地那道
+    _n = len(ch.sqls); _before = sorted(str(p) for p in (app.state.output.dir / "outbox").rglob("*") if p.is_file())
+    try: app.state.output.run(u1["id"], Subject("entra:adm", ["data_analyst"]), trigger="schedule"); raise AssertionError("降權後 one_id 任務應停止")
+    except PermissionError as e: assert "one_id" in str(e)
+    assert len(ch.sqls) == _n and sorted(str(p) for p in (app.state.output.dir / "outbox").rglob("*") if p.is_file()) == _before                                      # 沒查、沒產檔
+    _u = app.state.output.get(u1["id"]); assert _u["status"] == "paused" and "one_id" in _u["note"] and app.state.output.runs(u1["id"])[0]["status"] == "failed", _u
+    assert any(x["event"] == "output_task.paused" and x.get("reason") == "one_id_plain_revoked" for x in store.audit_tail(10))
+    _u["status"] = "active"; store.put_item("output_task", _u)
+    assert app.state.output.run(u1["id"], Subject("entra:adm", ["admin"]), trigger="schedule")["status"] == "ok"                                                          # 有效 admin 照跑
+    # 複審 P1（a，端到端）：任務擁有者換成到期的本機帳號 → 排程不查、不產檔、記 run_failed
+    _u = app.state.output.get(u1["id"]); _u["owner"] = f"local:{_sub}"; _u["status"] = "active"; store.put_item("output_task", _u)
+    la.data["accounts"]["sched-bot"]["expires_at"] = int(time.time()) - 1; la._save()
+    _n = len(ch.sqls); _before = sorted(str(p) for p in (app.state.output.dir / "outbox").rglob("*") if p.is_file())
+    tkx = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 21, 2, 5, tzinfo=ZoneInfo("Asia/Taipei")))
+    assert [r for r in tkx["ran"] if r["task"] == u1["id"] and "有效身分" in (r.get("error") or "")] and len(ch.sqls) == _n and sorted(str(p) for p in (app.state.output.dir / "outbox").rglob("*") if p.is_file()) == _before, tkx
+    assert app.state.output.runs(u1["id"])[0]["status"] == "failed"
+    login(c, sm, ["data_analyst"], "ana")
+    evo = [x["event"] for x in store.audit_tail(300)]; assert {"output_task.previewed", "output_task.created", "output_task.approval_step", "output_task.approved", "output_task.run", "output_task.run_skipped", "output_task.run_failed", "output_task.paused", "output_task.updated", "output_task.deleted", "destination.tested"} <= set(evo), set(evo)
     # 6. 審計：行銷只看自己；admin 全看
     login(c, sm, ["marketing"], "mkt"); mine = c.get("/v1/audit").json(); assert mine and all(x.get("user") == "entra:mkt" for x in mine)
     login(c, sm, ["admin"], "adm"); allrows = c.get("/v1/audit").json(); assert len(allrows) > len(mine)

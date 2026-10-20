@@ -123,11 +123,14 @@ class ActivationService:
             need = {"sftp": ("host", "path", "username"), "s3": ("endpoint", "bucket")}[t]
             missing = [k for k in need if not str(cfg.get(k) or "").strip()]
             if missing: raise ValueError(f"{t} 目的地 config 缺 {missing}")
+            from ..output.transport import safe_relpath
             if t == "sftp":
                 cfg["port"] = int(cfg.get("port") or 22); cfg["auth"] = str(cfg.get("auth") or "password")
                 if cfg["auth"] not in ("password", "key"): raise ValueError("sftp config.auth 只能是 password／key")
+                cfg["path"] = "/" + safe_relpath(str(cfg["path"]).lstrip("/"), "sftp config.path")       # 遠端絕對目錄，但不得含 ..／空段落
             else:
                 cfg["path_style"] = bool(cfg.get("path_style", True)); cfg["prefix"] = str(cfg.get("prefix") or "").strip("/"); cfg["region"] = str(cfg.get("region") or "")
+                if cfg["prefix"]: cfg["prefix"] = safe_relpath(cfg["prefix"], "s3 config.prefix")
             for k in ("password", "private_key", "secret_key", "secret_access_key"):
                 if cfg.get(k): raise ValueError(f"config.{k} 疑似明文密鑰，請改用 secret_ref")
             url = ""

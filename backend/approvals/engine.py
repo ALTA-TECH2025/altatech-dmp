@@ -24,7 +24,8 @@ from ..semantic.compiler import Catalog
 from ..semantic.compiler.users import compile_estimate, compile_export, parse_users
 
 APPROVER_ROLES: dict[str, list[str]] = {"export": ["digital_ops"], "segment": ["digital_ops"], "push": ["digital_ops"], "tag": ["digital_ops"], "reveal_l2": ["digital_ops"], "reveal_l3": ["admin"], "agent_proposal": ["digital_ops"],
-                                        "role_change": ["admin", "digital_ops"], "break_glass": ["admin", "digital_ops"], "dashboard_schedule": ["digital_ops"]}
+                                        "role_change": ["admin", "digital_ops"], "break_glass": ["admin", "digital_ops"], "dashboard_schedule": ["digital_ops"],
+                                        "output_task": ["digital_ops"], "destination_first_use": ["admin"]}     # 資料輸出：資料面由數位經營審；目的地首次使用另由系統管理員審（兩道都過才生效）
 STRICT_SELF = {"role_change", "break_glass"}       # 權限類審批：連 admin 也不能審自己的申請（雙人複核）
 TTL_DAYS = 7
 EXPORT_WINDOW_DAYS = 7
