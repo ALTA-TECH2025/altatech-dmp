@@ -61,7 +61,17 @@ export function formatSql(sql: string): string {
     out += ch; i++;
   }
   out = out.replace(/^SELECT (?=\S)/m, 'SELECT\n  ').replace(/\nSELECT (?=\S)/g, '\nSELECT\n  ');
-  return out.replace(/\u0000(\d+)\u0000/g, (_, n) => (strs[Number(n)].startsWith('--') ? `${strs[Number(n)]}\n` : strs[Number(n)])).replace(/ +\n/g, '\n').replace(/\n{2,}/g, '\n').trim();
+  out = out.replace(/ +\n/g, '\n').replace(/\n{2,}/g, '\n');                   // 版面整理（去行尾空白、併空行）只在還原 token 之前做：字串常值、註解裡的換行逐字保留
+  // 還原 token：逐段接回，只動格式化器自己產生的空白（token 內容逐字不動）。行註解後面要有換行才不會吞掉下一個子句；
+  // 連續兩個行註解之間格式化器留的是一個空格，要把那個空格拿掉（只拿上一個 token 之後、格式化器加的那段）。
+  const re = /\u0000(\d+)\u0000/g; let res = ''; let last = 0; let m: RegExpExecArray | null;
+  while ((m = re.exec(out)) !== null) {
+    const t = strs[Number(m[1])]; let gap = out.slice(last, m.index);           // gap 全是格式化器產生的空白／關鍵字，可以動
+    if (t.startsWith('--') && res.endsWith('\n') && /^ +$/.test(gap)) gap = '';
+    res += gap + t; last = m.index + m[0].length;
+    if (t.startsWith('--') && out[last] !== undefined && out[last] !== '\n') res += '\n';
+  }
+  return (res + out.slice(last)).trim();
 }
 
 // ---- 勾選欄位 → SELECT ----

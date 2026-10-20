@@ -20,6 +20,9 @@ describe('自定義 SQL：參數型別、格式化、生成 SELECT', () => {
     expect(formatSql('select x from (select x, y from t where y > 1) as s')).toBe('SELECT\n  x\nFROM (SELECT x, y FROM t WHERE y > 1) AS s');
     expect(formatSql("select a -- pick a\nfrom t where x = '--not a comment' /* block\n comment */ and y = 1")).toBe("SELECT\n  a -- pick a\nFROM t\nWHERE x = '--not a comment' /* block\n comment */\n  AND y = 1");   // 行註解不吞掉後面的子句；字串裡的 -- 與區塊註解原樣保留
     expect(formatSql('select a from t -- trailing')).toBe('SELECT\n  a\nFROM t -- trailing');
+    expect(formatSql("select 'first\n\nsecond' as x from dmp.events")).toBe("SELECT\n  'first\n\nsecond' AS x\nFROM dmp.events");                       // 字串常值裡的連續換行逐字保留（併空行只動版面）
+    expect(formatSql("select a /* keep\n\n\nblank lines */ from t -- c1\n-- c2\nwhere x = 1")).toBe("SELECT\n  a /* keep\n\n\nblank lines */\nFROM t -- c1\n-- c2\nWHERE x = 1");   // 區塊註解內容不動；連續行註解各自一行
+    expect(formatSql("select a from t where x = 'a\n\nb' -- tail\n  and y = 2")).toBe("SELECT\n  a\nFROM t\nWHERE x = 'a\n\nb' -- tail\n  AND y = 2");
   });
   it('勾選欄位生成 SELECT', () => {
     expect(selectFor('events', [{ name: 'event', type: 'String' }, { name: 'platform', type: 'String' }], true)).toBe('SELECT\n  event,\n  platform\nFROM dmp.events\nWHERE event_date BETWEEN {{from}} AND {{to}}\nLIMIT 500');
