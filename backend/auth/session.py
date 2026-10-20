@@ -84,7 +84,8 @@ class SessionManager:
         for old in olds[: max(0, len(olds) + 1 - int(self.cfg.get("concurrent_sessions", 3)))]:     # 超過同時 session 上限 → 踢最舊的
             self.store.delete(old.sid); self.audit("auth.session.evicted", {"user": user_id, "sid": old.sid[:8]})
         self.store.put(s)
-        self.audit("auth.login.success" if roles else "auth.login.no_role", {"user": user_id, "provider": provider, "roles": roles, "amr": amr, "ip_masked": _mask_ip(ip)})
+        self.audit("auth.login.success" if roles else "auth.login.no_role", {"user": user_id, "provider": provider, "roles": roles, "amr": amr, "ip_masked": _mask_ip(ip),
+                                                                           **({"base_roles": list(base_roles)} if base_roles is not None else {})})   # 基底角色（不含指派）：背景排程重算身分用
         return s
 
     def resolve(self, sid: str | None, ip: str = "") -> Session | None:
