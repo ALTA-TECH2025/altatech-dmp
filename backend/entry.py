@@ -18,6 +18,7 @@ import sys
 import threading
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 ROLES = ("api", "worker")
@@ -77,9 +78,14 @@ def worker_app() -> Any:
     """worker 角色：組正式 app（拿到 scheduler／segments／activation／output／ops 的 tick）並強制背景例行，對外只給 /healthz。"""
     from fastapi import FastAPI
     os.environ["DMP_TICK"] = "1"
-    from backend.api.main import build
-    build()                                                             # 背景執行緒 dmp-tick 在 build() 內起
+    os.environ["DMP_BUILD_APP"] = "0"                                   # main 模組底部預設 import 就 build()：這裡禁掉，worker 只能有一份 app、一條 dmp-tick
+    main = importlib.import_module("backend.api.main")
+    if getattr(main, "app", None) is not None and any(t.name == "dmp-tick" and t.is_alive() for t in threading.enumerate()):
+        app = main.app                                                  # 同一個行程裡已經有帶 ticker 的 app（例如先被 import 過）：沿用，不再起第二份
+    else:
+        app = main.build()                                              # 背景執行緒 dmp-tick 在 build() 內起
     health = FastAPI(title="AltaTech DMP worker", docs_url=None, openapi_url=None)
+    health.state.app = app
 
     @health.get("/healthz")
     def healthz() -> Any:
@@ -146,6 +152,17 @@ def selftest() -> None:
         assert healthcheck(port) == 1
         srv.shutdown()
     assert healthcheck(port) == 1                                     # 關掉後連不上 → 1
+    # worker 只能起一份 app、一條 dmp-tick（全新 interpreter；故意先設 DMP_TICK=1 且不設 DMP_BUILD_APP，重現「import 就 build」的情境）
+    import subprocess
+    code = ("import threading; from backend.api import main as m0; from backend.entry import worker_app; worker_app(); "
+            "import backend.api.main as m; print(sum(1 for t in threading.enumerate() if t.name == 'dmp-tick' and t.is_alive()), m.app is None)")
+    env = {**os.environ, "DMP_TICK": "1", "DMP_COOKIE_SECURE": "0", "DMP_BUILD_APP": "0"}
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=120, cwd=str(Path(__file__).resolve().parents[1]))
+    assert out.returncode == 0 and out.stdout.strip().endswith("1 True"), (out.stdout[-200:], out.stderr[-400:])
+    env.pop("DMP_BUILD_APP")                                           # 沒設 DMP_BUILD_APP（映像預設）：import 會自動 build，但 worker_app 不會再起第二份
+    out = subprocess.run([sys.executable, "-c", "import threading; from backend.entry import worker_app; worker_app(); print(sum(1 for t in threading.enumerate() if t.name == 'dmp-tick' and t.is_alive()))"],
+                         capture_output=True, text=True, env=env, timeout=120, cwd=str(Path(__file__).resolve().parents[1]))
+    assert out.returncode == 0 and out.stdout.strip().endswith("1"), (out.stdout[-200:], out.stderr[-400:])
     print("entry self-test ok: parse(api/worker, port, bad args)/check(app module loads)/healthcheck(200 ok, 503, closed)")
 
 
