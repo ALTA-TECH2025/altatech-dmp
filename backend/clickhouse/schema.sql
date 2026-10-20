@@ -352,7 +352,7 @@ CREATE TABLE IF NOT EXISTS dmp.events_daily_agg_pending
     owner        String,                               -- batch_id／rebuild／cli
     at           DateTime64(3, 'UTC') DEFAULT now64(3),
     lease_until  DateTime64(3, 'UTC'),                 -- phase 0 用：過期就不准再寫
-    kind         LowCardinality(String) DEFAULT 'change' -- change＝版本變更要重建；touch＝只寫了新事件（被別人的重建蓋掉才要補）；replace＝重建換過分區
+    kind         LowCardinality(String) DEFAULT 'change' -- change＝一定要重建（歸戶改寫、並行重複寫入）；touch＝這批會寫到的日期；rebuild＝重建者自己的標記；replace＝重建換過分區
 )
 ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.events_daily_agg_pending', '{replica}')
 ORDER BY (event_date, id, phase, at);

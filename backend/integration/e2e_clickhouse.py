@@ -235,9 +235,9 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
 
 
 def agg_stage(ch: ClickHouseHTTP) -> None:
-    """R12 回歸：同一事件直接寫兩次（繞過載入路徑）→ 底表 FINAL 1 筆、MV 彙總 2 筆（Codex 的重現）；重建該日分區後彙總回到 1。
-    再走載入路徑（LocalRunner GA4）重插同一事件：內容相同 → 不寫入，彙總不變；內容不同（utm 補齊）→ 寫入新版本 + 該日重建，彙總仍 = 1。"""
-    from .aggregates import dedupe, purge_stale, rebuild, verify
+    """R12 回歸（事件只追加、不覆蓋）：同一事件直接寫兩次（繞過載入路徑）→ 底表 FINAL 1 筆、MV 彙總 2 筆；重建該日分區後彙總回到 1。
+    載入路徑：倉裡已有的 event_id 一律不寫（內容相同 skipped、不同 kept_first），保留第一筆，彙總不變；並行寫入者／重建交錯、各點中斷都可由標記日誌恢復。"""
+    from .aggregates import dedupe, rebuild, verify
     from .ga4_source import FakeBigQuery, ga4_row
     row = {"project": "altatech_dmp", "time": "2026-09-01 01:00:00.000", "event": "bond_deal", "source": "e2e_dup", "one_id": "v1_dup", "entity_type": "", "entity_id": "", "distinct_id": "",
            "session_id": "", "event_id": "agg-dup-1", "platform": "iOS", "app_id": "", "symbol": "2330", "side": "B", "channel": "app", "amount": 100.0, "utm_source": "", "utm_campaign": "",
@@ -247,8 +247,12 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
     v = verify(ch, "2026-09-01"); assert v["events_cnt"] == 1 and v["agg_cnt"] == 2, v                      # 修正前的狀態：MV 每次 INSERT 都累加
     assert rebuild(ch, ["2026-09-01"]) == ["2026-09-01"]
     v = verify(ch, "2026-09-01"); assert v["events_cnt"] == 1 and v["agg_cnt"] == 1 and v["agg_users"] == 1 and v["amount_diff"] < 1e-6, v
-    d0 = dedupe(ch, [row]); assert d0.rows == [] and d0.skipped == 1 and d0.rebuild == set(), d0          # 載入路徑：一模一樣 → no-op
-    d0 = dedupe(ch, [{**row, "utm_source": "google"}]); assert len(d0.rows) == 1 and d0.rebuild == {"2026-09-01"} and d0.stale == [], d0   # 內容變 → 新版本 + 重建
+    # 載入路徑的去重（只追加）：一模一樣 → skipped；同 event_id 但內容不同（utm 補齊、props、時間跨日、one_id）→ kept_first，倉裡仍是第一筆
+    d0 = dedupe(ch, [row]); assert d0.rows == [] and d0.skipped == 1 and d0.kept_first == 0, d0
+    for change in ({"utm_source": "google"}, {"props": {"market": "US"}, "utm_campaign": "new"}, {"time": "2026-09-02 10:00:00.000"}, {"one_id": "v1_rewritten"}):
+        d0 = dedupe(ch, [{**row, **change, "ingest_time": "2026-09-01 02:00:00.000", "batch_id": "chg"}])
+        assert d0.rows == [] and d0.skipped == 0 and d0.kept_first == 1 and d0.kept_first_ids == ["agg-dup-1"], (change, d0)
+    other = {**row, "event_id": "agg-dup-2"}; d0 = dedupe(ch, [other]); assert d0.rows == [other], d0         # 不同 event_id（同時間、同內容）＝另一筆事件 → 追加
     bq = FakeBigQuery(); runner = LocalRunner(ch, bq_clients={"bq": bq})
     base_us = int(datetime(2026, 9, 2, 0, 0, tzinfo=UTC).timestamp() * 1_000_000)
     bq.tables["ds.events_intraday_20260902"] = [ga4_row(i, base_us + i * 60_000_000, "kh_apply", uid="v1_abc") for i in range(50)]
@@ -258,148 +262,138 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
     r2 = runner.run(task, watermark=None, batch_id="g2", known_fields=None, now=now + timedelta(minutes=15), log=log.append)   # 整批重讀（重試）
     assert r1.rows_loaded == 50 and r2.rows_loaded == 50 and ch.scalar("SELECT count() FROM dmp.events WHERE batch_id = 'g2'") == 0, (r1, r2)   # 第二次一筆都沒寫
     v = verify(ch, "2026-09-02"); assert v["events_cnt"] == v["agg_cnt"] == 50 and v["agg_users"] == 1, v
-    for ev in bq.tables["ds.events_intraday_20260902"]: ev["session_traffic_source_last_click"]["manual_campaign"]["source"] = "google"   # 內容變：utm_source 補齊
-    runner.run(task, watermark=None, batch_id="g3", known_fields=None, now=now + timedelta(minutes=30), log=log.append)
-    assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id = 'g3'") == 50 and "daily_agg rebuilt for ['2026-09-02']" in " ".join(log), log[-3:]
-    ch.query("OPTIMIZE TABLE dmp.events PARTITION '202609' FINAL")
-    v = verify(ch, "2026-09-02"); assert v["events_cnt"] == v["agg_cnt"] == 50 and v["agg_users"] == 1, v   # 新版本寫入、該日重建 → 彙總仍 = 去重後底表
-    assert ch.scalar("SELECT countMerge(cnt) FROM dmp.events_daily_agg WHERE event_date = toDate('2026-09-02') AND utm_source = 'google'") == 50
-    # 複審 P1：只改非彙總欄位也要入倉；排序鍵變了（跨日／同日時間更正、歸戶改寫）要清掉舊版本，舊日期歸零、新日期一筆
-    fx = {**row, "event_id": "agg-fix-1", "props": {"market": "TSE"}, "batch_id": "f0"}
-    ch.insert_json("dmp.events", [fx]); rebuild(ch, ["2026-09-01"])
-    d1 = dedupe(ch, [{**fx, "props": {"market": "US"}, "utm_campaign": "new_campaign", "ingest_time": "2026-09-01 02:00:00.000", "batch_id": "f1"}])
-    assert len(d1.rows) == 1 and d1.skipped == 0 and d1.rebuild == {"2026-09-01"} and d1.stale == [], d1                        # props／utm_campaign 變 → 寫入 + 重建，排序鍵沒變不清
-    ch.insert_json("dmp.events", d1.rows); rebuild(ch, d1.rebuild); ch.query("OPTIMIZE TABLE dmp.events PARTITION '202609' FINAL")
-    assert ch.query("SELECT props.market, utm_campaign FROM dmp.events FINAL WHERE event_id = 'agg-fix-1' FORMAT TSV").strip() == "US\tnew_campaign"
-    v = verify(ch, "2026-09-01"); assert v["events_cnt"] == v["agg_cnt"] == 2, v                                                   # agg-dup-1 + agg-fix-1
-    assert dedupe(ch, [{**fx, "props": {"market": "US"}, "utm_campaign": "new_campaign", "batch_id": "f1b"}]).skipped == 1       # 同版本重讀 → 略過
-    fx2 = {**fx, "props": {"market": "US"}, "utm_campaign": "new_campaign", "time": "2026-09-02 10:00:00.100", "ingest_time": "2026-09-01 03:00:00.000", "batch_id": "f2"}   # 跨日時間更正
-    d2 = dedupe(ch, [fx2]); assert len(d2.rows) == 1 and d2.rebuild == {"2026-09-01", "2026-09-02"} and d2.stale == [("agg-fix-1", "2026-09-01 01:00:00.000", "v1_dup")], d2
-    assert purge_stale(ch, d2.stale) == 1; ch.insert_json("dmp.events", d2.rows); rebuild(ch, d2.rebuild)
-    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_id = 'agg-fix-1'") == 1 and ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_id = 'agg-fix-1' AND event_date = toDate('2026-09-02')") == 1
-    v1, v2 = verify(ch, "2026-09-01"), verify(ch, "2026-09-02"); assert v1["events_cnt"] == v1["agg_cnt"] == 1 and v2["events_cnt"] == v2["agg_cnt"] == 51, (v1, v2)   # 舊日期少一筆、新日期多一筆（50 筆 GA4 + 1）
-    fx3 = {**fx2, "time": "2026-09-02 11:00:00.100", "ingest_time": "2026-09-01 04:00:00.000", "batch_id": "f3"}                 # 同日時間更正
-    d3 = dedupe(ch, [fx3]); assert d3.stale == [("agg-fix-1", "2026-09-02 10:00:00.100", "v1_dup")] and d3.rebuild == {"2026-09-02"}, d3
-    purge_stale(ch, d3.stale); ch.insert_json("dmp.events", d3.rows); rebuild(ch, d3.rebuild)
-    assert ch.query("SELECT toString(time) FROM dmp.events FINAL WHERE event_id = 'agg-fix-1' FORMAT TSV").strip() == "2026-09-02 11:00:00.100"
-    fx4 = {**fx3, "one_id": "v1_rewritten", "ingest_time": "2026-09-01 05:00:00.000", "batch_id": "f4"}                            # 歸戶改寫
-    d4 = dedupe(ch, [fx4]); assert d4.stale == [("agg-fix-1", "2026-09-02 11:00:00.100", "v1_dup")], d4
-    purge_stale(ch, d4.stale); ch.insert_json("dmp.events", d4.rows); rebuild(ch, d4.rebuild)
-    assert ch.query("SELECT one_id FROM dmp.events FINAL WHERE event_id = 'agg-fix-1' FORMAT TSV").strip() == "v1_rewritten"
-    v2 = verify(ch, "2026-09-02"); assert v2["events_cnt"] == v2["agg_cnt"] == 51 and v2["events_users"] == v2["agg_users"] == 2, v2   # v1_abc + v1_rewritten
-    assert ch.scalar("SELECT uniqMerge(users) FROM dmp.events_daily_agg WHERE event_date = toDate('2026-09-02') AND event = 'bond_deal'") == 1
-    # 複審 P1：寫入與重建之間中斷 → 重試不能把錯的彙總當成功；再複審 P1：多個寫入者／重建交錯不能把別人的恢復工作吃掉。
-    # 標記日誌（events_daily_agg_pending）：寫入者 begin（phase 0 + 租約）→ 寫入 → landed（phase 1）；重建只確認落地早於自己快照的標記，
-    # 快照之後有人落地就再快照一次。測試把租約與餘量縮短（LEASE 4 秒、餘量 1 秒）好等得到過期。
+    for ev in bq.tables["ds.events_intraday_20260902"]: ev["session_traffic_source_last_click"]["manual_campaign"]["source"] = "google"   # 日批補欄位：同 event_id、內容不同
+    r3 = runner.run(task, watermark=None, batch_id="g3", known_fields=None, now=now + timedelta(minutes=30), log=log.append)
+    assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id = 'g3'") == 0 and r3.rows_loaded == 50, r3                 # 不覆蓋：一筆都不寫
+    assert any("kept_first=50" in x for x in log[-4:]) and not any("daily_agg rebuilt" in x for x in log[-4:]), log[-4:]
+    v = verify(ch, "2026-09-02"); assert v["events_cnt"] == v["agg_cnt"] == 50 and v["agg_users"] == 1, v
+    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_date = toDate('2026-09-02') AND utm_source = 'google'") == 0   # 保留第一筆（串流版本）
+    # 標記日誌（events_daily_agg_pending）：寫入者 begin（touch／change，phase 0 + 租約，在去重之前）→ 寫入 → landed（phase 1）→
+    # 窗口重疊的別的寫入者？（可能同一筆寫兩次）→ 登記待重建再重建；被別人重建換過分區？→ 重建；否則自己確認。重建只確認落地早於自己快照的標記。
+    # 測試把租約與餘量縮短（LEASE 4 秒、餘量 1 秒）好等得到過期。
     import time
 
     from . import aggregates as agg_mod
-    from .aggregates import LeaseExpired, Rebuild, begin, event_date_of, gc_marks, pending_dates
+    from .aggregates import LeaseExpired, Rebuild, begin, event_date_of, gc_marks, mark_pending, pending_dates
     assert pending_dates(ch) == [], pending_dates(ch)                                                                         # 前面的正常路徑沒有殘留標記
     lease0, margin0 = agg_mod.LEASE_S, agg_mod.MARGIN_S; agg_mod.LEASE_S, agg_mod.MARGIN_S = 4, 1
     settle = lambda: time.sleep(agg_mod.MARGIN_S + 0.5)                                                                       # 等過餘量：落地時間要早於下一次快照減餘量才會被確認
     expire = lambda: time.sleep(agg_mod.LEASE_S + agg_mod.MARGIN_S + 0.5)                                                     # 等租約過期
     no_tmp = lambda: ch.scalar("SELECT count() FROM system.tables WHERE database = 'dmp' AND name LIKE 'events_daily_agg_stage_%'") == 0
-    cr = {**row, "event_id": "agg-crash-1", "time": "2026-09-03 01:00:00.000", "amount": 1000.0, "props": {"market": "TSE"}, "batch_id": "c0", "ingest_time": "2026-09-03 01:00:00.000"}
-    ch.insert_json("dmp.events", [cr]); rebuild(ch, ["2026-09-03"]); v = verify(ch, "2026-09-03"); assert v["events_cnt"] == v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6, v
+    ok = lambda d, cnt: (lambda v: v["events_cnt"] == v["agg_cnt"] == cnt and v["events_users"] == v["agg_users"] and v["amount_diff"] < 1e-6)(verify(ch, d))
 
     def protocol(new_rows: list[dict[str, Any]], batch: str, crash_after: str | None = None) -> Any:
-        """與 runner 相同的順序：dedupe → begin（change + touch 標記）→ 清舊版本 → 寫入 → landed → 重建（含被別人換過分區的日期）；crash_after 指定在哪一步之後中斷"""
-        d = dedupe(ch, new_rows); m = begin(ch, d.rebuild, batch, touch=[event_date_of(r) for r in d.rows])
-        if crash_after == "mark": return d
-        if d.stale: m.check(); purge_stale(ch, d.stale)
-        if crash_after == "purge": return d
+        """與 runner 相同的順序：begin（touch，去重之前）→ dedupe → 寫入 → landed → concurrent（重疊 → 登記待重建）→ settle → 重建；crash_after 指定在哪一步之後中斷"""
+        m = begin(ch, set(), batch, touch=[event_date_of(r) for r in new_rows]); d = dedupe(ch, new_rows)
+        if crash_after == "dedupe": return d, m
         if d.rows: m.check(); ch.insert_json("dmp.events", d.rows)
-        if crash_after == "insert": return d                                                                                  # 落地了但還沒記 phase 1（標記要等租約過期才會被確認）
+        if crash_after == "insert": return d, m
         m.landed()
-        if crash_after == "landed": return d
-        if crash_after == "stage":                                                                                            # REPLACE 之前中斷：私有暫存表留著
-            r = Rebuild(ch, sorted(d.rebuild | set(pending_dates(ch)))[0], batch); r.mark(); r.snapshot(); return d
-        rebuild(ch, d.rebuild | m.settle(), batch); return d
-    # (a) 落地後、重建前中斷（Codex 的重現）：props 改了 → 新版本進倉、MV 多算 → agg=2、金額差 1000；重試整批內容相同、一筆不寫，仍要補重建並確認標記
-    c1 = {**cr, "props": {"market": "US"}, "ingest_time": "2026-09-03 02:00:00.000", "batch_id": "c1"}
-    d = protocol([c1], "c1", crash_after="landed"); assert len(d.rows) == 1 and pending_dates(ch) == ["2026-09-03"], (d, pending_dates(ch))
-    v = verify(ch, "2026-09-03"); assert v["events_cnt"] == 1 and v["agg_cnt"] == 2 and abs(v["amount_diff"] - 1000) < 1e-6, v         # 中斷留下的錯誤狀態
-    settle(); d = protocol([{**c1, "batch_id": "c1r"}], "c1r"); assert d.skipped == 1 and d.rebuild == set(), d
-    v = verify(ch, "2026-09-03"); assert v["events_cnt"] == v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [], (v, pending_dates(ch))
-    # (a2) 寫入後、記 phase 1 前中斷：標記只有 phase 0 → 每次重建都會重做那天但不確認它（寫入者可能還在寫）；租約過期後才確認
-    c1b = {**c1, "props": {"market": "HK"}, "ingest_time": "2026-09-03 02:30:00.000", "batch_id": "c1b"}
-    protocol([c1b], "c1b", crash_after="insert"); assert verify(ch, "2026-09-03")["agg_cnt"] == 2
-    settle(); protocol([{**c1b, "batch_id": "c1br"}], "c1br"); v = verify(ch, "2026-09-03"); assert v["events_cnt"] == v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6 and pending_dates(ch) == ["2026-09-03"], (v, pending_dates(ch))
-    expire(); rebuild(ch, []); assert pending_dates(ch) == [] and verify(ch, "2026-09-03")["agg_cnt"] == 1
-    # (b) 跨日更正：清舊版本後、寫入前中斷 → 底表已沒有這筆、舊日彙總還留著；重試時倉裡沒舊版本、推不出舊日期，舊日的修復靠標記：舊日 0、新日 1、金額正確
-    c2 = {**c1b, "time": "2026-09-04 01:00:00.000", "ingest_time": "2026-09-03 03:00:00.000", "batch_id": "c2"}
-    d = protocol([c2], "c2", crash_after="purge"); assert d.stale and d.rebuild == {"2026-09-03", "2026-09-04"} and pending_dates(ch) == ["2026-09-03", "2026-09-04"], (d, pending_dates(ch))
-    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_id = 'agg-crash-1'") == 0 and verify(ch, "2026-09-03")["agg_cnt"] == 1
-    settle(); d = protocol([{**c2, "batch_id": "c2r"}], "c2r"); assert len(d.rows) == 1 and d.rebuild == set() and d.stale == [], d          # 倉裡已沒有舊版本 → 當新事件
-    v3, v4 = verify(ch, "2026-09-03"), verify(ch, "2026-09-04")
-    assert v3["events_cnt"] == v3["agg_cnt"] == 0 and v4["events_cnt"] == v4["agg_cnt"] == 1 and v3["amount_diff"] < 1e-6 and v4["amount_diff"] < 1e-6, (v3, v4)
-    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_id = 'agg-crash-1'") == 1
-    expire(); rebuild(ch, []); assert pending_dates(ch) == [], pending_dates(ch)                                              # c2 的 phase 0 標記租約過期後被確認
+        if crash_after == "landed": return d, m
+        race = m.concurrent()
+        if race: mark_pending(ch, race, batch)
+        rebuild(ch, race | m.settle(), batch); return d, m
+
+    def rewrite_one_id(r: dict[str, Any], new_oid: str, owner: str, crash_after: str | None = None) -> tuple[dict[str, Any], Any]:
+        """OneID 歸戶改寫（唯一允許的就地改寫，尚未接線）的呼叫順序：begin(change 日期) → 刪舊列 → 寫新 one_id → landed → rebuild。one_id 在排序鍵，只能刪了再寫。"""
+        d = event_date_of(r); m = begin(ch, [d], owner); m.check(); nr = {**r, "one_id": new_oid, "batch_id": owner}
+        ch.query(f"DELETE FROM dmp.events WHERE event_id = '{r['event_id']}'"); ch.insert_json("dmp.events", [nr])
+        m.landed()
+        if crash_after != "landed": rebuild(ch, [d], owner)
+        return nr, m
+    # (a0) 兩個寫入者同時讀到同一筆新事件：都通過去重、各寫一次（MV 多算一次，底表合併後只剩一筆）→ 窗口重疊被偵測 → 重建，彙總 = 1
+    cr = {**row, "event_id": "agg-crash-1", "time": "2026-09-03 01:00:00.000", "amount": 1000.0, "one_id": "v1_c1", "props": {"market": "TSE"}, "batch_id": "c0", "ingest_time": "2026-09-03 01:00:00.000"}
+    W1 = begin(ch, set(), "W1", touch=["2026-09-03"]); W2 = begin(ch, set(), "W2", touch=["2026-09-03"])
+    d1, d2 = dedupe(ch, [cr]), dedupe(ch, [{**cr, "batch_id": "W2"}]); assert len(d1.rows) == len(d2.rows) == 1             # 兩邊都以為是新的
+    W1.check(); ch.insert_json("dmp.events", d1.rows); W2.check(); ch.insert_json("dmp.events", d2.rows)
+    v = verify(ch, "2026-09-03"); assert v["events_cnt"] == 1 and v["agg_cnt"] == 2 and abs(v["amount_diff"] - 1000) < 1e-6, v   # 並行重複寫入的錯誤狀態
+    W1.landed(); W2.landed()
+    for W in (W1, W2):
+        race = W.concurrent(); assert race == {"2026-09-03"}, race; mark_pending(ch, race, W.owner); rebuild(ch, race | W.settle(), W.owner)
+    settle(); rebuild(ch, []); assert ok("2026-09-03", 1) and pending_dates(ch) == [], (verify(ch, "2026-09-03"), pending_dates(ch))
+    # (a) 同樣的並行重複，W1 先做完（偵測到 W2 的窗口 → 重建，此時 W2 還沒寫）→ W2 寫入、落地後中斷 → W2 已落地未確認的 touch 列入待重建 → 相同 payload 重試修好
+    ca = {**cr, "event_id": "agg-crash-2", "time": "2026-09-03 02:00:00.000", "amount": 300.0, "one_id": "v1_c2"}
+    W1 = begin(ch, set(), "W1a", touch=["2026-09-03"]); W2 = begin(ch, set(), "W2a", touch=["2026-09-03"])
+    d1, d2 = dedupe(ch, [ca]), dedupe(ch, [ca]); W1.check(); ch.insert_json("dmp.events", d1.rows); W1.landed()
+    race = W1.concurrent(); assert race == {"2026-09-03"}, race; mark_pending(ch, race, "W1a"); rebuild(ch, race | W1.settle(), "W1a")
+    W2.check(); ch.insert_json("dmp.events", d2.rows); W2.landed()                                                            # W2：落地後中斷
+    v = verify(ch, "2026-09-03"); assert v["events_cnt"] == 2 and v["agg_cnt"] == 3 and abs(v["amount_diff"] - 300) < 1e-6, v
+    assert pending_dates(ch) == ["2026-09-03"], pending_dates(ch)
+    settle(); d, _ = protocol([{**ca, "batch_id": "W2a-r"}], "W2a-r"); assert d.skipped == 1 and d.rows == [], d
+    assert ok("2026-09-03", 2) and pending_dates(ch) == [], (verify(ch, "2026-09-03"), pending_dates(ch))
+    # (a2) W2 寫入後、記落地前中斷（touch 只有 phase 0）：相同 payload 重試時 W2 的租約還在 → 視為窗口重疊 → 登記待重建並重建；租約過期後 W2 的標記被確認
+    cb = {**cr, "event_id": "agg-crash-3", "time": "2026-09-03 03:00:00.000", "amount": 50.0, "one_id": "v1_c3"}
+    W1 = begin(ch, set(), "W1b", touch=["2026-09-03"]); W2 = begin(ch, set(), "W2b", touch=["2026-09-03"])
+    d1, d2 = dedupe(ch, [cb]), dedupe(ch, [cb]); W1.check(); ch.insert_json("dmp.events", d1.rows); W1.landed()
+    race = W1.concurrent(); mark_pending(ch, race, "W1b"); rebuild(ch, race | W1.settle(), "W1b")
+    W2.check(); ch.insert_json("dmp.events", d2.rows)                                                                         # W2：寫入後中斷（沒記落地）
+    assert verify(ch, "2026-09-03")["agg_cnt"] == 4 and pending_dates(ch) == []                                               # 租約還在：還不算待重建
+    d, _ = protocol([{**cb, "batch_id": "W2b-r"}], "W2b-r"); assert d.skipped == 1 and ok("2026-09-03", 3), verify(ch, "2026-09-03")
+    assert pending_dates(ch) == [], pending_dates(ch)
+    expire(); assert pending_dates(ch) == ["2026-09-03"]; rebuild(ch, []); assert ok("2026-09-03", 3) and pending_dates(ch) == [], pending_dates(ch)
     # (c) REPLACE 前中斷（私有暫存表留著）、(d) REPLACE 後、確認前中斷：重試只是再算一次，結果不變、暫存表清掉、標記確認
-    c3 = {**c2, "props": {"market": "JP"}, "ingest_time": "2026-09-03 04:00:00.000", "batch_id": "c3"}
-    protocol([c3], "c3", crash_after="stage"); assert pending_dates(ch) == ["2026-09-04"] and verify(ch, "2026-09-04")["agg_cnt"] == 2 and not no_tmp()
-    settle(); protocol([{**c3, "batch_id": "c3r"}], "c3r"); v4 = verify(ch, "2026-09-04"); assert v4["events_cnt"] == v4["agg_cnt"] == 1 and v4["amount_diff"] < 1e-6, v4
+    r = Rebuild(ch, "2026-09-03", "c3"); r.mark(); r.snapshot(); assert pending_dates(ch) == ["2026-09-03"] and not no_tmp()
+    settle(); rebuild(ch, []); assert ok("2026-09-03", 3)
     ch.query("DROP TABLE IF EXISTS " + ch.query("SELECT name FROM system.tables WHERE database = 'dmp' AND name LIKE 'events_daily_agg_stage_%' LIMIT 1 FORMAT TSV").strip().join(["dmp.", ""]))   # 中斷留下的暫存表（營運清理）
     expire(); rebuild(ch, []); assert pending_dates(ch) == [] and no_tmp(), pending_dates(ch)
-    r = Rebuild(ch, "2026-09-04", "c4"); r.mark(); r.snapshot(); r.replace()                                                  # (d) REPLACE 後、確認前中斷
-    assert pending_dates(ch) == ["2026-09-04"]; settle(); rebuild(ch, []); v4 = verify(ch, "2026-09-04"); assert v4["agg_cnt"] == 1 and v4["amount_diff"] < 1e-6
+    r = Rebuild(ch, "2026-09-03", "c4"); r.mark(); r.snapshot(); r.replace()                                                  # (d) REPLACE 後、確認前中斷
+    assert pending_dates(ch) == ["2026-09-03"]; settle(); rebuild(ch, []); assert ok("2026-09-03", 3)
     expire(); rebuild(ch, []); assert pending_dates(ch) == [], pending_dates(ch)
-    # (e) 真的 runner（GA4 路徑）：rebuild 丟例外模擬中斷 → 下一次同內容的 run 一筆不寫，但補重建並寫進 log
-    for ev in bq.tables["ds.events_intraday_20260902"]: ev["session_traffic_source_last_click"]["manual_campaign"]["source"] = "bing"      # 內容再變
+    # (e) 真的 runner（GA4 路徑）：另一個寫入者還在寫（租約內、它的去重沒看到倉裡那筆）把同一筆 GA4 事件又寫了一次 → runner 偵測到窗口重疊 →
+    #     登記待重建後 rebuild 丟例外（模擬中斷）→ 那個寫入者也掛了；租約過期後下一次同內容的 run 一筆不寫，但補重建並寫進 log
+    dup = {**json.loads(ch.query("SELECT * EXCEPT (one_id_uint) FROM dmp.events WHERE event_date = toDate('2026-09-02') ORDER BY event_id LIMIT 1 FORMAT JSONEachRow",
+                                 settings={"output_format_json_quote_64bit_integers": 0}).splitlines()[0]), "batch_id": "Wdup"}
+    Wd = begin(ch, set(), "Wdup", touch=["2026-09-02"]); Wd.check(); ch.insert_json("dmp.events", [dup])                                 # Wd 寫入中（還沒落地）
     def boom(*a: Any, **k: Any) -> Any: raise RuntimeError("simulated crash before rebuild")
     orig = agg_mod.rebuild; agg_mod.rebuild = boom
     try: runner.run(task, watermark=None, batch_id="g4", known_fields=None, now=now + timedelta(minutes=45), log=log.append)
     except RuntimeError: pass
     finally: agg_mod.rebuild = orig
-    assert pending_dates(ch) == ["2026-09-02"] and ch.scalar("SELECT count() FROM dmp.events WHERE batch_id = 'g4'") == 50 and verify(ch, "2026-09-02")["agg_cnt"] == 101, verify(ch, "2026-09-02")
-    settle(); runner.run(task, watermark=None, batch_id="g5", known_fields=None, now=now + timedelta(minutes=60), log=log.append)
-    assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id = 'g5'") == 0 and any("incl. pending from an interrupted run" in x for x in log[-4:]), log[-4:]
-    v = verify(ch, "2026-09-02"); assert v["events_cnt"] == v["agg_cnt"] == 51 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [], (v, pending_dates(ch))
-    # (f) 再複審 P1 的交錯（barrier 式）：A 重建快照（amount=1000）後暫停 → B 把同事件改成 2000、標記、寫入、落地後中斷 → A 換分區。
-    #     A 看得到「有人在我快照後落地」→ 再快照一次才確認；B 的標記不會被舊快照吃掉。B 原樣重試：一筆不寫，彙總已對、標記空。
-    w = {**row, "event_id": "agg-race-1", "time": "2026-09-05 01:00:00.000", "amount": 1000.0, "batch_id": "r0", "ingest_time": "2026-09-05 01:00:00.000"}
-    ch.insert_json("dmp.events", [w]); rebuild(ch, ["2026-09-05"]); assert verify(ch, "2026-09-05")["amount_diff"] < 1e-6
-    A = Rebuild(ch, "2026-09-05", "A"); A.mark(); A.snapshot()                                                                # A：快照後暫停
-    wb = {**w, "amount": 2000.0, "ingest_time": "2026-09-05 02:00:00.000", "batch_id": "B"}
-    dB = dedupe(ch, [wb]); assert dB.rebuild == {"2026-09-05"}; mB = begin(ch, dB.rebuild, "B"); mB.check(); ch.insert_json("dmp.events", dB.rows); mB.landed()   # B：落地後中斷
-    A.replace(); assert A.newer_landed(), "A 必須看到 B 在它快照後落地"                                                       # A：拿舊快照換分區（金額還是 1000）
-    v = verify(ch, "2026-09-05"); assert abs(v["amount_diff"] - 1000) < 1e-6, v                                                # 此刻彙總是錯的（舊快照）
-    settle(); A.snapshot(); A.replace(); assert not A.newer_landed(); acked = A.ack()                                           # A：再快照 → 對了 → 確認（含 B）
-    v = verify(ch, "2026-09-05"); assert v["events_cnt"] == v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [] and mB.ids["2026-09-05"] in acked, (v, acked)
-    settle(); d = protocol([{**wb, "batch_id": "Br"}], "Br"); assert d.skipped == 1 and verify(ch, "2026-09-05")["amount_diff"] < 1e-6 and pending_dates(ch) == []   # B 原樣重試
-    # (f2) 同一交錯但 A 不做「再快照」（舊協定的行為）：確認只會確認落地早於 A 快照的標記 → B 的標記留著 → 下一次重建修好
-    A = Rebuild(ch, "2026-09-05", "A2"); A.mark(); A.snapshot()
-    wc = {**wb, "amount": 3000.0, "ingest_time": "2026-09-05 03:00:00.000", "batch_id": "C"}
-    dC = dedupe(ch, [wc]); mC = begin(ch, dC.rebuild, "C"); ch.insert_json("dmp.events", dC.rows); mC.landed()
-    A.replace(); acked = A.ack(); assert mC.ids["2026-09-05"] not in acked and pending_dates(ch) == ["2026-09-05"], (acked, pending_dates(ch))   # C 沒被吃掉
-    assert abs(verify(ch, "2026-09-05")["amount_diff"] - 1000) < 1e-6
-    settle(); rebuild(ch, []); v = verify(ch, "2026-09-05"); assert v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [], v
-    # (g) 兩個重建同一天競爭 + 中間有寫入者落地：A 快照 → W 落地 → B 完整重建（含確認 W）→ A 用舊快照換分區 → A 看到更新的落地 → 再快照。私有暫存表互不干擾、沒有空來源誤刪分區
-    A = Rebuild(ch, "2026-09-05", "A3"); A.mark(); A.snapshot()
-    wd = {**wc, "amount": 4000.0, "ingest_time": "2026-09-05 04:00:00.000", "batch_id": "W"}
-    dW = dedupe(ch, [wd]); mW = begin(ch, dW.rebuild, "W"); ch.insert_json("dmp.events", dW.rows); mW.landed()
-    settle(); B = Rebuild(ch, "2026-09-05", "B3"); assert mW.ids["2026-09-05"] in B.run() and verify(ch, "2026-09-05")["amount_diff"] < 1e-6
-    A.replace(); assert abs(verify(ch, "2026-09-05")["amount_diff"] - 1000) < 1e-6 and A.newer_landed()                      # A 的舊快照蓋掉了 B 的正確結果，但 A 自己會發現
+    assert any("concurrent writer on ['2026-09-02']" in x for x in log[-4:]) and verify(ch, "2026-09-02")["agg_cnt"] == 51 and pending_dates(ch) == ["2026-09-02"], (log[-4:], verify(ch, "2026-09-02"))
+    expire(); runner.run(task, watermark=None, batch_id="g5", known_fields=None, now=now + timedelta(minutes=60), log=log.append)   # Wd 的租約已過期
+    assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id IN ('g4', 'g5')") == 0 and any("incl. pending from an interrupted run" in x for x in log[-4:]), log[-4:]
+    assert ok("2026-09-02", 50) and pending_dates(ch) == [], (verify(ch, "2026-09-02"), pending_dates(ch))
+    # (f) 重建與歸戶改寫交錯（barrier 式）：A 重建快照後暫停 → B 把 w2 的 one_id 改成 w1 的（用戶 3 → 2）、落地後中斷 → A 用舊快照換分區。
+    #     A 看得到「有人在我快照後落地」→ 再快照一次才確認；B 的標記不會被舊快照吃掉。
+    day5 = "2026-09-05"
+    w1, w2, w3 = ({**row, "event_id": f"agg-race-{i}", "time": f"2026-09-05 0{i}:00:00.000", "amount": 1000.0 * i, "one_id": f"v1_r{i}", "batch_id": "r0", "ingest_time": "2026-09-05 01:00:00.000"} for i in (1, 2, 3))
+    ch.insert_json("dmp.events", [w1, w2, w3]); rebuild(ch, [day5]); assert ok(day5, 3) and verify(ch, day5)["agg_users"] == 3
+    A = Rebuild(ch, day5, "A"); A.mark(); A.snapshot()                                                                        # A：快照後暫停
+    w2b, mB = rewrite_one_id(w2, "v1_r1", "B", crash_after="landed")                                                          # B：改寫落地後中斷
+    A.replace(); assert A.newer_landed(), "A 必須看到 B 在它快照後落地"
+    v = verify(ch, day5); assert v["events_users"] == 2 and v["agg_users"] == 3, v                                           # 此刻彙總是錯的（舊快照）
+    settle(); A.snapshot(); A.replace(); assert not A.newer_landed(); acked = A.ack()                                         # A：再快照 → 對了 → 確認（含 B）
+    assert ok(day5, 3) and verify(ch, day5)["agg_users"] == 2 and mB.ids[day5] in acked and pending_dates(ch) == [], (verify(ch, day5), acked)
+    # (f2) 同一交錯但 A 不做「再快照」：確認只會確認落地早於 A 快照的標記 → C 的標記留著 → 下一次重建修好
+    A = Rebuild(ch, day5, "A2"); A.mark(); A.snapshot()
+    w3b, mC = rewrite_one_id(w3, "v1_r1", "C", crash_after="landed")
+    A.replace(); acked = A.ack(); assert mC.ids[day5] not in acked and pending_dates(ch) == [day5], (acked, pending_dates(ch))   # C 沒被吃掉
+    assert verify(ch, day5)["agg_users"] == 2
+    settle(); rebuild(ch, []); assert ok(day5, 3) and verify(ch, day5)["agg_users"] == 1 and pending_dates(ch) == [], verify(ch, day5)
+    # (g) 兩個重建同一天競爭 + 中間有只寫新事件的寫入者落地：A 快照 → W 落地 → B 完整重建（含確認 W）→ A 用舊快照換分區 → A 看到更新的落地 → 再快照。私有暫存表互不干擾
+    A = Rebuild(ch, day5, "A3"); A.mark(); A.snapshot()
+    w4 = {**w1, "event_id": "agg-race-4", "time": "2026-09-05 04:00:00.000", "amount": 4000.0, "one_id": "v1_r4", "batch_id": "W"}
+    _, mW = protocol([w4], "W", crash_after="landed")
+    settle(); B = Rebuild(ch, day5, "B3"); assert mW.touch[day5] in B.run() and ok(day5, 4)
+    A.replace(); assert abs(verify(ch, day5)["amount_diff"] - 4000) < 1e-6 and A.newer_landed()                             # A 的舊快照蓋掉了 B 的正確結果，但 A 自己會發現
     A.snapshot(); A.replace(); assert not A.newer_landed(); A.ack()
-    v = verify(ch, "2026-09-05"); assert v["events_cnt"] == v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [] and no_tmp(), v
+    assert ok(day5, 4) and pending_dates(ch) == [] and no_tmp(), verify(ch, day5)
     # (h) 租約圍籬：標記後拖太久的寫入者不准再寫；它的標記在租約過期後由任何重建確認
-    slow = begin(ch, ["2026-09-05"], "slow"); slow.check(); time.sleep(agg_mod.LEASE_S)
+    slow = begin(ch, [day5], "slow"); slow.check(); time.sleep(agg_mod.LEASE_S)
     try: slow.check(); raise AssertionError("租約過期要擋")
     except LeaseExpired: pass
-    assert pending_dates(ch) == ["2026-09-05"]; expire(); rebuild(ch, []); assert pending_dates(ch) == [] and no_tmp()
-    # (i) 只寫「全新事件」的寫入者（沒有版本變更、不需要重建）夾在 A 的快照與換分區之間：MV 加上去的被 A 的舊快照蓋掉 →
+    assert pending_dates(ch) == [day5]; expire(); rebuild(ch, []); assert pending_dates(ch) == [] and no_tmp()
+    # (i) 只寫「全新事件」的寫入者夾在 A 的快照與換分區之間：MV 加上去的被 A 的舊快照蓋掉 →
     #     touch 標記讓 A 看得到「有人在我快照後落地」→ 再快照；寫入者落地後也看得到 A 換過分區 → 自己再重建一次。新事件不會被吃掉
     base6 = {**row, "event_id": "agg-new-0", "time": "2026-09-06 01:00:00.000", "amount": 100.0, "batch_id": "n0", "ingest_time": "2026-09-06 01:00:00.000"}
     ch.insert_json("dmp.events", [base6]); rebuild(ch, ["2026-09-06"]); assert verify(ch, "2026-09-06")["agg_cnt"] == 1
     A = Rebuild(ch, "2026-09-06", "A6"); A.mark(); A.snapshot()
     n1 = {**base6, "event_id": "agg-new-1", "time": "2026-09-06 02:00:00.000", "amount": 500.0, "one_id": "v1_new", "batch_id": "N1", "ingest_time": "2026-09-06 02:00:00.000"}
-    dN = dedupe(ch, [n1]); assert len(dN.rows) == 1 and dN.rebuild == set(), dN                                                # 全新事件：不需要重建
-    mN = begin(ch, dN.rebuild, "N1", touch=[event_date_of(r) for r in dN.rows]); assert list(mN.touch) == ["2026-09-06"]
+    mN = begin(ch, set(), "N1", touch=[event_date_of(n1)]); dN = dedupe(ch, [n1]); assert len(dN.rows) == 1 and dN.kept_first == 0 and list(mN.touch) == ["2026-09-06"], dN
     mN.check(); ch.insert_json("dmp.events", dN.rows); mN.landed()
     A.replace(); v = verify(ch, "2026-09-06"); assert v["events_cnt"] == 2 and v["agg_cnt"] == 1 and abs(v["amount_diff"] - 500) < 1e-6, v   # 舊快照把新事件蓋掉了
     assert A.newer_landed(); settle(); A.snapshot(); A.replace(); assert not A.newer_landed(); A.ack()
-    v = verify(ch, "2026-09-06"); assert v["events_cnt"] == v["agg_cnt"] == 2 and v["events_users"] == v["agg_users"] == 2 and v["amount_diff"] < 1e-6, v
+    assert ok("2026-09-06", 2) and verify(ch, "2026-09-06")["agg_users"] == 2
     assert mN.overlapped() == {"2026-09-06"} and pending_dates(ch) == [], pending_dates(ch)
     # (j) 寫入者跨過 A 的整段重建：A 快照 → 寫入者寫入（還沒落地）→ A 換分區、沒看到落地、確認收工 → 寫入者落地，發現 A 換過分區 → 自己重建
     mW2 = begin(ch, set(), "N2", touch=["2026-09-06"])
@@ -409,14 +403,14 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
     A.replace(); assert not A.newer_landed(); A.ack()
     v = verify(ch, "2026-09-06"); assert v["events_cnt"] == 3 and v["agg_cnt"] == 2 and abs(v["amount_diff"] - 700) < 1e-6, v       # A 的快照沒包到 n2
     mW2.landed(); ov = mW2.settle(); assert ov == {"2026-09-06"}, ov; rebuild(ch, ov, "N2")
-    v = verify(ch, "2026-09-06"); assert v["events_cnt"] == v["agg_cnt"] == 3 and v["events_users"] == v["agg_users"] == 3 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [], v
+    assert ok("2026-09-06", 3) and verify(ch, "2026-09-06")["agg_users"] == 3 and pending_dates(ch) == [], verify(ch, "2026-09-06")
     # (k) 寫入者寫到一半掛了（touch 沒落地）：租約過期後，任何一次重建都會保守重做那天
     mW3 = begin(ch, set(), "N3", touch=["2026-09-06"]); A = Rebuild(ch, "2026-09-06", "A8"); A.mark(); A.snapshot()
     n3 = {**n1, "event_id": "agg-new-3", "time": "2026-09-06 04:00:00.000", "amount": 900.0, "one_id": "v1_new3", "batch_id": "N3", "ingest_time": "2026-09-06 04:00:00.000"}
     mW3.check(); ch.insert_json("dmp.events", [n3]); A.replace(); A.ack()                                                     # 寫入者在這裡掛了
     assert verify(ch, "2026-09-06")["agg_cnt"] == 3 and pending_dates(ch) == []                                               # 租約還沒過期：還不算待重建
     expire(); assert pending_dates(ch) == ["2026-09-06"]; rebuild(ch, [])
-    v = verify(ch, "2026-09-06"); assert v["events_cnt"] == v["agg_cnt"] == 4 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [] and no_tmp(), v
+    assert ok("2026-09-06", 4) and pending_dates(ch) == [] and no_tmp(), verify(ch, "2026-09-06")
     # (l) 第四輪複審 P1：touch 寫入者在 A 快照後寫入、A 換分區時它還沒落地（A 不會再快照、照常確認）→ 寫入者落地後、settle／重建前中斷。
     #     已落地未確認的 touch 是恢復意圖：列入待重建、租約過期與 gc 都不能讓它消失；相同 payload 重試一筆不寫也會補重建
     base7 = {**row, "event_id": "agg-l-0", "time": "2026-09-07 01:00:00.000", "amount": 100.0, "one_id": "v1_l0", "batch_id": "l0", "ingest_time": "2026-09-07 01:00:00.000"}
@@ -436,18 +430,17 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
             try: gc_marks(ch)
             finally: agg_mod.KEEP_S = keep0
             assert pending_dates(ch) == ["2026-09-07"], "gc 不能清掉已落地未確認的 touch"
-        settle(); d = protocol([{**lv, "batch_id": f"L-{variant}-r"}], f"L-{variant}-r")                                     # 相同 payload 重試
+        settle(); d, _ = protocol([{**lv, "batch_id": f"L-{variant}-r"}], f"L-{variant}-r")                                  # 相同 payload 重試
         assert d.skipped == 1 and d.rows == [], d
         v = verify(ch, "2026-09-07"); assert v["events_cnt"] == v["agg_cnt"] and v["events_users"] == v["agg_users"] and v["amount_diff"] < 1e-6 and pending_dates(ch) == [], (variant, v, pending_dates(ch))
     # (m) 正常的只寫新事件批次：落地 → settle 自己確認，不留待重建、不觸發重建
-    n_ok = {**l1, "event_id": "agg-l-ok", "batch_id": "L-ok"}; d = protocol([n_ok], "L-ok"); assert len(d.rows) == 1 and pending_dates(ch) == [], pending_dates(ch)
-    v = verify(ch, "2026-09-07"); assert v["events_cnt"] == v["agg_cnt"] == 5 and v["amount_diff"] < 1e-6, v
+    n_ok = {**l1, "event_id": "agg-l-ok", "batch_id": "L-ok"}; d, _ = protocol([n_ok], "L-ok"); assert len(d.rows) == 1 and pending_dates(ch) == [], pending_dates(ch)
+    assert ok("2026-09-07", 5)
     agg_mod.LEASE_S, agg_mod.MARGIN_S = lease0, margin0
-    print("daily_agg idempotency: direct double insert → agg 2 vs base 1 → rebuild → 1; runner re-read → skipped 50; changed content → rebuilt → 50; "
-          "props-only change stored; cross-day/same-day/one_id corrections purge stale versions (old date 0, new date 1); "
-          "crash after landed/insert/purge/stage/replace → marker journal → retry repairs (base == agg, amount_diff 0, markers acked or expired); runner crash before rebuild → next run repairs; "
-          "writer/rebuild interleaving (A snapshot → B lands → A replace) re-snapshots and never acks B early; two rebuilds racing with a writer in between converge; lease fencing; "
-          "new-only writers (touch marks) landing inside / spanning a rebuild are never lost (re-snapshot or writer-side rebuild); crashed touch writer → conservative rebuild; touch writer crashing after landed stays pending through lease expiry and gc, same-payload retry repairs; normal new-only batches self-ack")
+    print("daily_agg idempotency (append-only): direct double insert → agg 2 vs base 1 → rebuild → 1; existing event_id → skipped (identical) / kept_first (different content: utm/props/time/one_id), never overwritten; "
+          "runner re-read → 0 written; GA4 enrichment re-read → kept_first=50, 0 written, agg unchanged; concurrent writers inserting the same new event → window overlap detected → rebuild (agg 2 → 1); "
+          "crash after landed/insert/stage/replace → marker journal → retry repairs; runner crash before rebuild → next run repairs; one_id rewrite × rebuild interleaving re-snapshots and never acks early; "
+          "two rebuilds racing with a writer converge; lease fencing; new-only writers inside / spanning a rebuild never lost; touch writer crashing after landed stays pending through lease expiry and gc; normal batches self-ack")
 
 
 def dbapi_stage(ch: ClickHouseHTTP | None, work: Path, rows: list[dict[str, Any]]) -> None:
@@ -506,7 +499,7 @@ def ga4_stage(ch: ClickHouseHTTP, work: Path, n_per_tick: int = 20000) -> None:
     assert n_intraday == total, (n_intraday, total)                  # 去重後 = 串流表筆數（隔離列不算）
     assert ch.scalar("SELECT count() FROM dmp.events WHERE props.email IS NOT NULL OR toString(props) LIKE '%example.test%'") == 0
     assert ch.scalar("SELECT count() FROM dmp.events WHERE source='ga360_intraday' AND event LIKE 'ga.%'") == 0
-    # 隔天 06:30 台北：日批未到 → 0 筆成功（記錄 skipped 原因）；日批到齊（多 300 筆遲到 + 欄位更完整）→ 整天重載覆蓋串流版本
+    # 隔天 06:30 台北：日批未到 → 0 筆成功（記錄 skipped 原因）；日批到齊（多 300 筆遲到）→ 事件只追加：串流已有的 event_id 保留第一筆（kept_first，不覆蓋），只寫 300 筆遲到
     r = s.tick(t0 + timedelta(days=1, minutes=-30 + 5*60 + 30 - 60))  # 06:30 台北 = 前一日 22:30 UTC
     daily = "analytics_1.events_20261016"
     assert any(x["task_id"] == "ga360_daily" for x in r) and "尚未到齊" in s.runs("ga360_daily", 1)[0]["log"]
@@ -516,21 +509,21 @@ def ga4_stage(ch: ClickHouseHTTP, work: Path, n_per_tick: int = 20000) -> None:
     ch.query("OPTIMIZE TABLE dmp.events FINAL")
     n_day = ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source IN ('ga360_intraday','ga360_daily') AND event_date = toDate('2026-10-16')")
     n_daily_src = ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_daily'")
-    assert n_day == total + 300 and n_daily_src == total + 300, (n_day, n_daily_src)     # 日批覆蓋了全部串流列（同 event_id，ingest_time 較新）
-    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_intraday'") == 0
-    v = verify(ch, "2026-10-16"); assert v["agg_cnt"] == v["events_cnt"] and v["agg_users"] == v["events_users"] and v["amount_diff"] < 1e-6, v   # 日批覆蓋（source 變了）→ 該日分區重建，彙總 = 去重後底表（修正前這裡 agg 會是底表的兩倍多）
-    assert "daily_agg rebuilt for ['2026-10-16']" in s.runs("ga360_daily", 1)[0]["log"], s.runs("ga360_daily", 1)[0]["log"][-400:]
+    assert n_day == total + 300 and n_daily_src == 300, (n_day, n_daily_src)             # 串流版本保留，只追加遲到的 300 筆
+    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_intraday'") == total
+    v = verify(ch, "2026-10-16"); assert v["agg_cnt"] == v["events_cnt"] and v["agg_users"] == v["events_users"] and v["amount_diff"] < 1e-6, v   # 不覆蓋、不重寫 → 彙總 = 底表（修正前這裡 agg 會是底表的兩倍多）
+    dlog = s.runs("ga360_daily", 1)[0]["log"]; assert f"kept_first={total}" in dlog and "daily_agg rebuilt" not in dlog, dlog[-400:]
     # 隔兩天 07:00：GA 重寫日表（+120 筆遲到）→ restate 偵測列數變化重載
     r = s.run_now("ga360_restate", t0 + timedelta(days=2)); assert r["status"] == "success" and s.runs("ga360_restate", 1)[0]["rows_in"] == total + 300 + 1   # rows_in 含被守門隔離的那一筆
     bq.tables[daily] += [mk(total + 300 + i, base_us + 70 * 60_000_000 + i * 1000) for i in range(120)]
     r = s.run_now("ga360_restate", t0 + timedelta(days=2, minutes=1)); assert s.runs("ga360_restate", 1)[0]["rows_in"] == total + 420 + 1
     r = s.run_now("ga360_restate", t0 + timedelta(days=2, minutes=2)); assert s.runs("ga360_restate", 1)[0]["rows_in"] == 0 and "未變" in s.runs("ga360_restate", 1)[0]["log"]
     ch.query("OPTIMIZE TABLE dmp.events FINAL")
-    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_daily'") == total + 420
+    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_daily'") == 420
     assert ch.scalar("SELECT count() FROM (SELECT event_id FROM dmp.events FINAL WHERE source LIKE 'ga360%' GROUP BY event_id HAVING count() > 1)") == 0
     v = verify(ch, "2026-10-16"); assert v["agg_cnt"] == v["events_cnt"] and v["agg_users"] == v["events_users"] and v["amount_diff"] < 1e-6, v   # 重寫重載（內容相同的列略過、新列照寫）後仍一致
     assert "dedupe: skipped=" in s.runs("ga360_restate", 2)[-1]["log"]
-    print(f"ga360 bigquery: intraday 3 ticks in={sum(x['rows_in'] for x in runs):,} (incl. overlap re-reads) → unique {n_intraday:,}; daily replaced all ({n_daily_src:,}); restate +120 → {total + 420:,}; dup event_id after FINAL: 0")
+    print(f"ga360 bigquery: intraday 3 ticks in={sum(x['rows_in'] for x in runs):,} (incl. overlap re-reads) → unique {n_intraday:,}; daily kept intraday copies (kept_first={total:,}) + {n_daily_src:,} late; restate +120 → {total + 420:,}; dup event_id after FINAL: 0")
     print("  by source/event:", ch.query("SELECT event, count() FROM dmp.events FINAL WHERE source='ga360_daily' GROUP BY event ORDER BY 2 DESC FORMAT TSV").strip().replace("\n", " | "))
 
 

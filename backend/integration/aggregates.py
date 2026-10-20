@@ -1,19 +1,23 @@
 """日彙總（dmp.events_daily_agg）的冪等保證（R12）。
 
-問題：dmp.events 是 ReplacingMergeTree，同一 event_id 重插（GA4 重疊窗口重讀、日批覆蓋串流、重寫重載、任務重試）在合併後只留一版；
-但餵 events_daily_agg 的 MV 是「每次 INSERT 都累加」countState／sumState／uniqState，底表之後合併掉的重複列，彙總不會跟著回滾。
+事件表規則（2026-10-20 確認）：事件只追加、不覆蓋——不同時間點上報的事件按時序記錄，任何一筆都不被後來的資料取代；
+同 event_id 已在倉裡的列一律略過（保留第一筆），內容相同算重複（skipped），內容不同另外計數（kept_first）並寫進 log：
+GA4 日批補上的欄位、或 event_id 公式還不含時間／屬性的來源（交易 sha256(source|ORD_NO|STATUS)）會出現在這裡，
+由後續的 event_id 內容雜湊 PR 處理。唯一允許的就地改寫是 OneID 歸戶改寫 one_id（尚未接線；接線時走 begin(change 日期) → 改寫 → landed → rebuild）。
 
-兩道保證（都在 runner 載入路徑上）：
-1. 入倉前去重（dedupe）：先查這批 event_id 在倉裡的最新版本；內容相同（彙總會看的欄位全同）的列不再寫入——重疊窗口重讀、重試
-   這類「一模一樣再來一次」直接變成 no-op，MV 自然不會多算。內容不同的列照寫（ReplacingMergeTree 保留新版本），但記下它的分區。
-2. 分區重建（rebuild）：對有「不同版本重插」的分區，從 dmp.events FINAL 重算該日彙總到暫存表，再 REPLACE PARTITION 原子換掉——
-   彙總回到與去重後底表一致。全量重載（TRUNCATE）後也把彙總表現有的分區全部重建。
-3. 重建意圖落地 + 世代協定（events_daily_agg_pending，append-only 日誌）：寫入者在清舊版本／寫入之前先為每個要重建的日期登記一筆
-   標記（phase 0，帶租約；每個 chunk 寫入前檢查租約，過期就不准再寫），資料全部落地後再記 phase 1；任何一次重建都把
-   「這批的日期 ∪ 還沒被確認（phase 2）的日期」重做：用自己的私有暫存表快照 → REPLACE PARTITION → 若有寫入者在我的快照
-   之後才落地就再快照一次 → 只確認「落地時間早於我最後一次快照」或「租約已過期而沒落地」的標記（phase 2）。
-   結果：API／worker／CLI／多程序交錯寫入與重建都不會把別人的恢復工作吃掉——沒被確認的標記會讓下一次重建再做一次；
-   任何一點中斷（寫入後、清舊版本後、REPLACE 前後、確認前），重試（哪怕整批內容相同、一筆不寫）都會先修好彙總。
+問題：餵 events_daily_agg 的 MV 是「每次 INSERT 都累加」countState／uniqState／sumState；ReplacingMergeTree 之後合併掉的重複列，彙總不會跟著回滾。
+
+保證（都在 runner 載入路徑上）：
+1. 入倉前去重（dedupe）：查這批 event_id 是否已在倉裡；已在 → 不寫入，MV 不會多算。
+2. 標記日誌（events_daily_agg_pending，append-only）：寫入者在去重之前就為這批會寫到的日期登記 touch 標記（phase 0，帶租約；
+   每個 chunk 寫入前檢查，過期不准再寫），資料落地後記 phase 1；之後檢查兩件事：
+   (a) 寫入期間有別的寫入者在同一天也在寫（窗口重疊）→ 兩邊可能都通過去重、把同一筆寫兩次（MV 多算）→ 先把這些日期登記成
+       change 標記（恢復意圖落地），再重建；(b) 寫入期間有別的重建換過這天的分區（它的舊快照可能沒包到我寫的新事件）→ 由我重建。
+   都沒有 → 自己確認（phase 2），正常批次不觸發重建。在落地與確認之間中斷 → 已落地未確認的標記列入待重建。
+   不用「事後數同 event_id 有幾列」判斷重複：ReplacingMergeTree 可能已在背景把兩列合併成一列，但 MV 已經加了兩次。
+3. 分區重建（rebuild）：把「這批要重建的日期 ∪ 還沒被確認的日期」逐日用私有暫存表從 dmp.events FINAL 快照 → REPLACE PARTITION；
+   快照之後有寫入者落地就再快照；只確認「落地早於最後一次快照」或「租約已過期而沒落地」的標記。
+   結果：API／worker／CLI／多程序交錯寫入與重建都不會把別人的恢復工作吃掉；任何一點中斷，重試（哪怕整批一筆不寫）都會先修好彙總。
    前提：寫入與重建連同一個 ClickHouse 節點（或叢集開 select_sequential_consistency），INSERT 回應後對後續 SELECT 可見。
 """
 from __future__ import annotations
@@ -30,12 +34,10 @@ AGG_TABLE, AGG_STAGE, AGG_PENDING = "dmp.events_daily_agg", "dmp.events_daily_ag
 AGG_KEYS = ("project", "event_date", "event", "platform", "channel", "utm_source")
 AGG_SELECT = ("SELECT project, event_date, event, platform, channel, utm_source, countState() AS cnt, uniqState(one_id) AS users, sumState(coalesce(amount, 0)) AS amount "
               "FROM dmp.events FINAL WHERE event_date = toDate('{d}') GROUP BY project, event_date, event, platform, channel, utm_source")
-# 「完整版本」比對的欄位：事件內容全部（彙總鍵／值 + props、utm_campaign、symbol…），載入元資料（ingest_time、batch_id、late）不算。
-# 相同 → 不寫入；任何欄位不同 → 寫入新版本並重建該日彙總（MV 是累加的，哪怕只改 props 也會多算一筆）。
+# 同 event_id 已在倉裡時用來分類的欄位：全同 → skipped（重讀、重試）；有不同 → kept_first（保留第一筆、不覆蓋，計數給營運看）。
+# 載入元資料（ingest_time、batch_id、late）不算。
 CONTENT_COLS = ("time", "event", "source", "one_id", "entity_type", "entity_id", "distinct_id", "session_id", "platform", "app_id", "symbol", "side", "channel",
                 "amount", "utm_source", "utm_campaign", "props", "schema_version")
-# ReplacingMergeTree 的排序鍵裡會變的欄位：這些一變，舊列就是另一個排序鍵，FINAL 不會把它換掉 → 要主動清掉舊版本
-SORT_KEY_COLS = ("event_date", "event", "one_id", "time")
 TZ_OFFSET = timedelta(hours=8)                      # event_date = toDate(time, 'Asia/Taipei')（無日光節約）
 LEASE_S = 600                                        # 寫入者的租約：標記後要在這段時間內寫完（每個 chunk 前檢查、剩一半時續租）；過期不准再寫，重試帶新標記
 MARGIN_S = 2                                         # 「落地時間 vs 快照時間」比對的安全餘量（時鐘／可見性）
@@ -110,14 +112,14 @@ def _same(a: dict[str, Any], b: dict[str, Any], cols: tuple[str, ...] = CONTENT_
 
 
 def existing_versions(ch: CH, event_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
-    """倉裡這些 event_id 的最新版本（ingest_time 最大）→ {event_id: {event, one_id, …}}。event_id 有 bloom filter 索引，IN 一批幾萬個可接受。"""
+    """倉裡這些 event_id 的第一筆（ingest_time 最小）→ {event_id: {event, one_id, …}}，只用來分類 skipped／kept_first。event_id 有 bloom filter 索引，IN 一批幾萬個可接受。"""
     out: dict[str, dict[str, Any]] = {}
     ids = sorted({str(e) for e in event_ids if e})
     for i in range(0, len(ids), CHUNK):
         lst = ", ".join("'" + x.replace("\\", "\\\\").replace("'", "\\'") + "'" for x in ids[i:i + CHUNK])
-        cols = ", ".join(f"argMax({c}, ingest_time) AS {c}" for c in CONTENT_COLS if c not in ("time", "props"))
-        sql = (f"SELECT event_id, {cols}, toString(argMax(time, ingest_time)) AS time, argMax(toString(props), ingest_time) AS props, "
-               f"toString(argMax(event_date, ingest_time)) AS event_date "
+        cols = ", ".join(f"argMin({c}, ingest_time) AS {c}" for c in CONTENT_COLS if c not in ("time", "props"))
+        sql = (f"SELECT event_id, {cols}, toString(argMin(time, ingest_time)) AS time, argMin(toString(props), ingest_time) AS props, "
+               f"toString(argMin(event_date, ingest_time)) AS event_date "
                f"FROM dmp.events WHERE event_id IN ({lst}) GROUP BY event_id FORMAT JSONEachRow")
         for line in ch.query(sql, settings={"max_query_size": 4_000_000}).splitlines():
             if line.strip():
@@ -127,43 +129,34 @@ def existing_versions(ch: CH, event_ids: Iterable[str]) -> dict[str, dict[str, A
 
 @dataclass
 class DedupeResult:
-    rows: list[dict[str, Any]]                      # 要寫入的列（新事件 + 內容有變的新版本）
-    skipped: int = 0                                # 完整版本相同、不寫入的列數
-    rebuild: set[str] = field(default_factory=set)  # 要重算日彙總的 event_date（新版本的日期；排序鍵變了連舊日期一起）
-    stale: list[tuple[str, str, str]] = field(default_factory=list)   # 要清掉的舊版本 (event_id, time, one_id)：排序鍵變了，FINAL 不會替換
+    rows: list[dict[str, Any]]                      # 要寫入的列（倉裡還沒有的 event_id；同批重複只留第一筆）
+    skipped: int = 0                                # 倉裡已有、內容相同（重讀、重試）
+    kept_first: int = 0                             # 倉裡已有（或同批較早一筆）、內容不同：保留第一筆、不覆蓋
+    kept_first_ids: list[str] = field(default_factory=list)   # 前 20 個，寫進 log 讓營運看得到
 
 
 def dedupe(ch: CH, rows: list[dict[str, Any]]) -> DedupeResult:
-    """同 event_id 已在倉裡且「完整版本」相同（CONTENT_COLS 全同）→ 略過；任何內容不同 → 寫入新版本並重建該日彙總；
-    排序鍵（event_date／event／one_id／time）有變 → 另外記下舊版本要清掉（purge_stale），否則 ReplacingMergeTree 會留兩版。同一批內重複的 event_id 只留最後一筆。"""
-    last: dict[str, dict[str, Any]] = {}
-    order: list[str] = []
+    """事件只追加、不覆蓋：同 event_id 已在倉裡 → 不寫入（內容相同算 skipped，不同算 kept_first）；同一批內重複的 event_id 只留第一筆。"""
+    first: dict[str, dict[str, Any]] = {}
+    out = DedupeResult(rows=[])
     for r in rows:
         k = str(r.get("event_id") or "")
-        if k not in last: order.append(k)
-        last[k] = r
-    existing = existing_versions(ch, order)
-    out = DedupeResult(rows=[])
-    for k in order:
-        r = last[k]; old = existing.get(k)
+        if k in first:
+            if _same(first[k], r): out.skipped += 1
+            else: out.kept_first += 1; out.kept_first_ids.append(k)
+            continue
+        first[k] = r
+    existing = existing_versions(ch, list(first))
+    for k, r in first.items():
+        old = existing.get(k)
         if old is None:
-            out.rows.append(r); continue
-        if _same(old, r):
-            out.skipped += 1; continue
-        out.rows.append(r); out.rebuild.add(event_date_of(r))
-        if old.get("event_date"): out.rebuild.add(str(old["event_date"])[:10])
-        if not _same(old, r, SORT_KEY_COLS):
-            out.stale.append((k, str(old.get("time") or "")[:23], str(old.get("one_id") or "")))
+            out.rows.append(r)
+        elif _same(old, r):
+            out.skipped += 1
+        else:
+            out.kept_first += 1; out.kept_first_ids.append(k)
+    out.kept_first_ids = sorted(set(out.kept_first_ids))[:20]
     return out
-
-
-def purge_stale(ch: CH, stale: Iterable[tuple[str, str, str]]) -> int:
-    """清掉排序鍵已變的舊版本（lightweight DELETE，立即對查詢生效）：同 event_id 只留新版本，舊日期的 FINAL 與彙總才會歸零。"""
-    keys = [k for k in stale if k[0]]
-    for i in range(0, len(keys), CHUNK):
-        tuples = ", ".join(f"('{e.replace(chr(39), chr(92) + chr(39))}', toDateTime64('{t}', 3, 'UTC'), '{o.replace(chr(39), chr(92) + chr(39))}')" for e, t, o in keys[i:i + CHUNK])
-        ch.query(f"DELETE FROM dmp.events WHERE (event_id, time, one_id) IN ({tuples})", settings={"max_query_size": 4_000_000})
-    return len(keys)
 
 
 class LeaseExpired(RuntimeError):
@@ -180,7 +173,8 @@ def _now(ch: CH) -> str:
 
 def _mark_rows(ch: CH, rows: list[tuple[str, str, int, str, str]], kind: str = "change") -> None:
     """(event_date, id, phase, owner, lease_until) → 標記表；lease_until 只有 phase 0 用，其他填 1970。
-    kind：change＝有版本變更、這天一定要重建；touch＝只寫了新事件（MV 自己會加），只在被別人的重建蓋掉時才要補；replace＝某次重建換過這天的分區。"""
+    kind：change＝這天一定要重建（歸戶改寫、偵測到並行重複寫入）；touch＝這批會寫到的日期（MV 自己會加），只在被別人的重建蓋掉、或與別的寫入者重疊時才要補；
+    rebuild＝重建者自己的標記（中斷時讓下一次重建接手）；replace＝某次重建換過這天的分區。"""
     if not rows: return
     vals = ", ".join(f"(toDate('{d}'), '{_esc(i)}', {ph}, '{_esc(o)}', toDateTime64('{lu or '1970-01-01 00:00:00.000'}', 3, 'UTC'), '{kind}')" for d, i, ph, o, lu in rows)
     ch.query(f"INSERT INTO {AGG_PENDING} (event_date, id, phase, owner, lease_until, kind) VALUES {vals}")
@@ -197,6 +191,7 @@ class Marks:
     touch: dict[str, str] = field(default_factory=dict)
     lease_until: str = ""
     begin_at: str = ""
+    landed_at: str = ""
 
     def renew(self) -> None:
         if not self.ids and not self.touch: return
@@ -213,6 +208,7 @@ class Marks:
             self.renew()
 
     def landed(self) -> None:
+        if self.ids or self.touch: self.landed_at = _now(self.ch)
         _mark_rows(self.ch, [(d, i, 1, self.owner, "") for d, i in self.ids.items()])
         _mark_rows(self.ch, [(d, i, 1, self.owner, "") for d, i in self.touch.items()], "touch")
 
@@ -224,6 +220,20 @@ class Marks:
                f"AND at >= toDateTime64('{self.begin_at}', 3, 'UTC') - INTERVAL {MARGIN_S} SECOND FORMAT TSV")
         return {x for x in self.ch.query(sql).split("\n") if x.strip()}
 
+    def concurrent(self) -> set[str]:
+        """landed 之後呼叫：我的日期裡，有沒有別的寫入者的寫入窗口與我重疊——它在我落地之前就登記，且在我 begin 之後才落地或還在租約內。
+        重疊的兩個寫入者可能都通過去重、把同一筆新事件各寫一次（MV 多算一次，底表合併後卻只剩一筆）→ 回這些日期給呼叫端：
+        先 mark_pending（恢復意圖落地）再重建。不靠事後數 event_id：背景合併可能已把重複列併掉，但彙總已經多加了。"""
+        mine = {**self.touch, **self.ids}
+        if not mine or not self.landed_at: return set()
+        ds = ", ".join(f"toDate('{d}')" for d in sorted(mine))
+        own = ", ".join(f"'{_esc(i)}'" for i in sorted(set(self.ids.values()) | set(self.touch.values())))
+        t0 = f"toDateTime64('{self.begin_at}', 3, 'UTC')"     # 不加餘量：別人的 phase 1 是在它的資料可見之後才寫的，早於我 begin 就代表我的去重看得到它
+        sql = (f"SELECT DISTINCT toString(event_date) FROM (SELECT event_date, id FROM {AGG_PENDING} WHERE event_date IN ({ds}) AND kind IN ('change', 'touch') "
+               f"AND id NOT IN ({own}) GROUP BY event_date, id HAVING minIf(at, phase = 0) <= toDateTime64('{self.landed_at}', 3, 'UTC') AND "
+               f"(maxIf(at, phase = 1) >= {t0} OR (countIf(phase = 1) = 0 AND maxIf(lease_until, phase = 0) >= {t0}))) ORDER BY 1 FORMAT TSV")
+        return {x for x in self.ch.query(sql).split("\n") if x.strip()}
+
     def settle(self) -> set[str]:
         """landed 之後呼叫（取代單獨的 overlapped）：沒被別人換過分區的 touch 日期，MV 加上去的還在 → 自己確認（phase 2）；
         被換過的日期回給呼叫端重建（那次重建的 ack 會確認它）。在 landed 與 settle 之間中斷的 touch 留著「已落地、未確認」→ 列入待重建，不會遺失。"""
@@ -233,7 +243,8 @@ class Marks:
 
 
 def begin(ch: CH, dates: Iterable[str], owner: str = "", touch: Iterable[str] = ()) -> Marks:
-    """寫入者在清舊版本／寫入之前呼叫：要重建的日期（dates）與這批會寫到的其他日期（touch）各登記 phase 0 標記（帶租約）。
+    """寫入者在去重與寫入之前呼叫：一定要重建的日期（dates，例：歸戶改寫）與這批會寫到的日期（touch）各登記 phase 0 標記（帶租約）。
+    去重之前就登記，並行的另一個寫入者才看得到「我們的窗口重疊」（concurrent）。
     沒有日期就是空標記（check／landed／overlapped 都是 no-op）。"""
     ds = sorted({str(x)[:10] for x in dates if str(x).strip()})
     ts_ = sorted({str(x)[:10] for x in touch if str(x).strip()} - set(ds))
@@ -244,17 +255,17 @@ def begin(ch: CH, dates: Iterable[str], owner: str = "", touch: Iterable[str] = 
 
 
 def mark_pending(ch: CH, dates: Iterable[str], batch_id: str = "") -> list[str]:
-    """舊介面：標記並視為已落地（給直接寫入底表的呼叫端／測試用）。"""
+    """標記並視為已落地：要重建的意圖先落地（並行重複寫入偵測到的日期、直接寫入底表的呼叫端、測試用）。"""
     m = begin(ch, dates, batch_id); m.landed()
     return sorted(m.ids)
 
 
 def pending_dates(ch: CH) -> list[str]:
-    """要重建的日期：change 標記還沒被確認（phase 2）——上次中斷、或別的寫入者還在進行／已落地還沒被重建確認；
+    """要重建的日期：change／rebuild 標記還沒被確認（phase 2）——上次中斷、或別的寫入者還在進行／已落地還沒被重建確認；
     加上 touch 標記：已落地但還沒確認的（寫入者在 landed 之後、settle／重建之前中斷——期間可能被別的重建用舊快照蓋掉），
     或租約過期卻沒落地的（寫到一半掛了）。正常寫入者落地後立刻 settle 自己確認，所以只寫新事件的批次不會每次都觸發重建。"""
     sql = (f"SELECT DISTINCT toString(event_date) FROM (SELECT event_date, id FROM {AGG_PENDING} GROUP BY event_date, id HAVING countIf(phase = 2) = 0 AND "
-           "(any(kind) = 'change' OR (any(kind) = 'touch' AND (countIf(phase = 1) > 0 OR maxIf(lease_until, phase = 0) < now64(3, 'UTC'))))) "
+           "(any(kind) IN ('change', 'rebuild') OR (any(kind) = 'touch' AND (countIf(phase = 1) > 0 OR maxIf(lease_until, phase = 0) < now64(3, 'UTC'))))) "
            "ORDER BY 1 FORMAT TSV")
     return [x for x in ch.query(sql).split("\n") if x.strip()]
 
@@ -271,7 +282,7 @@ class Rebuild:
     def mark(self) -> None:
         """自己的標記（phase 0 + 租約）：重建途中斷了，租約過期後由任何一次重建確認；沒斷就自己確認。"""
         lease = self.ch.query(f"SELECT toString(now64(3, 'UTC') + INTERVAL {LEASE_S} SECOND) FORMAT TSV").strip()
-        _mark_rows(self.ch, [(self.d, self.id, 0, self.owner, lease)])
+        _mark_rows(self.ch, [(self.d, self.id, 0, self.owner, lease)], "rebuild")
 
     def snapshot(self) -> None:
         """記下快照時間，從 dmp.events FINAL 算進自己的私有暫存表（與 stage 同結構、同分區／排序鍵；Replicated 路徑也跟著換名）。"""
@@ -311,7 +322,7 @@ class Rebuild:
     def ack(self) -> list[str]:
         """只確認：落地時間早於我最後一次快照（減餘量）的標記、租約已過期而沒落地的標記、我自己的標記。其他（進行中、或在我快照後才落地）留著給下一次重建。"""
         t = f"toDateTime64('{self.ts}', 3, 'UTC') - INTERVAL {MARGIN_S} SECOND"
-        sql = (f"SELECT id FROM {AGG_PENDING} WHERE event_date = toDate('{self.d}') AND kind IN ('change', 'touch') GROUP BY id HAVING countIf(phase = 2) = 0 AND ("
+        sql = (f"SELECT id FROM {AGG_PENDING} WHERE event_date = toDate('{self.d}') AND kind IN ('change', 'touch', 'rebuild') GROUP BY id HAVING countIf(phase = 2) = 0 AND ("
                f"(countIf(phase = 1) > 0 AND maxIf(at, phase = 1) < {t}) OR (countIf(phase = 1) = 0 AND maxIf(lease_until, phase = 0) < {t}) OR id = '{self.id}') "
                "FORMAT TSV")
         ids = [x for x in self.ch.query(sql).split("\n") if x.strip()]
@@ -369,13 +380,13 @@ def verify(ch: CH, d: str) -> dict[str, Any]:
 def selftest() -> None:
     """不連 ClickHouse：去重比對、分區日期、重建 SQL 的順序（假 CH 記錄語句）。"""
     class Fake:
-        def __init__(self, existing: dict[str, dict[str, Any]]): self.existing, self.sql, self.pending, self.stage_rows, self.newer, self.left = existing, [], [], 1, 0, 600.0
+        def __init__(self, existing: dict[str, dict[str, Any]]): self.existing, self.sql, self.pending, self.race, self.stage_rows, self.newer, self.left = existing, [], [], [], 1, 0, 600.0
         def query(self, sql: str, data: Any = None, settings: Any = None) -> str:
             self.sql.append(sql)
-            if sql.startswith("SELECT event_id, argMax"):
+            if sql.startswith("SELECT event_id, argMin"):
                 return "\n".join(json.dumps({"event_id": k, **v}) for k, v in self.existing.items() if f"'{k}'" in sql)
             if sql.startswith("SELECT DISTINCT toString(event_date) FROM (SELECT event_date, id FROM"):
-                return "\n".join(self.pending)
+                return "\n".join(self.race if "id NOT IN" in sql else self.pending)
             if sql.startswith("SELECT toString(now64"): return "2026-10-16 00:00:00.000"
             if sql.startswith("SHOW CREATE TABLE"): return f"CREATE TABLE {AGG_STAGE}\n(x UInt8)\nENGINE = MergeTree\nORDER BY x"
             if sql.startswith("SELECT id FROM"): return "own"
@@ -389,37 +400,32 @@ def selftest() -> None:
             "distinct_id": "", "session_id": "", "app_id": "", "symbol": "2330", "side": "B", "utm_campaign": "", "schema_version": 1}
     old = {"e1": {**base, "time": "2026-10-16 01:00:00.000", "event_date": "2026-10-16", "props": '{"market":"TSE","n":1}'},
            "e2": {**base, "time": "2026-10-16 02:00:00.000", "event_date": "2026-10-16", "props": "{}"},
-           "e4": {**base, "time": "2026-10-16 15:30:00.000", "event_date": "2026-10-16", "props": "{}"},
-           "e5": {**base, "time": "2026-10-16 03:00:00.000", "event_date": "2026-10-16", "props": '{"market":"TSE"}'},
-           "e6": {**base, "time": "2026-10-16 04:00:00.000", "event_date": "2026-10-16", "props": "{}"}}
-    rows = [{"event_id": "e1", "time": "2026-10-16 01:00:00.000", **base, "amount": 100, "props": {"n": 1, "market": "TSE"}},     # 一模一樣（重疊窗口重讀；props 鍵序不同也算同）→ 略過
-            {"event_id": "e2", "time": "2026-10-16 02:00:00.000", **base, "utm_source": "google", "props": {}},                 # utm 補齊 → 新版本 + 重建當天
-            {"event_id": "e3", "time": "2026-10-17 02:00:00.000", **base, "event": "kh_apply", "one_id": "v1_b", "props": {}},  # 新的
-            {"event_id": "e3", "time": "2026-10-17 02:00:00.000", **base, "event": "kh_apply", "one_id": "v1_b", "utm_source": "x", "props": {}},   # 同批重複 → 留最後一筆
-            {"event_id": "e4", "time": "2026-10-16 16:30:00.000", **base, "props": {}},                                         # 時間更正跨台北日（15:30Z=16 日 23:30 → 16:30Z=17 日）→ 兩天重建 + 清舊版本
-            {"event_id": "e5", "time": "2026-10-16 03:00:00.000", **base, "props": {"market": "US"}, "utm_campaign": "new"},    # 只改 props／utm_campaign（不影響彙總）→ 仍要入倉 + 重建（MV 累加）；排序鍵沒變 → 不清
-            {"event_id": "e6", "time": "2026-10-16 04:00:00.000", **base, "one_id": "v1_rewritten", "props": {}}]              # 歸戶改寫 → 新版本 + 清舊版本
+           "e4": {**base, "time": "2026-10-16 15:30:00.000", "event_date": "2026-10-16", "props": "{}"}}
+    rows = [{"event_id": "e1", "time": "2026-10-16 01:00:00.000", **base, "amount": 100, "props": {"n": 1, "market": "TSE"}},     # 一模一樣（重疊窗口重讀；props 鍵序不同也算同）→ skipped
+            {"event_id": "e2", "time": "2026-10-16 02:00:00.000", **base, "utm_source": "google", "props": {}},                 # 倉裡已有、內容不同（日批補 utm）→ kept_first，不覆蓋
+            {"event_id": "e3", "time": "2026-10-17 02:00:00.000", **base, "event": "kh_apply", "one_id": "v1_b", "props": {}},  # 新的 → 寫入
+            {"event_id": "e3", "time": "2026-10-17 02:00:00.000", **base, "event": "kh_apply", "one_id": "v1_b", "props": {}},  # 同批完全相同 → skipped
+            {"event_id": "e3", "time": "2026-10-17 02:00:00.000", **base, "event": "kh_apply", "one_id": "v1_b", "utm_source": "x", "props": {}},   # 同批同 id 不同內容 → 留第一筆
+            {"event_id": "e4", "time": "2026-10-16 16:30:00.000", **base, "props": {}}]                                         # 倉裡已有、時間不同 → kept_first（不搬日期）
     ch = Fake(old)
     d = dedupe(ch, rows)
-    assert [r["event_id"] for r in d.rows] == ["e2", "e3", "e4", "e5", "e6"] and d.skipped == 1 and d.rebuild == {"2026-10-16", "2026-10-17"} and d.rows[1]["utm_source"] == "x", d
-    assert d.stale == [("e4", "2026-10-16 15:30:00.000", "v1_a"), ("e6", "2026-10-16 04:00:00.000", "v1_a")], d.stale
-    assert dedupe(Fake(old), [{"event_id": "e1", "time": "2026-10-16 01:00:00.000", **base, "props": {"market": "TSE", "n": 1}, "source": "ga360_daily"}]).rows, "日批覆蓋串流：source 不同就是新版本"
+    assert [r["event_id"] for r in d.rows] == ["e3"] and d.rows[0]["utm_source"] == "" and d.skipped == 2 and d.kept_first == 3 and d.kept_first_ids == ["e2", "e3", "e4"], d
+    assert "argMin(" in ch.sql[0] and "argMax(" not in ch.sql[0], "分類比的是倉裡第一筆"
     assert _same({"amount": "100.0"}, {"amount": 100}, ("amount",)) and not _same({"amount": None}, {"amount": 0}, ("amount",)) and _same({"one_id": None}, {"one_id": ""}, ("one_id",))
     assert _same({"time": "2026-10-16 01:00:00.000"}, {"time": "2026-10-16 01:00:00.000"}, ("time",)) and not _same({"time": "2026-10-16 01:00:00.100"}, {"time": "2026-10-16 01:00:00.000"}, ("time",))   # 毫秒也算
     assert _same({"props": '{"b":1,"a":"x"}'}, {"props": {"a": "x", "b": 1}}, ("props",)) and not _same({"props": "{}"}, {"props": {"a": 1}}, ("props",))
     assert _same({"props": '{"consent":{"analytics":true},"a":{"b":{"c":1}}}'}, {"props": {"consent.analytics": True, "a.b.c": 1}}, ("props",))   # 帶點的鍵＝ClickHouse 的巢狀路徑
-    ch.sql.clear(); assert purge_stale(ch, d.stale) == 2 and ch.sql[0].startswith("DELETE FROM dmp.events WHERE (event_id, time, one_id) IN (('e4', toDateTime64('2026-10-16 15:30:00.000', 3, 'UTC'), 'v1_a')"), ch.sql[0]
     assert event_date_of({"time": datetime(2026, 10, 16, 15, 59)}) == "2026-10-16" and event_date_of({"time": datetime(2026, 10, 16, 16, 0, tzinfo=UTC)}) == "2026-10-17"
     assert event_date_of({"time": "2026-10-16 01:00:00.000"}) == "2026-10-16" and event_date_of({"time": "2026-10-16 17:00:00.000"}) == "2026-10-17" and event_date_of({"time": date(2026, 10, 16)}) == "2026-10-16"
     ch.sql.clear(); assert rebuild(ch, ["2026-10-17", "2026-10-16", "2026-10-16"]) == ["2026-10-16", "2026-10-17"]
     assert ch.sql[0].startswith("SELECT DISTINCT toString(event_date) FROM (SELECT event_date, id FROM"), ch.sql[0]        # 先把還沒確認的日期撈進來
     tmp = [x for x in ch.sql if x.startswith("CREATE TABLE dmp.events_daily_agg_stage_")]; assert len(tmp) == 2 and AGG_STAGE + "\n" not in tmp[0], tmp   # 私有暫存表（換名）
     day = ch.sql[1:]; i = next(k for k, x in enumerate(day) if "REPLACE PARTITION ID '20261016'" in x)
-    assert day[i - 5].startswith(f"INSERT INTO {AGG_PENDING}") and "', 0, 'rebuild'" in day[i - 5], day[i - 5]                      # 自己的標記（phase 0 + 租約）在快照之前
+    assert day[i - 5].startswith(f"INSERT INTO {AGG_PENDING}") and "', 0, 'rebuild'" in day[i - 5] and day[i - 5].endswith("'rebuild')"), day[i - 5]   # 自己的標記（phase 0 + 租約、kind rebuild）在快照之前
     assert day[i - 3].startswith("SHOW CREATE TABLE") and day[i - 2].startswith("CREATE TABLE dmp.events_daily_agg_stage_"), day[i - 3:i]
     assert day[i - 1].startswith("INSERT INTO dmp.events_daily_agg_stage_") and "FROM dmp.events FINAL WHERE event_date = toDate('2026-10-16')" in day[i - 1]
     assert day[i + 1].startswith("DROP TABLE IF EXISTS dmp.events_daily_agg_stage_") and day[i + 2].startswith(f"INSERT INTO {AGG_PENDING}") and day[i + 2].endswith("'replace')")
-    assert day[i + 3].startswith("SELECT id FROM") and "countIf(phase = 2) = 0" in day[i + 3] and "kind IN ('change', 'touch')" in day[i + 3]
+    assert day[i + 3].startswith("SELECT id FROM") and "countIf(phase = 2) = 0" in day[i + 3] and "kind IN ('change', 'touch', 'rebuild')" in day[i + 3]
     assert day[i + 4].startswith(f"INSERT INTO {AGG_PENDING}") and "'own', 2, 'rebuild'" in day[i + 4], day[i + 4]                   # 確認＝補 phase 2 列，不刪別人的
     assert ch.sql[-1].startswith(f"DELETE FROM {AGG_PENDING} WHERE id IN (SELECT id FROM {AGG_PENDING} GROUP BY id HAVING max(at) <") and "any(kind) = 'replace'" in ch.sql[-1], ch.sql[-1]
     ch.pending = ["2026-10-01"]; ch.sql.clear()
@@ -443,10 +449,14 @@ def selftest() -> None:
     ch.sql.clear(); assert mt.settle() == set() and ch.sql[-1].startswith(f"INSERT INTO {AGG_PENDING}") and f"'{mt.touch['2026-10-18']}', 2, 'w'" in ch.sql[-1] and ch.sql[-1].endswith("'touch')"), ch.sql   # 沒被換過分區 → 自己確認 touch
     ch.sql.clear(); pending_dates(ch); assert "any(kind) = 'touch' AND (countIf(phase = 1) > 0 OR maxIf(lease_until, phase = 0) <" in ch.sql[0], ch.sql[0]   # 已落地未確認的 touch 算待重建
     ch.sql.clear(); gc_marks(ch); assert "countIf(phase = 1) > 0" not in ch.sql[0], "已落地未確認的 touch 不能被清掉"
-    assert begin(ch, [], "x").overlapped() == set()
+    assert begin(ch, [], "x").overlapped() == set() and begin(ch, [], "x").concurrent() == set()
+    ch.sql.clear(); mc = begin(ch, [], "c", touch=["2026-10-19"]); assert mc.concurrent() == set() and not any("id NOT IN" in x for x in ch.sql), "還沒落地不查"
+    mc.landed(); ch.race = ["2026-10-19"]; ch.sql.clear(); assert mc.concurrent() == {"2026-10-19"}
+    q = ch.sql[0]; assert "kind IN ('change', 'touch')" in q and f"id NOT IN ('{mc.touch['2026-10-19']}')" in q and "minIf(at, phase = 0) <= toDateTime64(" in q and "maxIf(lease_until, phase = 0) >=" in q, q   # 別人的窗口與我重疊
+    ch.race = []
     assert dedupe(ch, []) == DedupeResult(rows=[])
-    print("aggregates self-test ok: dedupe(full-version same/changed/new/in-batch dup/sort-key change → stale)/purge_stale/event_date/"
-          "rebuild(pending ∪ dates → own mark → private stage → replace partition → re-snapshot while newer landed → ack landed-before-snapshot/expired)/marks(change+touch, lease check, renew, landed, overlapped replace, settle self-ack, landed-unacked touch stays pending/not gc'd)")
+    print("aggregates self-test ok: dedupe(append-only: existing id → skipped if identical / kept_first if different; in-batch first wins)/event_date/"
+          "rebuild(pending ∪ dates → own mark → private stage → replace partition → re-snapshot while newer landed → ack landed-before-snapshot/expired)/marks(change+touch, lease check, renew, landed, overlapped replace, settle self-ack, landed-unacked touch stays pending/not gc'd, concurrent writer window overlap)")
 
 
 def main(argv: list[str]) -> int:
