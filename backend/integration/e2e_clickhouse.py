@@ -423,7 +423,7 @@ def users_bench(ch: ClickHouseHTTP, n_users: int, n_props: int, n_events: int) -
               {"engine_file_truncate_on_insert": 1, "max_insert_threads": 4})
         timed(f"load_snapshot_{day}", f"INSERT INTO dmp.users_snapshot (snapshot_date, one_id, {cols}) SELECT snapshot_date, one_id, {cols} FROM file('users_{day}.parquet', 'Parquet')",
               {"max_insert_threads": 4, "max_threads": 4})
-        timed(f"refresh_users_{day}", f"INSERT INTO dmp.users (one_id, {cols}, first_seen, updated_at) SELECT one_id, {cols}, toDateTime64('{day} 05:00:00', 3), toDateTime64('{day} 05:00:00', 3) FROM dmp.users_snapshot WHERE snapshot_date = toDate('{day}')",
+        timed(f"refresh_users_{day}", f"INSERT INTO dmp.users (one_id, {cols}, first_seen, updated_at) SELECT one_id, {cols}, toDateTime64('{day} 05:00:00', 3, 'UTC'), toDateTime64('{day} 05:00:00', 3, 'UTC') FROM dmp.users_snapshot WHERE snapshot_date = toDate('{day}')",
               {"max_insert_threads": 4})
     assert ch.scalar("SELECT count() FROM dmp.users_snapshot") == 2 * n_users
     assert ch.scalar("SELECT count() FROM dmp.users FINAL") == n_users
@@ -435,16 +435,16 @@ def users_bench(ch: ClickHouseHTTP, n_users: int, n_props: int, n_events: int) -
     timed("q_users_history_asof", "SELECT snapshot_date, aum_bucket, count() FROM dmp.users_snapshot GROUP BY 1, 2 ORDER BY 1, 2 FORMAT TSV")
     # 2) 即時零星更新：5% 用戶 profile_set lifecycle → 微批合併進 users（每欄 if(mapContains) 由欄位清單產生）
     k = max(1, n_users // 20)
-    ch.query(f"INSERT INTO dmp.user_prop_log (one_id, prop, value, op, ts) SELECT one_id, 'lifecycle', '流失', 'set', toDateTime64('2026-10-16 09:10:00', 3) FROM (SELECT {one_id} FROM numbers({k}))")
+    ch.query(f"INSERT INTO dmp.user_prop_log (one_id, prop, value, op, ts) SELECT one_id, 'lifecycle', '流失', 'set', toDateTime64('2026-10-16 09:10:00', 3, 'UTC') FROM (SELECT {one_id} FROM numbers({k}))")
     merged = ", ".join(f"if(mapContains(l.m, '{n}'), {CAST_OF[kd].format(v=f'l.m[\'{n}\']')}, u.`{n}`) AS `{n}`" for n, kd, _ in cat)
     timed("microbatch_merge_prop_log", f"""INSERT INTO dmp.users (one_id, {cols}, first_seen, updated_at)
         SELECT u.one_id, {merged}, u.first_seen, l.last_ts
         FROM (SELECT one_id, mapFromArrays(groupArray(prop), groupArray(last_value)) AS m, max(prop_ts) AS last_ts
-              FROM (SELECT one_id, prop, argMax(value, ts) AS last_value, max(ts) AS prop_ts FROM dmp.user_prop_log WHERE ts > toDateTime64('2026-10-16 09:00:00', 3) GROUP BY one_id, prop) GROUP BY one_id) AS l
+              FROM (SELECT one_id, prop, argMax(value, ts) AS last_value, max(ts) AS prop_ts FROM dmp.user_prop_log WHERE ts > toDateTime64('2026-10-16 09:00:00', 3, 'UTC') GROUP BY one_id, prop) GROUP BY one_id) AS l
         INNER JOIN dmp.users AS u FINAL ON u.one_id = l.one_id""")
-    assert ch.scalar("SELECT count() FROM dmp.users FINAL WHERE lifecycle = '流失' AND toDateTime(updated_at) = toDateTime('2026-10-16 09:10:00')") == k
+    assert ch.scalar("SELECT count() FROM dmp.users FINAL WHERE lifecycle = '流失' AND toDateTime(updated_at) = toDateTime('2026-10-16 09:10:00', 'UTC')") == k
     assert ch.scalar("SELECT count() FROM dmp.users FINAL") == n_users           # 合併不會多出列
-    assert ch.scalar("SELECT count() FROM dmp.users FINAL WHERE toDateTime(updated_at) = toDateTime('2026-10-16 09:10:00') AND aum IS NULL") == 0   # 其他屬性保留
+    assert ch.scalar("SELECT count() FROM dmp.users FINAL WHERE toDateTime(updated_at) = toDateTime('2026-10-16 09:10:00', 'UTC') AND aum IS NULL") == 0   # 其他屬性保留
     # 3) dictionary：熱欄位載入時間與記憶體
     timed("dict_reload", "SYSTEM RELOAD DICTIONARY dmp.users_dict")
     row = ch.query("SELECT element_count, round(bytes_allocated/1048576), status FROM system.dictionaries WHERE name='users_dict' FORMAT TSV").strip().split("\t")
