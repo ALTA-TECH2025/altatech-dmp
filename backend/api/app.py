@@ -52,13 +52,20 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     local_provider = auth.providers.get("local")
     accounts = getattr(local_provider, "accounts", None)
 
+    def local_base_roles(user_id: str, now: float) -> list[str] | None:
+        """本機帳號的基底角色（每個請求與背景排程共用同一條規則）：帳號不存在／停用／鎖定／到期 → None（沒有任何角色）。"""
+        if accounts is None: return None
+        acc = next((a for a in accounts.list() if f"local:{a['subject']}" == user_id), None)
+        if acc is None or acc.get("disabled") or acc.get("locked") or (acc.get("expires_at") and float(acc["expires_at"]) < now): return None
+        return [r for r in acc["roles"] if accounts.role_allowed(r)]
+
     def base_roles_of(s: Any) -> list[str] | None:
-        """每個請求的基底角色：本機帳號重讀帳號（停用／鎖定／刪除 → None＝沒有角色；改角色即時生效）；SSO 沿用登入時的群組映射。"""
-        if s.provider == "local" and accounts is not None:
-            acc = next((a for a in accounts.list() if a["subject"] == s.user_id.split(":", 1)[-1]), None)
-            if acc is None or acc.get("disabled") or acc.get("locked"): return None
-            return [r for r in acc["roles"] if accounts.role_allowed(r)]
-        return list(s.attrs.get("base_roles", s.roles))
+        """每個請求的基底角色：本機帳號重讀帳號（停用／鎖定／到期／刪除 → None；改角色即時生效）；SSO 用登入時記下的基底角色，
+        升版前的 session 沒記 → None（沒有可靠的基底，不能拿混了指派的歷史角色充數；要重新登入）。"""
+        if s.provider == "local":
+            return local_base_roles(s.user_id, time.time())
+        b = s.attrs.get("base_roles")
+        return list(b) if isinstance(b, list) else None
 
     auth.sessions.assignments = store.assignments                          # 有效授權每個請求重算（R07）：指派新增／撤銷／到期／deny 立刻反映
     auth.sessions.base_roles_of = base_roles_of
@@ -72,9 +79,8 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
         m = next((x for x in member_directory(store, accounts, auth.sessions.store, now) if x["id"] == user_id), None)
         if m is None: return None
         if m.get("source") == "local":
-            acc = next((a for a in accounts.list() if f"local:{a['subject']}" == user_id), None) if accounts is not None else None
-            if acc is None or acc.get("disabled") or acc.get("locked") or (acc.get("expires_at") and float(acc["expires_at"]) < now): return None
-            base = [r for r in acc["roles"] if accounts.role_allowed(r)]
+            base = local_base_roles(user_id, now)
+            if base is None: return None
         else:
             if m.get("status") in ("disabled", "locked", "expired", "never_logged_in") or m.get("base_roles") is None: return None
             base = list(m["base_roles"])

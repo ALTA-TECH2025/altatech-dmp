@@ -122,15 +122,12 @@ class SessionManager:
         """目前有效的角色與範圍（每個請求都算，不用登入快照）：基底角色（登入時的群組映射；本機帳號則重讀帳號，停用／改角色即時生效）
         + 現在的本機指派疊加（新增、撤銷、到期、deny、scope 變更都立刻反映）。沒接 assignments 時（單元測試）才沿用 session 快照。"""
         from .mapping import overlay_assignments
-        base = list(s.attrs.get("base_roles", s.roles))
-        if self.base_roles_of is not None:
-            b = self.base_roles_of(s)
-            if b is None:                                             # 帳號已停用／鎖定／刪除：沒有任何角色
-                return [], {}
-            base = list(b)
-        if self.assignments is None:
-            return list(s.roles), dict(s.scope or {})
-        roles, scope, _ = overlay_assignments((s.user_id, s.username), base, self.assignments(), self.now())
+        if self.assignments is None and self.base_roles_of is None:
+            return list(s.roles), dict(s.scope or {})                 # 沒接來源（單元測試）：沿用登入快照
+        base = self.base_roles_of(s) if self.base_roles_of is not None else s.attrs.get("base_roles")
+        if not isinstance(base, list):                                # 帳號停用／鎖定／到期／刪除，或升版前的 session 沒記基底角色：沒有任何角色（要重新登入）
+            return [], {}
+        roles, scope, _ = overlay_assignments((s.user_id, s.username), list(base), self.assignments() if self.assignments is not None else [], self.now())
         return roles, scope
 
     def subject(self, s: Session) -> Subject:

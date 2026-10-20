@@ -150,7 +150,7 @@ def main(store: Any | None = None) -> None:
     tmp = next(x for x in c.get("/v1/iam/assignments").json() if x["user_id"] == "entra:oncall"); assert tmp["temp"] and tmp["approved_by"] == "entra:ops" and 0 < tmp["expires_at"] - time.time() <= 2 * 3600 + 5
     # 2b. 既有 session 的有效授權每次請求重算（R07）：指派給沒角色的人 → 立刻有角色；撤銷／到期／deny → 立刻沒有；不用重新登入
     from fastapi.testclient import TestClient as _TC
-    c2 = _TC(app); s_tmp = sm.create(user_id="entra:tmp", username="tmp", name="tmp", email="tmp@corp.internal", provider="entra", roles=[], groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()))
+    c2 = _TC(app); s_tmp = sm.create(user_id="entra:tmp", username="tmp", name="tmp", email="tmp@corp.internal", provider="entra", roles=[], groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()), base_roles=[])
     c2.cookies.set("dmp_sid", s_tmp.sid); c2.cookies.set("dmp_csrf", s_tmp.csrf); c2.headers["X-CSRF-Token"] = s_tmp.csrf
     assert c2.get("/v1/iam/me").json()["roles"] == [] and c2.get("/v1/sql/tables").status_code == 403
     ga = c.post("/v1/iam/assignments", json={"user_id": "entra:tmp", "roles": ["data_analyst"], "reason": "臨時分析"}); assert ga.status_code == 201, ga.text
@@ -165,6 +165,18 @@ def main(store: Any | None = None) -> None:
     dn = c.post("/v1/iam/assignments", json={"user_id": "entra:ana2x", "roles": ["data_analyst"], "deny": True, "reason": "調查中"}); assert dn.status_code == 201, dn.text
     assert c2.get("/v1/sql/tables").status_code == 403 and c2.get("/v1/iam/me").json()["roles"] == []                                            # deny 立刻生效
     assert c.delete(f"/v1/iam/assignments/{dn.json()['id']}").status_code == 204 and c2.get("/v1/sql/tables").status_code == 200
+    s_old = sm.create(user_id="entra:oldsess", username="oldsess", name="", email="", provider="entra", roles=["data_analyst"], groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()))   # 升版前的 session：attrs 沒有 base_roles
+    store.put_assignment({"id": "as_old_exp", "user_id": "entra:oldsess", "roles": ["data_analyst"], "expires_at": time.time() - 1})
+    c2.cookies.set("dmp_sid", s_old.sid); c2.cookies.set("dmp_csrf", s_old.csrf); c2.headers["X-CSRF-Token"] = s_old.csrf
+    assert c2.get("/v1/sql/tables").status_code == 403 and c2.get("/v1/iam/me").json()["roles"] == [], "舊 session 沒有可靠基底角色：不授權，要重新登入"
+    store.delete_assignment("as_old_exp")
+    la0 = local.accounts; la0.add("req-bot", "Correct-Horse-Battery-14!", ["marketing"], totp=False); _sub0 = la0.public("req-bot")["subject"]
+    s_loc = sm.create(user_id=f"local:{_sub0}", username="req-bot", name="", email="", provider="local", roles=["marketing"], groups=[], amr=["pwd"], auth_time=int(time.time()), base_roles=["marketing"])
+    c2.cookies.set("dmp_sid", s_loc.sid); c2.cookies.set("dmp_csrf", s_loc.csrf); c2.headers["X-CSRF-Token"] = s_loc.csrf
+    assert [r["key"] for r in c2.get("/v1/iam/me").json()["roles"]] == ["marketing"]
+    la0.data["accounts"]["req-bot"]["expires_at"] = int(time.time()) - 1; la0._save()
+    assert c2.get("/v1/iam/me").json()["roles"] == [] and c2.get("/v1/segments").status_code == 403, "本機帳號到期：同一個 cookie 立刻沒有角色（與排程同一條規則）"
+    la0.data["accounts"]["req-bot"]["expires_at"] = int(time.time()) + 86400; la0._save(); assert [r["key"] for r in c2.get("/v1/iam/me").json()["roles"]] == ["marketing"]
     # 3. 行級模擬：自訂角色（回溯 180 天）→ WHERE 含 event_date；行銷 → amount 遮罩
     sim = c.post("/v1/iam/scope/simulate", json={"role": "marketing", "scope": {"lookback_days": 180}}).json()
     assert "amount" in sim["masked_fields"] and any("event_date >= today()-180" in w for w in sim["where"]) and "multiIf" in sim["sql"] and sim["k_anonymity"] == 20, sim
