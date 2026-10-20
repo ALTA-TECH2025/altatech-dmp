@@ -52,6 +52,8 @@ class FakeClickHouse:
             return '{"_one_id":"v1_abcdef1234","event":"bond_deal","time":"2026-10-15 09:00:00.000","platform":"iOS","amount":"100000–500000","props.market":"TSE"}\n{"_one_id":"v1_zz","event":"bond_deal","time":"2026-10-15 09:05:00.000","platform":"Web","amount":"<0","props.market":"OTC"}\n'
         if "bitmapCardinality(" in sql:
             return '{"users":123}\n'
+        if "system.columns" in sql:                                                     # 中間表欄位（展開 * 用）
+            return "event_date\nn\n"
         if "system.parts" in sql:
             return '{"table":"events","rows":120000,"bytes":48000000,"parts":6}\n{"table":"users","rows":3000,"bytes":900000,"parts":1}\n'
         if "max(time) AS t" in sql:
@@ -190,6 +192,9 @@ def main(store: Any | None = None) -> None:
     assert c.post("/v1/analytics/path", json={**pq, "steps": 11}).status_code == 400
     aq = {"target": {"event": "bond_deal", "value_field": "amount"}, "touches": [{"event": "$pageview", "alias": "瀏覽"}, {"event": "hq_stockdetail_view", "alias": "看盤"}, {"event": "app_login_success"}], "models": ["first", "linear"], "window_days": 7, "time": q["time"]}
     ar = c.post("/v1/analytics/attribution", json=aq); assert ar.status_code == 200, ar.text
+    assert "_k" not in ar.json()["rows"][0] and "_k" not in c.post("/v1/analytics/events", json={"metrics": [{"event": "bond_deal", "agg": "total"}], "time": {"from": "2026-10-01", "to": "2026-10-16"}}).json()["columns"]   # K 匿名人數欄不出 API
+    login(c, sm, ["marketing"], "mkt"); arm = c.post("/v1/analytics/attribution", json={**aq, "target": {**aq["target"], "value_field": "amount"}}); assert arm.status_code == 200, arm.text
+    assert set(arm.json()["masked"]) == {f"{m}_val" for m in aq["models"]} | {"total_value"} and all(v.startswith("bucket") for v in arm.json()["masked"].values()) and "_k" not in arm.json()["rows"][0], arm.json()["masked"]   # 行銷：歸因金額只給區間
     ab = ar.json(); assert ab["summary"] == {"conversions": 100, "converters": 80, "touched": 70, "untouched": 30, "value": 9000000.0, "avg_touches": 1.8} and ab["models"] == ["first", "linear"], ab["summary"]
     assert ab["rows"][0]["touch"] == "瀏覽" and ab["rows"][0]["models"]["first"] == {"conversions": 60.0, "value": 6000000.0, "share": 0.6} and ab["rows"][2]["suppressed"] is True and ab["rows"][2]["models"]["linear"]["conversions"] is None and ab["rows"][2]["touch"] == "app_login_success", ab["rows"]
     assert c.post("/v1/analytics/attribution", json={**aq, "models": ["magic"]}).status_code == 400 and c.post("/v1/analytics/attribution", json={**aq, "touches": [{"event": "bond_deal"}]}).status_code == 400
@@ -358,6 +363,8 @@ def main(store: Any | None = None) -> None:
     sq = c.post("/v1/sql/query", json={"sql": "SELECT event_date AS bucket, count() AS m1 FROM dmp.events WHERE event = 'bond_deal' GROUP BY bucket", "limit": 100}); assert sq.status_code == 200, sq.text
     sqj = sq.json(); assert sqj["rows"] and sqj["sql_effective"].startswith("SELECT * FROM (") and sqj["sql_effective"].endswith("LIMIT 100") and sqj["lineage"] == ["dmp.events"] and sqj["scan_rows_estimate"] == 16384
     assert c.post("/v1/sql/query", json={"sql": "SELECT one_id FROM dmp.events"}).status_code == 400 and c.post("/v1/sql/query", json={"sql": "DROP TABLE dmp.events"}).status_code == 400
+    assert c.post("/v1/sql/query", json={"sql": "SELECT * FROM dmp.users"}).status_code == 400                                                              # #10：* 展開後含 one_id
+    assert c.post("/v1/sql/query", json={"sql": "WITH id_map AS (SELECT event FROM dmp.events) SELECT * FROM dmp.id_map"}).status_code == 400                 # #11：CTE 同名不能繞過白名單
     assert c.post("/v1/sql/query", json={"sql": "SELECT props FROM dmp.events"}).status_code == 400 and c.post("/v1/sql/query", json={"sql": "SELECT props.`$identities` FROM dmp.events"}).status_code == 400   # props 整包／身分識別鍵走同一套清理政策
     assert c.post("/v1/sql/query", json={"sql": "SELECT count() FROM dmp.events", "explain": True}).json()["explained"] is True
     hist = c.get("/v1/sql/history").json(); assert hist and hist[0]["status"] == "ok" and hist[0]["rows"] >= 1
@@ -503,6 +510,18 @@ def main(store: Any | None = None) -> None:
     login(c, sm, ["data_analyst"], "ana")
     assert c.post("/v1/tags/tier_grade/recycle").status_code == 409 and c.post("/v1/tags/tier_grade/pause").json()["warnings"] and c.post("/v1/tags/tier_grade/pause").json()["status"] == "active"
     assert c.post("/v1/tags/tier_sql/recycle").status_code == 200 and [t["id"] for t in c.get("/v1/tags?status=recycled").json()] == ["tier_sql"] and c.post("/v1/tags/tier_sql/restore").json()["status"] == "active"
+    login(c, sm, ["marketing"], "mkt")                                                                                                    # 待審批標籤：回收→還原不能變生效
+    pt = c.post("/v1/tags", json={"name": "待審標籤", "key": "pend_t", "kind": "values", "values": tvals}); assert pt.status_code == 201 and pt.json()["status"] == "pending_approval", pt.text
+    assert c.post("/v1/tags/pend_t/recycle").status_code == 200
+    rs = c.post("/v1/tags/pend_t/restore").json(); assert rs["status"] == "pending_approval" and rs["approval"]["status"] == "pending", rs
+    pt2 = c.post("/v1/tags", json={"name": "待審標籤 2", "key": "pend_t2", "kind": "values", "values": tvals}).json()
+    login(c, sm, ["digital_ops"], "ops")
+    assert c.post(f"/v1/approvals/{rs['approval']['id']}/decide", json={"approve": True, "note": "ok"}).status_code == 200 and c.get("/v1/tags/pend_t").json()["status"] == "active"
+    assert c.post(f"/v1/approvals/{pt2['approval']['id']}/decide", json={"approve": False, "note": "不需要"}).status_code == 200 and c.get("/v1/tags/pend_t2").json()["status"] == "draft"
+    login(c, sm, ["marketing"], "mkt")
+    assert c.post("/v1/tags/pend_t2/recycle").status_code == 200 and c.post("/v1/tags/pend_t2/restore").json()["status"] == "draft"             # 被退回的還原成草稿
+    assert c.post("/v1/tags/pend_t/pause").json()["status"] == "paused" and c.post("/v1/tags/pend_t/recycle").status_code == 200 and c.post("/v1/tags/pend_t/restore").json()["status"] == "paused"   # 已核可的回到原狀態
+    login(c, sm, ["data_analyst"], "ana")
     login(c, sm, ["it_admin"], "it"); assert c.post("/v1/tags", json={"name": "x", "kind": "values", "values": tvals}).status_code == 403 and c.get("/v1/destinations").status_code == 200
     evp = {x["event"] for x in store.audit_tail(1000)}; assert {"tag.created", "tag.computed", "tag.approved", "destination.created", "destination.tested", "push.created", "push.ran", "sync.delivered", "sync.failed", "destination.auto_paused", "sync.replayed"} <= evp, evp
     login(c, sm, ["data_analyst"], "ana")

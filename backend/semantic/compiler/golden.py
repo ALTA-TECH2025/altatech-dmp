@@ -296,7 +296,7 @@ PATH_REJECTED: list[tuple[str, dict[str, Any], str]] = [
 TOUCHES = [{"event": "$pageview", "alias": "瀏覽"}, {"event": "hq_stockdetail_view", "alias": "看盤"}, {"event": "app_login_success", "alias": "登入"}]
 ATTRIBUTIONS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("A01 成交 × 三觸點 × 首次／末次／線性，7 天", {"target": {"event": "bond_deal"}, "touches": TOUCHES, "models": ["first", "last", "linear"], "window_days": 7, "time": T}, "admin"),
-    ("A02 金額價值 × 位置（0.3/0.5）× 時間衰減（半衰期 2 天）× 自訂權重，3 天", {"target": {"event": "bond_deal", "value_field": "amount"}, "touches": [{**TOUCHES[0], "weight": 3}, {**TOUCHES[1], "weight": 1}, {**TOUCHES[2], "weight": 0}], "models": ["position", "decay", "custom"], "position_weights": {"first": 0.3, "last": 0.5}, "half_life_days": 2, "window_days": 3, "time": T}, "admin"),
+    ("A02 金額價值 × 位置（0.3/0.5）× 時間衰減（半衰期 2 天）× 自訂權重，3 天", {"target": {"event": "bond_deal", "value_field": "amount"}, "touches": [{**TOUCHES[0], "weight": 3}, {**TOUCHES[1], "weight": 1}, {**TOUCHES[2], "weight": 0}], "models": ["position", "decay", "custom"], "position_weights": {"first": 0.3, "last": 0.5}, "half_life_days": 2, "window_days": 3, "time": T}, "data_analyst"),   # 金額價值要明文比對：數據分析（admin 依 masking.yaml 只看區間）
     ("A03 依平台拆分 × 線性，14 天", {"target": {"event": "bond_order"}, "touches": TOUCHES[:2], "split": "platform", "models": ["linear", "last"], "window_days": 14, "time": T}, "admin"),
     ("A04 轉化條件（金額 ≥ 10 萬）+ 觸點條件（iOS 看盤）+ 用戶屬性，1 天", {"target": {"event": "bond_order", "filters": [{"field": "amount", "op": "gte", "value": 100000}]}, "touches": [{"event": "hq_stockdetail_view", "alias": "iOS看盤", "filters": [{"field": "platform", "op": "eq", "value": "iOS"}]}, {"event": "hq_stockdetail_view", "alias": "其他看盤"}], "models": ["first", "linear"], "window_days": 1, "filters": [{"field": "user.has_margin", "op": "true"}], "time": T}, "admin"),
     ("A05 分群 vip + 行銷（K 匿名）× 市場拆分", {"target": {"event": "bond_deal"}, "touches": TOUCHES, "split": "market", "models": ["linear"], "segment": "vip", "window_days": 7, "time": T}, "marketing"),
@@ -512,6 +512,9 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
             tot = sum((r["models"][m]["conversions"] or 0) for r in sh["rows"])
             if not any(r["suppressed"] for r in sh["rows"]): assert abs(tot - sh["summary"]["touched"]) < 1e-6, (name, m, tot, sh["summary"])
         report.append(f"  {name:<44} L0 rows={len(got):<4} conversions={sh['summary']['conversions']} touched={sh['summary']['touched']} avg_touches={sh['summary']['avg_touches'] and round(sh['summary']['avg_touches'], 2)}")
+    aqm = parse_attribution({**ATTRIBUTIONS[1][1], "project": PROJECT}, cat); cm = compile_attribution(aqm, cat, decision_of("marketing"))        # 行銷看金額價值：模型金額與 total_value 都是區間標籤
+    gm = run_sql(ch, cm.sql, cm.settings); assert gm and cm.masked and all(isinstance(r[c], str) for r in gm for c in cm.masked), (cm.masked, gm[:1])
+    report.append(f"  A02（行銷）金額區間化 masked={sorted(cm.masked)} sample={ {c: gm[0][c] for c in cm.masked} }")
     for name, raw, kw in ATTRIBUTION_REJECTED:
         try:
             parse_attribution({**raw, "project": PROJECT}, cat)
@@ -686,6 +689,9 @@ def dry_run() -> None:
         try: parse_path({**raw, "project": PROJECT}, cat); raise AssertionError(name)
         except ValueError as e: assert kw in str(e), (name, e)
     from .attribution import SCAN_WINDOW_DAYS, compile_attribution, parse_attribution, shape
+    aqm = parse_attribution({**ATTRIBUTIONS[1][1], "project": PROJECT}, cat); cm = compile_attribution(aqm, cat, decision_of("marketing"))      # 行銷看金額價值：模型金額與 total_value 都區間化
+    assert set(cm.masked) == {"position_val", "decay_val", "custom_val", "total_value"} and all(v.startswith("bucket") for v in cm.masked.values()) and cm.sql.count("multiIf(") >= 4 and "區間" in " ".join(cm.warnings), (cm.masked, cm.warnings)
+    assert compile_attribution(aqm, cat, decision_of("data_analyst")).masked == {}                 # 金額對數據分析明文（admin 依 masking.yaml 也是區間）
     for name, raw, spec in ATTRIBUTIONS:
         aq = parse_attribution({**raw, "project": PROJECT}, cat); d = decision_of(spec); c = compile_attribution(aq, cat, d)
         rows = oracle.run_attribution(aq, d); assert rows and "ARRAY JOIN if(n = 0, " in c.sql and "GROUPING SETS" in c.sql and "(SELECT count() FROM seq)" not in c.sql and (("ev AS (" in c.sql) == (aq.window_days >= SCAN_WINDOW_DAYS) != ("tpu AS (" in c.sql)) and c.columns[0] == "ti" and c.sql.count("(") == c.sql.count(")"), name

@@ -2,8 +2,9 @@
 - schema_catalog()：從 backend/clickhouse/schema.sql 解析表與欄位（不連 ClickHouse 也能列目錄）。
 - allowed_tables(roles)：依角色給可查詢的表（events／users／user_tags／segment_members／dim_*／mid_*；id_map 只給 it_admin／admin）。
 - compile_sql(sql, params, decision, cat, roles)：sqlglot（ClickHouse 方言）解析 → 只允許單一 SELECT／WITH／UNION；拒絕 DDL／DML、SETTINGS、INTO OUTFILE、FORMAT、表函數（file／url／s3／remote…）；
-  只能引用目錄內的表；引用到脫敏欄位（decision.field_policies 非 plain、L4 禁用欄位）直接錯；有行級範圍（decision.row_filters）的身分不開放；
-  動態參數 {{name}} 只接受字串／數字／日期；最後包成 SELECT * FROM (<sql>) LIMIT n 並帶 readonly=1、max_execution_time=60。
+  只能引用目錄內的表（CTE 只在自己 scope 可見且不帶資料庫限定時才算 CTE，dmp.<cte 同名> 一律當實體表授權）；
+  引用到脫敏欄位（decision.field_policies 非 plain、L4 禁用欄位）直接錯：*／alias.* 先依 schema 展開成明確欄位再檢查，展不開的 *（來源欄位未知、* 用在函數內）與 COLUMNS(...) 直接拒絕；
+  有行級範圍（decision.row_filters）的身分不開放；動態參數 {{name}} 只接受字串／數字／日期；最後包成 SELECT * FROM (<sql>) LIMIT n 並帶 readonly=1、max_execution_time=60。
 自測：python3 -m backend.sql
 """
 from __future__ import annotations
@@ -14,6 +15,8 @@ from typing import Any
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.optimizer.qualify import qualify
+from sqlglot.optimizer.scope import traverse_scope
 
 from ..semantic.compiler import Catalog
 from ..semantic.compiler.events import Compiled
@@ -27,6 +30,7 @@ SANDBOX_ROLES = {"admin", "it_admin"}                                           
 BANNED_FUNCS = {"file", "url", "s3", "s3cluster", "remote", "remotesecure", "input", "hdfs", "mysql", "postgresql", "jdbc", "odbc", "executable", "cluster", "clusterallreplicas", "azureblobstorage", "gcs", "sqlite", "merge", "view", "format"}
 MAX_LIMIT = 1000
 MID_TABLES: list[str] = []                                                                 # 已登記的中間表名（router 啟動與異動時更新）
+MID_COLUMNS: dict[str, list[str]] = {}                                                     # 中間表的欄位（展開 * 用；沒有欄位資訊的中間表不能用 *）
 SETTINGS = {"readonly": 1, "max_execution_time": 60, "max_result_rows": MAX_LIMIT, "result_overflow_mode": "break", "max_memory_usage": 4_000_000_000}
 FUNCTION_HINTS = ["count()", "uniq(one_id_uint)", "sum(amount)", "avg(x)", "quantile(0.9)(x)", "toDate(time, 'Asia/Taipei')", "toStartOfWeek(d)", "dictGet('dmp_dict.dim_instrument', 'industry', symbol)", "windowFunnel(86400)(time, event='a', event='b')", "arrayJoin(arr)", "multiIf(c1, v1, c2, v2, v)"]
 EXAMPLES = [
@@ -139,23 +143,17 @@ def compile_sql(sql: str, params: dict[str, Any] | None, decision: Any, cat: Cat
             raise SandboxError(f"不允許表函數／外部來源：{node.this.sql()[:60]}")
         if isinstance(node, exp.Anonymous) and str(node.name).lower() in BANNED_FUNCS:
             raise SandboxError(f"不允許表函數／外部來源：{node.name}")
+    for node in root.walk():
+        if isinstance(node, exp.Columns) or (isinstance(node, exp.Anonymous) and str(node.name).lower() == "columns"):
+            raise SandboxError("不允許 COLUMNS(...) 欄位比對（請明列欄位）")
     allowed = allowed_tables(roles, mid_tables)
-    tables: list[str] = []
-    cte_names = {c.alias_or_name.lower() for c in root.find_all(exp.CTE)}
-    for t in root.find_all(exp.Table):
-        db = (t.db or "").lower(); name = (t.name or "").lower()
-        if not name or name in cte_names:
-            continue
-        if db not in ("", "dmp"):
-            raise SandboxError(f"只能查詢 dmp 資料庫的表：{t.sql()}")
-        if name not in allowed:
-            raise SandboxError(f"表 {name} 不在你的數據表權限內（可用：{', '.join(sorted(allowed))}）")
-        tables.append(f"dmp.{name}")
+    tables = _physical_tables(root, allowed)
     if not tables:
         raise SandboxError("查詢沒有引用任何數據表")
     blocked = blocked_columns(roles, cat)
-    hit = sorted({c.name for c in root.find_all(exp.Column) if c.name in blocked})
-    hit += sorted({str(i.this) for i in root.find_all(exp.Identifier) if str(i.this) in blocked} - set(hit))
+    check = _expand_stars(root, mid_tables)
+    hit = sorted({c.name for c in check.find_all(exp.Column) if c.name in blocked})
+    hit += sorted({str(i.this) for i in check.find_all(exp.Identifier) if str(i.this) in blocked} - set(hit))
     if hit:
         raise SandboxError(f"SQL 涉及脫敏欄位，不可直接查詢：{', '.join(hit)}（可用 one_id_uint 做去重／關聯；明細請走用戶列表與揭露申請）")
     # props 與時間軸／資料輸出同一套清理政策：整包（含 toString(props)、JSONExtract(props, …)）不給查，因為巢狀 $identities 會跟著出來；
@@ -178,6 +176,59 @@ def compile_sql(sql: str, params: dict[str, Any] | None, decision: Any, cat: Cat
     inner = root.sql(dialect="clickhouse")
     wrapped = f"SELECT * FROM ({inner}) AS _q LIMIT {limit}"
     return Compiled(sql=wrapped, layer="L1", columns=[], settings=dict(SETTINGS), lineage=sorted(set(tables)), warnings=[f"自定義 SQL：結果只預覽前 {limit} 列"])
+
+
+def _physical_tables(root: exp.Expression, allowed: set[str]) -> list[str]:
+    """逐 scope 找實體表：只有「在該 scope 可見的 CTE」且「沒帶資料庫限定」的引用才算 CTE；其餘（含 dmp.<同名>、未定義名稱）一律當實體表授權。"""
+    tables: list[str] = []; seen: set[int] = set()
+
+    def physical(t: exp.Table) -> None:
+        db = (t.db or "").lower(); name = (t.name or "").lower()
+        if db not in ("", "dmp"):
+            raise SandboxError(f"只能查詢 dmp 資料庫的表：{t.sql()}")
+        if name not in allowed:
+            raise SandboxError(f"表 {name} 不在你的數據表權限內（可用：{', '.join(sorted(allowed))}）")
+        tables.append(f"dmp.{name}")
+
+    try:
+        scopes = list(traverse_scope(root))
+    except Exception as e:                                                     # 解析不出 scope 的語法：不冒險放行
+        raise SandboxError(f"無法解析查詢結構：{str(e)[:120]}") from None
+    for scope in scopes:
+        visible = {k.lower() for k in scope.cte_sources}
+        for t in scope.tables:
+            seen.add(id(t)); name = (t.name or "").lower()
+            if not name: continue
+            if not t.db and name in visible: continue
+            physical(t)
+    for t in root.find_all(exp.Table):                                         # scope 沒涵蓋到的表引用（保守：一律當實體表）
+        if id(t) not in seen and t.name and not isinstance(t.this, exp.Func | exp.Anonymous):
+            physical(t)
+    return tables
+
+
+def _schema(mid_tables: list[str] | None) -> dict[str, dict[str, dict[str, str]]]:
+    sc = schema_catalog()
+    out = {t: {c["name"]: c["type"] or "String" for c in cols} for t, cols in sc.items()}
+    for m in mid_tables or []:
+        cols = MID_COLUMNS.get(m)
+        if cols: out[m] = {c: "String" for c in cols}
+    return {"dmp": out}
+
+
+def _expand_stars(root: exp.Expression, mid_tables: list[str] | None) -> exp.Expression:
+    """有 *／alias.* 就依 schema 展開成明確欄位後再做脫敏檢查；展不開的 *（來源欄位未知、* 用在函數裡）拒絕。count(*) 例外。"""
+    if not any(True for _ in root.find_all(exp.Star)):
+        return root
+    try:
+        q = qualify(root.copy(), schema=_schema(mid_tables), dialect="clickhouse", expand_stars=True, validate_qualify_columns=False, identify=False)
+    except Exception as e:
+        raise SandboxError(f"無法安全展開 *（請明列欄位）：{str(e)[:120]}") from None
+    for st in q.find_all(exp.Star):
+        if isinstance(st.parent, exp.Count):
+            continue
+        raise SandboxError("無法安全展開 *（來源欄位未知或 * 用在函數內），請明列欄位")
+    return q
 
 
 def selftest() -> None:
@@ -206,6 +257,31 @@ def selftest() -> None:
     cp = compile_sql("SELECT props.market AS m, count() AS n FROM dmp.events GROUP BY m", None, ana, cat, ["data_analyst"]); assert "props.market" in cp.sql, cp.sql   # 一般鍵照查
     assert "nested.market" in compile_sql("SELECT props.`nested.market` AS m FROM dmp.events", None, ana, cat, ["data_analyst"]).sql                                   # 一般巢狀路徑照查
     assert "amount" not in blocked_columns(["data_analyst"], cat) and "amount" in blocked_columns(["marketing"], cat) and "one_id" in blocked_columns(["data_analyst"], cat) and "one_id" not in blocked_columns(["admin"], cat)
+    # R01（#10）：* 必須展開後逐欄檢查；展不開的 * 與 COLUMNS() 拒絕
+    for bad, why in [("SELECT * FROM dmp.users", "one_id"), ("SELECT u.* FROM dmp.users AS u", "one_id"), ("SELECT * FROM dmp.users AS u JOIN dmp.events AS e ON e.one_id_uint = u.one_id_uint", "one_id"),
+                     ("SELECT * FROM (SELECT * FROM dmp.users) AS s", "one_id"), ("SELECT * FROM dmp.users ARRAY JOIN [1, 2] AS a", "one_id"), ("SELECT * FROM dmp.events FINAL", "one_id"),
+                     ("SELECT tuple(*) FROM dmp.users", "展開"), ("SELECT COLUMNS('one') FROM dmp.users", "COLUMNS"), ("SELECT * FROM dmp.mid_nocols", "展開")]:
+        try:
+            compile_sql(bad, None, ana, cat, ["data_analyst"], mid_tables=["mid_nocols"]); raise AssertionError(bad)
+        except SandboxError as e:
+            assert why in str(e), (bad, str(e))
+    MID_COLUMNS["mid_vip"] = ["one_id_uint", "aum_bucket"]
+    for ok in ["SELECT * FROM (SELECT one_id_uint, tier FROM dmp.users) AS s", "SELECT count(*) FROM dmp.events", "SELECT * EXCEPT (lifecycle) FROM (SELECT one_id_uint, tier, lifecycle FROM dmp.users FINAL) AS s",
+               "SELECT * FROM dmp.mid_vip", "SELECT s.* FROM (SELECT one_id_uint, count() AS n FROM dmp.events GROUP BY one_id_uint) AS s"]:
+        c4 = compile_sql(ok, None, ana, cat, ["data_analyst"], mid_tables=["mid_vip"]); assert c4.sql.startswith("SELECT * FROM ("), ok
+    MID_COLUMNS.pop("mid_vip", None)
+    adm = authorize(Subject("x", ["admin"]), "use", "events")
+    assert compile_sql("SELECT * FROM (SELECT one_id, tier FROM dmp.users) AS s", None, adm, cat, ["admin"]).lineage == ["dmp.users"]       # admin 的 one_id 本來就明文
+    # R02（#11）：CTE 同名不能繞過實體表白名單；正常 CTE（含子查詢裡引用、巢狀 WITH）照常
+    for bad, why in [("WITH id_map AS (SELECT event FROM dmp.events) SELECT * FROM dmp.id_map", "權限"), ("WITH t AS (SELECT 1 AS x FROM dmp.events) SELECT x FROM dmp.t", "權限"),
+                     ("SELECT x FROM t", "權限"), ("WITH id_map AS (SELECT event FROM dmp.events) SELECT * FROM (SELECT * FROM dmp.id_map) AS s", "權限")]:
+        try:
+            compile_sql(bad, None, ana, cat, ["data_analyst"]); raise AssertionError(bad)
+        except SandboxError as e:
+            assert why in str(e), (bad, str(e))
+    for ok in ["WITH t AS (SELECT 1 AS x FROM dmp.events) SELECT * FROM (SELECT * FROM t) AS s", "SELECT * FROM (WITH u AS (SELECT one_id_uint FROM dmp.users) SELECT * FROM u) AS x",
+               "WITH a AS (SELECT event FROM dmp.events), b AS (SELECT * FROM a) SELECT * FROM b"]:
+        c5 = compile_sql(ok, None, ana, cat, ["data_analyst"]); assert c5.lineage in (["dmp.events"], ["dmp.users"]), (ok, c5.lineage)
     c3 = compile_sql("SELECT count() FROM dmp.events WHERE platform = {{p}} AND event_date >= {{d}}", {"p": "iOS", "d": "2026-10-01"}, ana, cat, ["data_analyst"])
     assert "'iOS'" in c3.sql and "'2026-10-01'" in c3.sql
     c3b = compile_sql("SELECT count() FROM dmp.events WHERE event_date >= today() - {{days}} AND symbol = {{sym}}", {"days": "14", "sym": "TXF"}, ana, cat, ["data_analyst"])
@@ -223,7 +299,7 @@ def selftest() -> None:
     names = [t["name"] for t in tc["tables"]]; assert "dmp.events" in names and "dmp.id_map" not in names and "dmp.mid_vip" in names and "dmp.dim_instrument" in names
     ev = next(t for t in tc["tables"] if t["name"] == "dmp.events"); assert next(c for c in ev["columns"] if c["name"] == "one_id")["allowed"] is False and next(c for c in ev["columns"] if c["name"] == "amount")["allowed"] is True
     assert "dmp.id_map" in [t["name"] for t in table_catalog(["it_admin"], authorize(Subject("i", ["it_admin"]), "use", "events"), cat)["tables"]]
-    print("sql sandbox self-test ok: parse/readonly/tables/masked columns/props policy/params/row-level/catalog")
+    print("sql sandbox self-test ok: parse/readonly/tables(cte scope)/masked columns(star expansion)/props policy/params/row-level/catalog")
 
 
 if __name__ == "__main__":

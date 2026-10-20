@@ -303,15 +303,21 @@ class TagService:
         t = self.get(id_)
         down = self._public(t)["lineage"]["down"]
         if down: raise Conflict(f"有下游引用（{down}），先解除再移入回收站")
+        t["recycled_from"] = t["status"]                                            # 還原時回到原狀態（待審批的不能借還原變生效）
         t["status"] = "recycled"; t["recycled_at"] = self._ts(); t["updated_at"] = self._ts(); self.store.put_item("tag", t)
-        self.store.audit("tag.recycled", {"user": subject.user_id, "tag": id_})
+        self.store.audit("tag.recycled", {"user": subject.user_id, "tag": id_, "from": t["recycled_from"]})
         return self._public(t)
 
     def restore(self, id_: str, subject: Subject) -> dict[str, Any]:
         t = self.get(id_)
         if t["status"] != "recycled": raise Conflict("不在回收站")
-        t["status"] = "active" if (t.get("approval") or {}).get("status") != "rejected" else "draft"; t["recycled_at"] = None; t["updated_at"] = self._ts(); self.store.put_item("tag", t)
-        self.store.audit("tag.restored", {"user": subject.user_id, "tag": id_})
+        ap = (t.get("approval") or {}).get("status", "none"); before = t.pop("recycled_from", None)
+        if ap == "pending": t["status"] = "pending_approval"                           # 審批還沒過：回到待審批，不能借還原生效
+        elif ap == "rejected": t["status"] = "draft"
+        elif before in ("active", "paused", "draft"): t["status"] = before            # 已核可或不需審批：回到進回收站前的狀態
+        else: t["status"] = "active"
+        t["recycled_at"] = None; t["updated_at"] = self._ts(); self.store.put_item("tag", t)
+        self.store.audit("tag.restored", {"user": subject.user_id, "tag": id_, "status": t["status"]})
         return self._public(t)
 
     # ---------------------------------------------------------------- 計算
