@@ -122,7 +122,7 @@ class LocalRunner:
             self.ch.insert_json("dmp.events", d.rows[i:i + 50_000])
         marks.landed()                                                            # 資料全部落地 → 重建才可以確認這個標記
         res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'") + d.skipped   # 略過的列早已在倉裡，對帳上算已載入
-        mine = d.rebuild | marks.overlapped()                                     # 版本變更的日期 + 寫入期間被別人重建換過分區的日期
+        mine = d.rebuild | marks.settle()                                         # 版本變更的日期 + 寫入期間被別人重建換過分區的日期（其餘 touch 自己確認）
         done = aggregates.rebuild(self.ch, mine, batch_id)                        # ∪ 上次中斷留下的待重建日期
         if done:
             log(f"daily_agg rebuilt for {done} (re-inserted event_ids with changed content" + ("; incl. pending from an interrupted run)" if set(done) - mine else ")"))
@@ -187,7 +187,7 @@ class LocalRunner:
         self.ch.insert_json("dmp.quarantine", q_rows)
         if model.entity == "event":
             res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'") + skipped
-            if marks is not None: rebuild_dates = rebuild_dates | marks.overlapped()   # 寫入期間被別人重建換過分區的日期
+            if marks is not None: rebuild_dates = rebuild_dates | marks.settle()   # 寫入期間被別人重建換過分區的日期（其餘 touch 自己確認）
             done = aggregates.rebuild(self.ch, rebuild_dates, batch_id)       # ∪ 上次中斷留下的待重建日期
             if done:
                 log(f"daily_agg rebuilt for {done}" + (" (incl. pending from an interrupted run)" if set(done) - rebuild_dates else ""))

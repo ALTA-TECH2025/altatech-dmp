@@ -224,6 +224,13 @@ class Marks:
                f"AND at >= toDateTime64('{self.begin_at}', 3, 'UTC') - INTERVAL {MARGIN_S} SECOND FORMAT TSV")
         return {x for x in self.ch.query(sql).split("\n") if x.strip()}
 
+    def settle(self) -> set[str]:
+        """landed 之後呼叫（取代單獨的 overlapped）：沒被別人換過分區的 touch 日期，MV 加上去的還在 → 自己確認（phase 2）；
+        被換過的日期回給呼叫端重建（那次重建的 ack 會確認它）。在 landed 與 settle 之間中斷的 touch 留著「已落地、未確認」→ 列入待重建，不會遺失。"""
+        ov = self.overlapped()
+        _mark_rows(self.ch, [(d, i, 2, self.owner, "") for d, i in self.touch.items() if d not in ov], "touch")
+        return ov
+
 
 def begin(ch: CH, dates: Iterable[str], owner: str = "", touch: Iterable[str] = ()) -> Marks:
     """寫入者在清舊版本／寫入之前呼叫：要重建的日期（dates）與這批會寫到的其他日期（touch）各登記 phase 0 標記（帶租約）。
@@ -244,9 +251,10 @@ def mark_pending(ch: CH, dates: Iterable[str], batch_id: str = "") -> list[str]:
 
 def pending_dates(ch: CH) -> list[str]:
     """要重建的日期：change 標記還沒被確認（phase 2）——上次中斷、或別的寫入者還在進行／已落地還沒被重建確認；
-    加上 touch 標記租約過期卻沒落地的（寫入者寫到一半掛了，期間可能被別的重建蓋掉，保守重做一次）。"""
+    加上 touch 標記：已落地但還沒確認的（寫入者在 landed 之後、settle／重建之前中斷——期間可能被別的重建用舊快照蓋掉），
+    或租約過期卻沒落地的（寫到一半掛了）。正常寫入者落地後立刻 settle 自己確認，所以只寫新事件的批次不會每次都觸發重建。"""
     sql = (f"SELECT DISTINCT toString(event_date) FROM (SELECT event_date, id FROM {AGG_PENDING} GROUP BY event_date, id HAVING countIf(phase = 2) = 0 AND "
-           "(any(kind) = 'change' OR (any(kind) = 'touch' AND countIf(phase = 1) = 0 AND maxIf(lease_until, phase = 0) < now64(3, 'UTC')))) "
+           "(any(kind) = 'change' OR (any(kind) = 'touch' AND (countIf(phase = 1) > 0 OR maxIf(lease_until, phase = 0) < now64(3, 'UTC'))))) "
            "ORDER BY 1 FORMAT TSV")
     return [x for x in ch.query(sql).split("\n") if x.strip()]
 
@@ -320,10 +328,10 @@ class Rebuild:
 
 
 def gc_marks(ch: CH) -> None:
-    """超過一天、已經沒用的標記清掉（lightweight DELETE）：已確認的、replace 紀錄、已落地的 touch。保留一天是為了讓後到的、拿舊快照的重建
-    與還在寫的寫入者還看得到「有人在我之後落地／換過分區」。還沒確認的 change 標記不清。"""
+    """超過一天、已經沒用的標記清掉（lightweight DELETE）：已確認的、replace 紀錄。保留一天是為了讓後到的、拿舊快照的重建
+    與還在寫的寫入者還看得到「有人在我之後落地／換過分區」。還沒確認的標記（change 或 touch，不管落地沒有）一律不清：那是恢復意圖。"""
     ch.query(f"DELETE FROM {AGG_PENDING} WHERE id IN (SELECT id FROM {AGG_PENDING} GROUP BY id HAVING max(at) < now64(3, 'UTC') - INTERVAL {KEEP_S} SECOND AND "
-             "(countIf(phase = 2) > 0 OR any(kind) = 'replace' OR (any(kind) = 'touch' AND countIf(phase = 1) > 0)))")
+             "(countIf(phase = 2) > 0 OR any(kind) = 'replace'))")
 
 
 def rebuild(ch: CH, dates: Iterable[str], batch_id: str = "", with_pending: bool = True) -> list[str]:
@@ -432,10 +440,13 @@ def selftest() -> None:
     ch.sql.clear(); mt = begin(ch, ["2026-10-16"], "w", touch=["2026-10-16", "2026-10-18"]); assert sorted(mt.touch) == ["2026-10-18"] and mt.begin_at   # change 已含的日期不重複 touch
     assert ch.sql[-1].endswith("'touch')") and ch.sql[-2].endswith("'change')"), ch.sql[-2:]
     mt.landed(); ch.sql.clear(); assert mt.overlapped() == set() and "kind = 'replace' AND event_date IN (toDate('2026-10-18'))" in ch.sql[0], ch.sql
+    ch.sql.clear(); assert mt.settle() == set() and ch.sql[-1].startswith(f"INSERT INTO {AGG_PENDING}") and f"'{mt.touch['2026-10-18']}', 2, 'w'" in ch.sql[-1] and ch.sql[-1].endswith("'touch')"), ch.sql   # 沒被換過分區 → 自己確認 touch
+    ch.sql.clear(); pending_dates(ch); assert "any(kind) = 'touch' AND (countIf(phase = 1) > 0 OR maxIf(lease_until, phase = 0) <" in ch.sql[0], ch.sql[0]   # 已落地未確認的 touch 算待重建
+    ch.sql.clear(); gc_marks(ch); assert "countIf(phase = 1) > 0" not in ch.sql[0], "已落地未確認的 touch 不能被清掉"
     assert begin(ch, [], "x").overlapped() == set()
     assert dedupe(ch, []) == DedupeResult(rows=[])
     print("aggregates self-test ok: dedupe(full-version same/changed/new/in-batch dup/sort-key change → stale)/purge_stale/event_date/"
-          "rebuild(pending ∪ dates → own mark → private stage → replace partition → re-snapshot while newer landed → ack landed-before-snapshot/expired)/marks(change+touch, lease check, renew, landed, overlapped replace)")
+          "rebuild(pending ∪ dates → own mark → private stage → replace partition → re-snapshot while newer landed → ack landed-before-snapshot/expired)/marks(change+touch, lease check, renew, landed, overlapped replace, settle self-ack, landed-unacked touch stays pending/not gc'd)")
 
 
 def main(argv: list[str]) -> int:
