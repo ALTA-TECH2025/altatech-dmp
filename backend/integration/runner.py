@@ -114,7 +114,7 @@ class LocalRunner:
         if self.ch is None or not (b.rows or b.quarantined):
             res.rows_loaded = res.rows_ok; return res
         d = aggregates.dedupe(self.ch, b.rows)                                    # 完整版本相同（重疊窗口重讀、重試）不再寫入；有變的寫新版本 → 日彙總不會多算
-        marks = aggregates.begin(self.ch, d.rebuild, batch_id)                   # 要重建哪幾天先登記（帶租約）；寫入／重建之間中斷也會在下次載入補做
+        marks = aggregates.begin(self.ch, d.rebuild, batch_id, touch=[aggregates.event_date_of(r) for r in d.rows])   # 要重建／會寫到的日期先登記（帶租約）
         if d.stale:
             marks.check(); log(f"purged {aggregates.purge_stale(self.ch, d.stale)} stale versions (sort key changed)")
         for i in range(0, len(d.rows), 50_000):
@@ -122,9 +122,10 @@ class LocalRunner:
             self.ch.insert_json("dmp.events", d.rows[i:i + 50_000])
         marks.landed()                                                            # 資料全部落地 → 重建才可以確認這個標記
         res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'") + d.skipped   # 略過的列早已在倉裡，對帳上算已載入
-        done = aggregates.rebuild(self.ch, d.rebuild, batch_id)                   # 這批的日期 ∪ 上次中斷留下的待重建日期
+        mine = d.rebuild | marks.overlapped()                                     # 版本變更的日期 + 寫入期間被別人重建換過分區的日期
+        done = aggregates.rebuild(self.ch, mine, batch_id)                        # ∪ 上次中斷留下的待重建日期
         if done:
-            log(f"daily_agg rebuilt for {done} (re-inserted event_ids with changed content" + ("; incl. pending from an interrupted run)" if set(done) - d.rebuild else ")"))
+            log(f"daily_agg rebuilt for {done} (re-inserted event_ids with changed content" + ("; incl. pending from an interrupted run)" if set(done) - mine else ")"))
         log(f"dedupe: skipped={d.skipped} identical rows already in dmp.events")
         at = now.strftime("%Y-%m-%d %H:%M:%S.") + f"{now.microsecond // 1000:03d}"
         # 隔離列與 modeling 路徑同格式（原因 + 原列），但個資列不留內容（與 pii 拒絕列同規則）
@@ -170,7 +171,7 @@ class LocalRunner:
         skipped, rebuild_dates = 0, set()
         if model.entity == "event":
             d = aggregates.dedupe(self.ch, target_rows)                        # 重試／重跑窗口的同一事件不再寫入；內容變了的寫新版本並記下分區
-            marks = aggregates.begin(self.ch, d.rebuild, batch_id)           # 要重建哪幾天先登記（帶租約；清舊版本／寫入之前）
+            marks = aggregates.begin(self.ch, d.rebuild, batch_id, touch=[aggregates.event_date_of(r) for r in d.rows])   # 要重建／會寫到的日期先登記
             if d.stale:
                 marks.check(); log(f"purged {aggregates.purge_stale(self.ch, d.stale)} stale versions (sort key changed)")
             target_rows, skipped, rebuild_dates = d.rows, d.skipped, d.rebuild
@@ -186,7 +187,8 @@ class LocalRunner:
         self.ch.insert_json("dmp.quarantine", q_rows)
         if model.entity == "event":
             res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'") + skipped
-            done = aggregates.rebuild(self.ch, rebuild_dates, batch_id)       # 這批的日期 ∪ 上次中斷留下的待重建日期
+            if marks is not None: rebuild_dates = rebuild_dates | marks.overlapped()   # 寫入期間被別人重建換過分區的日期
+            done = aggregates.rebuild(self.ch, rebuild_dates, batch_id)       # ∪ 上次中斷留下的待重建日期
             if done:
                 log(f"daily_agg rebuilt for {done}" + (" (incl. pending from an interrupted run)" if set(done) - rebuild_dates else ""))
             if skipped:

@@ -177,28 +177,34 @@ def _now(ch: CH) -> str:
     return ch.query("SELECT toString(now64(3, 'UTC')) FORMAT TSV").strip()
 
 
-def _mark_rows(ch: CH, rows: list[tuple[str, str, int, str, str]]) -> None:
-    """(event_date, id, phase, owner, lease_until) → 標記表；lease_until 只有 phase 0 用，其他填 1970。"""
+def _mark_rows(ch: CH, rows: list[tuple[str, str, int, str, str]], kind: str = "change") -> None:
+    """(event_date, id, phase, owner, lease_until) → 標記表；lease_until 只有 phase 0 用，其他填 1970。
+    kind：change＝有版本變更、這天一定要重建；touch＝只寫了新事件（MV 自己會加），只在被別人的重建蓋掉時才要補；replace＝某次重建換過這天的分區。"""
     if not rows: return
-    vals = ", ".join(f"(toDate('{d}'), '{_esc(i)}', {ph}, '{_esc(o)}', toDateTime64('{lu or '1970-01-01 00:00:00.000'}', 3, 'UTC'))" for d, i, ph, o, lu in rows)
-    ch.query(f"INSERT INTO {AGG_PENDING} (event_date, id, phase, owner, lease_until) VALUES {vals}")
+    vals = ", ".join(f"(toDate('{d}'), '{_esc(i)}', {ph}, '{_esc(o)}', toDateTime64('{lu or '1970-01-01 00:00:00.000'}', 3, 'UTC'), '{kind}')" for d, i, ph, o, lu in rows)
+    ch.query(f"INSERT INTO {AGG_PENDING} (event_date, id, phase, owner, lease_until, kind) VALUES {vals}")
 
 
 @dataclass
 class Marks:
-    """一個寫入者在標記表裡的身分：每個要重建的日期一個 id。流程：begin（phase 0 + 租約）→ 每個 chunk 前 check（過期就丟 LeaseExpired、剩一半續租）→ 資料落地後 landed（phase 1）。"""
+    """一個寫入者在標記表裡的身分：要重建的日期（change）與只寫了新事件的日期（touch）各一個 id。
+    流程：begin（phase 0 + 租約）→ 每個 chunk 前 check（過期就丟 LeaseExpired、剩一半續租）→ 資料落地後 landed（phase 1）→ overlapped：
+    寫入期間有別的重建換過 touch 日期的分區（它的快照可能沒包到我寫的新事件，MV 加上去的又被它蓋掉）→ 這些日期要由我重建。"""
     ch: CH
     owner: str
     ids: dict[str, str]
+    touch: dict[str, str] = field(default_factory=dict)
     lease_until: str = ""
+    begin_at: str = ""
 
     def renew(self) -> None:
-        if not self.ids: return
+        if not self.ids and not self.touch: return
         self.lease_until = self.ch.query(f"SELECT toString(now64(3, 'UTC') + INTERVAL {LEASE_S} SECOND) FORMAT TSV").strip()
         _mark_rows(self.ch, [(d, i, 0, self.owner, self.lease_until) for d, i in self.ids.items()])
+        _mark_rows(self.ch, [(d, i, 0, self.owner, self.lease_until) for d, i in self.touch.items()], "touch")
 
     def check(self) -> None:
-        if not self.ids: return
+        if not self.ids and not self.touch: return
         left = float(self.ch.scalar(f"SELECT toDateTime64('{self.lease_until}', 3, 'UTC') - now64(3, 'UTC')") or 0)
         if left < MARGIN_S:
             raise LeaseExpired(f"日彙總標記租約已過期（owner={self.owner}），這批不再寫入；由排程重試")
@@ -207,12 +213,24 @@ class Marks:
 
     def landed(self) -> None:
         _mark_rows(self.ch, [(d, i, 1, self.owner, "") for d, i in self.ids.items()])
+        _mark_rows(self.ch, [(d, i, 1, self.owner, "") for d, i in self.touch.items()], "touch")
+
+    def overlapped(self) -> set[str]:
+        """landed 之後呼叫：touch 日期裡，有哪幾天在我 begin 之後（含餘量）被某次重建換過分區 → 由我重建。"""
+        if not self.touch: return set()
+        ds = ", ".join(f"toDate('{d}')" for d in sorted(self.touch))
+        sql = (f"SELECT DISTINCT toString(event_date) FROM {AGG_PENDING} WHERE kind = 'replace' AND event_date IN ({ds}) "
+               f"AND at >= toDateTime64('{self.begin_at}', 3, 'UTC') - INTERVAL {MARGIN_S} SECOND FORMAT TSV")
+        return {x for x in self.ch.query(sql).split("\n") if x.strip()}
 
 
-def begin(ch: CH, dates: Iterable[str], owner: str = "") -> Marks:
-    """寫入者在清舊版本／寫入之前呼叫：為每個要重建的日期登記 phase 0 標記（帶租約）。沒有日期就是空標記（check／landed 都是 no-op）。"""
+def begin(ch: CH, dates: Iterable[str], owner: str = "", touch: Iterable[str] = ()) -> Marks:
+    """寫入者在清舊版本／寫入之前呼叫：要重建的日期（dates）與這批會寫到的其他日期（touch）各登記 phase 0 標記（帶租約）。
+    沒有日期就是空標記（check／landed／overlapped 都是 no-op）。"""
     ds = sorted({str(x)[:10] for x in dates if str(x).strip()})
-    m = Marks(ch, owner or "writer", {d: uuid.uuid4().hex for d in ds})
+    ts_ = sorted({str(x)[:10] for x in touch if str(x).strip()} - set(ds))
+    m = Marks(ch, owner or "writer", {d: uuid.uuid4().hex for d in ds}, {d: uuid.uuid4().hex for d in ts_})
+    if ds or ts_: m.begin_at = _now(ch)
     m.renew()
     return m
 
@@ -224,8 +242,10 @@ def mark_pending(ch: CH, dates: Iterable[str], batch_id: str = "") -> list[str]:
 
 
 def pending_dates(ch: CH) -> list[str]:
-    """還有標記沒被確認（phase 2）的日期：上次中斷、或別的寫入者還在進行／已落地還沒被重建確認。"""
-    sql = (f"SELECT DISTINCT toString(event_date) FROM (SELECT event_date, id FROM {AGG_PENDING} GROUP BY event_date, id HAVING countIf(phase = 2) = 0) "
+    """要重建的日期：change 標記還沒被確認（phase 2）——上次中斷、或別的寫入者還在進行／已落地還沒被重建確認；
+    加上 touch 標記租約過期卻沒落地的（寫入者寫到一半掛了，期間可能被別的重建蓋掉，保守重做一次）。"""
+    sql = (f"SELECT DISTINCT toString(event_date) FROM (SELECT event_date, id FROM {AGG_PENDING} GROUP BY event_date, id HAVING countIf(phase = 2) = 0 AND "
+           "(any(kind) = 'change' OR (any(kind) = 'touch' AND countIf(phase = 1) = 0 AND maxIf(lease_until, phase = 0) < now64(3, 'UTC')))) "
            "ORDER BY 1 FORMAT TSV")
     return [x for x in ch.query(sql).split("\n") if x.strip()]
 
@@ -254,23 +274,25 @@ class Rebuild:
         self.rows = int(self.ch.scalar(f"SELECT count() FROM {self.tmp} WHERE event_date = toDate('{self.d}')") or 0)
 
     def replace(self) -> None:
-        """整個分區原子換掉；那天已沒有事件（跨日更正把唯一一筆搬走）就 DROP 目標分區（空來源不能 REPLACE）。最後丟掉私有暫存表。"""
+        """整個分區原子換掉；那天已沒有事件（跨日更正把唯一一筆搬走）就 DROP 目標分區（空來源不能 REPLACE）。丟掉私有暫存表，
+        再記一筆 replace：寫入期間被我換過分區的寫入者，落地後看得到、會自己補重建（我的快照可能沒包到它寫的新事件）。"""
         if self.rows == 0:
             self.ch.query(f"ALTER TABLE {AGG_TABLE} DROP PARTITION ID '{self.pid}'")
         else:
             self.ch.query(f"ALTER TABLE {AGG_TABLE} REPLACE PARTITION ID '{self.pid}' FROM {self.tmp}")
         self.ch.query(f"DROP TABLE IF EXISTS {self.tmp}")
+        _mark_rows(self.ch, [(self.d, uuid.uuid4().hex, 1, self.owner, "")], "replace")
 
     def newer_landed(self) -> bool:
         """有別的寫入者在我的快照之後（含餘量）才落地 → 我的快照可能沒包到它的資料，要再快照一次。"""
-        n = self.ch.scalar(f"SELECT count() FROM {AGG_PENDING} WHERE event_date = toDate('{self.d}') AND phase = 1 "
+        n = self.ch.scalar(f"SELECT count() FROM {AGG_PENDING} WHERE event_date = toDate('{self.d}') AND phase = 1 AND kind IN ('change', 'touch') "
                            f"AND at >= toDateTime64('{self.ts}', 3, 'UTC') - INTERVAL {MARGIN_S} SECOND")
         return int(n or 0) > 0
 
     def ack(self) -> list[str]:
         """只確認：落地時間早於我最後一次快照（減餘量）的標記、租約已過期而沒落地的標記、我自己的標記。其他（進行中、或在我快照後才落地）留著給下一次重建。"""
         t = f"toDateTime64('{self.ts}', 3, 'UTC') - INTERVAL {MARGIN_S} SECOND"
-        sql = (f"SELECT id FROM {AGG_PENDING} WHERE event_date = toDate('{self.d}') GROUP BY id HAVING countIf(phase = 2) = 0 AND ("
+        sql = (f"SELECT id FROM {AGG_PENDING} WHERE event_date = toDate('{self.d}') AND kind IN ('change', 'touch') GROUP BY id HAVING countIf(phase = 2) = 0 AND ("
                f"(countIf(phase = 1) > 0 AND maxIf(at, phase = 1) < {t}) OR (countIf(phase = 1) = 0 AND maxIf(lease_until, phase = 0) < {t}) OR id = '{self.id}') "
                "FORMAT TSV")
         ids = [x for x in self.ch.query(sql).split("\n") if x.strip()]
@@ -286,8 +308,10 @@ class Rebuild:
 
 
 def gc_marks(ch: CH) -> None:
-    """已確認超過一天的標記清掉（lightweight DELETE）。保留一天是為了讓後到的、拿舊快照的重建還能看到「有人在我之後落地」。"""
-    ch.query(f"DELETE FROM {AGG_PENDING} WHERE id IN (SELECT id FROM {AGG_PENDING} WHERE phase = 2 AND at < now64(3, 'UTC') - INTERVAL {KEEP_S} SECOND)")
+    """超過一天、已經沒用的標記清掉（lightweight DELETE）：已確認的、replace 紀錄、已落地的 touch。保留一天是為了讓後到的、拿舊快照的重建
+    與還在寫的寫入者還看得到「有人在我之後落地／換過分區」。還沒確認的 change 標記不清。"""
+    ch.query(f"DELETE FROM {AGG_PENDING} WHERE id IN (SELECT id FROM {AGG_PENDING} GROUP BY id HAVING max(at) < now64(3, 'UTC') - INTERVAL {KEEP_S} SECOND AND "
+             "(countIf(phase = 2) > 0 OR any(kind) = 'replace' OR (any(kind) = 'touch' AND countIf(phase = 1) > 0)))")
 
 
 def rebuild(ch: CH, dates: Iterable[str], batch_id: str = "", with_pending: bool = True) -> list[str]:
@@ -374,9 +398,10 @@ def selftest() -> None:
     assert day[i - 5].startswith(f"INSERT INTO {AGG_PENDING}") and "', 0, 'rebuild'" in day[i - 5], day[i - 5]                      # 自己的標記（phase 0 + 租約）在快照之前
     assert day[i - 3].startswith("SHOW CREATE TABLE") and day[i - 2].startswith("CREATE TABLE dmp.events_daily_agg_stage_"), day[i - 3:i]
     assert day[i - 1].startswith("INSERT INTO dmp.events_daily_agg_stage_") and "FROM dmp.events FINAL WHERE event_date = toDate('2026-10-16')" in day[i - 1]
-    assert day[i + 1].startswith("DROP TABLE IF EXISTS dmp.events_daily_agg_stage_") and day[i + 2].startswith("SELECT id FROM") and "countIf(phase = 2) = 0" in day[i + 2]
-    assert day[i + 3].startswith(f"INSERT INTO {AGG_PENDING}") and "'own', 2, 'rebuild'" in day[i + 3], day[i + 3]                   # 確認＝補 phase 2 列，不刪別人的
-    assert ch.sql[-1].startswith(f"DELETE FROM {AGG_PENDING} WHERE id IN (SELECT id FROM {AGG_PENDING} WHERE phase = 2 AND at <"), ch.sql[-1]
+    assert day[i + 1].startswith("DROP TABLE IF EXISTS dmp.events_daily_agg_stage_") and day[i + 2].startswith(f"INSERT INTO {AGG_PENDING}") and day[i + 2].endswith("'replace')")
+    assert day[i + 3].startswith("SELECT id FROM") and "countIf(phase = 2) = 0" in day[i + 3] and "kind IN ('change', 'touch')" in day[i + 3]
+    assert day[i + 4].startswith(f"INSERT INTO {AGG_PENDING}") and "'own', 2, 'rebuild'" in day[i + 4], day[i + 4]                   # 確認＝補 phase 2 列，不刪別人的
+    assert ch.sql[-1].startswith(f"DELETE FROM {AGG_PENDING} WHERE id IN (SELECT id FROM {AGG_PENDING} GROUP BY id HAVING max(at) <") and "any(kind) = 'replace'" in ch.sql[-1], ch.sql[-1]
     ch.pending = ["2026-10-01"]; ch.sql.clear()
     assert rebuild(ch, []) == ["2026-10-01"] and rebuild(ch, ["2026-10-02"], with_pending=False) == ["2026-10-02"]                 # 這批沒有要重建的也會補做沒確認的
     ch.stage_rows = 0; ch.sql.clear(); rebuild(ch, ["2026-10-03"], with_pending=False)
@@ -392,9 +417,13 @@ def selftest() -> None:
     except LeaseExpired: pass
     ch.left = 100.0; ch.sql.clear(); m.check(); assert ch.sql and "', 0, 'b\\'1'" in ch.sql[-1], "剩不到一半 → 續租"
     assert begin(ch, [], "x").ids == {} and mark_pending(ch, ["2026-10-20"], "t") == ["2026-10-20"]
+    ch.sql.clear(); mt = begin(ch, ["2026-10-16"], "w", touch=["2026-10-16", "2026-10-18"]); assert sorted(mt.touch) == ["2026-10-18"] and mt.begin_at   # change 已含的日期不重複 touch
+    assert ch.sql[-1].endswith("'touch')") and ch.sql[-2].endswith("'change')"), ch.sql[-2:]
+    mt.landed(); ch.sql.clear(); assert mt.overlapped() == set() and "kind = 'replace' AND event_date IN (toDate('2026-10-18'))" in ch.sql[0], ch.sql
+    assert begin(ch, [], "x").overlapped() == set()
     assert dedupe(ch, []) == DedupeResult(rows=[])
     print("aggregates self-test ok: dedupe(full-version same/changed/new/in-batch dup/sort-key change → stale)/purge_stale/event_date/"
-          "rebuild(pending ∪ dates → own mark → private stage → replace partition → re-snapshot while newer landed → ack landed-before-snapshot/expired)/marks(lease check, renew, landed)")
+          "rebuild(pending ∪ dates → own mark → private stage → replace partition → re-snapshot while newer landed → ack landed-before-snapshot/expired)/marks(change+touch, lease check, renew, landed, overlapped replace)")
 
 
 def main(argv: list[str]) -> int:

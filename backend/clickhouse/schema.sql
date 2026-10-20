@@ -341,7 +341,8 @@ ORDER BY (project, event_date, event, platform, channel, utm_source);
 
 -- 日彙總重建的標記日誌（append-only）：寫入者在清舊版本／寫入之前為每個要重建的日期登記 phase 0（帶租約），資料落地後記 phase 1；
 -- 重建把「這批 ∪ 還沒 phase 2 的日期」重做，只確認（phase 2）落地早於自己快照、或租約過期沒落地的標記；在自己快照之後才落地的
--- 留給下一次重建。多個寫入者／重建交錯都不會把別人的恢復工作吃掉；中斷後的重試（哪怕一筆不寫）會先修好彙總。
+-- 留給下一次重建。寫入者對只寫了新事件的日期也登記 touch；落地後若期間有重建換過那天的分區（replace 紀錄），由寫入者補重建。
+-- 多個寫入者／重建交錯都不會把別人的資料或恢復工作吃掉；中斷後的重試（哪怕一筆不寫）會先修好彙總。
 -- 重建用「與 events_daily_agg_stage 同結構」的私有暫存表（SHOW CREATE 換名建、用完即丟），stage 本身只是範本。
 CREATE TABLE IF NOT EXISTS dmp.events_daily_agg_pending
 (
@@ -350,7 +351,8 @@ CREATE TABLE IF NOT EXISTS dmp.events_daily_agg_pending
     phase        UInt8,                                -- 0 登記（帶租約）、1 資料已落地、2 已由某次重建確認
     owner        String,                               -- batch_id／rebuild／cli
     at           DateTime64(3, 'UTC') DEFAULT now64(3),
-    lease_until  DateTime64(3, 'UTC')                  -- phase 0 用：過期就不准再寫
+    lease_until  DateTime64(3, 'UTC'),                 -- phase 0 用：過期就不准再寫
+    kind         LowCardinality(String) DEFAULT 'change' -- change＝版本變更要重建；touch＝只寫了新事件（被別人的重建蓋掉才要補）；replace＝重建換過分區
 )
 ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.events_daily_agg_pending', '{replica}')
 ORDER BY (event_date, id, phase, at);
