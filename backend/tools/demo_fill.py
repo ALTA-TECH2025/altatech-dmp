@@ -212,8 +212,8 @@ def main() -> None:
         for a in ops.call("GET", "/v1/approvals?scope=to_me"):
             if a["type"] == "output_task" and a["status"] == "pending":
                 ops.call("POST", f"/v1/approvals/{a['id']}/decide", {"approve": True, "note": "用途與保存期限明確，欄位已區間化"})
-        for a in adm.call("GET", "/v1/approvals?scope=to_me"):
-            if a["type"] == "output_task" and a["status"] == "pending":
+        for a in adm.call("GET", "/v1/approvals?scope=to_me"):                   # 目的地首次使用：第二道由系統管理員核可
+            if a["type"] == "destination_first_use" and a["status"] == "pending":
                 adm.call("POST", f"/v1/approvals/{a['id']}/decide", {"approve": True, "note": "目的地首次使用：已確認 SFTP 主機在白名單"})
         ana.call("POST", f"/v1/exports/tasks/{once['id']}/run", {})
     segs = {s["name"]: s for s in ana.call("GET", "/v1/segments")}
