@@ -43,7 +43,7 @@ class SandboxError(ValueError):
     pass
 
 
-HIDDEN_TABLES = {"events_daily_agg", "events_daily_agg_stage"}   # 查詢編譯器的 L1 日彙總（AggregateFunction 狀態欄），不給自定義 SQL 直接查
+HIDDEN_TABLES = {"events_daily_agg", "events_daily_agg_stage", "events_daily_agg_pending"}   # 查詢編譯器的 L1 日彙總（AggregateFunction 狀態欄），不給自定義 SQL 直接查
 
 
 def schema_catalog() -> dict[str, list[dict[str, str]]]:

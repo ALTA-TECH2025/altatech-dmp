@@ -288,8 +288,59 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
     assert ch.query("SELECT one_id FROM dmp.events FINAL WHERE event_id = 'agg-fix-1' FORMAT TSV").strip() == "v1_rewritten"
     v2 = verify(ch, "2026-09-02"); assert v2["events_cnt"] == v2["agg_cnt"] == 51 and v2["events_users"] == v2["agg_users"] == 2, v2   # v1_abc + v1_rewritten
     assert ch.scalar("SELECT uniqMerge(users) FROM dmp.events_daily_agg WHERE event_date = toDate('2026-09-02') AND event = 'bond_deal'") == 1
+    # 複審 P1：寫入與重建之間中斷 → 重試不能把錯的彙總當成功。重建意圖先落地（events_daily_agg_pending），每次載入都把標記裡的日期重建掉
+    from . import aggregates as agg_mod
+    from .aggregates import mark_pending, pending_dates
+    assert pending_dates(ch) == [], pending_dates(ch)                                                                         # 前面的正常路徑沒有殘留標記
+    cr = {**row, "event_id": "agg-crash-1", "time": "2026-09-03 01:00:00.000", "amount": 1000.0, "props": {"market": "TSE"}, "batch_id": "c0", "ingest_time": "2026-09-03 01:00:00.000"}
+    ch.insert_json("dmp.events", [cr]); rebuild(ch, ["2026-09-03"]); v = verify(ch, "2026-09-03"); assert v["events_cnt"] == v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6, v
+
+    def protocol(new_rows: list[dict[str, Any]], batch: str, crash_after: str | None = None) -> Any:
+        """與 runner 相同的順序：dedupe → 標記 → 清舊版本 → 寫入 → 重建；crash_after 指定在哪一步之後中斷"""
+        d = dedupe(ch, new_rows); mark_pending(ch, d.rebuild, batch)
+        if crash_after == "mark": return d
+        if d.stale: purge_stale(ch, d.stale)
+        if crash_after == "purge": return d
+        if d.rows: ch.insert_json("dmp.events", d.rows)
+        if crash_after == "insert": return d
+        if crash_after == "stage":                                                                                            # REPLACE PARTITION 之前中斷：暫存表已有算好的分區
+            for dd in sorted(d.rebuild | set(pending_dates(ch))): ch.query("INSERT INTO dmp.events_daily_agg_stage " + agg_mod.AGG_SELECT.format(d=dd))
+            return d
+        rebuild(ch, d.rebuild, batch); return d
+    # (a) 寫入後、重建前中斷（Codex 的重現）：props 改了 → 新版本進倉、MV 多算 → agg=2、金額差 1000；重試整批內容相同、一筆不寫，仍要補重建
+    c1 = {**cr, "props": {"market": "US"}, "ingest_time": "2026-09-03 02:00:00.000", "batch_id": "c1"}
+    d = protocol([c1], "c1", crash_after="insert"); assert len(d.rows) == 1 and pending_dates(ch) == ["2026-09-03"], (d, pending_dates(ch))
+    v = verify(ch, "2026-09-03"); assert v["events_cnt"] == 1 and v["agg_cnt"] == 2 and abs(v["amount_diff"] - 1000) < 1e-6, v         # 中斷留下的錯誤狀態
+    d = protocol([{**c1, "batch_id": "c1r"}], "c1r"); assert d.skipped == 1 and d.rebuild == set(), d
+    v = verify(ch, "2026-09-03"); assert v["events_cnt"] == v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [], (v, pending_dates(ch))
+    # (b) 跨日更正：清舊版本後、寫入前中斷 → 底表已沒有這筆、舊日彙總還留著；重試時倉裡沒有舊版本（只推得出新日期），舊日的修復靠標記：舊日 0、新日 1、金額正確
+    c2 = {**c1, "time": "2026-09-04 01:00:00.000", "ingest_time": "2026-09-03 03:00:00.000", "batch_id": "c2"}
+    d = protocol([c2], "c2", crash_after="purge"); assert d.stale and d.rebuild == {"2026-09-03", "2026-09-04"} and pending_dates(ch) == ["2026-09-03", "2026-09-04"], (d, pending_dates(ch))
+    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_id = 'agg-crash-1'") == 0 and verify(ch, "2026-09-03")["agg_cnt"] == 1
+    d = protocol([{**c2, "batch_id": "c2r"}], "c2r"); assert len(d.rows) == 1 and d.rebuild == {"2026-09-04"} and d.stale == [], d
+    v3, v4 = verify(ch, "2026-09-03"), verify(ch, "2026-09-04")
+    assert v3["events_cnt"] == v3["agg_cnt"] == 0 and v4["events_cnt"] == v4["agg_cnt"] == 1 and v3["amount_diff"] < 1e-6 and v4["amount_diff"] < 1e-6 and pending_dates(ch) == [], (v3, v4, pending_dates(ch))
+    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_id = 'agg-crash-1'") == 1
+    # (c) REPLACE PARTITION 前中斷（暫存表留著算好的分區）、(d) REPLACE 後、標記刪除前中斷：重試只是再算一次，結果不變、標記清空
+    c3 = {**c2, "props": {"market": "JP"}, "ingest_time": "2026-09-03 04:00:00.000", "batch_id": "c3"}
+    protocol([c3], "c3", crash_after="stage"); assert pending_dates(ch) == ["2026-09-04"] and verify(ch, "2026-09-04")["agg_cnt"] == 2, verify(ch, "2026-09-04")
+    protocol([{**c3, "batch_id": "c3r"}], "c3r"); v4 = verify(ch, "2026-09-04"); assert v4["events_cnt"] == v4["agg_cnt"] == 1 and v4["amount_diff"] < 1e-6 and pending_dates(ch) == [], v4
+    mark_pending(ch, ["2026-09-04"], "c4-after-replace")
+    protocol([{**c3, "batch_id": "c4r"}], "c4r"); v4 = verify(ch, "2026-09-04"); assert v4["events_cnt"] == v4["agg_cnt"] == 1 and v4["amount_diff"] < 1e-6 and pending_dates(ch) == [], v4
+    # (e) 真的 runner（GA4 路徑）：rebuild 丟例外模擬中斷 → 下一次同內容的 run 一筆不寫，但補重建並寫進 log
+    for ev in bq.tables["ds.events_intraday_20260902"]: ev["session_traffic_source_last_click"]["manual_campaign"]["source"] = "bing"      # 內容再變
+    def boom(*a: Any, **k: Any) -> Any: raise RuntimeError("simulated crash before rebuild")
+    orig = agg_mod.rebuild; agg_mod.rebuild = boom
+    try: runner.run(task, watermark=None, batch_id="g4", known_fields=None, now=now + timedelta(minutes=45), log=log.append)
+    except RuntimeError: pass
+    finally: agg_mod.rebuild = orig
+    assert pending_dates(ch) == ["2026-09-02"] and ch.scalar("SELECT count() FROM dmp.events WHERE batch_id = 'g4'") == 50 and verify(ch, "2026-09-02")["agg_cnt"] == 101, verify(ch, "2026-09-02")
+    runner.run(task, watermark=None, batch_id="g5", known_fields=None, now=now + timedelta(minutes=60), log=log.append)
+    assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id = 'g5'") == 0 and any("incl. pending from an interrupted run" in x for x in log[-4:]), log[-4:]
+    v = verify(ch, "2026-09-02"); assert v["events_cnt"] == v["agg_cnt"] == 51 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [], (v, pending_dates(ch))
     print("daily_agg idempotency: direct double insert → agg 2 vs base 1 → rebuild → 1; runner re-read → skipped 50; changed content → rebuilt → 50; "
-          "props-only change stored; cross-day/same-day/one_id corrections purge stale versions (old date 0, new date 1)")
+          "props-only change stored; cross-day/same-day/one_id corrections purge stale versions (old date 0, new date 1); "
+          "crash after insert/purge/stage/replace → pending marker → retry repairs (base == agg, amount_diff 0, markers cleared); runner crash before rebuild → next run repairs")
 
 
 def dbapi_stage(ch: ClickHouseHTTP | None, work: Path, rows: list[dict[str, Any]]) -> None:

@@ -8,6 +8,9 @@
    這類「一模一樣再來一次」直接變成 no-op，MV 自然不會多算。內容不同的列照寫（ReplacingMergeTree 保留新版本），但記下它的分區。
 2. 分區重建（rebuild）：對有「不同版本重插」的分區，從 dmp.events FINAL 重算該日彙總到暫存表，再 REPLACE PARTITION 原子換掉——
    彙總回到與去重後底表一致。全量重載（TRUNCATE）後也把彙總表現有的分區全部重建。
+3. 重建意圖落地（events_daily_agg_pending）：要重建哪幾天先寫進這張表，再清舊版本／寫入新版本；重建成功才刪掉該日的標記。
+   寫入與重建之間任何一點中斷（寫入後、清舊版本後、REPLACE PARTITION 前後），下一次載入（哪怕整批內容相同、一筆都不寫）
+   都會先把標記裡的日期重建掉——重試不會把錯的彙總當成功。
 
 events_daily_agg 因此改成明確目標表（PARTITION BY event_date）+ MV TO；查詢編譯器的表名不變。
 """
@@ -19,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Protocol
 
-AGG_TABLE, AGG_STAGE = "dmp.events_daily_agg", "dmp.events_daily_agg_stage"
+AGG_TABLE, AGG_STAGE, AGG_PENDING = "dmp.events_daily_agg", "dmp.events_daily_agg_stage", "dmp.events_daily_agg_pending"
 AGG_KEYS = ("project", "event_date", "event", "platform", "channel", "utm_source")
 AGG_SELECT = ("SELECT project, event_date, event, platform, channel, utm_source, countState() AS cnt, uniqState(one_id) AS users, sumState(coalesce(amount, 0)) AS amount "
               "FROM dmp.events FINAL WHERE event_date = toDate('{d}') GROUP BY project, event_date, event, platform, channel, utm_source")
@@ -155,15 +158,35 @@ def purge_stale(ch: CH, stale: Iterable[tuple[str, str, str]]) -> int:
     return len(keys)
 
 
-def rebuild(ch: CH, dates: Iterable[str]) -> list[str]:
-    """重算指定 event_date 的日彙總：先算進暫存表的同一分區，再 REPLACE PARTITION（原子換掉），最後清暫存。回處理過的日期。"""
+def mark_pending(ch: CH, dates: Iterable[str], batch_id: str = "") -> list[str]:
+    """把「要重建的日期」先落地到 events_daily_agg_pending（在清舊版本／寫入新版本之前呼叫）；重建成功後 rebuild 才會刪掉。重複標記無妨。"""
+    ds = sorted({str(x)[:10] for x in dates if str(x).strip()})
+    if ds:
+        vals = ", ".join(f"(toDate('{d}'), '{batch_id.replace(chr(39), chr(92) + chr(39))}')" for d in ds)
+        ch.query(f"INSERT INTO {AGG_PENDING} (event_date, batch_id) VALUES {vals}")
+    return ds
+
+
+def pending_dates(ch: CH) -> list[str]:
+    """上次載入中斷後還沒重建的日期（標記表裡還在的）。"""
+    return [x for x in ch.query(f"SELECT DISTINCT toString(event_date) FROM {AGG_PENDING} ORDER BY 1 FORMAT TSV").split("\n") if x.strip()]
+
+
+def rebuild(ch: CH, dates: Iterable[str], batch_id: str = "", with_pending: bool = True) -> list[str]:
+    """重算日彙總：這批要重建的日期 ∪ 標記表裡待重建的日期（上次中斷留下的）。每一天：先標記（重建途中斷也能補做）→ 算進暫存表同一分區
+    → REPLACE PARTITION（原子換掉）→ 清暫存 → 刪掉該日標記。每一步都可重跑：暫存先 DROP 再算、REPLACE 是整個分區換掉、標記刪完才算結束。回處理過的日期。"""
+    todo = {str(x)[:10] for x in dates if str(x).strip()}
+    if with_pending:
+        todo |= set(pending_dates(ch))
     done = []
-    for d in sorted({str(x)[:10] for x in dates}):
+    for d in sorted(todo):
         pid = d.replace("-", "")
+        mark_pending(ch, [d], batch_id or "rebuild")
         ch.query(f"ALTER TABLE {AGG_STAGE} DROP PARTITION ID '{pid}'")
         ch.query(f"INSERT INTO {AGG_STAGE} " + AGG_SELECT.format(d=d))
         ch.query(f"ALTER TABLE {AGG_TABLE} REPLACE PARTITION ID '{pid}' FROM {AGG_STAGE}")
         ch.query(f"ALTER TABLE {AGG_STAGE} DROP PARTITION ID '{pid}'")
+        ch.query(f"DELETE FROM {AGG_PENDING} WHERE event_date = toDate('{d}')")
         done.append(d)
     return done
 
@@ -195,6 +218,8 @@ def selftest() -> None:
             self.sql.append(sql)
             if sql.startswith("SELECT event_id, argMax"):
                 return "\n".join(json.dumps({"event_id": k, **v}) for k, v in self.existing.items() if f"'{k}'" in sql)
+            if sql.startswith(f"SELECT DISTINCT toString(event_date) FROM {AGG_PENDING}"):
+                return "\n".join(getattr(self, "pending", []))
             return ""
         def scalar(self, sql: str) -> Any: return 0
     base = {"event": "bond_deal", "one_id": "v1_a", "platform": "iOS", "channel": "app", "utm_source": "", "amount": 100.0, "source": "ga360_intraday", "entity_type": "", "entity_id": "",
@@ -224,10 +249,19 @@ def selftest() -> None:
     assert event_date_of({"time": datetime(2026, 10, 16, 15, 59)}) == "2026-10-16" and event_date_of({"time": datetime(2026, 10, 16, 16, 0, tzinfo=UTC)}) == "2026-10-17"
     assert event_date_of({"time": "2026-10-16 01:00:00.000"}) == "2026-10-16" and event_date_of({"time": "2026-10-16 17:00:00.000"}) == "2026-10-17" and event_date_of({"time": date(2026, 10, 16)}) == "2026-10-16"
     ch.sql.clear(); assert rebuild(ch, ["2026-10-17", "2026-10-16", "2026-10-16"]) == ["2026-10-16", "2026-10-17"]
-    assert [s.split(" ")[0:3] for s in ch.sql[:4]] == [["ALTER", "TABLE", AGG_STAGE], ["INSERT", "INTO", AGG_STAGE], ["ALTER", "TABLE", AGG_TABLE], ["ALTER", "TABLE", AGG_STAGE]], ch.sql[:4]
-    assert "REPLACE PARTITION ID '20261016' FROM dmp.events_daily_agg_stage" in ch.sql[2] and "FROM dmp.events FINAL WHERE event_date = toDate('2026-10-16')" in ch.sql[1]
+    assert ch.sql[0].startswith(f"SELECT DISTINCT toString(event_date) FROM {AGG_PENDING}"), ch.sql[0]                       # 先把上次中斷留下的待重建日期撈進來
+    step = ch.sql[1:7]
+    assert [x.split(" ")[0:3] for x in step] == [["INSERT", "INTO", AGG_PENDING], ["ALTER", "TABLE", AGG_STAGE], ["INSERT", "INTO", AGG_STAGE], ["ALTER", "TABLE", AGG_TABLE],
+                                                 ["ALTER", "TABLE", AGG_STAGE], ["DELETE", "FROM", AGG_PENDING]], step
+    assert "REPLACE PARTITION ID '20261016' FROM dmp.events_daily_agg_stage" in step[3] and "FROM dmp.events FINAL WHERE event_date = toDate('2026-10-16')" in step[2]
+    assert step[5] == f"DELETE FROM {AGG_PENDING} WHERE event_date = toDate('2026-10-16')" and len(ch.sql) == 1 + 6 * 2    # 標記在 REPLACE 成功之後才刪
+    ch.sql.clear(); assert mark_pending(ch, ["2026-10-16", "2026-10-16", "2026-10-17"], "b'1") == ["2026-10-16", "2026-10-17"]
+    assert ch.sql == [f"INSERT INTO {AGG_PENDING} (event_date, batch_id) VALUES (toDate('2026-10-16'), 'b\\'1'), (toDate('2026-10-17'), 'b\\'1')"], ch.sql
+    ch.pending = ["2026-10-01"]; ch.sql.clear()
+    assert rebuild(ch, []) == ["2026-10-01"] and rebuild(ch, ["2026-10-02"], with_pending=False) == ["2026-10-02"]            # 這批沒有要重建的也會補做上次中斷的
     assert dedupe(ch, []) == DedupeResult(rows=[])
-    print("aggregates self-test ok: dedupe(full-version same/changed/new/in-batch dup/sort-key change → stale)/purge_stale/event_date/rebuild(stage → replace partition → drop stage)")
+    print("aggregates self-test ok: dedupe(full-version same/changed/new/in-batch dup/sort-key change → stale)/purge_stale/event_date/"
+          "rebuild(pending ∪ dates → mark → stage → replace partition → drop stage → unmark)")
 
 
 def main(argv: list[str]) -> int:

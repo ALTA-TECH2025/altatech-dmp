@@ -108,12 +108,14 @@ class LocalRunner:
         if self.ch is None or not b.rows:
             res.rows_loaded = res.rows_ok; return res
         d = aggregates.dedupe(self.ch, b.rows)                                    # 完整版本相同（重疊窗口重讀、重試）不再寫入；有變的寫新版本 → 日彙總不會多算
+        aggregates.mark_pending(self.ch, d.rebuild, batch_id)                     # 要重建哪幾天先落地，寫入／重建之間中斷也會在下次載入補做
         if d.stale: log(f"purged {aggregates.purge_stale(self.ch, d.stale)} stale versions (sort key changed)")
         for i in range(0, len(d.rows), 50_000):
             self.ch.insert_json("dmp.events", d.rows[i:i + 50_000])
         res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'") + d.skipped   # 略過的列早已在倉裡，對帳上算已載入
-        if d.rebuild:
-            log(f"daily_agg rebuilt for {aggregates.rebuild(self.ch, d.rebuild)} (re-inserted event_ids with changed content)")
+        done = aggregates.rebuild(self.ch, d.rebuild, batch_id)                   # 這批的日期 ∪ 上次中斷留下的待重建日期
+        if done:
+            log(f"daily_agg rebuilt for {done} (re-inserted event_ids with changed content" + ("; incl. pending from an interrupted run)" if set(done) - d.rebuild else ")"))
         log(f"dedupe: skipped={d.skipped} identical rows already in dmp.events")
         at = now.strftime("%Y-%m-%d %H:%M:%S.") + f"{now.microsecond // 1000:03d}"
         self.ch.insert_json("dmp.ingest_recon", [{"task_id": task["id"], "batch_id": batch_id, "at": at, "rows_in": res.rows_in, "rows_ok": res.rows_ok,
@@ -157,6 +159,7 @@ class LocalRunner:
         skipped, rebuild_dates = 0, set()
         if model.entity == "event":
             d = aggregates.dedupe(self.ch, target_rows)                        # 重試／重跑窗口的同一事件不再寫入；內容變了的寫新版本並記下分區
+            aggregates.mark_pending(self.ch, d.rebuild, batch_id)             # 要重建哪幾天先落地（清舊版本／寫入之前）
             if d.stale: log(f"purged {aggregates.purge_stale(self.ch, d.stale)} stale versions (sort key changed)")
             target_rows, skipped, rebuild_dates = d.rows, d.skipped, d.rebuild
         for i in range(0, len(target_rows), 50_000):
@@ -167,8 +170,9 @@ class LocalRunner:
         self.ch.insert_json("dmp.quarantine", q_rows)
         if model.entity == "event":
             res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'") + skipped
-            if rebuild_dates:
-                log(f"daily_agg rebuilt for {aggregates.rebuild(self.ch, rebuild_dates)}")
+            done = aggregates.rebuild(self.ch, rebuild_dates, batch_id)       # 這批的日期 ∪ 上次中斷留下的待重建日期
+            if done:
+                log(f"daily_agg rebuilt for {done}" + (" (incl. pending from an interrupted run)" if set(done) - rebuild_dates else ""))
             if skipped:
                 log(f"dedupe: skipped={skipped} identical rows already in dmp.events")
         else:

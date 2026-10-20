@@ -339,6 +339,17 @@ ENGINE = ReplicatedAggregatingMergeTree('/ch/{shard}/dmp.events_daily_agg_stage'
 PARTITION BY event_date
 ORDER BY (project, event_date, event, platform, channel, utm_source);
 
+-- 重建意圖：載入路徑先把「要重建的日期」寫進來，再清舊版本／寫入新版本；該日 REPLACE PARTITION 成功才刪掉。
+-- 寫入與重建之間中斷時，下一次載入（哪怕整批內容相同）會先把這裡的日期重建掉——重試不會把錯的彙總當成功。
+CREATE TABLE IF NOT EXISTS dmp.events_daily_agg_pending
+(
+    event_date   Date,
+    batch_id     String,
+    requested_at DateTime64(3, 'UTC') DEFAULT now64(3)
+)
+ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.events_daily_agg_pending', '{replica}')
+ORDER BY (event_date, batch_id);
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS dmp.events_daily_agg_mv TO dmp.events_daily_agg
 AS SELECT project, event_date, event, platform, channel, utm_source,
           countState() AS cnt, uniqState(one_id) AS users, sumState(coalesce(amount, 0)) AS amount
