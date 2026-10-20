@@ -25,7 +25,7 @@ def exports_stage(ch: Any) -> None:
     app = create_app(AuthService(cfg, {}, sm, None), store, ch, export_dir=Path(tempfile.mkdtemp(prefix="dmp-exp-")))
     c = TestClient(app, base_url="https://dmp.internal")
     def login(roles: list[str], user: str) -> None:
-        s = sm.create(user_id=f"entra:{user}", username=user, name=user, email="", provider="entra", roles=roles, groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()))
+        s = sm.create(user_id=f"entra:{user}", username=user, name=user, email="", provider="entra", roles=roles, groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()), base_roles=roles)
         c.cookies.set("dmp_sid", s.sid); c.cookies.set("dmp_csrf", s.csrf); c.headers["X-CSRF-Token"] = s.csrf
     ds = build(); oracle = Oracle(ds.events, ds.users, ds.segments)
     name, raw, spec = next(x for x in USERS if x[0].startswith("U01"))

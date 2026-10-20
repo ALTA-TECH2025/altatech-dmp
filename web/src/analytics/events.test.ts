@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chartAvailable, fmtValue, formulaError, growthOf, pieSlices, shareOf, transpose } from './events';
+import { chartAvailable, fmtValue, formulaError, growthOf, pieSlices, pieTop, shareOf, transpose } from './events';
 import type { Series } from './series';
 
 describe('事件分析純函式', () => {
@@ -19,6 +19,7 @@ describe('事件分析純函式', () => {
     const rows = [{ bucket: 'd1', g1: 'A', m1: 10 }, { bucket: 'd1', g1: 'B', m1: 30 }, { bucket: 'd2', g1: 'A', m1: 15 }, { bucket: 'd2', g1: 'B', m1: 15 }];
     expect(growthOf(rows, ['m1'], true).map((x) => x[0])).toEqual([null, null, 50, -50]);
     expect(growthOf([{ m1: 120, m1_prev: 100 }], ['m1'], false)[0][0]).toBe(20);
+    expect(growthOf([{ bucket: 'd1', m1: 10, m1_prev: null }, { bucket: 'd2', m1: 20, m1_prev: null }, { bucket: 'd3', m1: 30, m1_prev: 15 }], ['m1'], true).map((x) => x[0])).toEqual([null, null, 100]);   // 有比較期但缺值：不拿上一桶充數
     expect(shareOf(rows, ['m1'], true).map((x) => x[0])).toEqual([25, 75, 50, 50]);
     expect(shareOf([{ bucket: 'd1', m1: 1 }, { bucket: 'd2', m1: 3 }], ['m1'], false).map((x) => x[0])).toEqual([25, 75]);
   });
@@ -29,5 +30,8 @@ describe('事件分析純函式', () => {
     expect(chartAvailable('line', false, s)).toBe(false); expect(chartAvailable('stacked', true, s)).toBe(true); expect(chartAvailable('pie', true, [s[0]])).toBe(false);
     expect(pieSlices(s)).toEqual([{ name: 'A', value: 3 }, { name: 'B', value: 3 }]);
     expect(pieSlices([s[0]])).toEqual([{ name: 'd1', value: 1 }, { name: 'd2', value: 2 }]);
+    const thirteen = Array.from({ length: 13 }, (_, i) => ({ name: `c${i}`, value: 1 }));
+    const top = pieTop(thirteen, 12); expect(top).toHaveLength(12); expect(top[11]).toEqual({ name: '其他（2 類）', value: 2 }); expect(top.reduce((n, x) => n + x.value, 0)).toBe(13);
+    expect(pieTop(thirteen.slice(0, 12), 12)).toHaveLength(12);
   });
 });
