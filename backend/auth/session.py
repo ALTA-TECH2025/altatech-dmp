@@ -73,14 +73,16 @@ class SessionManager:
         self.admin_requires = admin_requires or {}
 
     def create(self, *, user_id: str, username: str, name: str, email: str, provider: str, roles: list[str], groups: list[str], amr: list[str], auth_time: int,
-               scope: dict[str, Any] | None = None, ip: str = "") -> Session:
+               scope: dict[str, Any] | None = None, ip: str = "", base_roles: list[str] | None = None) -> Session:
         t = self.now()
-        s = Session(secrets.token_urlsafe(32), user_id, username, name, email, provider, roles, groups, amr, auth_time, t, t, secrets.token_urlsafe(24), scope or {}, attrs={"ip": ip})
+        s = Session(secrets.token_urlsafe(32), user_id, username, name, email, provider, roles, groups, amr, auth_time, t, t, secrets.token_urlsafe(24), scope or {},
+                    attrs={"ip": ip, **({"base_roles": list(base_roles)} if base_roles is not None else {})})
         olds = self.store.list_user(user_id)
         for old in olds[: max(0, len(olds) + 1 - int(self.cfg.get("concurrent_sessions", 3)))]:     # 超過同時 session 上限 → 踢最舊的
             self.store.delete(old.sid); self.audit("auth.session.evicted", {"user": user_id, "sid": old.sid[:8]})
         self.store.put(s)
-        self.audit("auth.login.success" if roles else "auth.login.no_role", {"user": user_id, "provider": provider, "roles": roles, "amr": amr, "ip_masked": _mask_ip(ip)})
+        self.audit("auth.login.success" if roles else "auth.login.no_role", {"user": user_id, "provider": provider, "roles": roles, "amr": amr, "ip_masked": _mask_ip(ip),
+                                                                           **({"base_roles": list(base_roles)} if base_roles is not None else {})})   # 基底角色（不含指派）：背景排程重算身分用
         return s
 
     def resolve(self, sid: str | None, ip: str = "") -> Session | None:

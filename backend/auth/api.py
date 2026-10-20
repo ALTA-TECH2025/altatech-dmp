@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from ..security.policy import Subject, authorize
 from .ldap import LdapError, LdapProvider
 from .local import LocalError, LocalProvider
-from .mapping import map_roles, me_payload
+from .mapping import base_roles, map_roles, me_payload
 from .oidc import LoginState, OIDCError, OIDCProvider
 from .session import ApiTokens, Session, SessionManager
 
@@ -43,7 +43,7 @@ class AuthService:
         roles, scope, applied = map_roles(ident, self.cfg["role_mapping"], self.assignments(), now=self.sessions.now())
         self.sessions.audit("iam.role_mapping.applied", {"user": f"{ident.provider}:{ident.subject}", "rules": applied, "roles": roles})
         return self.sessions.create(user_id=f"{ident.provider}:{ident.subject}", username=ident.username, name=ident.name, email=ident.email, provider=ident.provider,
-                                    roles=roles, groups=ident.groups, amr=ident.amr, auth_time=ident.auth_time, scope=scope, ip=ip)
+                                    roles=roles, groups=ident.groups, amr=ident.amr, auth_time=ident.auth_time, scope=scope, ip=ip, base_roles=base_roles(ident, self.cfg["role_mapping"]))
 
 
 def _set(resp: Response, headers: list[tuple[str, str]]) -> None:

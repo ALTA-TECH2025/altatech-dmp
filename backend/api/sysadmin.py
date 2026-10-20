@@ -47,7 +47,7 @@ def member_directory(store: Store, accounts: LocalAccounts | None, sessions: Any
         if uid not in m:
             prov = uid.split(":", 1)[0] if ":" in uid else ""
             m[uid] = {"id": uid, "username": uid.split(":", 1)[-1], "name": "", "email": "", "provider": prov, "source": "local" if prov == "local" else "sso", "roles": [], "status": "never_logged_in",
-                      "mfa": False, "last_login": None, "login_failed_7d": 0, "sessions": 0, "assignments": 0, "expires_at": None, "last_roles": []}
+                      "mfa": False, "last_login": None, "login_failed_7d": 0, "sessions": 0, "assignments": 0, "expires_at": None, "last_roles": [], "base_roles": None}
         return m[uid]
 
     week = now - 7 * 86400
@@ -57,6 +57,7 @@ def member_directory(store: Store, accounts: LocalAccounts | None, sessions: Any
             e = ent(str(x["user"]))
             if (e["last_login"] or 0) <= float(x.get("at", 0)):
                 e["last_login"] = float(x.get("at", 0)); e["last_roles"] = list(x.get("roles") or []); e["mfa"] = "mfa" in (x.get("amr") or [])
+                e["base_roles"] = list(x["base_roles"]) if isinstance(x.get("base_roles"), list) else None     # 登入時的基底角色（不含指派）；舊審計沒有 → None
                 e["status"] = "active" if x.get("roles") else "no_role"
         elif ev == "auth.login.failed" and x.get("user") and float(x.get("at", 0)) >= week:
             u = str(x["user"]); prov = str(x.get("provider") or "")
@@ -87,7 +88,7 @@ def member_directory(store: Store, accounts: LocalAccounts | None, sessions: Any
         if not e["username"] or e["username"] == e["id"].split(":", 1)[-1]: e["username"] = s.username
     for e in m.values():
         e["roles"] = [*e["last_roles"], *[r for r in e["roles"] if r not in e["last_roles"]]] if e["last_roles"] else e["roles"]
-        e.pop("last_roles", None)
+        e["login_roles"] = e.pop("last_roles", [])                              # 最近一次登入的角色快照（含當時指派）；只給診斷用，不拿來授權
         e["role_cn"] = [RBAC["roles"].get(r, {}).get("cn", r) for r in e["roles"]]
     return sorted(m.values(), key=lambda e: (-(e["last_login"] or 0), e["id"]))
 
