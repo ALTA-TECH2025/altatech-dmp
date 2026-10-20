@@ -92,6 +92,19 @@ def api_stage(ch: Any) -> None:
     ig = c.get(f"/v1/profiles/{oid}/identities", params={"reason": "e2e 客訴調查"}).json()
     ci = compile_identities(oid); assert ig == identity_graph(run_sql(ch, ci.sql, ci.settings), d) and ig["edges"], ig
     assert c.get("/v1/profiles/no-such-user", params={"reason": "e2e 客訴調查"}).status_code == 404
+    # SQL 沙盒對真 ClickHouse（#12 R03 複審）：整段 quoted 的 JSON 路徑（`props.a.b`、e.`props.a.b`、e.`props.a`.b）ClickHouse 都當 props → a → b 解析，
+    # 身分識別鍵必須在送 SQL 前擋下（不經沙盒確實讀得到）；一般巢狀鍵用同樣寫法照查
+    ch.query(f"INSERT INTO dmp.events (project, event, one_id, one_id_uint, time, event_id, props, source) VALUES ('{PROJECT}', 'bond_order', 'v1_probe', 1, "
+             "toDateTime64('2026-10-16 10:00:00', 3), 'e2e-props-probe', '{\"nested\":{\"$identities\":{\"$identity_login_id\":\"v1_nested_secret\"},\"market\":\"TSE\"}}', 'e2e')")
+    assert run_sql(ch, "SELECT `props.nested.$identities.$identity_login_id` AS leaked FROM dmp.events WHERE event_id = 'e2e-props-probe'", {})[0]["leaked"] == "v1_nested_secret"
+    for bad in ("SELECT `props.nested.$identities.$identity_login_id` AS leaked FROM dmp.events WHERE event_id = 'e2e-props-probe'",
+                "SELECT e.`props.nested.$identities.$identity_login_id` AS leaked FROM dmp.events e WHERE event_id = 'e2e-props-probe'",
+                "SELECT e.`props.nested`.`$identities`.`$identity_login_id` AS leaked FROM dmp.events e WHERE event_id = 'e2e-props-probe'",
+                "SELECT props.`nested.$identities.$identity_login_id` AS leaked FROM dmp.events WHERE event_id = 'e2e-props-probe'"):
+        r = c.post("/v1/sql/query", json={"sql": bad}); assert r.status_code == 400 and "身分識別" in r.text, (bad, r.status_code, r.text[:160])
+    for ok in ("SELECT `props.nested.market` AS m FROM dmp.events WHERE event_id = 'e2e-props-probe'", "SELECT e.`props.nested.market` AS m FROM dmp.events e WHERE event_id = 'e2e-props-probe'"):
+        r = c.post("/v1/sql/query", json={"sql": ok}); assert r.status_code == 200 and r.json()["rows"] == [{"m": "TSE"}], (ok, r.status_code, r.text[:160])
+    ch.query("DELETE FROM dmp.events WHERE event_id = 'e2e-props-probe'")
     pv = [x for x in store.audit_tail(300) if x["event"] == "profile.viewed"]; assert pv and pv[-1]["reason"] == "e2e 客訴調查" and oid not in str(pv[-1])
     ev = [x for x in store.audit_tail(400) if x["event"] == "query.executed"]
     assert len(ev) == checked and any(x["masked"] for x in ev if x["user"] == "entra:mkt")   # 行銷的金額查詢有遮罩紀錄
