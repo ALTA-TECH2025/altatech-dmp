@@ -694,19 +694,26 @@ def timeline_cursor(rows: list[dict[str, Any]], limit: int, cursor: dict[str, An
     return encode_cursor({"t": str(last["time"]), "e": str(last["event_id"]), "u": 0, "n": int((cursor or {}).get("n", 0)) + len(rows)})
 
 
-def strip_props(props: Any, cat: Catalog, fp: dict[str, str]) -> dict[str, Any]:
-    """事件 props：去掉 L4 名稱的鍵（永不該進倉；多一道保險）、$identity_* 與 hide 策略的欄位。"""
-    if isinstance(props, str):
-        try: props = json.loads(props)
-        except ValueError: return {}
-    if not isinstance(props, dict): return {}
-    out = {}
-    for k, v in props.items():
-        base = str(k).lstrip("$")
-        if base in cat.forbidden_l4 or str(k).startswith("$identity_") or fp.get(k, "plain") == "hide" or fp.get(base, "plain") == "hide":
-            continue
-        out[k] = v
-    return out
+def props_key_blocked(k: Any, cat: Catalog, fp: dict[str, str] | None = None) -> bool:
+    """props 的鍵不能輸出：L4 名稱（永不該進倉；多一道保險）、$identities 整包與 $identity_*（身分識別只給 OneID 用）、hide 策略的欄位。"""
+    key = str(k); base = key.lstrip("$"); fp = fp or {}
+    return base in cat.forbidden_l4 or key.startswith("$identit") or base.startswith("identit") or fp.get(key, "plain") == "hide" or fp.get(base, "plain") == "hide"
+
+
+def strip_props(props: Any, cat: Catalog, fp: dict[str, str], _depth: int = 0) -> Any:
+    """事件 props 的共用清理政策：遞迴走物件與陣列，拿掉 props_key_blocked 的鍵（巢狀的 $identities.$identity_login_id 也拿掉）。
+    時間軸、資料輸出、SQL 沙盒（props 整包不給查）都走這一套。頂層不是物件就回 {}。"""
+    if _depth == 0:
+        if isinstance(props, str):
+            try: props = json.loads(props)
+            except ValueError: return {}
+        if not isinstance(props, dict): return {}
+    if _depth > 16: return None
+    if isinstance(props, dict):
+        return {k: strip_props(v, cat, fp, _depth + 1) for k, v in props.items() if not props_key_blocked(k, cat, fp)}
+    if isinstance(props, list):
+        return [strip_props(v, cat, fp, _depth + 1) for v in props]
+    return props
 
 
 def compile_identities(one_id: str, profile: str = "human") -> Compiled:

@@ -274,13 +274,18 @@ def ga4_stage(ch: ClickHouseHTTP, work: Path, n_per_tick: int = 20000) -> None:
         for i in range(n_per_tick):
             ts = base_us + (k * 15 - rnd.randint(0, 25 if rnd.random() < 0.05 else 14)) * 60_000_000 - rnd.randint(0, 59_000_000)
             bq.tables[tbl].append(mk(total + i, ts))
+        if k == 1:                                                   # 混一筆 event_params 帶 email 的列：守門隔離，不得進 dmp.events
+            bad = mk(999_999, base_us + 14 * 60_000_000); bad["event_params"] = bad["event_params"] + [{"key": "email", "value": {"string_value": "fixture@example.test"}}]
+            bq.tables[tbl].append(bad)
         total += n_per_tick
         r = s.tick(t0 + timedelta(minutes=15 * k)); assert [x["status"] for x in r] == ["success"], r
     runs = s.runs("ga360_intraday", 3)
     assert sum(x["rows_in"] for x in runs) > total                   # 重疊窗口有重讀
+    assert runs[-1]["rows_quarantined"] >= 1 and ch.scalar("SELECT count() FROM dmp.quarantine WHERE task_id='ga360_intraday' AND reason='l4:props.email' AND row=''") >= 1
     ch.query("OPTIMIZE TABLE dmp.events FINAL")
     n_intraday = ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_intraday'")
-    assert n_intraday == total, (n_intraday, total)                  # 去重後 = 串流表筆數
+    assert n_intraday == total, (n_intraday, total)                  # 去重後 = 串流表筆數（隔離列不算）
+    assert ch.scalar("SELECT count() FROM dmp.events WHERE props.email IS NOT NULL OR toString(props) LIKE '%example.test%'") == 0
     assert ch.scalar("SELECT count() FROM dmp.events WHERE source='ga360_intraday' AND event LIKE 'ga.%'") == 0
     # 隔天 06:30 台北：日批未到 → 0 筆成功（記錄 skipped 原因）；日批到齊（多 300 筆遲到 + 欄位更完整）→ 整天重載覆蓋串流版本
     r = s.tick(t0 + timedelta(days=1, minutes=-30 + 5*60 + 30 - 60))  # 06:30 台北 = 前一日 22:30 UTC
@@ -295,9 +300,9 @@ def ga4_stage(ch: ClickHouseHTTP, work: Path, n_per_tick: int = 20000) -> None:
     assert n_day == total + 300 and n_daily_src == total + 300, (n_day, n_daily_src)     # 日批覆蓋了全部串流列（同 event_id，ingest_time 較新）
     assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_intraday'") == 0
     # 隔兩天 07:00：GA 重寫日表（+120 筆遲到）→ restate 偵測列數變化重載
-    r = s.run_now("ga360_restate", t0 + timedelta(days=2)); assert r["status"] == "success" and s.runs("ga360_restate", 1)[0]["rows_in"] == total + 300
+    r = s.run_now("ga360_restate", t0 + timedelta(days=2)); assert r["status"] == "success" and s.runs("ga360_restate", 1)[0]["rows_in"] == total + 300 + 1   # rows_in 含被守門隔離的那一筆
     bq.tables[daily] += [mk(total + 300 + i, base_us + 70 * 60_000_000 + i * 1000) for i in range(120)]
-    r = s.run_now("ga360_restate", t0 + timedelta(days=2, minutes=1)); assert s.runs("ga360_restate", 1)[0]["rows_in"] == total + 420
+    r = s.run_now("ga360_restate", t0 + timedelta(days=2, minutes=1)); assert s.runs("ga360_restate", 1)[0]["rows_in"] == total + 420 + 1
     r = s.run_now("ga360_restate", t0 + timedelta(days=2, minutes=2)); assert s.runs("ga360_restate", 1)[0]["rows_in"] == 0 and "未變" in s.runs("ga360_restate", 1)[0]["log"]
     ch.query("OPTIMIZE TABLE dmp.events FINAL")
     assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE source='ga360_daily'") == total + 420
