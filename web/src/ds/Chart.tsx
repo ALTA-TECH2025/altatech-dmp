@@ -1,4 +1,5 @@
 // 圖表：ECharts（Apache 軟體基金會治理，Apache-2.0）。只載入用到的圖型與元件（bar／line／pie／sankey、grid／tooltip／legend）、SVG 渲染；配色與深淺色跟 app.css 的 token 走。
+import { escapeHtml } from '@/lib/html';
 import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts/core';
 import { BarChart, LineChart, PieChart, SankeyChart } from 'echarts/charts';
@@ -52,6 +53,6 @@ export function hbar(rows: { value: string; users: number }[], total?: number): 
     xAxis: { type: 'value', axisLabel: { show: false }, splitLine: { lineStyle: { color: cssVar('--grid', '#EDF1F3') } } },
     yAxis: { type: 'category', data: r.map((x) => x.value || '（空）'), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { width: 96, overflow: 'truncate' } },
     series: [{ type: 'bar', data: r.map((x) => x.users), barMaxWidth: 14, itemStyle: { borderRadius: [0, 4, 4, 0] }, label: { show: true, position: 'right', formatter: (p) => `${Number(p.value).toLocaleString()}${total ? ` (${Math.round((Number(p.value) / total) * 100)}%)` : ''}`, fontSize: 11 } }],
-    tooltip: { trigger: 'item', formatter: (p) => `${(p as { name: string }).name}：${Number((p as { value: number }).value).toLocaleString()} 人` },
+    tooltip: { trigger: 'item', formatter: (p) => `${escapeHtml((p as { name: string }).name)}：${Number((p as { value: number }).value).toLocaleString()} 人` },
   };
 }
