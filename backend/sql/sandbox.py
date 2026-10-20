@@ -164,9 +164,14 @@ def compile_sql(sql: str, params: dict[str, Any] | None, decision: Any, cat: Cat
     for c in root.find_all(exp.Column):
         parts = [p.name for p in c.parts]
         if "props" not in parts: continue
-        path = parts[parts.index("props") + 1:]
-        if not path:
+        raw = parts[parts.index("props") + 1:]
+        if not raw:
             raise SandboxError("props 整包不可直接查詢（含巢狀身分識別）：請指定 props.<鍵>，例如 props.market")
+        # ClickHouse 把帶點的 quoted 名稱（props.`a.b`）當 JSON 子路徑逐層解析，不是一個鍵：按實際語意拆開逐層授權；
+        # 拆不乾淨的（空段、^ 子物件、.:型別提示等）一律拒絕
+        path = [seg for p in raw for seg in str(p).split(".")]
+        if any(not re.fullmatch(r"[A-Za-z0-9_$]+", seg) for seg in path):
+            raise SandboxError(f"props.{'.'.join(raw)} 的路徑無法逐層授權（含空段、^ 或型別提示），不可查詢")
         if any(props_key_blocked(p, cat, fp) for p in path):
             raise SandboxError(f"props.{'.'.join(path)} 是身分識別／L4／隱藏欄位，不可查詢")
     limit = max(1, min(int(limit or MAX_LIMIT), MAX_LIMIT))
@@ -190,12 +195,16 @@ def selftest() -> None:
                      ("SELECT amount FROM dmp.events", "脫敏"), ("SELECT 1", "數據表"), ("SELECT * FROM dmp.events INTO OUTFILE 'x'", "OUTFILE"),
                      ("SELECT props FROM dmp.events", "整包"), ("SELECT toString(e.props) FROM dmp.events e", "整包"), ("SELECT JSONExtractString(props, '$identity_login_id') FROM dmp.events", "整包"),
                      ("SELECT props.`$identities` FROM dmp.events", "身分識別"), ("SELECT e.props.`$identities`.`$identity_login_id` FROM dmp.events e", "身分識別"),
-                     ("SELECT props.`$identity_login_id` FROM dmp.events", "身分識別"), ("SELECT props.email FROM dmp.events", "不可")]:
+                     ("SELECT props.`$identity_login_id` FROM dmp.events", "身分識別"), ("SELECT props.email FROM dmp.events", "不可"),
+                     ("SELECT props.`nested.$identities.$identity_login_id` AS leaked FROM dmp.events", "身分識別"),     # quoted 名稱帶點＝JSON 子路徑，逐層看
+                     ("SELECT e.props.`nested.email` FROM dmp.events e", "不可"), ("SELECT props.`^nested` FROM dmp.events", "無法逐層授權"),
+                     ("SELECT props.`market.` FROM dmp.events", "無法逐層授權"), ("SELECT props.`nested.$identities`.`x` FROM dmp.events", "身分識別")]:
         try:
             compile_sql(bad, None, mkt if "amount" in bad else ana, cat, ["marketing"] if "amount" in bad else ["data_analyst"]); raise AssertionError(bad)
         except SandboxError as e:
             assert why in str(e) or why.lower() in str(e).lower(), (bad, str(e))
     cp = compile_sql("SELECT props.market AS m, count() AS n FROM dmp.events GROUP BY m", None, ana, cat, ["data_analyst"]); assert "props.market" in cp.sql, cp.sql   # 一般鍵照查
+    assert "nested.market" in compile_sql("SELECT props.`nested.market` AS m FROM dmp.events", None, ana, cat, ["data_analyst"]).sql                                   # 一般巢狀路徑照查
     assert "amount" not in blocked_columns(["data_analyst"], cat) and "amount" in blocked_columns(["marketing"], cat) and "one_id" in blocked_columns(["data_analyst"], cat) and "one_id" not in blocked_columns(["admin"], cat)
     c3 = compile_sql("SELECT count() FROM dmp.events WHERE platform = {{p}} AND event_date >= {{d}}", {"p": "iOS", "d": "2026-10-01"}, ana, cat, ["data_analyst"])
     assert "'iOS'" in c3.sql and "'2026-10-01'" in c3.sql

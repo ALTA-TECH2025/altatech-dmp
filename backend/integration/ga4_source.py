@@ -63,11 +63,11 @@ COMMON_PARAMS = {"symbol", "side", "amount", "channel", "entity_type", "entity_i
 
 
 def allowed_params(events: dict[str, dict[str, Any]] | None = None, dims: Iterable[str] = (), extra: Iterable[str] = ()) -> set[str]:
-    """event_params 允許清單：GA 標準參數（PARAM_MAP）＋ 事件字典登記的 required／properties 鍵 ＋ dimensions.yaml 的維度 ＋ 常見 GA 參數 ＋ 任務自訂 extra_params。
+    """event_params 允許清單：GA 標準參數（PARAM_MAP）＋ 事件字典登記的 required／optional／properties 鍵 ＋ dimensions.yaml 的維度 ＋ 常見 GA 參數 ＋ 任務自訂 extra_params。
     不在清單的參數不進 props（計數回報，請到元事件管理登記）；這是 R04 的「允許欄位清單」。"""
     out = set(PARAM_MAP) | set(COMMON_PARAMS) | set(dims) | set(extra)
     for e in (events or {}).values():
-        out |= set(e.get("required") or [])
+        out |= set(e.get("required") or []) | set(e.get("optional") or [])
         props = e.get("properties") or []
         out |= {p.get("key") or p.get("name") for p in props if isinstance(p, dict)} | {p for p in props if isinstance(p, str)}
     return {k for k in out if k}
@@ -255,6 +255,10 @@ if __name__ == "__main__":
     assert flatten(ev, {}, "p", "s", "b", 0)["one_id"] == "p1"
     # 入倉守門（R04）：event_params 帶 email（L4 鍵）或值像個資（手機／身分證／email，含巢狀）→ 隔離不進 rows；未登記參數丟掉並計數；巢狀 $identities 正常保留
     gate = Gate.load(); assert "email" in gate.forbidden_l4 and "symbol" in gate.allowed and "ga_session_id" in gate.allowed
+    assert {"duration_ms", "from_screen", "trade_kind", "time_in_force"} <= gate.allowed and "my_custom_thing" not in gate.allowed   # 事件字典的 required／optional 都在清單；未登記的不在
+    hq = ga4_row(300, base, "hq_stockdetail_view"); hq["event_params"] += [{"key": "duration_ms", "value": {"int_value": 500}}, {"key": "from_screen", "value": {"string_value": "watchlist"}}, {"key": "email", "value": {"string_value": "a@b.co"}}]
+    dropped: dict[str, int] = {}; hr = flatten(hq, {}, "p", "s", "b", 0, allowed=gate.allowed, dropped=dropped, forbidden=gate.forbidden_l4)
+    assert hr["props"]["duration_ms"] == 500 and hr["props"]["from_screen"] == "watchlist" and dropped == {} and gate.reason(hr) == "l4:props.email"   # optional 保留；L4 鍵仍交給守門隔離
     bad1 = ga4_row(200, base + 200 * 60_000_000, "kh_apply", uid="v1_abc"); bad1["event_params"].append({"key": "email", "value": {"string_value": "fixture@example.test"}})
     bad2 = ga4_row(201, base + 201 * 60_000_000, "kh_apply"); bad2["event_params"].append({"key": "page_location", "value": {"string_value": "https://sbp/x?tel=0912345678"}})
     bad3 = ga4_row(202, base + 202 * 60_000_000, "kh_apply"); bad3["event_params"].append({"key": "search_term", "value": {"string_value": "A123456789"}})
