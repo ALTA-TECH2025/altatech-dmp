@@ -184,7 +184,10 @@ def rebuild(ch: CH, dates: Iterable[str], batch_id: str = "", with_pending: bool
         mark_pending(ch, [d], batch_id or "rebuild")
         ch.query(f"ALTER TABLE {AGG_STAGE} DROP PARTITION ID '{pid}'")
         ch.query(f"INSERT INTO {AGG_STAGE} " + AGG_SELECT.format(d=d))
-        ch.query(f"ALTER TABLE {AGG_TABLE} REPLACE PARTITION ID '{pid}' FROM {AGG_STAGE}")
+        if int(ch.scalar(f"SELECT count() FROM {AGG_STAGE} WHERE event_date = toDate('{d}')") or 0) == 0:
+            ch.query(f"ALTER TABLE {AGG_TABLE} DROP PARTITION ID '{pid}'")        # 那天已沒有事件（跨日更正把唯一一筆搬走）：空的來源不能 REPLACE，直接把目標分區丟掉
+        else:
+            ch.query(f"ALTER TABLE {AGG_TABLE} REPLACE PARTITION ID '{pid}' FROM {AGG_STAGE}")
         ch.query(f"ALTER TABLE {AGG_STAGE} DROP PARTITION ID '{pid}'")
         ch.query(f"DELETE FROM {AGG_PENDING} WHERE event_date = toDate('{d}')")
         done.append(d)
@@ -221,7 +224,7 @@ def selftest() -> None:
             if sql.startswith(f"SELECT DISTINCT toString(event_date) FROM {AGG_PENDING}"):
                 return "\n".join(getattr(self, "pending", []))
             return ""
-        def scalar(self, sql: str) -> Any: return 0
+        def scalar(self, sql: str) -> Any: return getattr(self, "stage_rows", 1)
     base = {"event": "bond_deal", "one_id": "v1_a", "platform": "iOS", "channel": "app", "utm_source": "", "amount": 100.0, "source": "ga360_intraday", "entity_type": "", "entity_id": "",
             "distinct_id": "", "session_id": "", "app_id": "", "symbol": "2330", "side": "B", "utm_campaign": "", "schema_version": 1}
     old = {"e1": {**base, "time": "2026-10-16 01:00:00.000", "event_date": "2026-10-16", "props": '{"market":"TSE","n":1}'},
@@ -259,6 +262,8 @@ def selftest() -> None:
     assert ch.sql == [f"INSERT INTO {AGG_PENDING} (event_date, batch_id) VALUES (toDate('2026-10-16'), 'b\\'1'), (toDate('2026-10-17'), 'b\\'1')"], ch.sql
     ch.pending = ["2026-10-01"]; ch.sql.clear()
     assert rebuild(ch, []) == ["2026-10-01"] and rebuild(ch, ["2026-10-02"], with_pending=False) == ["2026-10-02"]            # 這批沒有要重建的也會補做上次中斷的
+    ch.stage_rows = 0; ch.sql.clear(); rebuild(ch, ["2026-10-03"], with_pending=False)
+    assert ch.sql[3] == f"ALTER TABLE {AGG_TABLE} DROP PARTITION ID '20261003'" and not any("REPLACE" in x for x in ch.sql), ch.sql   # 那天沒事件 → 丟掉目標分區，不 REPLACE
     assert dedupe(ch, []) == DedupeResult(rows=[])
     print("aggregates self-test ok: dedupe(full-version same/changed/new/in-batch dup/sort-key change → stale)/purge_stale/event_date/"
           "rebuild(pending ∪ dates → mark → stage → replace partition → drop stage → unmark)")
