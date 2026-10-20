@@ -101,11 +101,17 @@ class LocalRunner:
         from . import ga4_source
         src = task["source"]
         b = ga4_source.read(self.bq_clients[src["connection"]], src, watermark=watermark, now=now, batch_id=batch_id, project=self.project)
-        log(f"table={b.table} rows={len(b.rows)} watermark={watermark}" + (f" skipped: {b.skipped_reason}" if b.skipped_reason else ""))
-        res = RunResult(rows_in=len(b.rows), rows_ok=len(b.rows), watermark_to=b.watermark_to)
+        log(f"table={b.table} rows={len(b.rows)} quarantined={len(b.quarantined)} watermark={watermark}" + (f" skipped: {b.skipped_reason}" if b.skipped_reason else ""))
+        res = RunResult(rows_in=len(b.rows) + len(b.quarantined), rows_ok=len(b.rows), rows_quarantined=len(b.quarantined), watermark_to=b.watermark_to)
         if b.unknown_events:
             log(f"unknown GA event names (kept with ga. prefix; register in 元事件管理): {b.unknown_events}")
-        if self.ch is None or not b.rows:
+        if b.dropped_params:
+            log(f"event_params not in allow-list (dropped; register in 元事件管理 or task extra_params): {b.dropped_params}")
+        if b.quarantined:
+            by = {}
+            for _, why in b.quarantined: by[why.split(":")[0]] = by.get(why.split(":")[0], 0) + 1
+            log(f"quarantined by L4/PII gate (not loaded into dmp.events): {by}")
+        if self.ch is None or not (b.rows or b.quarantined):
             res.rows_loaded = res.rows_ok; return res
         d = aggregates.dedupe(self.ch, b.rows)                                    # 完整版本相同（重疊窗口重讀、重試）不再寫入；有變的寫新版本 → 日彙總不會多算
         aggregates.mark_pending(self.ch, d.rebuild, batch_id)                     # 要重建哪幾天先落地，寫入／重建之間中斷也會在下次載入補做
@@ -118,8 +124,10 @@ class LocalRunner:
             log(f"daily_agg rebuilt for {done} (re-inserted event_ids with changed content" + ("; incl. pending from an interrupted run)" if set(done) - d.rebuild else ")"))
         log(f"dedupe: skipped={d.skipped} identical rows already in dmp.events")
         at = now.strftime("%Y-%m-%d %H:%M:%S.") + f"{now.microsecond // 1000:03d}"
+        # 隔離列與 modeling 路徑同格式（原因 + 原列），但個資列不留內容（與 pii 拒絕列同規則）
+        self.ch.insert_json("dmp.quarantine", [{"task_id": task["id"], "batch_id": batch_id, "at": at, "reason": why, "row": ""} for _, why in b.quarantined])
         self.ch.insert_json("dmp.ingest_recon", [{"task_id": task["id"], "batch_id": batch_id, "at": at, "rows_in": res.rows_in, "rows_ok": res.rows_ok,
-                                                  "rows_quarantined": 0, "rows_rejected": 0, "rows_loaded": res.rows_loaded}])
+                                                  "rows_quarantined": res.rows_quarantined, "rows_rejected": 0, "rows_loaded": res.rows_loaded}])
         return res
 
     def run(self, task: dict[str, Any], *, watermark: str | None, batch_id: str, known_fields: set[str] | None,

@@ -55,6 +55,27 @@ def pii_scan(record: dict[str, Any]) -> list[str]:
     return hits
 
 
+def pii_scan_deep(value: Any, path: str = "", forbidden_keys: set[str] | None = None, _depth: int = 0) -> list[str]:
+    """遞迴版：物件與陣列裡任何一層的字串值像個資（身分證／手機／email）→ 'pii:<路徑>:<型別>'；
+    鍵名（去 $ 前綴）在 forbidden_keys（user_properties.yaml 的 forbidden_l4）→ 'l4:<路徑>'。路徑用 . 串，陣列用 [i]。"""
+    hits: list[str] = []
+    if _depth > 16: return hits
+    if isinstance(value, dict):
+        for k, v in value.items():
+            p = f"{path}.{k}" if path else str(k)
+            if forbidden_keys and str(k).lstrip("$") in forbidden_keys:
+                hits.append(f"l4:{p}"); continue
+            hits += pii_scan_deep(v, p, forbidden_keys, _depth + 1)
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            hits += pii_scan_deep(v, f"{path}[{i}]", forbidden_keys, _depth + 1)
+    elif isinstance(value, str):
+        for name, pat in PII_PATTERNS.items():
+            if pat.search(value):
+                hits.append(f"pii:{path}:{name}")
+    return hits
+
+
 def age_band(age: int | None) -> str | None:
     if age is None: return None
     for lo, hi, lbl in ((0, 24, "<25"), (25, 34, "25-34"), (35, 44, "35-44"), (45, 54, "45-54"), (55, 64, "55-64")):
@@ -66,5 +87,8 @@ if __name__ == "__main__":
     assert to_ms_utc(1760400000123456) == 1760400000123
     assert to_ms_utc("2026-10-14 13:58:00") == int(datetime(2026, 10, 14, 5, 58, tzinfo=UTC).timestamp() * 1000)
     assert pii_scan({"memo": "請回電 0912345678"}) == ["memo:mobile"]
+    deep = pii_scan_deep({"props": {"$identities": {"$identity_login_id": "v1_abc"}, "items": [{"note": "a@b.co"}], "email": "x"}, "memo": "0912345678"}, forbidden_keys={"email"})
+    assert deep == ["pii:props.items[0].note:email", "l4:props.email", "pii:memo:mobile"], deep
+    assert pii_scan_deep({"props": {"market": "TSE", "n": 1, "ok": None}}) == []
     assert age_band(37) == "35-44"
     print("transforms ok")

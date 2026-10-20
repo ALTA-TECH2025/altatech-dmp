@@ -69,7 +69,7 @@
 | 去重 | SDK 重送靠 `$track_id` | `event_bundle_sequence_id` | 各自去重；event_id 規則見 `ga4_mapping.yaml` |
 | 停留／時長 | `$WebStay`、`$event_duration` | `engagement_time_msec` | 分析口徑改 session |
 | 同意 | 無 | `privacy_info.analytics_storage` | 拒絕者不做 OneID 合併 |
-| 延遲 | 即時 | 串流匯出分鐘級（無回補、部分歸因欄位缺）、日批次日數小時內（GA 保證 72 小時，期間可能重寫）、360 Fresh daily 小時級 | 三個任務：串流每 15 分鐘（30 分鐘重疊窗口 + event_id 去重）、日批到齊才整天覆蓋、D-2／D-3 列數變了重載；日彙總冪等：入倉前查同 event_id 的現有版本，完整版本相同不再寫入（重讀、重試不會讓 `events_daily_agg` 多算），任何欄位不同（日批覆蓋、props／utm 補齊、時間更正）寫新版本並重建該日分區；排序鍵（日期／事件／one_id／時間）變了就先清掉舊版本，舊日期歸零、新日期一筆；要重建的日期先寫進 `events_daily_agg_pending` 再清舊版本／寫入，重建成功才刪標記——寫入與重建之間中斷，下一次載入（哪怕整批內容相同）會先把標記裡的日期重建掉，重試不會把錯的彙總當成功（`backend/integration/aggregates.py`）；`backend/integration/ga4_source.py` |
+| 延遲 | 即時 | 串流匯出分鐘級（無回補、部分歸因欄位缺）、日批次日數小時內（GA 保證 72 小時，期間可能重寫）、360 Fresh daily 小時級 | 三個任務：串流每 15 分鐘（30 分鐘重疊窗口 + event_id 去重）、日批到齊才整天覆蓋、D-2／D-3 列數變了重載；入倉前守門：`event_params` 只收允許清單（GA 標準參數 + 事件字典登記的鍵 + 任務 `extra_params`，其餘丟掉計數），整列含巢狀值掃 L4 鍵名與個資樣式（身分證／手機／email），命中的列進 `dmp.quarantine`（不留內容）不進 `dmp.events`；日彙總冪等：入倉前查同 event_id 的現有版本，完整版本相同不再寫入（重讀、重試不會讓 `events_daily_agg` 多算），任何欄位不同（日批覆蓋、props／utm 補齊、時間更正）寫新版本並重建該日分區；排序鍵（日期／事件／one_id／時間）變了就先清掉舊版本，舊日期歸零、新日期一筆；要重建的日期先寫進 `events_daily_agg_pending` 再清舊版本／寫入，重建成功才刪標記——寫入與重建之間中斷，下一次載入（哪怕整批內容相同）會先把標記裡的日期重建掉，重試不會把錯的彙總當成功（`backend/integration/aggregates.py`）；`backend/integration/ga4_source.py` |
 
 ### 2.4 交付物與驗收
 
