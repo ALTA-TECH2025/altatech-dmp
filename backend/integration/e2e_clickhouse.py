@@ -317,7 +317,7 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
     c2 = {**c1, "time": "2026-09-04 01:00:00.000", "ingest_time": "2026-09-03 03:00:00.000", "batch_id": "c2"}
     d = protocol([c2], "c2", crash_after="purge"); assert d.stale and d.rebuild == {"2026-09-03", "2026-09-04"} and pending_dates(ch) == ["2026-09-03", "2026-09-04"], (d, pending_dates(ch))
     assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_id = 'agg-crash-1'") == 0 and verify(ch, "2026-09-03")["agg_cnt"] == 1
-    d = protocol([{**c2, "batch_id": "c2r"}], "c2r"); assert len(d.rows) == 1 and d.rebuild == {"2026-09-04"} and d.stale == [], d
+    d = protocol([{**c2, "batch_id": "c2r"}], "c2r"); assert len(d.rows) == 1 and d.rebuild == set() and d.stale == [], d          # 倉裡已沒有舊版本 → 當新事件，推不出任何要重建的日期
     v3, v4 = verify(ch, "2026-09-03"), verify(ch, "2026-09-04")
     assert v3["events_cnt"] == v3["agg_cnt"] == 0 and v4["events_cnt"] == v4["agg_cnt"] == 1 and v3["amount_diff"] < 1e-6 and v4["amount_diff"] < 1e-6 and pending_dates(ch) == [], (v3, v4, pending_dates(ch))
     assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_id = 'agg-crash-1'") == 1
