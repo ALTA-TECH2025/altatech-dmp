@@ -67,10 +67,13 @@ class MemoryStore:
 
 class SessionManager:
     def __init__(self, cfg: dict[str, Any], store: SessionStore, audit: Callable[[str, dict[str, Any]], None], now: Callable[[], float] = time.time,
-                 admin_requires: dict[str, Any] | None = None):
-        """cfg = idp.yaml 的 session 段；admin_requires = role_mapping.admin_requires（admin 需 MFA 且認證夠新）。"""
+                 admin_requires: dict[str, Any] | None = None, assignments: Callable[[], list[dict[str, Any]]] | None = None,
+                 base_roles_of: Callable[[Session], list[str] | None] | None = None):
+        """cfg = idp.yaml 的 session 段；admin_requires = role_mapping.admin_requires（admin 需 MFA 且認證夠新）。
+        assignments／base_roles_of 給了就每次請求重算有效授權（見 effective）；不給則沿用登入快照（單元測試用）。"""
         self.cfg, self.store, self.audit, self.now = cfg, store, audit, now
         self.admin_requires = admin_requires or {}
+        self.assignments, self.base_roles_of = assignments, base_roles_of
 
     def create(self, *, user_id: str, username: str, name: str, email: str, provider: str, roles: list[str], groups: list[str], amr: list[str], auth_time: int,
                scope: dict[str, Any] | None = None, ip: str = "", base_roles: list[str] | None = None) -> Session:
@@ -115,16 +118,27 @@ class SessionManager:
             return [("Set-Cookie", f"{c['name']}=;{base}; HttpOnly{kill}"), ("Set-Cookie", f"{cs['cookie']}=;{base}{kill}")]
         return [("Set-Cookie", f"{c['name']}={s.sid}{base}; HttpOnly"), ("Set-Cookie", f"{cs['cookie']}={s.csrf}{base}")]
 
+    def effective(self, s: Session) -> tuple[list[str], dict[str, Any]]:
+        """目前有效的角色與範圍（每個請求都算，不用登入快照）：基底角色（登入時的群組映射；本機帳號則重讀帳號，停用／改角色即時生效）
+        + 現在的本機指派疊加（新增、撤銷、到期、deny、scope 變更都立刻反映）。沒接 assignments 時（單元測試）才沿用 session 快照。"""
+        from .mapping import overlay_assignments
+        if self.assignments is None and self.base_roles_of is None:
+            return list(s.roles), dict(s.scope or {})                 # 沒接來源（單元測試）：沿用登入快照
+        base = self.base_roles_of(s) if self.base_roles_of is not None else s.attrs.get("base_roles")
+        if not isinstance(base, list):                                # 帳號停用／鎖定／到期／刪除，或升版前的 session 沒記基底角色：沒有任何角色（要重新登入）
+            return [], {}
+        roles, scope, _ = overlay_assignments((s.user_id, s.username), list(base), self.assignments() if self.assignments is not None else [], self.now())
+        return roles, scope
+
     def subject(self, s: Session) -> Subject:
-        """Session → Policy Engine 的 Subject（admin 需 MFA 且認證夠新，否則 admin 角色暫時拿掉）。"""
-        roles = list(s.roles)
+        """Session → Policy Engine 的 Subject：有效角色（effective）再套 admin 條件（需 MFA 且認證夠新，否則 admin 角色暫時拿掉）。"""
+        roles, sc = self.effective(s)
         req = self.admin_requires
         if "admin" in roles and req:
             fresh = self.now() - max(s.auth_time, s.step_up_at) <= int(req.get("max_auth_age_s", 900))
             mfa_ok = not req.get("amr") or set(req["amr"]) & set(s.amr)
             if not (fresh and mfa_ok):
                 roles.remove("admin")
-        sc = s.scope or {}
         return Subject(s.user_id, roles, branches=list(sc.get("branches", [])), agents=list(sc.get("agents", [])))
 
 

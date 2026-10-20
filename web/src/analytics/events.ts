@@ -38,13 +38,12 @@ export function formulaError(expr: string, aliases: string[]): string | null {
 }
 export const aliasOk = (a: string): boolean => /^[A-Za-z_][A-Za-z0-9_]*$/.test(a);
 
-/** 增長％：對上期（有 _prev 欄）或同一序列的上一個時間桶。回每列每指標的百分比（null = 算不出）。 */
+/** 增長％：有比較期（列上有 _prev 欄）就只對上期，上期缺值回 null；沒有比較期才對同一序列的上一個時間桶。回每列每指標的百分比（null = 算不出）。 */
 export function growthOf(rows: EventsRow[], aliases: string[], hasBucket: boolean): (number | null)[][] {
   const last = new Map<string, number>();
   return rows.map((r) => aliases.map((a) => {
     const v = r[a]; if (typeof v !== 'number') return null;
-    const prev = r[`${a}_prev`];
-    if (typeof prev === 'number') return prev ? ((v - prev) / Math.abs(prev)) * 100 : null;
+    if (`${a}_prev` in r) { const prev = r[`${a}_prev`]; return typeof prev === 'number' && prev ? ((v - prev) / Math.abs(prev)) * 100 : null; }   // 有比較模式：缺上期值就是算不出，不拿上一桶充數
     if (!hasBucket) return null;
     const key = `${a}|${['cohort', 'g1', 'g2', 'g3'].map((g) => r[g] ?? '').join('|')}`;
     const p = last.get(key); last.set(key, v);
@@ -75,6 +74,13 @@ export function chartAvailable(kind: ChartKind, hasBucket: boolean, series: Seri
 export function pieSlices(series: Series[]): { name: string; value: number }[] {
   if (series.length > 1) return series.map((s) => ({ name: s.label, value: s.points.reduce((n, p) => n + (p.y ?? 0), 0) }));
   return (series[0]?.points ?? []).map((p) => ({ name: p.x, value: p.y ?? 0 }));
+}
+/** 圓餅最多畫 n 片：其餘合併成「其他」，總和不變、百分比分母仍是全部。 */
+export function pieTop(slices: { name: string; value: number }[], n: number): { name: string; value: number }[] {
+  if (slices.length <= n) return slices;
+  const sorted = [...slices].sort((a, b) => b.value - a.value);
+  const rest = sorted.slice(n - 1).reduce((s, x) => s + x.value, 0);
+  return [...sorted.slice(0, n - 1), { name: `其他（${slices.length - n + 1} 類）`, value: rest }];
 }
 /** 明細表 CSV（UTF-8 BOM）：給「複製」用，上限 500 列。 */
 export function tableCsv(head: string[], body: string[][]): string {

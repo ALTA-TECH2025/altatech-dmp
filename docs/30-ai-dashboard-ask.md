@@ -114,6 +114,7 @@ MCP 工具 `dashboard.render_html`（phase 2）供 agent 在「每週報告」sk
 | 產生 HTML | overview.use | dashboard.rendered |
 | 下載／分享連結 | overview.view（登入）或簽章 token | dashboard.render.downloaded |
 | 定時寄送設定 | overview.use + digital_ops 審批 | dashboard.schedule.created／approved |
+| 定時寄送執行 | 以建立者「現在」的有效角色跑（成員目錄 + 本機指派疊加，不用建立時快照）；建立者停用、沒角色或已無 overview.use → 該次失敗、排程改 paused 並記 paused_reason | dashboard.schedule.ran／paused |
 
 ## 6. 順序與工作量（第二階段）
 

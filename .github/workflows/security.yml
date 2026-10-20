@@ -37,6 +37,18 @@ jobs:
         id: build
         continue-on-error: true               # 骨架階段映像可能還建不起來；建不起來就跳過掃描，不當成失敗
         run: docker build -f deploy/images/Dockerfile.core -t dmp-core:ci .
+      - name: 容器啟動煙霧測試（api 與 worker 都要起得來、/healthz 回 ok）
+        if: steps.build.outcome == 'success'
+        run: |
+          set -e
+          docker run --rm dmp-core:ci --check
+          docker run --rm -e DMP_ROLE=worker dmp-core:ci --check
+          for role in api worker; do
+            docker run -d --name core-$role -e DMP_ROLE=$role -e DMP_COOKIE_SECURE=0 dmp-core:ci
+            ok=0; for i in $(seq 1 30); do if docker exec core-$role python3.12 -m backend.entry healthcheck; then ok=1; break; fi; sleep 2; done
+            if [ "$ok" != 1 ]; then echo "::error::$role 容器 60 秒內 /healthz 未回 ok"; docker logs core-$role; exit 1; fi
+            docker rm -f core-$role >/dev/null
+          done
       - name: Trivy image scan
         if: steps.build.outcome == 'success'
         uses: aquasecurity/trivy-action@v0.36.0  # 0.28.0 標籤已不存在

@@ -156,7 +156,8 @@ def build_router(svc: AuthService) -> APIRouter:
     def me(req: Request) -> dict[str, Any]:
         s = current_session(svc, req)
         subj = svc.sessions.subject(s)
-        return me_payload(subj, s, s.roles, svc.mode, step_up_needed="admin" in s.roles and "admin" not in subj.roles)
+        roles_full, _ = svc.sessions.effective(s)                     # 目前有效角色（指派撤銷／到期即時反映），不是登入快照
+        return me_payload(subj, s, roles_full, svc.mode, step_up_needed="admin" in roles_full and "admin" not in subj.roles)
 
     @r.post("/auth/token")
     def token(req: Request) -> dict[str, Any]:

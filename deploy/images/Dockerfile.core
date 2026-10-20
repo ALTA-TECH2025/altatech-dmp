@@ -10,8 +10,9 @@ WORKDIR /app
 COPY backend/ ./backend/
 RUN python3.12 -m pip install --no-cache-dir -r backend/requirements.txt
 USER 10001
-ENV PYTHONUNBUFFERED=1 DMP_ROLE=api
+ENV PYTHONUNBUFFERED=1 DMP_ROLE=api DMP_PORT=8080
 EXPOSE 8080
-# DMP_ROLE=api  → uvicorn backend.api.main:app
-# DMP_ROLE=worker → python -m backend.worker（tag sync / activation / oneid merge / scheduler）
+# backend/entry.py：DMP_ROLE=api → uvicorn backend.api.main:app；DMP_ROLE=worker → 同一個 app 的背景例行（DMP_TICK=1）+ 只回 /healthz 的小 HTTP
+# 兩種角色都在 DMP_PORT 回 /healthz；映像裡沒有 curl，探針用同一個模組打本機
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["python3.12", "-m", "backend.entry", "healthcheck"]
 ENTRYPOINT ["python3.12", "-m", "backend.entry"]

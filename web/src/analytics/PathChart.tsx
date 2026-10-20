@@ -1,4 +1,5 @@
 // 路徑桑基圖（ECharts sankey）：層 = 步、節點高度 ∝ 人數、連線寬 ∝ 人數；顏色跟節點名（固定順序類別色，離開／其他灰）；滑過高亮相鄰連線；點節點 → 設為新起點／看用戶。
+import { escapeHtml } from '@/lib/html';
 import { useMemo, useState } from 'react';
 import { Badge, Button, Group, Text } from '@mantine/core';
 import { Chart, resolveColor, type ChartEvent, type ChartOption } from '@/ds/Chart';
@@ -16,10 +17,10 @@ export function PathChart({ nodes, links, labelOf, onNode }: { nodes: SkNode[]; 
     return {
       tooltip: { trigger: 'item', formatter: (p) => {
         const q = p as { dataType?: string; data: { name?: string; source?: string; target?: string; value?: number } };
-        if (q.dataType === 'edge') { const [, f] = (q.data.source ?? '').split('|'); const [, t] = (q.data.target ?? '').split('|'); return `${labelOf(f)} → ${labelOf(t)}：${fmtNum(q.data.value)} 人`; }
+        if (q.dataType === 'edge') { const [, f] = (q.data.source ?? '').split('|'); const [, t] = (q.data.target ?? '').split('|'); return `${escapeHtml(labelOf(f))} → ${escapeHtml(labelOf(t))}：${fmtNum(q.data.value)} 人`; }
         const n = byKey.get(q.data.name ?? ''); if (!n) return '';
-        const out = links.filter((k) => k.level === n.level && k.from === n.node).sort((a, b) => b.users - a.users).slice(0, 6).map((k) => `→ ${labelOf(k.to)}：${fmtNum(k.users)}（${Math.round((k.users / n.users) * 100)}%）`).join('<br/>');
-        return `<b>第 ${n.level} 步 · ${labelOf(n.node)}</b><br/>${fmtNum(n.users)} 人${out ? `<br/>${out}` : ''}`;
+        const out = links.filter((k) => k.level === n.level && k.from === n.node).sort((a, b) => b.users - a.users).slice(0, 6).map((k) => `→ ${escapeHtml(labelOf(k.to))}：${fmtNum(k.users)}（${Math.round((k.users / n.users) * 100)}%）`).join('<br/>');
+        return `<b>第 ${n.level} 步 · ${escapeHtml(labelOf(n.node))}</b><br/>${fmtNum(n.users)} 人${out ? `<br/>${out}` : ''}`;
       } },
       series: [{ type: 'sankey', left: 8, right: 120, top: 8, bottom: 8, nodeWidth: 14, nodeGap: 8, nodeAlign: 'left', layoutIterations: 0, draggable: false,
         data: nodes.map((n) => ({ name: key(n.level, n.node), depth: n.level, value: n.users, itemStyle: { color: resolveColor(colors[n.node] ?? (GRAY_NODES.has(n.node) ? 'var(--faint)' : 'var(--s8)')), borderColor: resolveColor('var(--panel)') } })),
