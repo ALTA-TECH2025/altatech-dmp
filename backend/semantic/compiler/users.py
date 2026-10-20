@@ -88,6 +88,7 @@ class UsersQuery:
     raw: dict[str, Any] = field(default_factory=dict)
     combine: str = "and"          # 用戶屬性塊與行為塊之間：and | or
     sequences: list[Sequence] = field(default_factory=list)   # 行為序列，與 behaviors 同受 behaviors_op 組合
+    window: tuple[date, date] | None = None   # 只取 updated_at 落在這段（台北日，含兩端）的用戶：資料輸出的 once 期間／daily 分區
 
     def as_query(self) -> Query:
         d = self.now or date.today()
@@ -435,6 +436,9 @@ def _bitmaps(uq: UsersQuery, cat: Catalog, decision: Any) -> tuple[list[str], st
             raise PermissionError(f"欄位 {c.field.key} 對此角色不可見")
     uctx = UserCtx(cat, uq.now)
     uwhere = ["1"] + ([group_sql(uq.filters, uctx)] if uq.filters else []) + user_row_filters(decision)
+    if uq.window:
+        w0, w1 = uq.window
+        uwhere.append(f"e.updated_at >= toDateTime64({q(w0.isoformat() + ' 00:00:00')}, 3, 'Asia/Taipei') AND e.updated_at < toDateTime64({q((w1 + timedelta(days=1)).isoformat() + ' 00:00:00')}, 3, 'Asia/Taipei')")
     ctes = [f"(SELECT groupBitmapState(one_id_uint) FROM dmp.users AS e FINAL WHERE {' AND '.join(uwhere)}) AS bm_u"]
     has_beh = bool(uq.behaviors or uq.sequences)
     if uq.combine == "or" and uq.filters and has_beh:                       # 「屬性 或 行為」：行為那邊要對全體（含行級範圍）算，不能先被屬性框住

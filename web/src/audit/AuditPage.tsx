@@ -55,7 +55,7 @@ function Board({ st, series, setSeries }: { st: AuditStats; series: (keyof Audit
   const roles = useMemo(() => hbars(st.by_role.map((r) => ({ label: r.role, n: r.profile_views }))), [st]);
   const modOpt = useMemo(() => countBars(mods), [mods]);
   const roleOpt = useMemo(() => countBars(roles), [roles]);
-  const types: Record<string, string> = { export: '匯出', segment: '分群', push: '推送', reveal_l2: '揭露 L2', reveal_l3: '揭露 L3', agent_proposal: 'agent', role_change: '角色變更', break_glass: '臨時提權', output_task: '資料輸出' };
+  const types: Record<string, string> = { export: '匯出', segment: '分群', push: '推送', reveal_l2: '揭露 L2', reveal_l3: '揭露 L3', agent_proposal: 'agent', role_change: '角色變更', break_glass: '臨時提權', output_task: '資料輸出', destination_first_use: '目的地首次使用' };
   return (
     <Stack gap="md" mb="md">
       <SimpleGrid cols={{ base: 2, sm: 3, md: 5 }} spacing="sm">{TILES.map((t) => <StatTile key={t.key} label={t.cn} value={st.tiles[t.key].toLocaleString()} />)}</SimpleGrid>
