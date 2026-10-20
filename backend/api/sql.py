@@ -35,7 +35,8 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
     results: collections.OrderedDict[str, dict[str, Any]] = collections.OrderedDict()           # run_id → {rows, columns}（最近 50 次，供下載）
 
     def refresh_mid() -> list[dict[str, Any]]:
-        mids = store.items("mid_table"); sandbox.MID_TABLES[:] = [m["name"] for m in mids]; return mids
+        mids = store.items("mid_table"); sandbox.MID_TABLES[:] = [m["name"] for m in mids]
+        sandbox.MID_COLUMNS.clear(); sandbox.MID_COLUMNS.update({m["name"]: list(m.get("columns") or []) for m in mids}); return mids
     refresh_mid()
 
     def need(subject: Subject) -> Any:
@@ -47,6 +48,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
         return d
 
     def compile_(subject: Subject, d: Any, sql: str, params: dict[str, Any] | None, limit: int) -> Any:
+        refresh_mid()                                                                      # 中間表名與欄位要是最新的（展開 * 時用）
         try:
             return sandbox.compile_sql(sql, params, d, cat, subject.roles, limit, sandbox.MID_TABLES)
         except sandbox.SandboxError as e:

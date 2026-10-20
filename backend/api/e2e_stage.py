@@ -34,6 +34,7 @@ def api_stage(ch: Any) -> None:
     c = TestClient(app, base_url="https://dmp.internal")
     cat = Catalog()
     checked = 0; checked_users = 0
+    nok = lambda rows: [{k: v for k, v in x.items() if k != "_k"} for x in rows]           # API 不回 K 匿名人數欄 _k（#14 R05），直接 SQL 的列要先拿掉再比
     for role, user in (("admin", "adm"), ("marketing", "mkt")):
         s = sm.create(user_id=f"entra:{user}", username=user, name=user, email="", provider="entra", roles=[role], groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()), base_roles=[role])
         c.cookies.set("dmp_sid", s.sid); c.cookies.set("dmp_csrf", s.csrf); c.headers["X-CSRF-Token"] = s.csrf
@@ -43,13 +44,13 @@ def api_stage(ch: Any) -> None:
             assert r.status_code == 200, (name, role, r.text[:300])
             body = r.json()
             expect = run_sql(ch, (comp := compile_query(q, decision=authorize(Subject(f"entra:{user}", [role]), "use", "events"), cat=cat)).sql, comp.settings)
-            assert body["rows"] == expect, (name, role, body["rows"][:2], expect[:2])
-            assert body["cost"]["layer"] == comp.layer and body["columns"] == comp.columns
+            assert body["rows"] == nok(expect) and all("_k" not in x for x in body["rows"]), (name, role, body["rows"][:2], expect[:2])
+            assert body["cost"]["layer"] == comp.layer and body["columns"] == [x for x in comp.columns if x != "_k"]
             checked += 1
         for name, raw, _ in FUNNELS[:4]:
             fq = parse_funnel(q := {**raw, "project": PROJECT}, cat); cf = compile_funnel(fq, cat, authorize(Subject(f"entra:{user}", [role]), "use", "funnel"))
             r = c.post("/v1/analytics/funnel", json=q); assert r.status_code == 200, (name, r.text[:200])
-            assert r.json()["rows"] == with_rates(run_sql(ch, cf.sql, cf.settings), fq.steps), name
+            assert r.json()["rows"] == nok(with_rates(run_sql(ch, cf.sql, cf.settings), fq.steps)), name
             checked += 1
         for name, raw, _ in PATHS[:3]:                        # 路徑：API 預設抽樣 0.1，這裡明確 sample=null 與直接 SQL 比
             pq = parse_path(q := {**raw, "project": PROJECT, "sample": None}, cat); cp = compile_path(pq, cat, authorize(Subject(f"entra:{user}", [role]), "use", "path"))
@@ -64,7 +65,7 @@ def api_stage(ch: Any) -> None:
         for name, raw, _ in RETENTIONS[:3]:
             rq = parse_retention(q := {**raw, "project": PROJECT}, cat); cr = compile_retention(rq, cat, authorize(Subject(f"entra:{user}", [role]), "use", "events"))
             r = c.post("/v1/analytics/retention", json=q); assert r.status_code == 200, (name, r.text[:200])
-            assert [{k: v for k, v in x.items() if k != "complete"} for x in r.json()["rows"]] == run_sql(ch, cr.sql, cr.settings), name
+            assert [{k: v for k, v in x.items() if k != "complete"} for x in r.json()["rows"]] == nok(run_sql(ch, cr.sql, cr.settings)), name
             checked += 1
         est = c.post("/v1/semantic/compile", json={**QUERIES[0][1], "project": PROJECT}).json()
         assert est["estimated_scan_rows"] is not None and est["sql"]

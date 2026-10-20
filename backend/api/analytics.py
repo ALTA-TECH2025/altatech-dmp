@@ -104,7 +104,7 @@ class _Attribution(_Run):
     def compile(self, body: dict[str, Any], d: Any, cat: Catalog) -> tuple[Compiled, Any]:
         aq = parse_attribution(body, cat); return compile_attribution(aq, cat, d, str(body.get("profile") or "human")), aq
     def shape(self, rows: list[dict[str, Any]], aq: Any, c: Compiled) -> dict[str, Any]:
-        return {**shape(rows, aq), "chart_spec": {"type": "attribution", "x": "touch", "series": aq.models, "split": bool(aq.split)}}
+        return {**shape(rows, aq), "chart_spec": {"type": "attribution", "x": "touch", "series": aq.models, "split": bool(aq.split)}, "masked": c.masked}
 
 
 class _Sql(_Run):
@@ -166,7 +166,18 @@ def execute_kind(kind: str, store: Store, ch: Executor | None, cat: Catalog, sub
     if kind == "events":
         audit.update({"layer": c.layer, "masked": list(c.masked)})
     store.audit("query.executed", audit)
-    return {**run.shape(rows, q, c), "sql": c.sql, "lineage": c.lineage, "cost": {"ms": ms, "rows": len(rows), "layer": c.layer}, "warnings": c.warnings}
+    return {**strip_internal(run.shape(rows, q, c)), "sql": c.sql, "lineage": c.lineage, "cost": {"ms": ms, "rows": len(rows), "layer": c.layer}, "warnings": c.warnings}
+
+
+def strip_internal(res: dict[str, Any]) -> dict[str, Any]:
+    """K 匿名的人數欄 _k 只留在伺服器內部：被抑制的群組回傳 _k 就等於洩漏人數。回應只留 suppressed 旗標。"""
+    rows = res.get("rows")
+    if isinstance(rows, list):
+        res["rows"] = [{k: v for k, v in r.items() if k != "_k"} if isinstance(r, dict) else r for r in rows]
+    cols = res.get("columns")
+    if isinstance(cols, list):
+        res["columns"] = [c for c in cols if c != "_k"]
+    return res
 
 
 def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catalog | None = None) -> APIRouter:
