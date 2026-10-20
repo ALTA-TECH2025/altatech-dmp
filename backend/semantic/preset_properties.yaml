@@ -1,0 +1,125 @@
+# SDK 預置屬性契約（事件預置屬性與用戶預置屬性分開）
+#
+# 用途：模擬資料生成器與屬性校驗依這份契約決定「某事件在某平台該有哪些預置屬性、型別為何、何時才出現」；
+#       接入端可用同一份契約檢查來源資料缺欄／多欄／型別錯誤。事件的自定義屬性仍以 events.yaml 與
+#       migration/legacy_plan_event_properties.csv 為準，這裡只管 SDK 預置屬性。
+# 來源：規格試算表「數軌需求確認表_廠商回覆版_20261015_pao」工作表「SDK預置屬性」（逐列抄錄，列號見 spec_row）。
+#       規格表本身是神策 SDK 的預置屬性清單（簡體原文）；display 保留原文，不改寫。
+# 不在本檔：SDK 全埋點事件（$AppStart、$pageview…）實際帶的屬性清單，以工作表「SDK 全埋點事件表」為準（另由生成器讀取比對）。
+version: 1
+spec:
+  spreadsheet_id: 1oSAOIqEc036t3ggYjKzvcYn_VWMeXCjnR9kun9k9YJU
+  title: 數軌需求確認表_廠商回覆版_20261015_pao
+  sheet: SDK預置屬性
+  revision_id: APfK_pDOJPF7bguvIQHXIn192P8yLQ_MI2_l2c3WGY96lnODME9fI2Xchr7MCGhuXU6OrlcWO-xdQRPN5-4_viWfz4HoQ-QKo5WlfymI4Xw
+  read_at: "2026-10-20"
+
+# 平台代碼：規格表三個 SDK 欄位（Android SDK／iOS SDK／JS SDK）→ android／ios／js。
+# events.yaml 的 platforms 與事件規格表「埋點平台」的對應：JavaScript／WEB → js；iOS／IOS → ios；Android／ANDROID → android；
+# 服務端／SERVER、其它／OTHER 不是 SDK 上報，不繼承本檔的預置屬性（只帶事件規格表明列的屬性與保留屬性）。
+platforms:
+  js: { events_yaml: [JavaScript], spec_sheet: [WEB] }
+  ios: { events_yaml: [iOS], spec_sheet: [IOS] }
+  android: { events_yaml: [Android], spec_sheet: [ANDROID] }
+non_sdk_platforms: { events_yaml: [服務端, 其它], spec_sheet: [SERVER, OTHER], inherits_presets: false }
+
+# 繼承規則：事件規格表每個事件的第一列屬性欄寫「$预置属性」＝該事件繼承預置屬性。
+# 生成與校驗時：有效屬性集合 = 該事件在「該筆資料的平台」適用、且啟用條件成立的事件預置屬性 ∪ 該事件的自定義屬性。
+# 型別一律以本檔 type（預置）或事件規格表數據類型（自定義）為準；屬性名稱只能用來挑「合理的值」，不能改變宣告型別。
+inheritance:
+  marker: $预置属性
+  scope: per_record_platform        # 同一事件跨平台時，每筆資料只帶它自己平台適用的預置屬性
+  type_source: declared             # 名稱推測不得覆蓋宣告型別
+
+# 型別正規化：規格表寫法 → 本系統型別
+types: { STRING: STRING, 字符串: STRING, NUMBER: NUMBER, BOOL: BOOL, TIME: DATETIME, DATETIME: DATETIME, LIST: LIST }
+
+# 啟用條件（規格表欄「是否无需手动调用，自动开启」為「否」、或屬性說明寫需手動開啟者）。
+# 生成器預設依 default 產生；fixture 需同時涵蓋開／關兩種情況。default 是本系統的模擬預設，不是客戶已確認的 SDK 設定。
+conditions:
+  manual_location: { cn: App 端手動開啟定位採集, default: false, spec_note: "iOS和 Android 需要手动开启" }
+  manual_screen_orientation: { cn: App 端手動開啟螢幕方向採集, default: false, spec_note: "iOS和 Android 需要手动开启" }
+  js_track_device_id: { cn: JS SDK 初始化設定 is_track_device_id=true, default: false, spec_note: "JSSDK 需要手动开启；√5：如果 sdk 初始化的时候配置了 is_track_device_id：true，就会采集" }
+  channel_tracking: { cn: App 開啟渠道追蹤, default: true, spec_note: "√1：$utm_ 开头的相关属性，开启了渠道追踪才会采集" }
+  first_visit_autotrack_utm: { cn: 新用戶首次訪問、開啟 autoTrack 且 URL 帶 UTM 參數, default: true, spec_note: "√2" }
+  first_visit_autotrack: { cn: 新用戶首次訪問且開啟 autoTrack, default: true, spec_note: "√3" }
+  first_launch_track_installation: { cn: 新用戶首次啟動 App 且呼叫 trackInstallation, default: true, spec_note: "√4" }
+
+# 可關閉（規格表欄「是否支持关闭（SDK 采集维度）」為「支持」）：客戶 SDK 設定可關掉；closable: true 的屬性生成時允許整欄缺。
+# auto：規格表「是否无需手动调用，自动开启」；shown：「默认是否展示」（/＝不適用）。
+event_presets:
+  - { key: distinct_id, display: 用户 ID, type: STRING, category: 保留属性, platforms: [android, ios, js], auto: true, closable: false, shown: null, reserved: true, note: 没登录就是 device_id，登录就是登录后 id, spec_row: 4 }
+  - { key: time, display: 时间, type: DATETIME, category: 保留属性, platforms: [android, ios, js], auto: true, closable: false, shown: null, reserved: true, note: 日期+时间, spec_row: 5 }
+  - { key: $app_version, display: 应用版本, type: STRING, category: 基础预置属性, platforms: [android, ios], auto: true, closable: false, shown: true, note: 客户的 App 的版本, spec_row: 6 }
+  - { key: $is_first_day, display: 是否首日访问, type: BOOL, category: 基础预置属性, platforms: [android, ios, js], auto: true, closable: false, shown: true, note: "是不是当日首次触发；App 端和 JS 端所有事件都会自动采集，后端默认没有", spec_row: 7 }
+  - { key: $latitude, display: 纬度, type: NUMBER, category: 基础预置属性, platforms: [android, ios], auto: false, closable: true, shown: true, condition: manual_location, spec_row: 8 }
+  - { key: $longitude, display: 经度, type: NUMBER, category: 基础预置属性, platforms: [android, ios], auto: false, closable: true, shown: true, condition: manual_location, spec_row: 9 }
+  - { key: $url, display: 页面地址, type: STRING, category: 基础预置属性, platforms: [js], auto: true, closable: false, shown: true, note: "Android 和 iOS需要代码手动开启（規格表 App 欄未勾，App 不產生）", spec_row: 10 }
+  - { key: $bot_name, display: 爬虫名称, type: STRING, category: 基础预置属性, platforms: [js], auto: true, closable: true, shown: true, spec_row: 11 }
+  - { key: $receive_time, display: 服务端收到这个消息的时间, type: DATETIME, category: 基础预置属性, platforms: [android, ios, js], auto: true, closable: false, shown: false, spec_row: 12 }
+  - { key: $manufacturer, display: 设备制造商, type: STRING, category: 设备相关, platforms: [android, ios], auto: true, closable: false, shown: true, note: "Apple，Huawei，Xiaomi 等", spec_row: 13 }
+  - { key: $model, display: 设备型号, type: STRING, category: 设备相关, platforms: [android, ios], auto: true, closable: false, shown: true, spec_row: 14 }
+  - { key: $os, display: 操作系统, type: STRING, category: 设备相关, platforms: [android, ios, js], auto: true, closable: false, shown: true, spec_row: 15 }
+  - { key: $os_version, display: 操作系统版本, type: STRING, category: 设备相关, platforms: [android, ios, js], auto: true, closable: false, shown: true, spec_row: 16 }
+  - { key: $screen_height, display: 屏幕高度, type: NUMBER, category: 设备相关, platforms: [android, ios, js], auto: true, closable: false, shown: true, spec_row: 17 }
+  - { key: $screen_width, display: 屏幕宽度, type: NUMBER, category: 设备相关, platforms: [android, ios, js], auto: true, closable: false, shown: true, spec_row: 18 }
+  - { key: $wifi, display: 是否WIFI, type: BOOL, category: 设备相关, platforms: [android, ios], auto: true, closable: false, shown: true, spec_row: 19 }
+  - { key: $carrier, display: 运营商, type: STRING, category: 设备相关, platforms: [android, ios], auto: true, closable: false, shown: true, spec_row: 20 }
+  - { key: $network_type, display: 网络类型, type: STRING, category: 设备相关, platforms: [android, ios], auto: true, closable: false, shown: true, spec_row: 21 }
+  - { key: $device_id, display: 设备ID, type: STRING, category: 设备相关, platforms: [android, ios, js], auto: false, closable: false, shown: true, condition_by_platform: { js: js_track_device_id }, note: JSSDK 需要手动开启, spec_row: 22 }
+  - { key: $screen_orientation, display: 屏幕方向, type: STRING, category: 设备相关, platforms: [android, ios], auto: false, closable: false, shown: true, condition: manual_screen_orientation, spec_row: 23 }
+  - { key: $browser, display: 浏览器, type: STRING, category: 浏览器相关, platforms: [js], auto: true, closable: false, shown: true, spec_row: 24 }
+  - { key: $browser_version, display: 浏览器版本, type: STRING, category: 浏览器相关, platforms: [js], auto: true, closable: false, shown: true, spec_row: 25 }
+  - { key: $latest_referrer, display: 最近一次站外地址, type: STRING, category: latest 相关属性, platforms: [js], auto: true, closable: true, shown: true, spec_row: 26 }
+  - { key: $latest_referrer_host, display: 最近一次站外域名, type: STRING, category: latest 相关属性, platforms: [js], auto: true, closable: true, shown: true, spec_row: 27 }
+  - { key: $latest_search_keyword, display: 最近一次搜索引擎关键词, type: STRING, category: latest 相关属性, platforms: [js], auto: true, closable: true, shown: true, spec_row: 28 }
+  - { key: $latest_traffic_source_type, display: 最近一次流量来源类型, type: STRING, category: latest 相关属性, platforms: [js], auto: true, closable: true, shown: true, spec_row: 29 }
+  - { key: $latest_landing_page, display: 最近一次落地页, type: STRING, category: latest 相关属性, platforms: [js], auto: true, closable: true, shown: true, spec_row: 30 }
+  - { key: $latest_utm_campaign, display: 最近一次广告系列名称, type: STRING, category: latest 相关属性, platforms: [js], auto: true, closable: true, shown: true, spec_row: 31 }
+  - { key: $latest_utm_content, display: 最近一次广告系列内容, type: STRING, category: latest 相关属性, platforms: [js], auto: true, closable: true, shown: true, spec_row: 32 }
+  - { key: $latest_utm_medium, display: 最近一次广告系列媒介, type: STRING, category: latest 相关属性, platforms: [js], auto: true, closable: true, shown: true, spec_row: 33 }
+  - { key: $latest_utm_source, display: 最近一次广告系列来源, type: STRING, category: latest 相关属性, platforms: [js], auto: true, closable: true, shown: true, spec_row: 34 }
+  - { key: $latest_utm_term, display: 最近一次广告系列字词, type: STRING, category: latest 相关属性, platforms: [js], auto: true, closable: true, shown: true, spec_row: 35 }
+  - { key: $latest_scene, display: 最近一次启动场景, type: STRING, category: latest 相关属性, platforms: [], auto: true, closable: true, shown: true, note: 規格表三個 SDK 欄都未勾（小程序屬性），本系統不產生, spec_row: 36 }
+  - { key: $lib, display: SDK类型, type: STRING, category: SDK 相关, platforms: [android, ios, js], auto: true, closable: false, shown: true, spec_row: 37 }
+  - { key: $lib_version, display: SDK版本, type: STRING, category: SDK 相关, platforms: [android, ios, js], auto: true, closable: false, shown: false, spec_row: 38 }
+  - { key: $lib_method, display: 埋点方式, type: STRING, category: SDK 相关, platforms: [android, ios], auto: true, closable: false, shown: false, spec_row: 39 }
+  - { key: $lib_detail, display: 埋点细节, type: STRING, category: SDK 相关, platforms: [android, ios], auto: true, closable: true, shown: false, only_preset_events: true, note: 仅有预置事件才有, spec_row: 40 }
+  - { key: $ip, display: IP, type: STRING, category: 其他, platforms: [android, ios, js], auto: true, closable: null, shown: true, spec_row: 41 }
+  - { key: $country, display: 国家, type: STRING, category: 其他, platforms: [android, ios, js], auto: true, closable: null, shown: true, spec_row: 42 }
+  - { key: $city, display: 城市, type: STRING, category: 其他, platforms: [android, ios, js], auto: true, closable: null, shown: true, spec_row: 43 }
+  - { key: $province, display: 省份, type: STRING, category: 其他, platforms: [android, ios, js], auto: true, closable: null, shown: true, spec_row: 44 }
+
+# 只在特定事件才有的預置屬性（規格表註記）
+event_scoped_presets:
+  - { key: $is_first_time, type: BOOL, events: { android: [$AppStart], ios: [$AppStart], js: [$pageview] }, note: "只有 App 端的 $AppStart、JS 端的 $pageView 和小程序端的 $MPLaunch 事件有该属性；其他事件默认没有，但允许客户自己上传", spec_row: 68 }
+
+# 用戶表預置屬性（profile）。規格表這段的 SDK 欄順序是 JS／iOS／Android（與事件段相反），已逐欄對應。
+# collect: 該平台 SDK 會自動寫入的條件；reserved_only: 只保留欄位名、SDK 不自動採集（由客戶或 DMP 寫入）。
+user_presets:
+  - { key: $city, display: 城市, type: STRING, category: 保留字段, reserved_only: true, spec_row: 49 }
+  - { key: $province, display: 省份, type: STRING, category: 保留字段, reserved_only: true, spec_row: 50 }
+  - { key: $name, display: 用户名, type: STRING, category: 保留字段, reserved_only: true, spec_row: 51 }
+  - { key: $signup_time, display: 注册时间, type: DATETIME, category: 保留字段, reserved_only: true, spec_row: 52 }
+  - { key: $first_visit_time, display: 首次访问时间, type: DATETIME, category: first字段相关, collect: { js: first_visit_autotrack, ios: first_launch_track_installation, android: first_launch_track_installation }, spec_row: 53 }
+  - { key: $first_referrer, display: 首次前向地址, type: STRING, category: first字段相关, collect: { js: first_visit_autotrack }, spec_row: 54 }
+  - { key: $first_referrer_host, display: 首次前向域名, type: STRING, category: first字段相关, collect: { js: first_visit_autotrack }, spec_row: 55 }
+  - { key: $first_traffic_source_type, display: 首次流量来源类型, type: STRING, category: first字段相关, collect: { js: first_visit_autotrack }, note: （1.8支持）, spec_row: 56 }
+  - { key: $first_browser_language, display: 首次使用的浏览器语言, type: STRING, category: first字段相关, collect: { js: first_visit_autotrack }, spec_row: 57 }
+  - { key: $first_browser_charset, display: 首次浏览器字符类型, type: STRING, category: first字段相关, collect: { js: first_visit_autotrack }, note: （1.8支持）, spec_row: 58 }
+  - { key: $first_search_keyword, display: 首次搜索引擎关键词, type: STRING, category: first字段相关, collect: { js: first_visit_autotrack }, note: （1.8支持）, spec_row: 59 }
+  - { key: $utm_matching_type, display: 设备指纹模糊匹配/设备标识精准匹配, type: STRING, category: utm字段相关, collect: { ios: channel_tracking, android: channel_tracking }, spec_row: 60 }
+  - { key: $utm_source, display: 首次广告系列来源, type: STRING, category: utm字段相关, collect: { js: first_visit_autotrack_utm, ios: channel_tracking, android: channel_tracking }, spec_row: 61 }
+  - { key: $utm_medium, display: 首次广告系列媒介, type: STRING, category: utm字段相关, collect: { js: first_visit_autotrack_utm, ios: channel_tracking, android: channel_tracking }, spec_row: 62 }
+  - { key: $utm_term, display: 首次广告系列字词, type: STRING, category: utm字段相关, collect: { js: first_visit_autotrack_utm, ios: channel_tracking, android: channel_tracking }, spec_row: 63 }
+  - { key: $utm_content, display: 首次广告系列内容, type: STRING, category: utm字段相关, collect: { js: first_visit_autotrack_utm, ios: channel_tracking, android: channel_tracking }, spec_row: 64 }
+  - { key: $utm_campaign, display: 首次广告系列名称, type: STRING, category: utm字段相关, collect: { js: first_visit_autotrack_utm, ios: channel_tracking, android: channel_tracking }, spec_row: 65 }
+
+# 保留屬性名（神策預置）：自定義屬性不得使用這些名稱作為 properties 的 key；校驗時命中即報錯。
+reserved_property_names: [date, datetime, distinct_id, events, users, event, first_id, id, original_id, device_id, properties, second_id, time, user_id]   # spec_row 80–93
+
+# 待確認（不在規格表、本檔先依保守解讀，需客戶／Merkle 確認後改）：
+open_questions:
+  - 服務端／其它來源的事件（SERVER／OTHER）在 SDK 全埋點事件表仍列出 $ip、$lib、$lib_version、$is_login_id 等欄位；本檔不讓它們繼承 SDK 預置屬性，只帶事件規格表明列的屬性。
+  - 需手動開啟的屬性（定位、螢幕方向、JS 裝置 ID）客戶實際是否開啟未知；conditions.default 是模擬預設。
+  - $latest_scene 三個 SDK 欄都未勾，視為不適用。
