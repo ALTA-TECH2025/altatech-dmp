@@ -22,7 +22,7 @@ jobs:
             backend: ['backend/**']
             web: ['prototype/**', 'web/**']
             deploy: ['deploy/**', '.github/**']
-            contract: ['backend/openapi.yaml', 'backend/semantic/**', 'backend/mcp/tools.yaml', 'backend/security/*.yaml']
+            contract: ['backend/openapi.yaml', 'backend/semantic/*.yaml', 'backend/mcp/tools.yaml', 'backend/security/*.yaml']   # 契約 = 語意層 yaml（CLAUDE.md）；compiler/ 的程式不是契約
   contract:
     needs: changes
     runs-on: ubuntu-latest
@@ -36,8 +36,13 @@ jobs:
           python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True) if '/templates/' not in f]"
           python3 -m openapi_spec_validator backend/openapi.yaml
       - name: 契約變更需要 contract 標籤
-        if: needs.changes.outputs.contract == 'true' && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'contract')
-        run: echo "::error::改了契約檔但 PR 沒有 contract 標籤；請拆成獨立的 contract PR" && exit 1
+        # 讀 PR 目前的標籤而不是事件快照：開 PR 後才補標籤，重跑這個 job 就能過，不必再推一個 commit
+        if: needs.changes.outputs.contract == 'true' && github.event_name == 'pull_request'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          labels=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json labels -q '.labels[].name')
+          echo "PR 標籤：${labels:-（無）}"
+          echo "$labels" | grep -qx contract || { echo "::error::改了契約檔但 PR 沒有 contract 標籤；請拆成獨立的 contract PR（或補上標籤後重跑）"; exit 1; }
   backend:
     needs: changes
     if: needs.changes.outputs.backend == 'true'

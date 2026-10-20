@@ -11,7 +11,7 @@ export interface OutputFormat { type: 'csv' | 'jsonl' | 'parquet'; compression: 
 export interface OutputTaskCreate { name: string; type: OutputType; content: OutputContent; destination_id: string; format: OutputFormat; schedule?: { at?: string; end_date?: string }; purpose: string; retention_days: number; shared_roles?: string[] }
 export interface OutputFile { path: string; rows: number; bytes: number; checksum: string }
 export interface OutputRun { id: string; task_id: string; trigger: 'manual' | 'schedule' | 'realtime' | 'replay'; partition_date: string | null; started_at: string; finished_at: string | null; status: RunStatus; rows: number | null; bytes: number | null; files: OutputFile[]; delivery_ids: string[]; error: string | null; attempts: number; watermark: string | null }
-export interface OutputTask extends OutputTaskCreate { id: string; status: OutputStatus; approval_id: string | null; masked: Record<string, string>; rows_estimate: number | null; owner: string; created_at: string; updated_at: string; last_run: OutputRun | null; runs?: OutputRun[] }
+export interface OutputTask extends OutputTaskCreate { id: string; status: OutputStatus; approval_id: string | null; destination_approval_id?: string | null; pending_approvals?: string[]; masked: Record<string, string>; rows_estimate: number | null; owner: string; created_at: string; updated_at: string; last_run: OutputRun | null; runs?: OutputRun[] }
 export interface PreviewColumn { name: string; cn?: string; level: string; policy: string }
 export interface OutputPreview { columns: PreviewColumn[]; rejected: string[]; rows_estimate: number; scan_rows_estimate: number; sample: Record<string, unknown>[]; warnings: string[]; partition_date?: string | null }
 

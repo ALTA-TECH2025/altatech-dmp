@@ -205,16 +205,25 @@ def compile_attribution(aq: AttributionQuery, cat: Catalog | None = None, decisi
     mid = (f"SELECT *, maxIf(c_t, g != 0) OVER () AS conversions, maxIf(cu_t, g != 0) OVER () AS converters, maxIf(t_t, g != 0) OVER () AS touched, "
            f"maxIf(v_t, g != 0) OVER () AS total_value, maxIf(a_t, g != 0) OVER () AS avg_touches FROM ({inner})")
     vals = [f"{m}_{x}" for m in aq.models for x in ("conv", "val")]
-    sel = gcols + ([f"if(_k < {k}, NULL, {c}) AS {c}" for c in vals] if k else vals) + ["_k", "conversions", "converters", "touched", "total_value", "avg_touches"] + ([f"_k < {k} AS suppressed"] if k else [])
+    from .policy import budget, mask_sql
+    fp: dict[str, str] = dict(getattr(decision, "field_policies", {}) or {}) if decision is not None else {}
+    vpol = fp.get(aq.value.name, "plain") if aq.value else "plain"                 # 價值欄位（金額）的遮罩策略：模型金額與 summary 的 total_value 同套（行銷只看區間）
+    masked: dict[str, str] = {}
+    def outv(c: str) -> str:
+        e = f"if(_k < {k}, NULL, {c})" if k else c
+        if vpol != "plain" and (c.endswith("_val") or c == "total_value"):
+            masked[c] = vpol; e = mask_sql(vpol, e, "number")
+        return f"{e} AS {c}"
+    sel = gcols + [outv(c) for c in vals] + ["_k", "conversions", "converters", "touched", outv("total_value"), "avg_touches"] + ([f"_k < {k} AS suppressed"] if k else [])
     sql = f"WITH {parts.with_sql} SELECT {', '.join(sel)} FROM ({mid}) WHERE g = 0 AND ti >= 0 ORDER BY {', '.join(gcols)}"
-    from .policy import budget
     cols = gcols + vals + ["_k", "conversions", "converters", "touched", "total_value", "avg_touches"] + (["suppressed"] if k else [])
     fields = _fields(aq)
     lineage = ["dmp.events", f"event:{aq.target}"] + [f"event:{t.event}" for t in aq.touches] + (["dmp.users_dict"] if any(f.kind == "user_hot" for f in fields) else []) \
         + (["dmp.users"] if parts.ctx.cold else []) + (["dmp.segment_members"] if any(f.kind == "segment" for f in fields) else [])
     warnings = list(parts.warnings)
     if aq.sample: warnings.append(f"抽樣 {aq.sample}（按用戶分桶）")
-    return Compiled(sql=sql, layer="L0", columns=cols, settings=budget(profile), lineage=sorted(set(lineage)), warnings=warnings, k_anonymity=k, masked={}, row_filters=parts.row_filters)
+    if masked: warnings.append(f"價值欄位 {aq.value.key if aq.value else ''} 對此身分只給區間：模型金額與總價值為區間標籤")
+    return Compiled(sql=sql, layer="L0", columns=cols, settings=budget(profile), lineage=sorted(set(lineage)), warnings=warnings, k_anonymity=k, masked=masked, row_filters=parts.row_filters)
 
 
 def _fields(aq: AttributionQuery) -> list[FieldRef]:
@@ -239,8 +248,8 @@ def shape(rows: list[dict[str, Any]], aq: AttributionQuery) -> dict[str, Any]:
         models = {}
         for m in aq.models:
             c = r.get(f"{m}_conv"); v = r.get(f"{m}_val")
-            models[m] = {"conversions": None if sup or c is None else float(c), "value": None if sup or v is None else float(v), "share": None if sup or c is None or not conv_total else round(float(c) / conv_total, 4)}
+            models[m] = {"conversions": None if sup or c is None else float(c), "value": None if sup or v is None else (v if isinstance(v, str) else float(v)), "share": None if sup or c is None or not conv_total else round(float(c) / conv_total, 4)}   # 區間化時 value 是標籤字串
         out.append({"touch": t.alias, "event": t.event, "split": r.get("sp") if aq.split else None, "models": models, "users": None if sup else int(r["_k"]), "suppressed": sup})
     summary = {"conversions": conv_total, "converters": int(first.get("converters") or 0), "touched": int(first.get("touched") or 0), "untouched": conv_total - int(first.get("touched") or 0),
-               "value": float(first.get("total_value") or 0), "avg_touches": None if first.get("avg_touches") is None else float(first["avg_touches"])}
+               "value": first["total_value"] if isinstance(first.get("total_value"), str) else float(first.get("total_value") or 0), "avg_touches": None if first.get("avg_touches") is None else float(first["avg_touches"])}
     return {"rows": out, "summary": summary, "models": list(aq.models)}

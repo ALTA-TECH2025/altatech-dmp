@@ -121,7 +121,7 @@ paths:
     put: { tags: [Exports], summary: '編輯任務（名稱、排程、結束日、格式、內容選擇；改輸出內容或目的地視同新任務，重走審批）；審計 output_task.updated', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/OutputTaskCreate' } } } }, responses: { '200': { description: ok } } }
     delete: { tags: [Exports], summary: '刪除任務（已有執行紀錄的保留紀錄，狀態改 deleted；審計 output_task.deleted）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '204': { description: deleted } } }
   /v1/exports/tasks/{id}/run:
-    post: { tags: [Exports], summary: '立即執行一次（once：整段期間；daily：指定 partition_date，預設昨天；realtime 不適用）；需任務 active 或 approved；回執行摘要；審計 output_task.run', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { partition_date: { type: string, format: date } } } } } }, responses: { '202': { description: accepted, content: { application/json: { schema: { $ref: '#/components/schemas/OutputRun' } } } }, '409': { description: 任務未核可、已暫停或已結束 } } }
+    post: { tags: [Exports], summary: '立即執行一次（once：整段期間；daily：指定 partition_date，預設昨天；realtime 不適用）；需任務 active 或 approved；執行前重驗目的地啟用中且（首次使用）系統管理員核可仍對應目前設定，否則記 skipped 並回 409；排程以擁有者現在的有效角色執行（撤權／到期即停）；回執行摘要；審計 output_task.run／run_skipped／run_failed', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { partition_date: { type: string, format: date } } } } } }, responses: { '202': { description: accepted, content: { application/json: { schema: { $ref: '#/components/schemas/OutputRun' } } } }, '409': { description: 任務未核可、已暫停或已結束 } } }
   /v1/exports/tasks/{id}/pause:
     post: { tags: [Exports], summary: '暫停／恢復（daily 暫停期間不排程、realtime 停止寫入；恢復後不補跑，缺的分區用 run 指定 partition_date 補）；審計 output_task.paused／resumed', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
   /v1/exports/tasks/{id}/runs:
@@ -1042,7 +1042,7 @@ components:
       type: object
       properties:
         id: { type: string }
-        type: { type: string, enum: [export, output_task, segment, push, reveal_l2, reveal_l3, agent_proposal, role_change, break_glass, dashboard_schedule], description: 類型決定審批角色（docs/10 §6）；output_task = 資料輸出任務（數位經營；目的地首次使用另需系統管理員）；role_change／break_glass 一律不可自審；dashboard_schedule = 看板定時寄送（數位經營） }
+        type: { type: string, enum: [export, output_task, destination_first_use, segment, push, reveal_l2, reveal_l3, agent_proposal, role_change, break_glass, dashboard_schedule], description: 類型決定審批角色（docs/10 §6）；output_task = 資料輸出任務（數位經營）；destination_first_use = 目的地首次使用（系統管理員；與 output_task 兩道都核可任務才生效，目的地設定變更後重開）；role_change／break_glass 一律不可自審；dashboard_schedule = 看板定時寄送（數位經營） }
         requester: { type: string }
         approver_roles: { type: array, items: { type: string } }
         summary: { type: string, description: 一行說明（給審批者看） }
@@ -1077,7 +1077,7 @@ components:
         columns: { type: array, items: { type: string }, description: '欄位清單（事件：固定欄與 props.<key>；用戶：user.<key>）；空＝該敏感等級內的全部欄位；L3／L4 一律拒絕' }
         filters: { description: 同 SemanticQuery.filters（事件）或 UsersQuery.filters（用戶） }
         segment_id: { type: string, description: 'kind=segment_members；輸出 one_id／customer_code（代碼化）與選的標籤' }
-        time: { type: object, properties: { from: { type: string, format: date }, to: { type: string, format: date } }, description: 'once：期間（事件依 event_date；用戶依 updated_at）；daily 不用（每次一個分區）' }
+        time: { type: object, properties: { from: { type: string, format: date }, to: { type: string, format: date } }, description: 'once：期間（事件依 event_date；用戶寬表依 updated_at，台北日含兩端）；daily 不用（事件＝分區日、用戶寬表＝分區日有更新的用戶）；segment_members 不套期間（最新版本完整快照，傳了會被忽略）' }
         identifier: { type: string, enum: [one_id, customer_code], default: one_id, description: 用戶識別子；customer_code 為代碼化值 }
     OutputFormat:
       type: object
@@ -1085,7 +1085,7 @@ components:
         type: { type: string, enum: [csv, jsonl, parquet], default: csv, description: realtime 固定 jsonl（每條一筆） }
         compression: { type: string, enum: [none, gzip, zstd], default: gzip }
         partition: { type: string, enum: [none, day], default: day, description: 按日分檔（檔名含 partition_date） }
-        file_pattern: { type: string, default: '{task}/{date}/{task}_{date}_{seq}.{ext}', description: 遠端檔名樣板；變數 task／date／seq／ext }
+        file_pattern: { type: string, default: '{task}/{date}/{task}_{date}_{seq}.{ext}', description: 遠端檔名樣板；變數 task／date／seq／ext；相對路徑、不得含 ..（只能落在目的地目錄內） }
         max_rows_per_file: { type: integer, minimum: 10000, maximum: 5000000, default: 1000000 }
         header: { type: boolean, default: true, description: csv 表頭 }
         manifest: { type: boolean, default: true, description: 每次執行附 manifest.json（檔案、列數、校驗碼、浮水印） }
@@ -1096,7 +1096,9 @@ components:
           properties:
             id: { type: string }
             status: { type: string, enum: [pending_approval, approved, active, paused, rejected, ended, deleted], description: approved＝核可未開始（once 等 run；daily 到時自動 active） }
-            approval_id: { type: string, nullable: true }
+            approval_id: { type: string, nullable: true, description: 資料面審批單（output_task） }
+            destination_approval_id: { type: string, nullable: true, description: 目的地首次使用的系統管理員審批單（destination_first_use）；不需要時 null }
+            pending_approvals: { type: array, items: { type: string }, description: 還沒核可的審批單；空＝全部過 }
             masked: { type: object, additionalProperties: { type: string }, description: 輸出欄 → 遮罩策略（與匯出同） }
             rows_estimate: { type: integer, nullable: true }
             owner: { type: string }
@@ -1113,7 +1115,7 @@ components:
         partition_date: { type: string, format: date, nullable: true }
         started_at: { type: string, format: date-time }
         finished_at: { type: string, format: date-time, nullable: true }
-        status: { type: string, enum: [running, ok, failed, retrying, skipped], description: 'skipped＝分區沒有資料或任務暫停' }
+        status: { type: string, enum: [running, ok, failed, retrying, skipped], description: 'skipped＝分區沒有資料、目的地已暫停、或目的地設定變更待系統管理員重新核可（error 說明原因，不會上傳）' }
         rows: { type: integer, nullable: true }
         bytes: { type: integer, nullable: true }
         files: { type: array, items: { type: object, properties: { path: { type: string }, rows: { type: integer }, bytes: { type: integer }, checksum: { type: string, description: sha256 } } } }
