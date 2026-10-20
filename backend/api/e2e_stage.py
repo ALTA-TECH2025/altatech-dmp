@@ -35,7 +35,7 @@ def api_stage(ch: Any) -> None:
     cat = Catalog()
     checked = 0; checked_users = 0
     for role, user in (("admin", "adm"), ("marketing", "mkt")):
-        s = sm.create(user_id=f"entra:{user}", username=user, name=user, email="", provider="entra", roles=[role], groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()))
+        s = sm.create(user_id=f"entra:{user}", username=user, name=user, email="", provider="entra", roles=[role], groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()), base_roles=[role])
         c.cookies.set("dmp_sid", s.sid); c.cookies.set("dmp_csrf", s.csrf); c.headers["X-CSRF-Token"] = s.csrf
         for name, raw, _ in QUERIES[:8]:                      # 前 8 條黃金查詢（走 MV 與明細都有）
             q = {**raw, "project": PROJECT}
@@ -77,7 +77,7 @@ def api_stage(ch: Any) -> None:
             assert (body["next_cursor"] is not None) == (len(direct) == 20) and (("one_id" not in body["masked"]) if role == "admin" else ("one_id" in body["masked"])), name   # admin：one_id 明文，但 L2 分數仍區間
             checked_users += 1
     # 細查：數據分析（one_id 遮罩）看畫像／序列／身分圖 == 直接 SQL；範圍外 404；審計有 reason 無明文 one_id
-    s = sm.create(user_id="entra:ana", username="ana", name="ana", email="", provider="entra", roles=["data_analyst"], groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()))
+    s = sm.create(user_id="entra:ana", username="ana", name="ana", email="", provider="entra", roles=["data_analyst"], groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()), base_roles=["data_analyst"])
     c.cookies.set("dmp_sid", s.sid); c.cookies.set("dmp_csrf", s.csrf); c.headers["X-CSRF-Token"] = s.csrf
     oid = run_sql(ch, "SELECT one_id FROM dmp.id_edges FINAL WHERE source LIKE 'golden.%' ORDER BY one_id LIMIT 1", {})[0]["one_id"]
     d = authorize(Subject("entra:ana", ["data_analyst"]), "use", "profile", {"reason": "e2e"})

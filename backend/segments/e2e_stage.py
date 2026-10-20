@@ -28,7 +28,7 @@ def segments_stage(ch: Any) -> None:
     app = create_app(AuthService(cfg, {}, sm, None), store, ch, svc)
     c = TestClient(app, base_url="https://dmp.internal")
     def login(roles: list[str], user: str) -> None:
-        s = sm.create(user_id=f"entra:{user}", username=user, name=user, email="", provider="entra", roles=roles, groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()))
+        s = sm.create(user_id=f"entra:{user}", username=user, name=user, email="", provider="entra", roles=roles, groups=[], amr=["pwd", "mfa"], auth_time=int(time.time()), base_roles=roles)
         c.cookies.set("dmp_sid", s.sid); c.cookies.set("dmp_csrf", s.csrf); c.headers["X-CSRF-Token"] = s.csrf
     ds = build(); oracle = Oracle(ds.events, ds.users, ds.segments)
     expect = {name[:3]: oracle.run_users(parse_users({**raw, "project": PROJECT}, cat), decision_of(spec)) for name, raw, spec in USERS}
