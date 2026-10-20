@@ -339,16 +339,21 @@ ENGINE = ReplicatedAggregatingMergeTree('/ch/{shard}/dmp.events_daily_agg_stage'
 PARTITION BY event_date
 ORDER BY (project, event_date, event, platform, channel, utm_source);
 
--- 重建意圖：載入路徑先把「要重建的日期」寫進來，再清舊版本／寫入新版本；該日 REPLACE PARTITION 成功才刪掉。
--- 寫入與重建之間中斷時，下一次載入（哪怕整批內容相同）會先把這裡的日期重建掉——重試不會把錯的彙總當成功。
+-- 日彙總重建的標記日誌（append-only）：寫入者在清舊版本／寫入之前為每個要重建的日期登記 phase 0（帶租約），資料落地後記 phase 1；
+-- 重建把「這批 ∪ 還沒 phase 2 的日期」重做，只確認（phase 2）落地早於自己快照、或租約過期沒落地的標記；在自己快照之後才落地的
+-- 留給下一次重建。多個寫入者／重建交錯都不會把別人的恢復工作吃掉；中斷後的重試（哪怕一筆不寫）會先修好彙總。
+-- 重建用「與 events_daily_agg_stage 同結構」的私有暫存表（SHOW CREATE 換名建、用完即丟），stage 本身只是範本。
 CREATE TABLE IF NOT EXISTS dmp.events_daily_agg_pending
 (
     event_date   Date,
-    batch_id     String,
-    requested_at DateTime64(3, 'UTC') DEFAULT now64(3)
+    id           String,                               -- 寫入者／重建者在這一天的標記
+    phase        UInt8,                                -- 0 登記（帶租約）、1 資料已落地、2 已由某次重建確認
+    owner        String,                               -- batch_id／rebuild／cli
+    at           DateTime64(3, 'UTC') DEFAULT now64(3),
+    lease_until  DateTime64(3, 'UTC')                  -- phase 0 用：過期就不准再寫
 )
 ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.events_daily_agg_pending', '{replica}')
-ORDER BY (event_date, batch_id);
+ORDER BY (event_date, id, phase, at);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS dmp.events_daily_agg_mv TO dmp.events_daily_agg
 AS SELECT project, event_date, event, platform, channel, utm_source,

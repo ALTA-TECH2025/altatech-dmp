@@ -288,45 +288,63 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
     assert ch.query("SELECT one_id FROM dmp.events FINAL WHERE event_id = 'agg-fix-1' FORMAT TSV").strip() == "v1_rewritten"
     v2 = verify(ch, "2026-09-02"); assert v2["events_cnt"] == v2["agg_cnt"] == 51 and v2["events_users"] == v2["agg_users"] == 2, v2   # v1_abc + v1_rewritten
     assert ch.scalar("SELECT uniqMerge(users) FROM dmp.events_daily_agg WHERE event_date = toDate('2026-09-02') AND event = 'bond_deal'") == 1
-    # 複審 P1：寫入與重建之間中斷 → 重試不能把錯的彙總當成功。重建意圖先落地（events_daily_agg_pending），每次載入都把標記裡的日期重建掉
+    # 複審 P1：寫入與重建之間中斷 → 重試不能把錯的彙總當成功；再複審 P1：多個寫入者／重建交錯不能把別人的恢復工作吃掉。
+    # 標記日誌（events_daily_agg_pending）：寫入者 begin（phase 0 + 租約）→ 寫入 → landed（phase 1）；重建只確認落地早於自己快照的標記，
+    # 快照之後有人落地就再快照一次。測試把租約與餘量縮短（LEASE 4 秒、餘量 1 秒）好等得到過期。
+    import time
+
     from . import aggregates as agg_mod
-    from .aggregates import mark_pending, pending_dates
+    from .aggregates import LeaseExpired, Rebuild, begin, pending_dates
     assert pending_dates(ch) == [], pending_dates(ch)                                                                         # 前面的正常路徑沒有殘留標記
+    lease0, margin0 = agg_mod.LEASE_S, agg_mod.MARGIN_S; agg_mod.LEASE_S, agg_mod.MARGIN_S = 4, 1
+    settle = lambda: time.sleep(agg_mod.MARGIN_S + 0.5)                                                                       # 等過餘量：落地時間要早於下一次快照減餘量才會被確認
+    expire = lambda: time.sleep(agg_mod.LEASE_S + agg_mod.MARGIN_S + 0.5)                                                     # 等租約過期
+    no_tmp = lambda: ch.scalar("SELECT count() FROM system.tables WHERE database = 'dmp' AND name LIKE 'events_daily_agg_stage_%'") == 0
     cr = {**row, "event_id": "agg-crash-1", "time": "2026-09-03 01:00:00.000", "amount": 1000.0, "props": {"market": "TSE"}, "batch_id": "c0", "ingest_time": "2026-09-03 01:00:00.000"}
     ch.insert_json("dmp.events", [cr]); rebuild(ch, ["2026-09-03"]); v = verify(ch, "2026-09-03"); assert v["events_cnt"] == v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6, v
 
     def protocol(new_rows: list[dict[str, Any]], batch: str, crash_after: str | None = None) -> Any:
-        """與 runner 相同的順序：dedupe → 標記 → 清舊版本 → 寫入 → 重建；crash_after 指定在哪一步之後中斷"""
-        d = dedupe(ch, new_rows); mark_pending(ch, d.rebuild, batch)
+        """與 runner 相同的順序：dedupe → begin（標記）→ 清舊版本 → 寫入 → landed → 重建；crash_after 指定在哪一步之後中斷"""
+        d = dedupe(ch, new_rows); m = begin(ch, d.rebuild, batch)
         if crash_after == "mark": return d
-        if d.stale: purge_stale(ch, d.stale)
+        if d.stale: m.check(); purge_stale(ch, d.stale)
         if crash_after == "purge": return d
-        if d.rows: ch.insert_json("dmp.events", d.rows)
-        if crash_after == "insert": return d
-        if crash_after == "stage":                                                                                            # REPLACE PARTITION 之前中斷：暫存表已有算好的分區
-            for dd in sorted(d.rebuild | set(pending_dates(ch))): ch.query("INSERT INTO dmp.events_daily_agg_stage " + agg_mod.AGG_SELECT.format(d=dd))
-            return d
+        if d.rows: m.check(); ch.insert_json("dmp.events", d.rows)
+        if crash_after == "insert": return d                                                                                  # 落地了但還沒記 phase 1（標記要等租約過期才會被確認）
+        m.landed()
+        if crash_after == "landed": return d
+        if crash_after == "stage":                                                                                            # REPLACE 之前中斷：私有暫存表留著
+            r = Rebuild(ch, sorted(d.rebuild | set(pending_dates(ch)))[0], batch); r.mark(); r.snapshot(); return d
         rebuild(ch, d.rebuild, batch); return d
-    # (a) 寫入後、重建前中斷（Codex 的重現）：props 改了 → 新版本進倉、MV 多算 → agg=2、金額差 1000；重試整批內容相同、一筆不寫，仍要補重建
+    # (a) 落地後、重建前中斷（Codex 的重現）：props 改了 → 新版本進倉、MV 多算 → agg=2、金額差 1000；重試整批內容相同、一筆不寫，仍要補重建並確認標記
     c1 = {**cr, "props": {"market": "US"}, "ingest_time": "2026-09-03 02:00:00.000", "batch_id": "c1"}
-    d = protocol([c1], "c1", crash_after="insert"); assert len(d.rows) == 1 and pending_dates(ch) == ["2026-09-03"], (d, pending_dates(ch))
+    d = protocol([c1], "c1", crash_after="landed"); assert len(d.rows) == 1 and pending_dates(ch) == ["2026-09-03"], (d, pending_dates(ch))
     v = verify(ch, "2026-09-03"); assert v["events_cnt"] == 1 and v["agg_cnt"] == 2 and abs(v["amount_diff"] - 1000) < 1e-6, v         # 中斷留下的錯誤狀態
-    d = protocol([{**c1, "batch_id": "c1r"}], "c1r"); assert d.skipped == 1 and d.rebuild == set(), d
+    settle(); d = protocol([{**c1, "batch_id": "c1r"}], "c1r"); assert d.skipped == 1 and d.rebuild == set(), d
     v = verify(ch, "2026-09-03"); assert v["events_cnt"] == v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [], (v, pending_dates(ch))
-    # (b) 跨日更正：清舊版本後、寫入前中斷 → 底表已沒有這筆、舊日彙總還留著；重試時倉裡沒有舊版本（只推得出新日期），舊日的修復靠標記：舊日 0、新日 1、金額正確
-    c2 = {**c1, "time": "2026-09-04 01:00:00.000", "ingest_time": "2026-09-03 03:00:00.000", "batch_id": "c2"}
+    # (a2) 寫入後、記 phase 1 前中斷：標記只有 phase 0 → 每次重建都會重做那天但不確認它（寫入者可能還在寫）；租約過期後才確認
+    c1b = {**c1, "props": {"market": "HK"}, "ingest_time": "2026-09-03 02:30:00.000", "batch_id": "c1b"}
+    protocol([c1b], "c1b", crash_after="insert"); assert verify(ch, "2026-09-03")["agg_cnt"] == 2
+    settle(); protocol([{**c1b, "batch_id": "c1br"}], "c1br"); v = verify(ch, "2026-09-03"); assert v["events_cnt"] == v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6 and pending_dates(ch) == ["2026-09-03"], (v, pending_dates(ch))
+    expire(); rebuild(ch, []); assert pending_dates(ch) == [] and verify(ch, "2026-09-03")["agg_cnt"] == 1
+    # (b) 跨日更正：清舊版本後、寫入前中斷 → 底表已沒有這筆、舊日彙總還留著；重試時倉裡沒舊版本、推不出舊日期，舊日的修復靠標記：舊日 0、新日 1、金額正確
+    c2 = {**c1b, "time": "2026-09-04 01:00:00.000", "ingest_time": "2026-09-03 03:00:00.000", "batch_id": "c2"}
     d = protocol([c2], "c2", crash_after="purge"); assert d.stale and d.rebuild == {"2026-09-03", "2026-09-04"} and pending_dates(ch) == ["2026-09-03", "2026-09-04"], (d, pending_dates(ch))
     assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_id = 'agg-crash-1'") == 0 and verify(ch, "2026-09-03")["agg_cnt"] == 1
-    d = protocol([{**c2, "batch_id": "c2r"}], "c2r"); assert len(d.rows) == 1 and d.rebuild == set() and d.stale == [], d          # 倉裡已沒有舊版本 → 當新事件，推不出任何要重建的日期
+    settle(); d = protocol([{**c2, "batch_id": "c2r"}], "c2r"); assert len(d.rows) == 1 and d.rebuild == set() and d.stale == [], d          # 倉裡已沒有舊版本 → 當新事件
     v3, v4 = verify(ch, "2026-09-03"), verify(ch, "2026-09-04")
-    assert v3["events_cnt"] == v3["agg_cnt"] == 0 and v4["events_cnt"] == v4["agg_cnt"] == 1 and v3["amount_diff"] < 1e-6 and v4["amount_diff"] < 1e-6 and pending_dates(ch) == [], (v3, v4, pending_dates(ch))
+    assert v3["events_cnt"] == v3["agg_cnt"] == 0 and v4["events_cnt"] == v4["agg_cnt"] == 1 and v3["amount_diff"] < 1e-6 and v4["amount_diff"] < 1e-6, (v3, v4)
     assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_id = 'agg-crash-1'") == 1
-    # (c) REPLACE PARTITION 前中斷（暫存表留著算好的分區）、(d) REPLACE 後、標記刪除前中斷：重試只是再算一次，結果不變、標記清空
+    expire(); rebuild(ch, []); assert pending_dates(ch) == [], pending_dates(ch)                                              # c2 的 phase 0 標記租約過期後被確認
+    # (c) REPLACE 前中斷（私有暫存表留著）、(d) REPLACE 後、確認前中斷：重試只是再算一次，結果不變、暫存表清掉、標記確認
     c3 = {**c2, "props": {"market": "JP"}, "ingest_time": "2026-09-03 04:00:00.000", "batch_id": "c3"}
-    protocol([c3], "c3", crash_after="stage"); assert pending_dates(ch) == ["2026-09-04"] and verify(ch, "2026-09-04")["agg_cnt"] == 2, verify(ch, "2026-09-04")
-    protocol([{**c3, "batch_id": "c3r"}], "c3r"); v4 = verify(ch, "2026-09-04"); assert v4["events_cnt"] == v4["agg_cnt"] == 1 and v4["amount_diff"] < 1e-6 and pending_dates(ch) == [], v4
-    mark_pending(ch, ["2026-09-04"], "c4-after-replace")
-    protocol([{**c3, "batch_id": "c4r"}], "c4r"); v4 = verify(ch, "2026-09-04"); assert v4["events_cnt"] == v4["agg_cnt"] == 1 and v4["amount_diff"] < 1e-6 and pending_dates(ch) == [], v4
+    protocol([c3], "c3", crash_after="stage"); assert pending_dates(ch) == ["2026-09-04"] and verify(ch, "2026-09-04")["agg_cnt"] == 2 and not no_tmp()
+    settle(); protocol([{**c3, "batch_id": "c3r"}], "c3r"); v4 = verify(ch, "2026-09-04"); assert v4["events_cnt"] == v4["agg_cnt"] == 1 and v4["amount_diff"] < 1e-6, v4
+    ch.query("DROP TABLE IF EXISTS " + ch.query("SELECT name FROM system.tables WHERE database = 'dmp' AND name LIKE 'events_daily_agg_stage_%' LIMIT 1 FORMAT TSV").strip().join(["dmp.", ""]))   # 中斷留下的暫存表（營運清理）
+    expire(); rebuild(ch, []); assert pending_dates(ch) == [] and no_tmp(), pending_dates(ch)
+    r = Rebuild(ch, "2026-09-04", "c4"); r.mark(); r.snapshot(); r.replace()                                                  # (d) REPLACE 後、確認前中斷
+    assert pending_dates(ch) == ["2026-09-04"]; settle(); rebuild(ch, []); v4 = verify(ch, "2026-09-04"); assert v4["agg_cnt"] == 1 and v4["amount_diff"] < 1e-6
+    expire(); rebuild(ch, []); assert pending_dates(ch) == [], pending_dates(ch)
     # (e) 真的 runner（GA4 路徑）：rebuild 丟例外模擬中斷 → 下一次同內容的 run 一筆不寫，但補重建並寫進 log
     for ev in bq.tables["ds.events_intraday_20260902"]: ev["session_traffic_source_last_click"]["manual_campaign"]["source"] = "bing"      # 內容再變
     def boom(*a: Any, **k: Any) -> Any: raise RuntimeError("simulated crash before rebuild")
@@ -335,12 +353,46 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
     except RuntimeError: pass
     finally: agg_mod.rebuild = orig
     assert pending_dates(ch) == ["2026-09-02"] and ch.scalar("SELECT count() FROM dmp.events WHERE batch_id = 'g4'") == 50 and verify(ch, "2026-09-02")["agg_cnt"] == 101, verify(ch, "2026-09-02")
-    runner.run(task, watermark=None, batch_id="g5", known_fields=None, now=now + timedelta(minutes=60), log=log.append)
+    settle(); runner.run(task, watermark=None, batch_id="g5", known_fields=None, now=now + timedelta(minutes=60), log=log.append)
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id = 'g5'") == 0 and any("incl. pending from an interrupted run" in x for x in log[-4:]), log[-4:]
     v = verify(ch, "2026-09-02"); assert v["events_cnt"] == v["agg_cnt"] == 51 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [], (v, pending_dates(ch))
+    # (f) 再複審 P1 的交錯（barrier 式）：A 重建快照（amount=1000）後暫停 → B 把同事件改成 2000、標記、寫入、落地後中斷 → A 換分區。
+    #     A 看得到「有人在我快照後落地」→ 再快照一次才確認；B 的標記不會被舊快照吃掉。B 原樣重試：一筆不寫，彙總已對、標記空。
+    w = {**row, "event_id": "agg-race-1", "time": "2026-09-05 01:00:00.000", "amount": 1000.0, "batch_id": "r0", "ingest_time": "2026-09-05 01:00:00.000"}
+    ch.insert_json("dmp.events", [w]); rebuild(ch, ["2026-09-05"]); assert verify(ch, "2026-09-05")["amount_diff"] < 1e-6
+    A = Rebuild(ch, "2026-09-05", "A"); A.mark(); A.snapshot()                                                                # A：快照後暫停
+    wb = {**w, "amount": 2000.0, "ingest_time": "2026-09-05 02:00:00.000", "batch_id": "B"}
+    dB = dedupe(ch, [wb]); assert dB.rebuild == {"2026-09-05"}; mB = begin(ch, dB.rebuild, "B"); mB.check(); ch.insert_json("dmp.events", dB.rows); mB.landed()   # B：落地後中斷
+    A.replace(); assert A.newer_landed(), "A 必須看到 B 在它快照後落地"                                                       # A：拿舊快照換分區（金額還是 1000）
+    v = verify(ch, "2026-09-05"); assert abs(v["amount_diff"] - 1000) < 1e-6, v                                                # 此刻彙總是錯的（舊快照）
+    settle(); A.snapshot(); A.replace(); assert not A.newer_landed(); acked = A.ack()                                           # A：再快照 → 對了 → 確認（含 B）
+    v = verify(ch, "2026-09-05"); assert v["events_cnt"] == v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [] and mB.ids["2026-09-05"] in acked, (v, acked)
+    settle(); d = protocol([{**wb, "batch_id": "Br"}], "Br"); assert d.skipped == 1 and verify(ch, "2026-09-05")["amount_diff"] < 1e-6 and pending_dates(ch) == []   # B 原樣重試
+    # (f2) 同一交錯但 A 不做「再快照」（舊協定的行為）：確認只會確認落地早於 A 快照的標記 → B 的標記留著 → 下一次重建修好
+    A = Rebuild(ch, "2026-09-05", "A2"); A.mark(); A.snapshot()
+    wc = {**wb, "amount": 3000.0, "ingest_time": "2026-09-05 03:00:00.000", "batch_id": "C"}
+    dC = dedupe(ch, [wc]); mC = begin(ch, dC.rebuild, "C"); ch.insert_json("dmp.events", dC.rows); mC.landed()
+    A.replace(); acked = A.ack(); assert mC.ids["2026-09-05"] not in acked and pending_dates(ch) == ["2026-09-05"], (acked, pending_dates(ch))   # C 沒被吃掉
+    assert abs(verify(ch, "2026-09-05")["amount_diff"] - 1000) < 1e-6
+    settle(); rebuild(ch, []); v = verify(ch, "2026-09-05"); assert v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [], v
+    # (g) 兩個重建同一天競爭 + 中間有寫入者落地：A 快照 → W 落地 → B 完整重建（含確認 W）→ A 用舊快照換分區 → A 看到更新的落地 → 再快照。私有暫存表互不干擾、沒有空來源誤刪分區
+    A = Rebuild(ch, "2026-09-05", "A3"); A.mark(); A.snapshot()
+    wd = {**wc, "amount": 4000.0, "ingest_time": "2026-09-05 04:00:00.000", "batch_id": "W"}
+    dW = dedupe(ch, [wd]); mW = begin(ch, dW.rebuild, "W"); ch.insert_json("dmp.events", dW.rows); mW.landed()
+    settle(); B = Rebuild(ch, "2026-09-05", "B3"); assert mW.ids["2026-09-05"] in B.run() and verify(ch, "2026-09-05")["amount_diff"] < 1e-6
+    A.replace(); assert abs(verify(ch, "2026-09-05")["amount_diff"] - 1000) < 1e-6 and A.newer_landed()                      # A 的舊快照蓋掉了 B 的正確結果，但 A 自己會發現
+    A.snapshot(); A.replace(); assert not A.newer_landed(); A.ack()
+    v = verify(ch, "2026-09-05"); assert v["events_cnt"] == v["agg_cnt"] == 1 and v["amount_diff"] < 1e-6 and pending_dates(ch) == [] and no_tmp(), v
+    # (h) 租約圍籬：標記後拖太久的寫入者不准再寫；它的標記在租約過期後由任何重建確認
+    slow = begin(ch, ["2026-09-05"], "slow"); slow.check(); time.sleep(agg_mod.LEASE_S)
+    try: slow.check(); raise AssertionError("租約過期要擋")
+    except LeaseExpired: pass
+    assert pending_dates(ch) == ["2026-09-05"]; expire(); rebuild(ch, []); assert pending_dates(ch) == [] and no_tmp()
+    agg_mod.LEASE_S, agg_mod.MARGIN_S = lease0, margin0
     print("daily_agg idempotency: direct double insert → agg 2 vs base 1 → rebuild → 1; runner re-read → skipped 50; changed content → rebuilt → 50; "
           "props-only change stored; cross-day/same-day/one_id corrections purge stale versions (old date 0, new date 1); "
-          "crash after insert/purge/stage/replace → pending marker → retry repairs (base == agg, amount_diff 0, markers cleared); runner crash before rebuild → next run repairs")
+          "crash after landed/insert/purge/stage/replace → marker journal → retry repairs (base == agg, amount_diff 0, markers acked or expired); runner crash before rebuild → next run repairs; "
+          "writer/rebuild interleaving (A snapshot → B lands → A replace) re-snapshots and never acks B early; two rebuilds racing with a writer in between converge; lease fencing")
 
 
 def dbapi_stage(ch: ClickHouseHTTP | None, work: Path, rows: list[dict[str, Any]]) -> None:

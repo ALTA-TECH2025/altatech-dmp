@@ -114,10 +114,13 @@ class LocalRunner:
         if self.ch is None or not (b.rows or b.quarantined):
             res.rows_loaded = res.rows_ok; return res
         d = aggregates.dedupe(self.ch, b.rows)                                    # 完整版本相同（重疊窗口重讀、重試）不再寫入；有變的寫新版本 → 日彙總不會多算
-        aggregates.mark_pending(self.ch, d.rebuild, batch_id)                     # 要重建哪幾天先落地，寫入／重建之間中斷也會在下次載入補做
-        if d.stale: log(f"purged {aggregates.purge_stale(self.ch, d.stale)} stale versions (sort key changed)")
+        marks = aggregates.begin(self.ch, d.rebuild, batch_id)                   # 要重建哪幾天先登記（帶租約）；寫入／重建之間中斷也會在下次載入補做
+        if d.stale:
+            marks.check(); log(f"purged {aggregates.purge_stale(self.ch, d.stale)} stale versions (sort key changed)")
         for i in range(0, len(d.rows), 50_000):
+            marks.check()                                                         # 租約過期就不准再寫（這批失敗、排程重試）
             self.ch.insert_json("dmp.events", d.rows[i:i + 50_000])
+        marks.landed()                                                            # 資料全部落地 → 重建才可以確認這個標記
         res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'") + d.skipped   # 略過的列早已在倉裡，對帳上算已載入
         done = aggregates.rebuild(self.ch, d.rebuild, batch_id)                   # 這批的日期 ∪ 上次中斷留下的待重建日期
         if done:
@@ -167,11 +170,16 @@ class LocalRunner:
         skipped, rebuild_dates = 0, set()
         if model.entity == "event":
             d = aggregates.dedupe(self.ch, target_rows)                        # 重試／重跑窗口的同一事件不再寫入；內容變了的寫新版本並記下分區
-            aggregates.mark_pending(self.ch, d.rebuild, batch_id)             # 要重建哪幾天先落地（清舊版本／寫入之前）
-            if d.stale: log(f"purged {aggregates.purge_stale(self.ch, d.stale)} stale versions (sort key changed)")
+            marks = aggregates.begin(self.ch, d.rebuild, batch_id)           # 要重建哪幾天先登記（帶租約；清舊版本／寫入之前）
+            if d.stale:
+                marks.check(); log(f"purged {aggregates.purge_stale(self.ch, d.stale)} stale versions (sort key changed)")
             target_rows, skipped, rebuild_dates = d.rows, d.skipped, d.rebuild
+        else:
+            marks = None
         for i in range(0, len(target_rows), 50_000):
+            if marks is not None: marks.check()
             self.ch.insert_json(model.target_table, target_rows[i:i + 50_000])
+        if marks is not None: marks.landed()
         at = now.strftime("%Y-%m-%d %H:%M:%S.") + f"{now.microsecond // 1000:03d}"
         q_rows = [{"task_id": task["id"], "batch_id": batch_id, "at": at, "reason": reason, "row": json.dumps(row, ensure_ascii=False, default=str)} for row, reason in out.quarantined]
         q_rows += [{"task_id": task["id"], "batch_id": batch_id, "at": at, "reason": reason, "row": ""} for _, reason in out.rejected]
