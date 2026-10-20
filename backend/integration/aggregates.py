@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -289,6 +290,16 @@ class Rebuild:
                            f"AND at >= toDateTime64('{self.ts}', 3, 'UTC') - INTERVAL {MARGIN_S} SECOND")
         return int(n or 0) > 0
 
+    def wait_newer(self) -> float:
+        """等伺服器時間越過「在我快照之後落地的最新一筆 + 餘量」再重新快照：否則寫入者剛落地就重建時，每輪快照都還在餘量內，
+        永遠確認不了那筆標記（機器越快越容易）。回等了幾秒。"""
+        ms = self.ch.scalar(f"SELECT greatest(0, toInt64(toUnixTimestamp64Milli(max(at))) + {int(MARGIN_S * 1000)} - toInt64(toUnixTimestamp64Milli(now64(3, 'UTC')))) "
+                            f"FROM {AGG_PENDING} WHERE event_date = toDate('{self.d}') AND phase = 1 AND kind IN ('change', 'touch') "
+                            f"AND at >= toDateTime64('{self.ts}', 3, 'UTC') - INTERVAL {MARGIN_S} SECOND")
+        wait = min(max(float(ms or 0) / 1000, 0.0) + 0.05, MARGIN_S + 1.0)
+        time.sleep(wait)
+        return wait
+
     def ack(self) -> list[str]:
         """只確認：落地時間早於我最後一次快照（減餘量）的標記、租約已過期而沒落地的標記、我自己的標記。其他（進行中、或在我快照後才落地）留著給下一次重建。"""
         t = f"toDateTime64('{self.ts}', 3, 'UTC') - INTERVAL {MARGIN_S} SECOND"
@@ -304,6 +315,7 @@ class Rebuild:
         for _ in range(MAX_ROUNDS):
             self.snapshot(); self.replace()
             if not self.newer_landed(): break
+            self.wait_newer()                                                     # 下一次快照一定晚於那筆落地 + 餘量 → 這次就能確認它
         return self.ack()
 
 
