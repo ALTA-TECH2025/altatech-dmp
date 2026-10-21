@@ -1,6 +1,6 @@
-"""FastAPI 路由：/auth/*（登入、回呼、LDAP、登出、API token）與 /v1/iam/me。router 只做：驗證 → Policy → 呼叫服務 → 審計；不在這裡寫 SQL。
+"""FastAPI 路由：/auth/*（登入、回呼、本機帳號、登出、API token）與 /v1/iam/me。router 只做：驗證 → Policy → 呼叫服務 → 審計；不在這裡寫 SQL。
 
-依賴注入（AuthService）由部署組裝：providers（OIDC／LDAP）、SessionManager、ApiTokens、assignments 讀取。
+依賴注入（AuthService）由部署組裝：providers（OIDC／本機帳號）、SessionManager、ApiTokens、assignments 讀取。AD 一律經 Keycloak（OIDC）接入，這裡不直連目錄。
 """
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ import yaml  # type: ignore
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from ..security.policy import Subject, authorize
-from .ldap import LdapError, LdapProvider
 from .local import LocalError, LocalProvider
 from .mapping import base_roles, map_roles, me_payload
 from .oidc import LoginState, OIDCError, OIDCProvider
@@ -25,7 +24,7 @@ LOGIN_COOKIE = "dmp_login"
 @dataclass
 class AuthService:
     cfg: dict[str, Any]
-    providers: dict[str, OIDCProvider | LdapProvider | LocalProvider]
+    providers: dict[str, OIDCProvider | LocalProvider]
     sessions: SessionManager
     tokens: ApiTokens | None = None
     assignments: Callable[[], list[dict[str, Any]]] = lambda: []
@@ -36,7 +35,7 @@ class AuthService:
         return self.cfg.get("mode", "broker")
 
     def visible_providers(self) -> list[dict[str, str]]:
-        keys = ["keycloak"] if self.mode == "broker" else ["entra", "ad", "local"]
+        keys = ["keycloak"] if self.mode == "broker" else ["entra", "local"]
         return [{"key": k, "cn": self.providers[k].cfg["cn"], "kind": self.providers[k].cfg["kind"]} for k in keys if k in self.providers]
 
     def finish_login(self, ident: Any, ip: str) -> Session:
@@ -99,23 +98,25 @@ def build_router(svc: AuthService) -> APIRouter:
 
     @r.post("/auth/ldap")
     def ldap_login(body: dict[str, Any], req: Request, resp: Response) -> dict[str, Any]:
-        """帳密登入（direct 模式）：provider=ad → LDAPS bind；provider=local → 本機帳號。mfa=totp 時第一步回 next=totp，第二步帶 totp 真正驗證。"""
-        key = str(body.get("provider") or "ad")
+        """本機帳號登入（direct 模式，provider=local）。AD 帳號走 Keycloak（/auth/login?provider=keycloak），這裡不接。mfa=totp 時第一步回 next=totp，第二步帶 totp 真正驗證。"""
+        key = str(body.get("provider") or "local")
         p = svc.providers.get(key)
-        if key not in ("ad", "local") or not isinstance(p, LdapProvider | LocalProvider) or svc.mode != "direct":
-            raise HTTPException(400, "此環境未啟用帳密登入" if key in ("ad", "local") else "未知的身分提供者")
+        if key == "ad":
+            raise HTTPException(400, "網域帳號（AD）請由公司 SSO（Keycloak）登入")
+        if key != "local" or not isinstance(p, LocalProvider) or svc.mode != "direct":
+            raise HTTPException(400, "此環境未啟用帳密登入" if key == "local" else "未知的身分提供者")
         ip = req.client.host if req.client else ""
         username = str(body.get("username", ""))
         try:
             ident = p.authenticate(username, str(body.get("password", "")), ip)
-        except (LdapError, LocalError) as e:
+        except LocalError as e:
             svc.sessions.audit("auth.login.failed", {"provider": key, "user": username[:64], "why": str(e)})
             raise HTTPException(401, str(e)) from None
         if p.cfg.get("mfa") == "totp":
             code = str(body.get("totp") or "")
             if not code:
                 return {"next": "totp", "message": "請輸入驗證器 6 位數"}       # 第二因子：前端再送一次含 totp 的請求
-            check = getattr(p, "check_totp", None)                               # AD 直連的 TOTP 需另接驗證器服務；沒有實作時這裡不放行 mfa
+            check = getattr(p, "check_totp", None)                               # 沒有 TOTP 驗證能力的提供者不放行 mfa
             if check is None or not check(username, code):
                 svc.sessions.audit("auth.login.failed", {"provider": key, "user": username[:64], "why": "totp"})
                 raise HTTPException(401, "驗證碼錯誤或已使用" if check else "此環境尚未接上 TOTP 驗證器")

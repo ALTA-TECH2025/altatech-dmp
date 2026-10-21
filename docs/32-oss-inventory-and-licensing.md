@@ -53,7 +53,6 @@
 | PyJWT + cryptography | OIDC ID token 驗證、API token | MIT / Apache-2.0 或 BSD-3 | 不需要 | 個人（美）／PyCA（美） |
 | mcp（官方 SDK） | Agent 工具閘道（第二階段；第一階段只有契約） | MIT | 不需要 | Anthropic（美） |
 | anthropic（SDK，可選） | 問數建卡片、看板解讀的模型呼叫；未設金鑰不載入 | MIT | SDK 免費；**模型 API 依用量計費**（第一階段 AI 閘道關閉，不需要） | Anthropic（美） |
-| python-ldap（可選） | direct 模式直連 AD | PSF 式 | 不需要 | 社群（德） |
 | Python 標準庫 | sqlite3（排程器狀態）、hmac、ssl 等 | PSF | 不需要 | PSF（美） |
 
 ### 1.3 前端（`web/package.json`）
