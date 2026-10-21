@@ -38,6 +38,11 @@ AGG_SELECT = ("SELECT project, event_date, event, platform, channel, utm_source,
 # 載入元資料（ingest_time、batch_id、late）不算。
 CONTENT_COLS = ("time", "event", "source", "one_id", "entity_type", "entity_id", "distinct_id", "session_id", "platform", "app_id", "symbol", "side", "channel",
                 "amount", "utm_source", "utm_campaign", "props", "schema_version")
+# 改版前（v1）公式入倉的舊列：重放時以 _event_id_v1 找到，再比「核心內容」判斷是不是同一筆（是 → skipped，不倍增；不是 → 舊公式碰撞，另一筆事件，追加）。
+# GA4 的核心內容不含日批事後補的欄位（來源名 intraday／daily、末次點擊 utm、app_id、裝置／地區解析、同意狀態）。one_id 不比（歸戶可能改寫）。
+GA_NONCORE_COLS = ("source", "utm_source", "utm_campaign", "app_id")
+GA_NONCORE_PROPS = ("$device_type", "$os", "$os_version", "$browser", "$geo_country", "$geo_region", "$geo_city", "$app_version",
+                    "$first_utm_source", "$first_utm_medium", "$first_utm_campaign", "$utm_medium", "consent")
 TZ_OFFSET = timedelta(hours=8)                      # event_date = toDate(time, 'Asia/Taipei')（無日光節約）
 LEASE_S = 600                                        # 寫入者的租約：標記後要在這段時間內寫完（每個 chunk 前檢查、剩一半時續租）；過期不准再寫，重試帶新標記
 MARGIN_S = 2                                         # 「落地時間 vs 快照時間」比對的安全餘量（時鐘／可見性）
@@ -87,12 +92,20 @@ def _expand_dotted(v: Any) -> Any:
     return out
 
 
+def _drop_nulls(v: Any) -> Any:
+    """ClickHouse 的 JSON 型別不存 null 值的鍵：比對前新列也拿掉 null（巢狀一併處理）。"""
+    if isinstance(v, dict): return {k: _drop_nulls(x) for k, x in v.items() if x is not None}
+    if isinstance(v, list): return [_drop_nulls(x) for x in v]
+    return v
+
+
 def _props_norm(v: Any) -> str:
-    """props 正規化成可比對的字串：倉裡回來的是 JSON 字串、新列是 dict；帶點的鍵展成巢狀，再轉成鍵排序的 JSON。"""
+    """props 正規化成可比對的字串：倉裡回來的是 JSON 字串、新列是 dict；帶點的鍵展成巢狀、去掉 null、數字統一（1000.0 與 1000 同值），再轉成鍵排序的 JSON。"""
+    from .modeling import canon
     if isinstance(v, str):
         try: v = json.loads(v) if v.strip() else {}
         except ValueError: return v
-    return json.dumps(_expand_dotted(v if v is not None else {}), sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+    return json.dumps(canon(_drop_nulls(_expand_dotted(v if v is not None else {}))), sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
 def _same(a: dict[str, Any], b: dict[str, Any], cols: tuple[str, ...] = CONTENT_COLS) -> bool:
@@ -109,6 +122,34 @@ def _same(a: dict[str, Any], b: dict[str, Any], cols: tuple[str, ...] = CONTENT_
         elif str(a.get(c) if a.get(c) is not None else "") != str(b.get(c) if b.get(c) is not None else ""):
             return False
     return True
+
+
+def _core(r: dict[str, Any]) -> dict[str, Any]:
+    """一列事件的核心內容（v1 舊列對照用）：GA4 去掉日批補的欄位，其餘來源用完整內容；props 展開帶點鍵、數字正規化。"""
+    from .modeling import canon
+    ga = str(r.get("source") or "").startswith("ga360")
+    props = json.loads(_props_norm(r.get("props")) or "{}")
+    if ga: props = {k: v for k, v in props.items() if k not in GA_NONCORE_PROPS}
+    out: dict[str, Any] = {"props": canon(props)}
+    for c in CONTENT_COLS:
+        if c in ("props", "one_id") or (ga and c in GA_NONCORE_COLS): continue
+        v = r.get(c)
+        out[c] = _num(v) if c == "amount" else str(v or "")[:23] if c == "time" else ("" if v is None else str(v))
+    return out
+
+
+def existing_rows(ch: CH, event_ids: Iterable[str]) -> dict[str, list[dict[str, Any]]]:
+    """倉裡這些 event_id 的所有列（v1 舊公式可能多筆共用一個 id）→ {event_id: [列, …]}。"""
+    out: dict[str, list[dict[str, Any]]] = {}
+    ids = sorted({str(e) for e in event_ids if e})
+    for i in range(0, len(ids), CHUNK):
+        lst = ", ".join("'" + x.replace("\\", "\\\\").replace("'", "\\'") + "'" for x in ids[i:i + CHUNK])
+        cols = ", ".join(c for c in CONTENT_COLS if c not in ("time", "props"))
+        sql = f"SELECT event_id, {cols}, toString(time) AS time, toString(props) AS props FROM dmp.events WHERE event_id IN ({lst}) FORMAT JSONEachRow"
+        for line in ch.query(sql, settings={"max_query_size": 4_000_000}).splitlines():
+            if line.strip():
+                r = json.loads(line); out.setdefault(r["event_id"], []).append(r)
+    return out
 
 
 def existing_versions(ch: CH, event_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
@@ -133,23 +174,33 @@ class DedupeResult:
     skipped: int = 0                                # 倉裡已有、內容相同（重讀、重試）
     kept_first: int = 0                             # 倉裡已有（或同批較早一筆）、內容不同：保留第一筆、不覆蓋
     kept_first_ids: list[str] = field(default_factory=list)   # 前 20 個，寫進 log 讓營運看得到
+    skipped_v1: int = 0                             # 其中 skipped 裡，是以改版前公式入倉的舊列（重放不倍增）
 
 
 def dedupe(ch: CH, rows: list[dict[str, Any]]) -> DedupeResult:
-    """事件只追加、不覆蓋：同 event_id 已在倉裡 → 不寫入（內容相同算 skipped，不同算 kept_first）；同一批內重複的 event_id 只留第一筆。"""
+    """事件只追加、不覆蓋：同 event_id 已在倉裡 → 不寫入（內容相同算 skipped，不同算 kept_first）；同一批內重複的 event_id 只留第一筆。
+    event_id 是內容雜湊（modeling.content_id／ga4_event_id／legacy stage）：時間或屬性有任何不同就是不同 id，照常追加。
+    列上的 _event_id_v1（改版前公式）只用來認出舊列：倉裡沒有新 id、但有同舊 id 且核心內容相同的列 → skipped；寫入前移除這個鍵。
+    （舊列對照可在事件保留期過後移除：屆時倉裡已沒有舊公式的列。）"""
     first: dict[str, dict[str, Any]] = {}
+    v1_of: dict[str, str] = {}
     out = DedupeResult(rows=[])
     for r in rows:
+        r = dict(r); v1 = r.pop("_event_id_v1", None)
         k = str(r.get("event_id") or "")
         if k in first:
             if _same(first[k], r): out.skipped += 1
             else: out.kept_first += 1; out.kept_first_ids.append(k)
             continue
         first[k] = r
+        if v1: v1_of[k] = str(v1)
     existing = existing_versions(ch, list(first))
+    legacy = existing_rows(ch, {v for k, v in v1_of.items() if k not in existing}) if v1_of else {}
     for k, r in first.items():
         old = existing.get(k)
-        if old is None:
+        if old is None and k in v1_of and any(_core(x) == _core(r) for x in legacy.get(v1_of[k], [])):
+            out.skipped += 1; out.skipped_v1 += 1
+        elif old is None:
             out.rows.append(r)
         elif _same(old, r):
             out.skipped += 1
@@ -385,6 +436,8 @@ def selftest() -> None:
             self.sql.append(sql)
             if sql.startswith("SELECT event_id, argMin"):
                 return "\n".join(json.dumps({"event_id": k, **v}) for k, v in self.existing.items() if f"'{k}'" in sql)
+            if sql.startswith("SELECT event_id, ") and "toString(props) AS props FROM dmp.events" in sql:     # existing_rows（v1 舊列）
+                return "\n".join(json.dumps({"event_id": k, **x}) for k, xs in getattr(self, "legacy", {}).items() if f"'{k}'" in sql for x in xs)
             if sql.startswith("SELECT DISTINCT toString(event_date) FROM (SELECT event_date, id FROM"):
                 return "\n".join(self.race if "id NOT IN" in sql else self.pending)
             if sql.startswith("SELECT toString(now64"): return "2026-10-16 00:00:00.000"
@@ -455,7 +508,35 @@ def selftest() -> None:
     q = ch.sql[0]; assert "kind IN ('change', 'touch')" in q and f"id NOT IN ('{mc.touch['2026-10-19']}')" in q and "minIf(at, phase = 0) <= toDateTime64(" in q and "maxIf(lease_until, phase = 0) >=" in q, q   # 別人的窗口與我重疊
     ch.race = []
     assert dedupe(ch, []) == DedupeResult(rows=[])
-    print("aggregates self-test ok: dedupe(append-only: existing id → skipped if identical / kept_first if different; in-batch first wins)/event_date/"
+    # event_id 內容雜湊（#32 第五輪複審 P1）：同委託單、同狀態、不同時間的兩次部分成交 → 兩個 id、兩筆都寫；舊公式兩筆同 id（會被當成重複丟掉）
+    from . import ga4_source, modeling
+    modeling.set_key("k_idm", b"selftest-idm"); modeling.set_key("k_acct", b"selftest-acct")
+    mdl = modeling.load(modeling.ROOT / "integration" / "models.example.yaml")
+    src = {"ORD_NO": "SYNTH_ORDER_1", "STATUS": "PARTIAL", "ORD_TIME": "2026-10-16 09:00:00", "UPDATED_AT": "2026-10-16 09:00:00", "CUST_ID": "C1", "ACCT_NO": "9800000001",
+           "STK_CODE": "2330", "MKT": "T", "BS_FLAG": "B", "ORD_TYPE": "LMT", "PRICE": "1000", "QTY": "3000", "FILL_QTY": "1000", "CHANNEL": "A", "FEE": "", "TAX": "", "RJ_CODE": ""}
+    src2 = {**src, "ORD_TIME": "2026-10-16 09:01:00", "UPDATED_AT": "2026-10-16 09:01:00", "FILL_QTY": "2000"}
+    o = modeling.apply(mdl, [src, src2], now=datetime(2026, 10, 16, 2, tzinfo=UTC))
+    tr = [modeling.to_ch_row(mdl, r, "p", 0) for r in o.ok]
+    assert len(tr) == 2 and tr[0]["event_id"] != tr[1]["event_id"] and tr[0]["event_id"].startswith("e2_") and tr[0]["_event_id_v1"] == tr[1]["_event_id_v1"], tr
+    d = dedupe(Fake({}), tr); assert len(d.rows) == 2 and d.kept_first == 0 and all("_event_id_v1" not in r for r in d.rows), d
+    d = dedupe(Fake({}), tr + [dict(tr[0])]); assert len(d.rows) == 2 and d.skipped == 1, d                                       # 同批完全相同 → 1 筆
+    d = dedupe(Fake({tr[0]["event_id"]: tr[0]}), [dict(tr[0])]); assert d.rows == [] and d.skipped == 1, d                      # 跨批相同重送 → 不寫
+    old = {k: v for k, v in tr[0].items() if k != "_event_id_v1"}; old["event_id"] = tr[0]["_event_id_v1"]                         # 改版前入倉的同一筆（舊 id）
+    fk = Fake({}); fk.legacy = {old["event_id"]: [old]}
+    d = dedupe(fk, [dict(tr[0]), dict(tr[1])]); assert [r["event_id"] for r in d.rows] == [tr[1]["event_id"]] and d.skipped_v1 == 1, d   # 舊列重放不倍增；舊公式碰撞的另一筆照寫
+    # GA4：倉裡是改版前入倉的串流列（舊 id），日批同一事件只多了日批補的欄位 → 認得出是同一筆；event_params 不同 → 另一筆
+    g1 = ga4_source.ga4_row(7, 1_760_000_000_000_000, "kh_apply"); g2 = ga4_source.ga4_row(7, 1_760_000_000_000_000, "kh_apply")   # 日批：傳送層欄位相同
+    g2["geo"] = {"country": "Japan"}; g2["traffic_source"] = {"source": "bing"}; g2["session_traffic_source_last_click"] = {"manual_campaign": {"source": "edm", "campaign_name": "x"}}
+    f1 = ga4_source.flatten(g1, {}, "p", "ga360_intraday", "b", 0); f2 = ga4_source.flatten(g2, {}, "p", "ga360_daily", "b", 0)
+    assert f1["event_id"] == f2["event_id"] and f1["_event_id_v1"] == f2["_event_id_v1"]
+    gold = {k: v for k, v in f1.items() if k != "_event_id_v1"}; gold["event_id"] = f1["_event_id_v1"]                        # 倉裡是串流那一筆（舊 id）
+    fk = Fake({}); fk.legacy = {gold["event_id"]: [gold]}; d = dedupe(fk, [f2]); assert d.rows == [] and d.skipped_v1 == 1, d
+    g3 = ga4_source.ga4_row(7, 1_760_000_000_000_000, "kh_apply"); g3["event_params"][2] = {"key": "symbol", "value": {"string_value": "2454"}}
+    f3 = ga4_source.flatten(g3, {}, "p", "ga360_intraday", "b", 0); assert f3["event_id"] != f1["event_id"]
+    gold3 = {**gold, "event_id": f3["_event_id_v1"]}; fk = Fake({}); fk.legacy = {gold3["event_id"]: [gold3]}
+    d = dedupe(fk, [f3]); assert len(d.rows) == 1 and d.skipped_v1 == 0, d                                                        # 核心內容不同 → 追加
+    print("aggregates self-test ok: dedupe(append-only: existing id → skipped if identical / kept_first if different; in-batch first wins; "
+          "content event_id: partial fills at different times → 2 rows; v1 rows replayed → skipped_v1, v1 collisions appended; GA4 daily enrichment = same event)/event_date/"
           "rebuild(pending ∪ dates → own mark → private stage → replace partition → re-snapshot while newer landed → ack landed-before-snapshot/expired)/marks(change+touch, lease check, renew, landed, overlapped replace, settle self-ack, landed-unacked touch stays pending/not gc'd, concurrent writer window overlap)")
 
 

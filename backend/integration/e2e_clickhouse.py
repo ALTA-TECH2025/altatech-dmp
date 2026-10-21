@@ -145,12 +145,12 @@ def main() -> int:
             funnel = ch.query("SELECT level, count() FROM (SELECT one_id, windowFunnel(86400)(toDateTime(time), event='bond_order', event='bond_deal') AS level FROM dmp.events GROUP BY one_id) GROUP BY level ORDER BY level FORMAT TSV").strip().replace("\n", " | ")
             print("funnel bond_order→bond_deal (levels):", funnel)
             # compile_sql 路徑：raw 表（已在暫存階段完成代碼化）→ INSERT SELECT，筆數應與 Python 路徑一致
-            ch.query("CREATE TABLE dmp.raw_orders (ORD_NO String, STATUS String, ORD_TIME String, CUST_ID String, ACCT_NO String, STK_CODE String, MKT String, BS_FLAG String, ORD_TYPE String, PRICE String, QTY String, FILL_QTY String, CHANNEL String, FEE String, TAX String, RJ_CODE String) ENGINE = Memory")
+            ch.query("CREATE TABLE dmp.raw_orders (ORD_NO String, STATUS String, ORD_TIME String, UPDATED_AT String, CUST_ID String, ACCT_NO String, STK_CODE String, MKT String, BS_FLAG String, ORD_TYPE String, PRICE String, QTY String, FILL_QTY String, CHANNEL String, FEE String, TAX String, RJ_CODE String) ENGINE = Memory")
             model = modeling.load(ROOT / "integration" / "models.example.yaml")
             staged = []
             for row in all_rows:
                 if modeling.T.pii_scan({k: v for k, v in row.items() if k not in ("CUST_NAME", "ID_NO", "PHONE")}): continue
-                rr = {k: str(v) for k, v in row.items() if k not in ("CUST_NAME", "ID_NO", "PHONE", "UPDATED_AT")}
+                rr = {k: str(v) for k, v in row.items() if k not in ("CUST_NAME", "ID_NO", "PHONE")}
                 rr["CUST_ID"] = modeling.apply_transform("token_v1(k_idm)", row["CUST_ID"]); rr["ACCT_NO"] = modeling.apply_transform("fpe(k_acct)", row["ACCT_NO"])
                 staged.append(rr)
             ch.insert_json("dmp.raw_orders", staged)
@@ -199,6 +199,7 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
     from .legacy_format import LegacyLoader
     rnd = random.Random(rnd_seed); src = work / "sa_20261016.jsonl"
     base = 1_792_000_000_000   # 2026-10-15 前後
+    n_dup = 0
     with src.open("w", encoding="utf-8") as f:
         for i in range(n_lines):
             cust = f"C{rnd.randint(1, 50000):06d}"; anon = f"ck-{rnd.randint(1, 80000)}"
@@ -207,8 +208,10 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
                 f.write("{broken json\n"); continue
             if kind == "track_login":
                 ev = rnd.choice(["order_submit", "order_filled", "bond_order", "hq_stockdetail_view", "quote_view", "sip_purchase"])
-                f.write(json.dumps({"type": "track", "event": ev, "distinct_id": cust, "time": base + i * 10, "project": "sbp_family",
-                                    "properties": {"$is_login_id": True, "$lib": "iOS", "$ip": "10.0.0.1", "$track_id": i, "symbol": str(2300 + rnd.randint(0, 299)), "side": rnd.choice(["buy", "sell"]), "amount": rnd.randint(1000, 900000), "channel": "app"}}, ensure_ascii=False) + "\n")
+                line = json.dumps({"type": "track", "event": ev, "distinct_id": cust, "time": base + i * 10, "project": "sbp_family",
+                                   "properties": {"$is_login_id": True, "$lib": "iOS", "$ip": "10.0.0.1", "$track_id": i, "symbol": str(2300 + rnd.randint(0, 299)), "side": rnd.choice(["buy", "sell"]), "amount": rnd.randint(1000, 900000), "channel": "app"}}, ensure_ascii=False) + "\n"
+                f.write(line)
+                if i % 97 == 0: f.write(line); n_dup += 1        # 同一行重送：時間與屬性全同 → 只算一筆
             elif kind == "track_anon":
                 f.write(json.dumps({"type": "track", "event": rnd.choice(["$pageview", "$WebClick", "search_symbol"]), "distinct_id": anon, "time": base + i * 10, "project": "sbp_family",
                                     "properties": {"$is_login_id": False, "$lib": "js", "$url": "https://sbp/x", "$utm_source": rnd.choice(["google", "line", ""]), "$track_id": i}}) + "\n")
@@ -217,6 +220,16 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
             else:
                 f.write(json.dumps({"type": "track_signup", "event": "$SignUp", "distinct_id": cust, "original_id": anon, "time": base + i * 10, "properties": {}}) + "\n")
     size_mb = src.stat().st_size / 1048576
+    # 改版前入倉的舊列（舊公式 event_id 由 ClickHouse 算：sha256(distinct_id|time|event|JSONExtractString($track_id))，同一台伺服器算才一致）：重放同一行不能再寫一次
+    from .legacy_format import LegacyLoader as _LL
+    first = next(json.loads(x) for x in src.read_text(encoding="utf-8").splitlines() if x.startswith('{"type": "track"') and '"$is_login_id": true' in x)
+    tok = modeling.apply_transform("token_v1(k_idm)", first["distinct_id"])
+    pj = json.dumps(first["properties"], ensure_ascii=False).replace("\\", "\\\\").replace("'", "\\'")
+    v1 = ch.query(f"SELECT {_LL.V1_ID} FROM (SELECT '{tok}' AS distinct_id, toInt64({first['time']}) AS time, '{first['event']}' AS event, '{pj}' AS properties) FORMAT TSV").strip()
+    assert len(v1) == 32 and not v1.startswith("e2_"), v1
+    ch.insert_json("dmp.events", [{"project": "altatech_dmp", "time": modeling.ms_to_dt(first["time"]), "event": first["event"], "source": "legacy_format", "one_id": tok,
+                                   "entity_type": "", "entity_id": "", "distinct_id": tok, "session_id": "", "event_id": v1, "platform": "iOS", "app_id": "", "symbol": "", "side": "", "channel": "",
+                                   "amount": None, "utm_source": "", "utm_campaign": "", "props": {}, "ingest_time": "2026-10-15 00:00:00.000", "schema_version": 1, "late": 0, "batch_id": "pre_v1"}])
     loader = LegacyLoader(ch, local=True)
     t0 = _t.perf_counter(); r = loader.run_file(src, work / "user_files", "sa_20261016", "k_idm", via_http=via_http); dt = _t.perf_counter() - t0
     st = r["stage"]
@@ -228,8 +241,16 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND JSONHas(toString(props), '$ip')") == 0                                       # $ip 不入倉
     assert ch.scalar("SELECT count() FROM dmp.user_prop_log WHERE prop IN ('name','mobile')") == 0                                                                  # L4 不入倉
     assert r["id_map"] == r["signup_anon_ids"], (r["id_map"], r["signup_anon_ids"])   # 同一匿名 ID 多次綁定只留最新（ReplacingMergeTree by (id_type, id_hash)）
+    # 事件只追加、內容全同才去重：檔內重複行只寫一次、改版前的舊列不重寫、整檔重放一筆都不寫
+    assert r["events_skipped"] == n_dup + 1, (r["events_skipped"], n_dup)
+    assert ch.scalar("SELECT count() - uniqExact(event_id) FROM dmp.events WHERE batch_id='sa_20261016'") == 0
+    assert ch.scalar(f"SELECT count() FROM dmp.events WHERE distinct_id = '{tok}' AND time = toDateTime64('{modeling.ms_to_dt(first['time'])}', 3, 'UTC')") == 1
+    assert ch.scalar("SELECT countIf(NOT startsWith(event_id, 'e2_')) FROM dmp.events WHERE batch_id='sa_20261016'") == 0
+    rr = loader.run_file(src, work / "user_files", "sa_20261016_r", "k_idm", via_http=via_http)
+    assert rr["recon_ok"] and rr["events"] == 0 and rr["events_skipped"] == st["by_type"]["track"], rr
     by_ev = ch.query("SELECT event, count() FROM dmp.events WHERE batch_id='sa_20261016' GROUP BY event ORDER BY 2 DESC FORMAT TSV").strip().replace("\n", " | ")
-    print(f"legacy format: {st['lines']:,} lines / {size_mb:.0f} MB → ok {st['ok']:,} bad {st['bad']} tokenized {st['tokenized']:,} → raw {r['raw']:,} events {r['events']:,} prop_log {r['prop_log']:,} id_map {r['id_map']:,} in {dt:.1f}s "
+    print(f"legacy format: {st['lines']:,} lines / {size_mb:.0f} MB → ok {st['ok']:,} bad {st['bad']} tokenized {st['tokenized']:,} → raw {r['raw']:,} events {r['events']:,} "
+          f"(skipped {r['events_skipped']}: {n_dup} duplicate lines + 1 pre-v1 row; full replay wrote 0) prop_log {r['prop_log']:,} id_map {r['id_map']:,} in {dt:.1f}s "
           f"(≈ {3800 / max(size_mb, 1) * dt / 60:.0f} min per 3.8 GB)")
     print("  events by name:", by_ev)
 
@@ -268,6 +289,38 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
     assert any("kept_first=50" in x for x in log[-4:]) and not any("daily_agg rebuilt" in x for x in log[-4:]), log[-4:]
     v = verify(ch, "2026-09-02"); assert v["events_cnt"] == v["agg_cnt"] == 50 and v["agg_users"] == 1, v
     assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_date = toDate('2026-09-02') AND utm_source = 'google'") == 0   # 保留第一筆（串流版本）
+    # event_id 內容雜湊（#32 第五輪複審 P1）：真正的 modeling 路徑
+    # (1) 同委託單、同狀態、不同時間的兩次部分成交 → 兩筆都入倉（舊公式兩筆同 id，會被當重複丟掉）；整批重送 → 0 筆
+    mdl = modeling.load(ROOT / "integration" / "models.example.yaml"); t_ing = int(datetime(2026, 9, 20, 2, tzinfo=UTC).timestamp() * 1000)
+    so = {"ORD_NO": "SYNTH_ORDER_1", "STATUS": "PARTIAL", "ORD_TIME": "2026-09-20 09:00:00", "UPDATED_AT": "2026-09-20 09:00:00", "CUST_ID": "C1", "ACCT_NO": "9800000001",
+          "STK_CODE": "2330", "MKT": "T", "BS_FLAG": "B", "ORD_TYPE": "LMT", "PRICE": "1000", "QTY": "3000", "FILL_QTY": "1000", "CHANNEL": "A", "FEE": "", "TAX": "", "RJ_CODE": ""}
+    trade = lambda rows: [modeling.to_ch_row(mdl, x, "altatech_dmp", t_ing) for x in modeling.apply(mdl, rows, now=datetime(2026, 9, 20, 2, tzinfo=UTC)).ok]
+    tr = trade([so, {**so, "ORD_TIME": "2026-09-20 09:01:00", "UPDATED_AT": "2026-09-20 09:01:00", "FILL_QTY": "2000"}])
+    assert len({x["event_id"] for x in tr}) == 2 and len({x["_event_id_v1"] for x in tr}) == 1, tr
+    dt1 = dedupe(ch, tr); assert len(dt1.rows) == 2 and dt1.kept_first == 0, dt1
+    ch.insert_json("dmp.events", dt1.rows); rebuild(ch, ["2026-09-20"])
+    dt2 = dedupe(ch, trade([so, {**so, "ORD_TIME": "2026-09-20 09:01:00", "UPDATED_AT": "2026-09-20 09:01:00", "FILL_QTY": "2000"}])); assert dt2.rows == [] and dt2.skipped == 2, dt2
+    # (2) 改版前（舊公式 id）入倉的列：同內容重放 → skipped_v1；同舊 id 但不同時間（舊公式碰撞，其實是另一筆）→ 追加
+    so2 = {**so, "ORD_NO": "SYNTH_ORDER_2"}; old = {k: v for k, v in trade([so2])[0].items() if k != "_event_id_v1"}
+    old["event_id"] = trade([so2])[0]["_event_id_v1"]; ch.insert_json("dmp.events", [old])
+    dt3 = dedupe(ch, trade([so2, {**so2, "ORD_TIME": "2026-09-20 09:05:00", "UPDATED_AT": "2026-09-20 09:05:00", "FILL_QTY": "3000"}]))
+    assert len(dt3.rows) == 1 and dt3.skipped_v1 == 1 and dt3.rows[0]["time"].endswith("01:05:00.000"), dt3
+    ch.insert_json("dmp.events", dt3.rows); rebuild(ch, ["2026-09-20"])
+    v = verify(ch, "2026-09-20"); assert v["events_cnt"] == v["agg_cnt"] == 4 and v["amount_diff"] < 1e-6, v
+    assert ch.scalar("SELECT count() FROM dmp.events FINAL WHERE event_date = toDate('2026-09-20')") == 4                                   # 兩次部分成交 ×2 單，無重複
+    # (3) GA4：同時間、核心 event_params 不同 → 兩筆；改版前入倉的串流列（舊 id）遇到日批同一事件（只多了日批補的欄位）→ 認得、不寫
+    from .ga4_source import flatten
+    g_us = int(datetime(2026, 9, 21, 1, 0, tzinfo=UTC).timestamp() * 1_000_000)
+    ga = ga4_row(900, g_us, "kh_apply", uid="v1_ga"); gb = ga4_row(900, g_us, "kh_apply", uid="v1_ga"); gb["event_params"][2] = {"key": "symbol", "value": {"string_value": "2454"}}
+    fa, fb = flatten(ga, {}, "altatech_dmp", "ga360_intraday", "gx", t_ing), flatten(gb, {}, "altatech_dmp", "ga360_intraday", "gx", t_ing)
+    dg = dedupe(ch, [fa, fb]); assert len(dg.rows) == 2, dg; ch.insert_json("dmp.events", dg.rows)
+    gc = ga4_row(901, g_us + 60_000_000, "kh_apply", uid="v1_ga"); fc = flatten(gc, {}, "altatech_dmp", "ga360_intraday", "gy", t_ing)
+    oldg = {k: v for k, v in fc.items() if k != "_event_id_v1"}; ch.insert_json("dmp.events", [oldg | {"event_id": fc["_event_id_v1"]}])
+    gd = ga4_row(901, g_us + 60_000_000, "kh_apply", uid="v1_ga"); gd["traffic_source"] = {"source": "bing"}; gd["geo"] = {"country": "Japan"}   # 日批：stream／bundle 序號相同，只多了補的欄位
+    gd["session_traffic_source_last_click"] = {"manual_campaign": {"source": "edm", "campaign_name": "late"}}
+    fd = flatten(gd, {}, "altatech_dmp", "ga360_daily", "gz", t_ing); assert fd["event_id"] == fc["event_id"] and fd["_event_id_v1"] == fc["_event_id_v1"]
+    dd = dedupe(ch, [fd]); assert dd.rows == [] and dd.skipped_v1 == 1, dd
+    rebuild(ch, ["2026-09-21"]); v = verify(ch, "2026-09-21"); assert v["events_cnt"] == v["agg_cnt"] == 3, v
     # 標記日誌（events_daily_agg_pending）：寫入者 begin（touch／change，phase 0 + 租約，在去重之前）→ 寫入 → landed（phase 1）→
     # 窗口重疊的別的寫入者？（可能同一筆寫兩次）→ 登記待重建再重建；被別人重建換過分區？→ 重建；否則自己確認。重建只確認落地早於自己快照的標記。
     # 測試把租約與餘量縮短（LEASE 4 秒、餘量 1 秒）好等得到過期。

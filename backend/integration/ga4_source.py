@@ -8,10 +8,10 @@ GA4 匯出到 BigQuery 的表與更新頻率（GA 官方口徑，正式環境以
   events_fresh_YYYYMMDD     Fresh daily（360 限定）：當天的日表一天內多次更新，兼具日批欄位完整與小時級新鮮度；有開就用它取代串流表。
   users_／pseudonymous_users_  用戶層每日匯出（用戶屬性、受眾），本系統用戶表另有來源，先不接。
 
-本模組的排程設計（三個任務，同一張 dmp.events，靠 event_id 去重、ingest_time 為版本，後來的覆蓋先來的）：
+本模組的排程設計（三個任務，同一張 dmp.events；事件只追加、不覆蓋：event_id 是核心欄位的內容雜湊，見 ga4_event_id，倉裡已有就不再寫）：
   ga360_intraday  每 10–15 分鐘：讀 events_intraday_{今天}，event_timestamp > 水位 − 30 分鐘（重疊窗口吃掉串流表的亂序），
-                  重讀的事件 event_id 相同 → ReplacingMergeTree 合併時去重；水位 = 本批最大 event_timestamp。
-  ga360_daily     每日：輪詢 events_{昨天} 是否到齊（到齊才跑，不到齊記 skipped），整天重載；ingest_time 較新 → 覆蓋串流版本。
+                  重讀的事件 event_id 相同 → 寫入前去重（aggregates.dedupe）；水位 = 本批最大 event_timestamp。
+  ga360_daily     每日：輪詢 events_{昨天} 是否到齊（到齊才跑，不到齊記 skipped），整天重讀；已有的事件保留串流那一筆（日批補的欄位不覆蓋），只追加串流漏掉的。
   ga360_restate   每日：對 D-2、D-3 的日表比對列數與 ingest 對帳表，數字變了就整天重載（GA 的 72 小時重寫）。
   若 360 有 Fresh daily：ga360_intraday 改讀 events_fresh_{今天}（每小時），其餘不變。
 
@@ -93,6 +93,19 @@ class Gate:
         return ",".join(hits[:5]) if hits else None
 
 
+# GA4 事件的「核心欄位」：事件發生當下 SDK 上報的內容。event_id 只雜湊這些；日批事後補的欄位（traffic_source、
+# session_traffic_source_last_click、geo／device 解析、app_info、privacy_info、user_ltv…）不參與，所以串流與日批是同一筆、保留第一筆。
+# stream_id、event_bundle_sequence_id 是傳送層欄位，也不參與（不同批次重送同一事件不會變成新事件）。
+GA4_CORE_FIELDS = ("event_name", "event_timestamp", "user_pseudo_id", "user_id")
+
+
+def ga4_event_id(ev: dict[str, Any], params: dict[str, Any]) -> str:
+    """'e2_' + 雜湊（ga4｜核心欄位｜實際入倉的 event_params 正規 JSON）：時間與參數全同才是同一筆；任一參數不同就是另一筆事件。
+    params 用允許清單過濾後、改名前的原始鍵（被丟掉的參數不進雜湊：不能用雜湊回推沒有入倉的值）。"""
+    from .modeling import canon_json, content_id
+    return content_id(["ga4", *(str(ev.get(k) or "") for k in GA4_CORE_FIELDS), canon_json({k: v for k, v in params.items() if v is not None})])
+
+
 def flatten(ev: dict[str, Any], bridge: dict[str, str], project: str, source: str, batch_id: str, ingest_ms: int,
             allowed: set[str] | None = None, dropped: dict[str, int] | None = None, forbidden: set[str] | None = None) -> dict[str, Any]:
     """一筆 GA4 匯出列 → dmp.events 的 JSONEachRow 列（ga4_mapping.yaml 的規則）。allowed 給了就只保留清單內的 event_params（丟掉的計到 dropped）；
@@ -121,14 +134,15 @@ def flatten(ev: dict[str, Any], bridge: dict[str, str], project: str, source: st
                   "$app_version": app.get("version"), "$first_utm_source": ts_.get("source"), "$first_utm_medium": ts_.get("medium"), "$first_utm_campaign": ts_.get("name"),
                   "$utm_medium": last.get("medium"), "consent.analytics": consent_ok, "$ga_event_name": name})
     props = {k: v for k, v in props.items() if v is not None}
-    event_id = hashlib.sha256("|".join(str(ev.get(k, "")) for k in ("stream_id", "user_pseudo_id", "event_timestamp", "event_name", "event_bundle_sequence_id")).encode()).hexdigest()[:32]
+    event_id = ga4_event_id(ev, params)
+    event_id_v1 = hashlib.sha256("|".join(str(ev.get(k, "")) for k in ("stream_id", "user_pseudo_id", "event_timestamp", "event_name", "event_bundle_sequence_id")).encode()).hexdigest()[:32]
     from .modeling import ms_to_dt
     return {"project": project, "time": ms_to_dt(ts_ms), "event": event, "source": source, "one_id": one_id, "entity_type": "", "entity_id": "",
             "distinct_id": pseudo, "session_id": str(params.get("ga_session_id") or ""), "event_id": event_id, "platform": platform,
             "app_id": app.get("id") or "", "symbol": str(params.get("symbol") or ""), "side": str(params.get("side") or ""), "channel": "",
             "amount": params.get("amount") if isinstance(params.get("amount"), (int, float)) else None,
             "utm_source": last.get("source") or "", "utm_campaign": last.get("campaign_name") or "", "props": props,
-            "ingest_time": ms_to_dt(ingest_ms), "schema_version": 1, "late": 0, "batch_id": batch_id}
+            "ingest_time": ms_to_dt(ingest_ms), "schema_version": 1, "late": 0, "batch_id": batch_id, "_event_id_v1": event_id_v1}
 
 
 @dataclass
@@ -269,4 +283,13 @@ if __name__ == "__main__":
     reasons = sorted(r for _, r in g.quarantined); assert reasons == ["l4:props.email", "pii:props.$page_url:mobile", "pii:props.search_term:tw_id"], reasons
     assert all("example.test" not in json.dumps(r) and "my_custom_thing" not in r["props"] for r in g.rows) and g.rows[0]["props"]["$identities"]["$identity_login_id"] == "v1_abc"
     assert read(bq, {"kind": "ga4", "dataset": "ds", "table_kind": "intraday", "extra_params": ["my_custom_thing"]}, watermark=None, now=now + timedelta(days=1), batch_id="g2").dropped_params == {}
+    # event_id 內容雜湊：同時間但 event_params 不同 → 兩筆；日批只多了非核心欄位（traffic_source、geo、裝置、stream／bundle 序號）→ 同一筆；5 與 5.0 同值
+    a1 = ga4_row(500, base, "kh_apply"); a2 = ga4_row(500, base, "kh_apply"); a2["event_params"][3] = {"key": "amount", "value": {"double_value": 2000.0}}
+    fa1, fa2 = flatten(a1, {}, "p", "ga360_intraday", "b", 0), flatten(a2, {}, "p", "ga360_intraday", "b", 0)
+    assert fa1["event_id"].startswith("e2_") and fa1["event_id"] != fa2["event_id"], (fa1["event_id"], fa2["event_id"])
+    a3 = ga4_row(500, base, "kh_apply", seq=9, stream="s9"); a3["traffic_source"] = {"source": "bing"}; a3["geo"] = {"country": "Japan"}; a3["device"] = {"category": "mobile"}
+    a3["session_traffic_source_last_click"] = {"manual_campaign": {"source": "edm"}}; a3["privacy_info"] = {"analytics_storage": "Yes"}
+    fa3 = flatten(a3, {}, "p", "ga360_daily", "b", 0); assert fa3["event_id"] == fa1["event_id"] and fa3["_event_id_v1"] != fa1["_event_id_v1"], "日批補欄位不改 event_id"
+    a4 = ga4_row(500, base, "kh_apply"); a4["event_params"][3] = {"key": "amount", "value": {"int_value": 1000.5}}; assert flatten(a4, {}, "p", "s", "b", 0)["event_id"] == fa1["event_id"]
+    a5 = ga4_row(500, base, "kh_apply", uid="v1_abc"); assert flatten(a5, {}, "p", "s", "b", 0)["event_id"] != fa1["event_id"], "user_id 是核心欄位"
     print("ga4_source ok")
