@@ -12,9 +12,14 @@
 
 1. **現有程式能撐起「問數 → 配置卡 → 乾跑編譯」這一段，其餘都是骨架或還沒有。** `backend/api/ask.py` 與 `backend/insight_agent/configure.py` 是唯一真的接上權限與編譯器的 AI 路徑；`backend/mcp/server.py` 與 `backend/insight_agent/runtime.py` 是示範骨架：沒有認證、不呼叫 `authorize()`、遮罩是寫死的欄位名、審批只是在參數上貼 `pending_approval`、`metric.query` 用 f-string 拼 SQL、預算在查詢跑完才扣、run 不落地（§2）。不能把 `tools.yaml` 的 25 條登記當成 25 個可用工具。
 2. **第一階段引擎推薦「自有輕量 orchestration（DMP 後端內的任務控制器 + 模型 API）」，第二引擎用同一驗收集比較。** 理由不是「自己做比較好」，而是本案的硬限制：身分要從 DMP 認證上下文來、每次工具呼叫都重新授權、run 與寫入的冪等由 DMP 持久化、可能部署在永豐機房。Claude Agent SDK 以「每個 session 一個 CLI 子行程 + 本機 JSONL」運作、預設帶 shell／檔案工具；OpenAI 的託管 Agents API 目前僅美國資料駐留且不支援 ZDR（§4，2026-10-20 讀官方文件）。兩者都可以當第二引擎接同一個 DMP Tool Gateway 比較，但第一個落地的不宜是它們。**模型供應商與推論位置是另一個決策**（docs/41 D2、D3），不綁在引擎選擇上。
-3. **Issue 建議的 MVP「開戶漏斗診斷 → 原生看板 → 流失受眾草稿」方向對，但要改兩處。**（a）S1 的開戶步驟 00→07 在客戶端「待核定」（簡報 p12、p18B、p18D 第 3 項），語意層也沒有這 8 步的對應（`events.yaml` 有 27 個 `kh_*` 事件，沒有步驟編號；Sheet「事件設計盤點與清理」的 `om_open_acct_flow`「(C)開_07 開戶審核」不在目錄裡），所以「診斷」的數字目前沒有可驗收的口徑。（b）開戶流程中斷者多半還是匿名（Sheet「業務情境驗證」S1：「申辦第一步通常為匿名狀態」），做成受眾也推不進 CDP；客戶自己寫的名單場景是 **S6 新戶 7 天未首交**（簡報 p12、p15）。建議切片改成：**S1 開戶漏斗診斷（只讀）→ 開戶主管週報原生看板草稿 → S6「開戶後 7 天未首筆成交」受眾草稿（不送審、不推送）**（§7）。
+3. **Issue 建議的 MVP「開戶漏斗診斷 → 原生看板 → 流失受眾草稿」方向對，但要改兩處。**（a）S1 的開戶步驟 00→07 在客戶端「待核定」（簡報 p12、p18B、p18D 第 3 項），語意層也沒有這 8 步的對應（`events.yaml` 有 27 個 `kh_*` 事件，沒有步驟編號；Sheet「事件設計盤點與清理」的 `om_open_acct_flow`「(C)開_07 開戶審核」不在目錄裡），所以「診斷」的數字目前沒有可驗收的口徑。（b）開戶流程中斷者多半還是匿名（Sheet「業務情境驗證」S1：「申辦第一步通常為匿名狀態」），做成受眾也推不進 CDP；客戶自己寫的名單場景是 **S6 新戶滿 7 天、有登入、未交易**（簡報 p12、p15）。建議切片改成：**S1 開戶漏斗診斷（只讀）→ 開戶主管週報原生看板草稿 → S6「開戶滿 7 天、有登入、未交易」受眾草稿（不送審、不推送）**（§7；精確定義見 docs/41 D5）。
 4. **口徑有兩個現成衝突，必須先解決，不能在 skill 裡繞過：**「開戶」在規則解析器指 `kh_apply`（完成開戶申請，`configure.py:38`），在語意層指標 `new_accounts` 指 `kh_review_pass`（審核成功，`metrics.yaml:50-53`）；S5「文章瀏覽 14 天內開戶、匿名綁定覆蓋至少 14 天」（簡報 p12、p18D 第 4 項）與 OneID 契約 `login_backfill.window_days: 7`（`oneid_rules.yaml:34`）不一致。實測規則解析器把「文章瀏覽後 14 天內開戶的歸因」配成 7 天回溯、觸點是全部頁面瀏覽（`configure.py:153-154`）。
-5. **相依：** Issue #33（合成資料按來源規格產生、經真實歸戶服務寫入）是 data-readiness 與驗收 fixture 的前置；PR #32（日彙總冪等）仍 open：Codex 第四輪複審（2026-10-20T15:03Z，head `9cc2b52`）仍有 1 項 P1（只寫新事件的寫入者落地後中斷，併發重建漏算無法由重試恢復），尚未修復；合併前 L1 彙總層的次數類數字在重送或中斷後可能不準；#29（props JSON 安全）已於 2026-10-20 合併（`9512adf`）。
+5. **相依（2026-10-21 更新）：**
+   - Issue #33（合成資料按來源規格產生、經真實歸戶服務寫入）是 data-readiness 與驗收 fixture 的前置；其預置屬性契約 PR #35 已合併 main。
+   - PR #32（日彙總不重算）：第四輪的中斷問題 Codex 已獨立復測通過；第五輪仍阻擋，等「event_id 改為內容雜湊」的依賴 PR（issue #39）整合後復測。
+   - PR #37（舊平台個資不入庫）：Codex 第一輪仍有兩項 P1（點分鍵名繞過、中文緊貼的手機／身分證漏掃），修正中。
+   - 資料邏輯總表 #38：data-readiness 的歸戶品質依賴 #41（接入即歸戶）與 #39（事件不重複）；回填一致性 #42；其餘見 #43–#50。
+   - #29（props JSON 安全）已於 2026-10-20 合併（`9512adf`）。
 6. **權限落差：** 現行 `rbac.yaml` 下行銷沒有 `overview.use`，**不能建立看板**（`dashboards.py:101-104`；本機以 `authorize()` 實測）；`svc_insight` 連 `events.view` 都沒有。MVP 的看板由誰發起要先定（docs/39 §6、docs/41 D4）。
 7. **既有 skills 不能直接搬：** 9 個 `skills/*.md` 把事件名、門檻（樣本 < 200）、甚至由模型調整 confidence 的「證據覆核」寫在 prompt 裡（§6、docs/39 §8）。建議遷成標準 `SKILL.md` 套件、口徑一律從版本化契約取，**覆核改成確定性重跑 + oracle，不用另一個模型判斷數字對不對**。
 
@@ -74,7 +79,7 @@
 | Handler | 2 個示範（`server.py:104-124`）；`tools.yaml` 只有 2 條寫 `handler:`（`tools.yaml:29`、`34`） | 23 條工具沒有實作 | 每條工具對應既有 REST 服務函式（docs/39 §1），Gateway 只做轉接 |
 | SQL | `metric.query` 用 f-string 拼 SQL（`server.py:122`），繞過編譯器、未跳脫 | 注入風險；口徑不一致；違反 AGENTS.md「agent 不得直接寫 SQL」 | **刪除此示範**；一律 `compile_kind`／`execute_kind`（`analytics.py:131-170`） |
 | 查詢前預算 | `budget.charge()` 在 handler 執行後才扣（`server.py:96-97`）；預算物件在記憶體、每個 Gateway 實例一份（`runtime.py:45`） | 超支後才知道；重啟歸零；token、每日上限沒做 | 執行前 EXPLAIN ESTIMATE 估掃描量 → 超過 per-call／per-run 剩餘額度直接拒絕（`BUDGET_EXCEEDED`）；用量寫 run 紀錄（PostgreSQL） |
-| 審計 | `print()` 到 stdout（`server.py:81`），`project` 寫死（`server.py:71`） | 審計不落地、不可查 | 寫同一個 `store.audit`，帶 run_id、step_id、operation_key、契約版本 |
+| 審計 | `print()` 到 stdout（`server.py:81`），`project` 寫死（`server.py:71`） | 審計不落地、不可查 | 寫同一個 `store.audit`，帶 run_id、step_id、operation_id、args_digest、契約版本 |
 | 持久化 | 無 | 重啟即遺失 | run／step journal（docs/39 §5–6） |
 | 傳輸層 | 無（註解寫正式版用 FastMCP 或官方 SDK） | 外部 MCP client 無法連 | 新增依賴需先過 `LICENSES.md` 白名單與 CVE 檢查（CLAUDE.md 規則） |
 
@@ -224,19 +229,23 @@ run_8f2c… 執行中（可取消）
 
 ```
 看板草稿「開戶主管週報」（私人，未分享）
- 卡片 1 開戶漏斗（依渠道）  卡片 2 各步轉換率趨勢  卡片 3 新戶 7 天首交率
+ 卡片 1 開戶漏斗（依渠道）  卡片 2 各步轉換率趨勢  卡片 3 新戶滿 7 天未交易人數
  [編輯卡片] [調整期間] [分享…（你決定）] [設定每週寄送…（需數位經營審批）]
-受眾草稿「開戶後 7 天未首筆成交」（draft，不計算、不推送）
- 規則：開戶審核成功 7–14 天前 AND 未做過 成交   預估：約 N 人（預估時間 10/20 09:10）
+受眾草稿「開戶滿 7 天、有登入、未交易」（draft，不計算、不推送）
+ 規則（提案參數，待 D5 核定）：as-of D = 昨天（台北）
+   開戶審核成功（kh_review_pass）日期 = D−7
+   AND 開戶日～D 至少 1 次 登入
+   AND 開戶日～D 0 次 成交
+ 資料完整性：D 的登入／交易來源 ✓（未齊則延後並標示）   預估：約 N 人（預估時間 10/21 09:10）
  排除：已在其他觸達名單 [編輯]       [送審…]（需數位經營核可）
 ```
 
 ### 6.5 審批與失敗恢復
 
 ```
-送審：受眾「開戶後 7 天未首筆成交」→ 審批單 ap_…（數位經營）  狀態：待審
+送審：受眾「開戶滿 7 天、有登入、未交易」→ 審批單 ap_…（數位經營）  狀態：待審
 失敗：步驟 3 查詢逾時（TIMEOUT，可重試）  [重試此步] [縮短期間後重跑] [取消]
-      已完成的步驟 1–2 不重跑；重試沿用同一 operation_key，不會重複建立草稿
+      已完成的步驟 1–2 不重跑；重試沿用同一 operation_id，不會重複建立草稿；參數改了要你確認
 撤權：你已沒有 funnel.use → 本 run 停止（AUTHZ_DENIED，不可重試）
 ```
 
@@ -263,11 +272,11 @@ run_8f2c… 執行中（可取消）
 
 ### 7.3 推薦的最小可驗收垂直切片
 
-**In：** data-readiness（新鮮度、回填狀態、歸戶品質摘要）；diagnose-conversion（S1 漏斗：比較期、分群下鑽、證據重跑）；build-dashboard（開戶主管週報：3–4 張原生卡片草稿，私人）；build-audience（S6 新戶 7 天未首交：規則草稿 + 預估，draft 狀態）；run 紀錄／證據／取消／重試；權限矩陣與撤權；A、B 集驗收。
+**In：** data-readiness（新鮮度、回填狀態、歸戶品質摘要）；diagnose-conversion（S1 漏斗：比較期、分群下鑽、證據重跑）；build-dashboard（開戶主管週報：3–4 張原生卡片草稿，私人）；build-audience（S6 開戶滿 7 天、有登入、未交易：規則草稿 + 預估，draft 狀態；定義見 docs/41 D5）；run 紀錄／證據／取消／重試；權限矩陣與撤權；A、B 集驗收。
 
 **Out：** 推送、觸達、匯出、排程啟用（P3／P4）；`profile.*`、`users.list`；S2–S5、S7–S10 的診斷（P1 只做到「探索能回答可不可以分析、缺什麼」）；外部 MCP client 存取（Gateway 做好後可開，但不在 MVP 驗收）；第二引擎（P1 出口後比較）。
 
-**為何把受眾換成 S6：** 客戶明寫的名單場景（簡報 p15：滿 7 天、未交易、有登入；Sheet S6）、對象是已開戶的已識別客戶、與 S1 同一條開戶旅程；開戶流程中斷者多為匿名（Sheet S1），做成受眾推不進 CDP。若 Windy 仍要「開戶中斷者」受眾，可限定「已識別（登入過）且未完成」並標示覆蓋率（docs/41 D1 替代方案）。
+**為何把受眾換成 S6：** 客戶明寫的名單場景（簡報 p15：滿 7 天、未交易、有登入；Sheet S6：T+1 圈選、每人限發一次）。「每人限發一次」屬發送階段（MA，P4），DMP 受眾草稿只產生名單、不負責發送去重、對象是已開戶的已識別客戶、與 S1 同一條開戶旅程；開戶流程中斷者多為匿名（Sheet S1），做成受眾推不進 CDP。若 Windy 仍要「開戶中斷者」受眾，可限定「已識別（登入過）且未完成」並標示覆蓋率（docs/41 D1 替代方案）。
 
 ## 8. 工作拆分草案（尚未啟動實作）
 
@@ -278,7 +287,7 @@ run_8f2c… 執行中（可取消）
 | W0 | contract PR：工具契約 v1（docs/39 §1–4）、`analysis.configure` 種類修正、`metrics.yaml` 版本、`segments` draft 建立參數、Idempotency-Key | — | M | 只改 yaml／openapi；契約 PR 例外於 400 行 |
 | W1 | contract PR：開戶口徑與 S5 回溯窗口決議落地 | 客戶核定（docs/41 D5） | S | 依客戶回覆；未核定則以「fixture 口徑」標示 |
 | W2 | Tool Gateway 正式化：身分、`authorize()`、查詢前預算、審計、刪除 f-string 示範 | W0 | M | 沿用 `compile_kind`／`execute_kind`，不新寫查詢 |
-| W3 | run／step journal、狀態機、操作鍵唯一約束（PostgreSQL） | W0 | M | 用既有 `store_pg`；新增一張專用表 |
+| W3 | run／step journal、狀態機、`agent_operations`（operation_id 唯一）、租約世代圍籬、與產物同交易的寫入方法（PostgreSQL） | W0 | M | 用既有 `store_pg`；新增 `insert_item_if_absent`／交易版本方法，既有 `put_item` 是覆寫式 |
 | W4 | data-readiness 後端端點（新鮮度依來源、回填、歸戶品質） | #33 | M | 需真實歸戶寫入的資料才能驗 |
 | W5 | 模型驅動器 + SKILL.md 載入器 + 規則解析器改讀語意層同義詞 | W0、W2 | M | 規則解析器保留為離線／降級路徑 |
 | W6 | skills：data-readiness、explore-data、diagnose-conversion（SKILL.md + 測試） | W4、W5 | M | 口徑只引用契約 ID |

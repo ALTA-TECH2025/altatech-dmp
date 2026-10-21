@@ -60,10 +60,10 @@ ToolResponse:
 | `AMBIGUOUS` | 口徑有多個候選（例：「開戶」= `kh_apply` 或 `kh_review_pass`） | 否 | run → `waiting_input`，問使用者（§8 歧義處理） |
 | `AUTHZ_DENIED` | `authorize()` 拒絕（含中途撤權） | 否 | run → `failed`，不重試 |
 | `BUDGET_EXCEEDED` | 估算超過 per-call 或 run 剩餘額度 | 否 | 回模型「縮小期間／加篩選」；仍超 → failed |
-| `TIMEOUT` | ClickHouse `max_execution_time` | 是 | 自動重試 1 次（同 operation_key）；再失敗 → 使用者決定 |
+| `TIMEOUT` | ClickHouse `max_execution_time` | 是 | 自動重試 1 次（同 `operation_id`）；再失敗 → 使用者決定 |
 | `DATA_NOT_READY` | 所需來源／日期未到或回填未完成 | 否 | 依 skill：縮期間並標示，或停止 |
 | `CONTRACT_MISMATCH` | skill 引用的契約版本與目前語意層不相容 | 否 | run failed；提示更新 skill（§9 版本相容） |
-| `CONFLICT` | 同 operation_key 不同參數 | 否 | 視為程式錯誤，failed |
+| `CONFLICT` | 同 `operation_id` 不同 `args_digest`，或 `dashboard.update` 的產物版本已被改過 | 否 | step failed；要改參數須使用者確認、發新 `operation_id`（§3.1） |
 | `NOT_FOUND` | 草稿／證據不存在或無權看 | 否 | — |
 | `RATE_LIMITED` | 每使用者同時 run 數或每日額度 | 是（延後） | run 排隊 |
 | `INTERNAL` | 其他 | 是（最多 2 次、指數退避） | — |
@@ -113,14 +113,44 @@ ClickHouse settings（`budgets.yaml:2-26`）仍隨 SQL 送出作伺服器端兜�
 
 ## 3. 寫入類工具的冪等與草稿
 
-### 3.1 操作鍵
+### 3.1 邏輯操作 ID、參數摘要與原子提交
 
-`operation_key = sha256(run_id, step_id, tool, canonical_json(args))`。寫入類工具（`segment.draft`、`dashboard.draft`、`dashboard.update`）：
+寫入類工具：`segment.draft`、`dashboard.draft`、`dashboard.update`。
 
-- 寫入前先查 `agent_operations(operation_key UNIQUE)`；已存在且成功 → 直接回上次的產物 ID，不再寫。
-- 同鍵不同 args → `CONFLICT`。
-- 產物記錄 `created_by_run`、`operation_key`；重試、引擎切換（docs/38 §4.2）、worker 重啟都用同一鍵，**同一個草稿只會建一次**。
-- REST 端也接受 `Idempotency-Key` header，語意相同（目前全 repo 沒有，docs/38 §2.1）。
+**兩個東西分開：**
+- `operation_id`：一次「邏輯操作」的身分，由**控制器**在計畫該步時產生並持久化（例：`op_<run_id>_<序號>`）。模型不產生、也不能改它。
+- `args_digest = sha256(canonical_json(args))`：這次要寫什麼的摘要。
+
+不再把 args 放進鍵裡。原本的 `hash(run_id, step_id, tool, args)` 有個問題：模型重試時只要改了標題，就會變成另一把鍵，「同鍵不同參數」根本偵測不到。
+
+**重用規則：**
+- 同一步的自動重試、worker 重啟接手、換引擎續跑（docs/38 §4.2），一律沿用原 `operation_id`。
+- 使用者觸發的重試（`retry_of`）也沿用原 run 的 `operation_id`。
+- 同 `operation_id` 但 `args_digest` 不同：
+  - 預設回 `CONFLICT`，不寫。
+  - 要改參數，必須由使用者在 UI 確認，控制器才發一個新 `operation_id`（新操作），舊產物保留不覆蓋。
+
+**原子提交（交易邊界）：** 看板（`items` 表，kind=dashboard）與分群（`segments` 表）都在同一個 PostgreSQL（`backend/api/store_pg.py:25-26`），所以操作預留與產物寫入放在**同一個交易**。
+
+```
+BEGIN
+  INSERT INTO agent_operations (operation_id, run_id, tool, args_digest, artifact_kind, artifact_id, generation, state)
+       VALUES ($op, $run, $tool, $digest, $kind, $artifact_id, $gen, 'committed')
+       ON CONFLICT (operation_id) DO NOTHING             -- 已有 → 下面不寫產物
+  -- 只有上一句真的插入時才寫產物（同一交易）：
+  INSERT INTO items (kind, id, doc) VALUES ($kind, $artifact_id, $doc)
+       ON CONFLICT (kind, id) DO NOTHING                 -- 不覆蓋使用者事後的編輯
+  -- 圍籬：run 的 generation 必須還是自己的（§5）
+  UPDATE agent_runs SET updated_at = now() WHERE run_id = $run AND generation = $gen   -- 0 列 → ROLLBACK
+COMMIT
+```
+
+- `artifact_id` 由 `operation_id` 決定（例：`dash_` + sha256(operation_id) 前 16 碼），不是隨機產生。崩潰後重試會算出同一個 id，`ON CONFLICT DO NOTHING` 保證產物只有一份。
+- 「建了產物、還沒記成功就崩潰」的窗口不存在：兩筆在同一交易，要嘛都在、要嘛都不在。
+- 若產物改到另一個儲存而無法共用交易：產物本身帶唯一的 `operation_id` 欄位（唯一索引）。恢復時先用 `operation_id` 查回產物，查到就補記 `agent_operations`，不再建立。
+- 既有 `put_item` 是覆寫式寫入，不能直接用；需新增 `insert_item_if_absent`／交易版本的 store 方法（W3）。
+- `dashboard.update`：`operation_id` 對應一次編輯。寫入條件帶產物版本（`WHERE doc->>'version' = $expected`）；版本不符代表使用者已改過，回 `CONFLICT`，不覆蓋。
+- 產物記錄 `created_by_run`、`operation_id`；REST 端的 `Idempotency-Key` header 對應 `operation_id`，語意相同（目前全 repo 沒有，docs/38 §2.1）。
 
 ### 3.2 草稿語意
 
@@ -160,15 +190,16 @@ AgentRun:                    # PostgreSQL 專用表（不是 store_pg 通用 ite
   budget: { scan_bytes_used, tokens_used }
   period: { from, to }, freshness_snapshot: Readiness 摘要
   steps: [AgentStep]
-  artifacts: [ { kind: dashboard|segment|evidence, id, operation_key } ]
+  artifacts: [ { kind: dashboard|segment|evidence, id, operation_id } ]
+  generation: int              # 租約世代（§5 圍籬）
   created_at, updated_at, finished_at, error
 
 AgentStep:
-  step_id, tool, args_digest, operation_key, state, attempts, started_at, finished_at,
+  step_id, tool, operation_id, args_digest, state, attempts, started_at, finished_at,
   usage, evidence_id, error
 ```
 
-審計：每步寫 `agent.tool_called`（`tools.yaml:13`）到既有 `store.audit`，帶 run_id、step_id、operation_key、契約版本；不再用 `print()`（`server.py:81`）。
+審計：每步寫 `agent.tool_called`（`tools.yaml:13`）到既有 `store.audit`，帶 run_id、step_id、operation_id、args_digest、generation、契約版本；不再用 `print()`（`server.py:81`）。
 
 ## 5. 狀態機
 
@@ -180,9 +211,13 @@ step:  pending → running → succeeded | failed | skipped
                  running → retry_wait → running （TIMEOUT／INTERNAL，次數上限見 §2.3）
 ```
 
-- **租約：** worker 取 run 時寫 `lease_until`（例 60 秒、每步續租）；重啟後其他 worker 接手，從最後一個 `succeeded` 的 step 之後繼續；已成功的寫入步驟因操作鍵不會重做。
-- **取消：** 設 `cancel_requested`；控制器在每步之間檢查；執行中的 ClickHouse 查詢以 `KILL QUERY WHERE query_id` 結束（query_id = step 的 operation_key）。
-- **重試（使用者觸發）：** 新 run，`retry_of: <run_id>`，沿用已成功步驟的證據（同權限指紋才沿用），寫入步驟用原操作鍵。
+- **租約與圍籬（fencing）：**
+  - worker 取 run 時，以 `UPDATE agent_runs SET generation = generation + 1, lease_owner = $w, lease_until = now() + 60s WHERE run_id = $r AND (lease_until < now() OR lease_owner = $w) RETURNING generation` 取得新世代，每步續租。
+  - 每一個寫入（產物交易、step 狀態、run 狀態）都帶 `WHERE generation = $gen`。過期 worker 醒來後世代已被接手者加 1，它的寫入 0 列、交易回滾，不能再寫。
+  - 接手者從最後一個 `succeeded` 的 step 之後繼續。寫入步驟先用 `operation_id` 查 `agent_operations`；已 committed 就直接取回產物 id，不重做。
+  - 外部副作用只有 ClickHouse 查詢（唯讀），被取代的 worker 頂多多跑一次讀取，不會多寫。
+- **取消：** 設 `cancel_requested`；控制器在每步之間檢查；執行中的 ClickHouse 查詢以 `KILL QUERY WHERE query_id` 結束（query_id = step 的 `operation_id` + attempt）。
+- **重試（使用者觸發）：** 新 run，`retry_of: <run_id>`，沿用已成功步驟的證據（同權限指紋才沿用），寫入步驟沿用原 `operation_id`；參數不同依 §3.1 走 `CONFLICT` 或使用者確認的新操作。
 - **撤權：** 每步 `authorize()`；拒絕 → run `failed(AUTHZ_DENIED)`，已建草稿保留並標示。
 - **排程（P3）：** 每次觸發是新 run，身分 = 擁有者現在的角色；排程停用條件沿用看板定時寄送（授權失效即暫停，docs/30）。
 
