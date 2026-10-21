@@ -40,7 +40,11 @@ model:
     - { rule: range, field: amount, min: 0, on_fail: quarantine }
     - { rule: time_window, field: time, days: 7, on_fail: quarantine }
     - { rule: pii_scan, on_fail: reject_and_alert }
-  dedupe: { event_id: "sha256(source|ORD_NO|STATUS)" }
+  # event_id：事件只追加，時間與內容全同才算同一筆 → 雜湊明列的來源欄位（含委託時間、狀態更新時間、成交量、費用…）。
+  # 不放 CUST_ID／ACCT_NO（識別欄不進雜湊）。legacy_event_id 是改版前的公式，只用來在重放時認出已入倉的舊列（不倍增）。
+  dedupe:
+    event_id: "content(source|event|ORD_NO|STATUS|ORD_TIME|UPDATED_AT|STK_CODE|MKT|BS_FLAG|ORD_TYPE|PRICE|QTY|FILL_QTY|CHANNEL|FEE|TAX|RJ_CODE)"
+    legacy_event_id: "sha256(source|ORD_NO|STATUS)"
   schedule: { mode: incremental, cron: "*/15 * * * *", depends_on: [sync_instrument], retries: 3, backoff_s: 60, schema_change: auto_map }
   owner: 交易系統
   sla: { latency_p95_s: 1200 }

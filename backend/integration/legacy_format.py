@@ -94,6 +94,7 @@ RAW_DDL = """CREATE TABLE IF NOT EXISTS dmp.raw_legacy
     project      LowCardinality(String),
     properties   String,
     line_no      UInt64,
+    event_id     String DEFAULT '',          -- stage() 算好的內容雜湊 event_id（e2_…）
     ingested_at  DateTime DEFAULT now()
 )
 ENGINE = {engine}
@@ -152,9 +153,13 @@ def stage(src: Path, dst: Path, quarantine: Path, key_ref: str = "k_idm", forbid
             props, dropped = scrub(props if isinstance(props, dict) else {}, forbidden)
             for k in dropped:
                 r.pii_dropped[k] = r.pii_dropped.get(k, 0) + 1
+            t_ms = int(d.get("time") or 0)
+            # event_id = 內容雜湊（代碼化後的 distinct_id｜時間｜事件名｜入倉的屬性）：完全相同的兩行是同一筆，任一屬性不同就是另一筆。
+            # 先去個資再算：被丟掉的屬性不進雜湊（不能用雜湊回推沒有入倉的值）。不用 $track_id 當去重鍵（神策手冊：隨機數、不保證唯一、不做去重標識）。
+            eid = modeling.content_id(["legacy", did, str(t_ms), str(d.get("event", "")), modeling.canon_json(props)]) if typ == "track" else ""
             rec = {"type": typ, "event": d.get("event", ""), "distinct_id": did, "is_login": int(is_login),
-                   "original_id": orig, "time": int(d.get("time") or 0), "project": d.get("project", "default"),
-                   "properties": json.dumps(props, ensure_ascii=False, separators=(",", ":")), "line_no": n}
+                   "original_id": orig, "time": t_ms, "project": d.get("project", "default"),
+                   "properties": json.dumps(props, ensure_ascii=False, separators=(",", ":")), "line_no": n, "event_id": eid}
             out.write(json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n")
             r.ok += 1; r.by_type[typ] = r.by_type.get(typ, 0) + 1
     return r
@@ -164,14 +169,15 @@ class LegacyLoader:
     def __init__(self, ch: ClickHouseHTTP, project: str = "altatech_dmp", local: bool = False):
         self.ch, self.project = ch, project
         self.ch.query(RAW_DDL.format(engine="MergeTree" if local else "ReplicatedMergeTree('/ch/{shard}/dmp.raw_legacy', '{replica}')"))
+        self.ch.query("ALTER TABLE dmp.raw_legacy ADD COLUMN IF NOT EXISTS event_id String DEFAULT ''")   # 既有環境升版
 
-    SCHEMA = "type String, event String, distinct_id String, is_login UInt8, original_id String, time Int64, project String, properties String, line_no UInt64"
+    SCHEMA = "type String, event String, distinct_id String, is_login UInt8, original_id String, time Int64, project String, properties String, line_no UInt64, event_id String"
 
     def load_raw(self, staged: Path, batch_id: str, via_http: bool = False) -> int:
         """staged 檔需在 ClickHouse 的 user_files_path 下（正式環境是物件儲存：file() 換 s3()）；
         via_http：伺服器不在本機（CI 服務容器）時把檔案當 INSERT 本體送、以 input() 補 batch_id。"""
-        cols = "batch_id, type, event, distinct_id, is_login, original_id, time, project, properties, line_no"
-        sel = f"SELECT '{batch_id}', type, event, distinct_id, is_login, original_id, time, project, properties, line_no"
+        cols = "batch_id, type, event, distinct_id, is_login, original_id, time, project, properties, line_no, event_id"
+        sel = f"SELECT '{batch_id}', type, event, distinct_id, is_login, original_id, time, project, properties, line_no, event_id"
         st = {"max_insert_threads": 4, "input_format_json_read_objects_as_strings": 1}
         if via_http:
             self.ch.query(f"INSERT INTO dmp.raw_legacy ({cols}) {sel} FROM input('{self.SCHEMA}') FORMAT JSONEachRow", data=staged.read_bytes(), settings=st)
@@ -179,18 +185,33 @@ class LegacyLoader:
             self.ch.query(f"INSERT INTO dmp.raw_legacy ({cols}) {sel} FROM file('{staged.name}', 'JSONEachRow', '{self.SCHEMA}')", settings=st)
         return self.ch.scalar(f"SELECT count() FROM dmp.raw_legacy WHERE batch_id = '{batch_id}'")
 
+    V1_ID = "substring(lower(hex(SHA256(concat(distinct_id, '|', toString(time), '|', event, '|', JSONExtractString(properties, '$track_id'))))), 1, 32)"   # 改版前的公式
+
+    def _not_loaded(self, batch_id: str, ev: str) -> str:
+        """事件只追加：同批完全相同的行只留一行（LIMIT 1 BY）；倉裡已有同 event_id 的不再寫。
+        改版前入倉的舊列（舊公式 id）：舊 id 只含 distinct_id／時間／事件名／$track_id、不含屬性，命中只是候選——
+        還要同一個正式事件名、清理後的屬性也相同（ClickHouse JSON 正規化後比：鍵序、1000.0 與 1000、null 都一致）才算同一筆；
+        內容不同就是另一筆，以新 id 寫入。比對範圍限在這批的時間區間與舊平台來源，不掃整張事件表。"""
+        lo, hi = (self.ch.query(f"SELECT min(time), max(time) FROM dmp.raw_legacy WHERE batch_id = '{batch_id}' AND type = 'track' FORMAT TSV").strip().split("\t") + ["0", "0"])[:2]
+        rng = (f"project = '{self.project}' AND source = 'legacy_format' "
+               f"AND time BETWEEN fromUnixTimestamp64Milli(toInt64({int(lo or 0)})) AND fromUnixTimestamp64Milli(toInt64({int(hi or 0)}))")
+        known = f"SELECT event_id FROM dmp.events WHERE {rng}"
+        known_v1 = f"SELECT event_id, event, toJSONString(props) FROM dmp.events WHERE {rng} AND NOT startsWith(event_id, '{modeling.EVENT_ID_V2}')"
+        return f"event_id NOT IN ({known}) AND ({self.V1_ID}, {ev}, toJSONString(CAST(properties, 'JSON'))) NOT IN ({known_v1})"
+
     def normalize(self, batch_id: str) -> dict[str, int]:
         aliases, canon = alias_lists()
         ev = f"transform(event, {sql_list(aliases)}, {sql_list(canon)}, event)" if aliases else "event"
         self.ch.query(f"""INSERT INTO dmp.events (project, time, event, source, one_id, entity_type, entity_id, distinct_id, session_id, event_id, platform, app_id, symbol, side, channel, amount, utm_source, utm_campaign, props, ingest_time, schema_version, late, batch_id)
 SELECT '{self.project}', fromUnixTimestamp64Milli(time), {ev}, 'legacy_format', distinct_id, '', '', distinct_id,
   JSONExtractString(properties, '$session_id'),
-  substring(lower(hex(SHA256(concat(distinct_id, '|', toString(time), '|', event, '|', JSONExtractString(properties, '$track_id'))))), 1, 32),
+  event_id,
   JSONExtractString(properties, '$lib'), JSONExtractString(properties, '$app_id'),
   JSONExtractString(properties, 'symbol'), JSONExtractString(properties, 'side'), JSONExtractString(properties, 'channel'),
   JSONExtract(properties, 'amount', 'Nullable(Float64)'), JSONExtractString(properties, '$utm_source'), JSONExtractString(properties, '$utm_campaign'),
   CAST(properties, 'JSON'), now64(3), 1, 0, '{batch_id}'
-FROM dmp.raw_legacy WHERE batch_id = '{batch_id}' AND type = 'track'""", settings={"max_insert_threads": 4})
+FROM (SELECT * FROM dmp.raw_legacy WHERE batch_id = '{batch_id}' AND type = 'track' ORDER BY line_no LIMIT 1 BY event_id)
+WHERE {self._not_loaded(batch_id, ev)}""", settings={"max_insert_threads": 4})
         self.ch.query(f"""INSERT INTO dmp.user_prop_log (one_id, prop, value, op, ts)
 SELECT distinct_id, kv.1, kv.2, transform(type, {sql_list(PROFILE_TYPES)}, {sql_list(PROFILE_TYPES.values())}, 'set'), fromUnixTimestamp64Milli(time)
 FROM dmp.raw_legacy ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) AS kv
@@ -201,6 +222,7 @@ FROM dmp.raw_legacy WHERE batch_id = '{batch_id}' AND type = 'track_signup' AND 
         q = lambda sql: self.ch.scalar(sql)
         return {"raw": q(f"SELECT count() FROM dmp.raw_legacy WHERE batch_id='{batch_id}'"),
                 "events": q(f"SELECT count() FROM dmp.events WHERE batch_id='{batch_id}'"),
+                "events_skipped": q(f"SELECT count() FROM dmp.raw_legacy WHERE batch_id='{batch_id}' AND type='track'") - q(f"SELECT count() FROM dmp.events WHERE batch_id='{batch_id}'"),
                 "prop_log": q(f"SELECT count() FROM dmp.user_prop_log WHERE one_id IN (SELECT distinct_id FROM dmp.raw_legacy WHERE batch_id='{batch_id}' AND type LIKE 'profile_%')"),
                 "id_map": q(f"SELECT count() FROM dmp.id_map FINAL WHERE id_type='$identity_anonymous_id' AND id_hash IN (SELECT original_id FROM dmp.raw_legacy WHERE batch_id='{batch_id}' AND type='track_signup')"),
                 "signup_anon_ids": q(f"SELECT uniqExact(original_id) FROM dmp.raw_legacy WHERE batch_id='{batch_id}' AND type='track_signup'")}
@@ -213,7 +235,7 @@ FROM dmp.raw_legacy WHERE batch_id = '{batch_id}' AND type = 'track_signup' AND 
         raw = self.load_raw(staged, batch_id, via_http=via_http)
         counts = self.normalize(batch_id)
         return {"stage": st.__dict__ | {"bad_samples": st.bad_samples}, "raw": raw, **counts,
-                "recon_ok": raw == st.ok and counts["events"] == st.by_type.get("track", 0)}
+                "recon_ok": raw == st.ok and counts["events"] + counts["events_skipped"] == st.by_type.get("track", 0)}   # 略過的是重複行或已入倉的事件
 
 
 if __name__ == "__main__":
@@ -234,6 +256,18 @@ if __name__ == "__main__":
     p0 = json.loads(rows[0]["properties"]); assert "$ip" not in p0 and "name" not in p0 and p0["symbol"] == "2330"
     assert (d / "q.jsonl").read_text(encoding="utf-8").count("\n") == 2
     a, c = alias_lists(); assert "order_submit" in a and c[a.index("order_submit")] == "bond_order"
+    # event_id 內容雜湊：完全相同的兩行同 id；只差一個屬性 → 不同 id；$track_id 不同也算不同內容（它是屬性之一），但不再單獨當去重鍵
+    dup = d / "dup.jsonl"; base_ev = {"type": "track", "event": "order_submit", "distinct_id": "C009", "time": 1760000009000, "properties": {"$is_login_id": True, "symbol": "2330", "amount": 5}}
+    dup.write_text("\n".join([json.dumps(base_ev), json.dumps(base_ev), json.dumps({**base_ev, "properties": {**base_ev["properties"], "amount": 6}}),
+                              json.dumps({**base_ev, "properties": {**base_ev["properties"], "amount": 5.0}})]), encoding="utf-8")
+    stage(dup, d / "dup.out.jsonl", d / "dup.q.jsonl", "k_idm", [])
+    ids = [json.loads(x)["event_id"] for x in (d / "dup.out.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert ids[0] == ids[1] == ids[3] and ids[2] != ids[0] and ids[0].startswith("e2_"), ids
+    big = d / "big.jsonl"; big_ev = {**base_ev, "properties": {"$is_login_id": True, "n": 9007199254740992}}
+    big.write_text("\n".join([json.dumps(big_ev), json.dumps({**big_ev, "properties": {"$is_login_id": True, "n": 9007199254740993}}), json.dumps(big_ev)]), encoding="utf-8")
+    stage(big, d / "big.out.jsonl", d / "big.q.jsonl", "k_idm", [])
+    bids = [json.loads(x)["event_id"] for x in (d / "big.out.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert bids[0] != bids[1] and bids[0] == bids[2], bids                                                       # 相鄰大整數是不同事件；完全相同才同 id
     # 個資不入庫：字典 hash／drop 類整個丟（不分大小寫、巢狀也丟）、自由文字與巢狀的身分證／手機／email 命中就丟該屬性；未登入的 ID 像個資 → 整列隔離
     drop = ops_drop_props(); assert {"S_IDNO", "MT_ACNO", "$device_id"} <= drop, sorted(drop)[:10]
     pii = d / "pii.jsonl"
