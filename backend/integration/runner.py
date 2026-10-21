@@ -107,7 +107,7 @@ class LocalRunner:
 
     @staticmethod
     def _log_dedupe(d: Any, log: Callable[[str], None]) -> None:
-        log(f"dedupe: skipped={d.skipped} identical rows already in dmp.events")
+        log(f"dedupe: skipped={d.skipped} identical rows already in dmp.events" + (f" (incl. {d.skipped_v1} stored under the pre-content event_id formula)" if getattr(d, "skipped_v1", 0) else ""))
         if d.kept_first:
             log(f"dedupe: kept_first={d.kept_first} event_ids already in dmp.events with different content (first copy kept, not overwritten): {d.kept_first_ids}")
 
