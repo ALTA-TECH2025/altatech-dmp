@@ -10,19 +10,28 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       backend: "${{ steps.f.outputs.backend }}"
+      backend_suites: "${{ steps.f.outputs.backend_suites }}"
+      e2e_clickhouse: "${{ steps.f.outputs.e2e_clickhouse }}"
       web: "${{ steps.f.outputs.web }}"
+      prototype: "${{ steps.f.outputs.prototype }}"
+      e2e_browser: "${{ steps.f.outputs.e2e_browser }}"
       deploy: "${{ steps.f.outputs.deploy }}"
-      contract: "${{ steps.f.outputs.contract }}"
+      contract: "${{ steps.f.outputs.contract }}"   # 契約 = 語意層 yaml（CLAUDE.md）；compiler/ 的程式不是契約
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # 要跟 base 分支算 merge-base
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
       - id: f
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            backend: ['backend/**']
-            web: ['prototype/**', 'web/**']
-            deploy: ['deploy/**', '.github/**']
-            contract: ['backend/openapi.yaml', 'backend/semantic/*.yaml', 'backend/mcp/tools.yaml', 'backend/security/*.yaml']   # 契約 = 語意層 yaml（CLAUDE.md）；compiler/ 的程式不是契約
+        # 依異動檔挑測試：改 backend/api 只跑載入它的自測；只有動到 web/ 或 backend/openapi.yaml（請求／回應 schema）才跑前端。
+        # 規則與清單在 tools/affected_tests.py；push 到 main、或 PR 有 full-ci 標籤（補標籤後重跑本 job 即可）→ 全跑
+        name: 依異動檔挑測試
+        env: { GH_TOKEN: "${{ github.token }}", EVENT: "${{ github.event_name }}", PR: "${{ github.event.pull_request.number }}", BASE: "${{ github.base_ref }}" }
+        run: |
+          full=""
+          if [ "$EVENT" != pull_request ]; then full=--all
+          elif gh pr view "$PR" --repo "${{ github.repository }}" --json labels -q '.labels[].name' | grep -qx full-ci; then full=--all; fi
+          python3 tools/affected_tests.py --base "origin/${BASE:-main}" --github-output $full
   contract:
     needs: changes
     runs-on: ubuntu-latest
@@ -60,23 +69,15 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install -r backend/requirements.txt ruff==0.16.8 pytest   # ruff 版本鎖定，規則在 ruff.toml
-      - run: ruff check backend
-      - name: 骨架自測
-        run: |
-          python3 backend/security/policy.py && python3 backend/integration/transforms.py && python3 backend/integration/auth.py && python3 backend/insight_agent/runtime.py && python3 backend/oneid/attribution.py && python3 -m backend.auth && python3 -m backend.auth.local selftest && python3 -m backend.api && python3 -m backend.segments && python3 -m backend.api.store_pg
-          python3 -m backend.integration.modeling && python3 -m backend.integration.scheduler && python3 -m backend.integration.legacy_format && python3 -m backend.integration.ga4_source && python3 -m backend.integration.legacy_api && python3 -m backend.semantic.compiler.golden && python3 -m backend.integration.e2e_clickhouse
-          python3 backend/migration/bridge.py --check && python3 backend/migration/properties.py --check && python3 backend/migration/legacy_specific.py --check && python3 backend/migration/presets.py
-      - name: 容器入口（backend.entry）自測與啟動前檢查
-        run: python3 -m backend.entry --selftest && python3 -m backend.entry --check && DMP_ROLE=worker python3 -m backend.entry --check
-      - name: pytest（若有 tests/）
-        run: |
-          if [ -d tests ]; then pytest -q tests; else echo "no tests dir yet"; fi    # 有 tests/ 就跑並把退出碼帶出來；不能用 && … || echo（會把失敗吞掉）
+      - name: ruff、骨架自測、容器入口檢查、pytest（只跑 changes job 挑中的；清單在 tools/affected_tests.py）
+        env: { SUITES: "${{ needs.changes.outputs.backend_suites }}" }
+        run: python3 tools/affected_tests.py --run --suites "$SUITES"
       - name: 守門：工作流裡不准再出現「test … && 測試 || echo」把失敗吞掉的寫法
         run: |
           if grep -nE 'test -[fd] [^&]+ && [^|]+ \|\| echo' .github/workflows/*.yml; then echo "::error::上面的步驟會把測試失敗當成略過（R13）"; exit 1; fi
   e2e-clickhouse:
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
+    if: needs.changes.outputs.e2e_clickhouse == 'true'
     runs-on: ubuntu-latest
     env: { CH_VERSION: 25.8.33.6 }   # LTS；版本鎖定，升版要同步 docs/11 與 deploy/
     steps:
@@ -103,24 +104,27 @@ jobs:
         run: python3 -m backend.integration.e2e_clickhouse
   web:
     needs: changes
-    if: needs.changes.outputs.web == 'true'
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.prototype == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
-      - run: node --check prototype/js/app.js && node --check prototype/js/data.js
+      - if: needs.changes.outputs.prototype == 'true'
+        run: node --check prototype/js/app.js && node --check prototype/js/data.js
       - name: 正式前端：型別、單元測試、建置
+        if: needs.changes.outputs.web == 'true'
         working-directory: web
         run: npm ci --no-audit --no-fund && npm run typecheck && npm test && npm run build
       - name: Playwright 煙霧測試（桌機 1440 + 手機 390，無 console error、無橫向溢出）
+        if: needs.changes.outputs.prototype == 'true'
         run: |
           npx --yes playwright@1.48.2 install --with-deps chromium
           (cd prototype && python3 -m http.server 8765 >/dev/null 2>&1 &) ; sleep 1
           if [ -f tests/e2e/smoke.mjs ]; then node tests/e2e/smoke.mjs; else echo "tests/e2e/smoke.mjs 尚未加入（QA 工作流 S1）"; fi
   e2e-browser:
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.web == 'true'
+    if: needs.changes.outputs.e2e_browser == 'true'
     runs-on: ubuntu-latest
     env:
       CH_VERSION: 25.8.33.6
