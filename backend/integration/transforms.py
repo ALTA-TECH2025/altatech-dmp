@@ -4,16 +4,32 @@ from __future__ import annotations
 import hashlib
 import hmac
 import re
+import unicodedata
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
+# 邊界用明確的 ASCII 英數字判斷，不用 \b：Python 的 \b 是 Unicode 字界，中文與數字同屬 word，
+# 「手機0912345678請聯絡」會漏掉；前後不能緊貼英數字（含 _），所以較長的數字與 v1_ 代碼的 hex 不會誤判。
+# 掃描前先做 NFKC（全形數字 ０９… 轉半形）。
+_NB, _NA = r"(?<![A-Za-z0-9_])", r"(?![A-Za-z0-9])"
 PII_PATTERNS = {
-    "tw_id": re.compile(r"\b[A-Z][12]\d{8}\b"),
-    "mobile": re.compile(r"\b09\d{8}\b"),
-    "email": re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),
+    "tw_id": re.compile(_NB + r"[A-Za-z][1289][0-9]{8}" + _NA),                                   # 身分證（1／2）與新式居留證（8／9）
+    "mobile": re.compile(_NB + r"(?:\+?886[-\s]?|0)9[0-9]{2}[-\s]?[0-9]{3}[-\s]?[0-9]{3}" + _NA),  # 09xx-xxx-xxx、+886 9xx…
+    "email": re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z0-9.-]+"),
 }
+
+
+def _pii_text(v: str) -> str:
+    return unicodedata.normalize("NFKC", v)
+
+
+def _key_hit(k: Any, forbidden_keys: set[str]) -> bool:
+    """鍵名命中名單：整個鍵或以 . 分段的任一段（去 $、不分大小寫）在名單內——ClickHouse JSON 會把 a.b 展成巢狀，點分鍵不能繞過。"""
+    names = {str(x).lstrip("$").lower() for x in forbidden_keys}
+    ks = str(k)
+    return ks.lstrip("$").lower() in names or any(seg.lstrip("$").lower() in names for seg in ks.split(".") if seg)
 
 
 def trim(v: Any) -> Any: return v.strip() if isinstance(v, str) else v
@@ -49,8 +65,9 @@ def pii_scan(record: dict[str, Any]) -> list[str]:
     hits = []
     for k, v in record.items():
         if isinstance(v, str):
+            t = _pii_text(v)
             for name, pat in PII_PATTERNS.items():
-                if pat.search(v):
+                if pat.search(t):
                     hits.append(f"{k}:{name}")
     return hits
 
@@ -63,15 +80,16 @@ def pii_scan_deep(value: Any, path: str = "", forbidden_keys: set[str] | None = 
     if isinstance(value, dict):
         for k, v in value.items():
             p = f"{path}.{k}" if path else str(k)
-            if forbidden_keys and str(k).lstrip("$") in forbidden_keys:
+            if forbidden_keys and _key_hit(k, forbidden_keys):
                 hits.append(f"l4:{p}"); continue
             hits += pii_scan_deep(v, p, forbidden_keys, _depth + 1)
     elif isinstance(value, list):
         for i, v in enumerate(value):
             hits += pii_scan_deep(v, f"{path}[{i}]", forbidden_keys, _depth + 1)
     elif isinstance(value, str):
+        t = _pii_text(value)
         for name, pat in PII_PATTERNS.items():
-            if pat.search(value):
+            if pat.search(t):
                 hits.append(f"pii:{path}:{name}")
     return hits
 
@@ -90,5 +108,12 @@ if __name__ == "__main__":
     deep = pii_scan_deep({"props": {"$identities": {"$identity_login_id": "v1_abc"}, "items": [{"note": "a@b.co"}], "email": "x"}, "memo": "0912345678"}, forbidden_keys={"email"})
     assert deep == ["pii:props.items[0].note:email", "l4:props.email", "pii:memo:mobile"], deep
     assert pii_scan_deep({"props": {"market": "TSE", "n": 1, "ok": None}}) == []
+    # 中文緊貼、全形、帶分隔／國碼都要命中；較長數字、v1_ 代碼、委託單號不誤判
+    hit = lambda s: [h.split(":")[-1] for h in pii_scan_deep({"v": s})]
+    for s, want in [("手機0912345678請聯絡", ["mobile"]), ("身分證A123456789號", ["tw_id"]), ("居留證a812345678", ["tw_id"]), ("０９１２３４５６７８", ["mobile"]),
+                    ("0912-345-678", ["mobile"]), ("+886 912 345 678", ["mobile"]), ("886912345678", ["mobile"]), ("寄到pii@example.com謝謝", ["email"]),
+                    ("09123456789", []), ("109123456780", []), ("v1_ab0912345678cd01ef", []), ("v1_a123456789bcdef0123", []), ("O0912345678", []), ("A1234567890", []), ("2330", [])]:
+        assert hit(s) == want, (s, hit(s), want)
+    assert pii_scan_deep({"profile.S_ACNO": "x", "a": {"Profile.$Email": "x"}, "b": [{"x.MOBILE": 1}]}, forbidden_keys={"s_acno", "email", "mobile"}) == ["l4:profile.S_ACNO", "l4:a.Profile.$Email", "l4:b[0].x.MOBILE"]
     assert age_band(37) == "35-44"
     print("transforms ok")

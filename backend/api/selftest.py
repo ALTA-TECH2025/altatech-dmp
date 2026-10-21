@@ -874,7 +874,9 @@ def main(store: Any | None = None) -> None:
     _u = app.state.output.get(u1["id"]); _u["owner"] = f"local:{_sub}"; _u["status"] = "active"; store.put_item("output_task", _u)
     la.data["accounts"]["sched-bot"]["expires_at"] = int(time.time()) - 1; la._save()
     _n = len(ch.sqls); _before = sorted(str(p) for p in (app.state.output.dir / "outbox").rglob("*") if p.is_file())
-    tkx = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 21, 2, 5, tzinfo=ZoneInfo("Asia/Taipei")))
+    from datetime import timedelta as _tdx
+    _next = (datetime.now(ZoneInfo("Asia/Taipei")) + _tdx(days=1)).replace(hour=2, minute=5, second=0, microsecond=0)   # 明天 02:05（台北）：上面那次照跑記在今天，固定日期過了午夜就會被當成「今天已跑」
+    tkx = app.state.output.tick(Subject("system:scheduler", ["admin"]), _next)
     assert [r for r in tkx["ran"] if r["task"] == u1["id"] and "有效身分" in (r.get("error") or "")] and len(ch.sqls) == _n and sorted(str(p) for p in (app.state.output.dir / "outbox").rglob("*") if p.is_file()) == _before, tkx
     assert app.state.output.runs(u1["id"])[0]["status"] == "failed"
     login(c, sm, ["data_analyst"], "ana")
