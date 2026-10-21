@@ -348,19 +348,19 @@ AgentVersion:
 - Agent 引用固定 Skill 版本：Skill 發新版不會自動改變 Agent，要 Agent 發新版才會跟上。
 - 要改共用定義（指標、漏斗步驟）→ 技能庫只提供「開變更單」連結，走既有契約流程。
 
-**API（提案）**
+**API**（契約見 PR #61；權限分配仍為提案）
 
 | 方法 | 路徑 | 權限（提案） |
 |---|---|---|
-| GET | `/v1/agent/skills`、`/v1/agent/skills/{name}`、`/v1/agent/skills/{name}/versions/{v}`、`…/diff?from=&to=` | `ai_skills.view` |
-| POST／PATCH | `/v1/agent/skills/{name}/drafts`、`…/drafts/{id}` | `ai_skills.edit` |
-| POST | `…/drafts/{id}/dry-run` | `ai_skills.edit` + 被乾跑模組的 `use` |
-| POST | `…/drafts/{id}/submit` | `ai_skills.edit` |
-| POST | `…/drafts/{id}/approve`、`…/reject` | `ai_skills.publish`（不得核可自己送的） |
-| POST | `/v1/agent/skills/{name}/rollback` `{to_version}` → 新草案 | `ai_skills.edit` |
-| 同上 | `/v1/agent/agents/…` | 同上 |
+| GET | `/v1/agents/skills`、`/v1/agents/skills/{name}`、`/v1/agents/skills/{name}/versions/{v}`、`…/diff?from=&to=` | `ai_skills.view` |
+| POST／PATCH | `/v1/agents/skills/{name}/drafts`、`…/drafts/{id}` | `ai_skills.use` |
+| POST | `…/drafts/{id}/dry-run` | `ai_skills.use` + 被乾跑模組的 `use` |
+| POST | `…/drafts/{id}/submit` | `ai_skills.use` |
+| POST | `…/drafts/{id}/approve`、`…/reject` | `ai_skills.approve`（不得核可自己送的） |
+| POST | `/v1/agents/skills/{name}/rollback` `{to_version}` → 新草案 | `ai_skills.use` |
+| 同上 | `/v1/agents/configs/…` | 同上 |
 
-權限分配（提案，待 Windy 確認、走 `rbac.yaml` contract PR）：所有可進工作台的角色 `ai_skills.view`；數據分析 `ai_skills.edit`；數位經營 `ai_skills.publish`（與現行審批角色一致）；系統管理員全部。
+權限分配（提案，待 Windy 確認、走 `rbac.yaml` contract PR）：所有可進工作台的角色 `ai_skills.view`；數據分析 `ai_skills.use`；數位經營 `ai_skills.approve`（與現行審批角色一致）；系統管理員全部。
 
 ## 8. 既有 skills 對照與遷移
 
