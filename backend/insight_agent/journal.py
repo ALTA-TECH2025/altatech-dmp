@@ -59,6 +59,11 @@ def _check(table: dict[str, set[str]], src: str, dst: str) -> None:
         raise BadTransition(f"{src} → {dst} 不是允許的轉換")
 
 
+def _idem_key(doc: dict[str, Any], key: str | None) -> str | None:
+    """（使用者, 鍵）的無歧義編碼：JSON 陣列。不能用 'user:key'——'a:b'+'c' 與 'a'+'b:c' 會撞成同一把（Codex #62）。"""
+    return json.dumps([str((doc.get("initiator") or {}).get("user_id") or ""), str(key)], ensure_ascii=False) if key else None
+
+
 def _artifact_doc(kind: str, run_id: str, op: str, doc: dict[str, Any]) -> dict[str, Any]:
     return {**doc, "id": artifact_id(kind, op), "status": "draft", "operation_id": op, "created_by_run": run_id}
 
@@ -75,7 +80,7 @@ class MemoryJournal:
 
     def create_run(self, doc: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
         with self.s.lock:
-            idem = f"{doc.get('initiator', {}).get('user_id', '')}:{idempotency_key}" if idempotency_key else None
+            idem = _idem_key(doc, idempotency_key)
             if idem and idem in self.s.d["agent_idem"]:
                 return self._get(self.s.d["agent_idem"][idem])
             rid = "run_" + uuid.uuid4().hex[:12]
@@ -178,7 +183,8 @@ class MemoryJournal:
 
 DDL = """
 CREATE TABLE IF NOT EXISTS {s}.agent_runs (run_id TEXT PRIMARY KEY, state TEXT NOT NULL, generation BIGINT NOT NULL DEFAULT 0, lease_owner TEXT,
-  lease_until DOUBLE PRECISION NOT NULL DEFAULT 0, cancel_requested BOOLEAN NOT NULL DEFAULT false, idem TEXT UNIQUE, doc JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+  lease_until DOUBLE PRECISION NOT NULL DEFAULT 0, cancel_requested BOOLEAN NOT NULL DEFAULT false, idem_user TEXT, idem_key TEXT, doc JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (idem_user, idem_key));                 -- 使用者與鍵分欄：任一方含任何字元都不會互撞
 CREATE TABLE IF NOT EXISTS {s}.agent_steps (seq BIGSERIAL, run_id TEXT NOT NULL REFERENCES {s}.agent_runs(run_id), step_id TEXT NOT NULL, state TEXT NOT NULL, doc JSONB NOT NULL, PRIMARY KEY (run_id, step_id));
 CREATE TABLE IF NOT EXISTS {s}.agent_operations (operation_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, tool TEXT NOT NULL, args_digest TEXT NOT NULL,
   artifact_kind TEXT NOT NULL, artifact_id TEXT NOT NULL, generation BIGINT NOT NULL, state TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
@@ -212,11 +218,13 @@ class PostgresJournal:
         return row
 
     def create_run(self, doc: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
-        idem = f"{doc.get('initiator', {}).get('user_id', '')}:{idempotency_key}" if idempotency_key else None
+        user = str((doc.get("initiator") or {}).get("user_id") or "")
+        key = str(idempotency_key) if idempotency_key else None
         rid = "run_" + uuid.uuid4().hex[:12]
         async def fn(c: Any) -> str:
-            got = await c.fetchval(f"INSERT INTO {self.s.t('agent_runs')} (run_id, state, idem, doc) VALUES ($1, 'queued', $2, $3) ON CONFLICT (idem) DO NOTHING RETURNING run_id", rid, idem, json.dumps(doc, ensure_ascii=False))
-            return got or await c.fetchval(f"SELECT run_id FROM {self.s.t('agent_runs')} WHERE idem = $1", idem)
+            got = await c.fetchval(f"INSERT INTO {self.s.t('agent_runs')} (run_id, state, idem_user, idem_key, doc) VALUES ($1, 'queued', $2, $3, $4) "
+                                   "ON CONFLICT (idem_user, idem_key) DO NOTHING RETURNING run_id", rid, user if key else None, key, json.dumps(doc, ensure_ascii=False))
+            return got or await c.fetchval(f"SELECT run_id FROM {self.s.t('agent_runs')} WHERE idem_user = $1 AND idem_key = $2", user, key)
         return self.get_run(self._run(fn))
 
     def get_run(self, rid: str) -> dict[str, Any]:
@@ -308,6 +316,12 @@ def selftest(j: Any, store: Any, label: str) -> None:
     who = {"initiator": {"user_id": "u_synth", "auth_source": "test"}, "entry": "dashboard", "question": "合成案例：週報"}
     r = j.create_run(who, idempotency_key=tag); assert j.create_run(who, idempotency_key=tag)["run_id"] == r["run_id"]      # 同使用者同鍵 = 同一 run
     assert j.create_run({**who, "initiator": {"user_id": "u_other"}}, idempotency_key=tag)["run_id"] != r["run_id"]
+    x1 = j.create_run({**who, "initiator": {"user_id": f"a:{tag}"}}, idempotency_key="c"); x2 = j.create_run({**who, "initiator": {"user_id": "a"}}, idempotency_key=f"{tag}:c")
+    assert x1["run_id"] != x2["run_id"] and x2["initiator"]["user_id"] == "a"                                                 # 冒號不會讓不同使用者／鍵互撞（Codex #62）
+    assert j.create_run({**who, "initiator": {"user_id": "a"}}, idempotency_key=f"{tag}:c")["run_id"] == x2["run_id"]          # 同使用者同鍵重送仍是同一 run
+    with ThreadPoolExecutor(4) as ex:                                                                                         # 同使用者同鍵併發送出 → 只建一個 run
+        same = {x["run_id"] for x in ex.map(lambda _: j.create_run(who, idempotency_key=f"{tag}-race"), range(4))}
+    assert len(same) == 1, same
     rid = r["run_id"]; args = {"name": "合成週報", "cards": [{"kind": "metric", "query": {"metric": "m_dau"}}]}
     g1 = j.claim(rid, "w1", 60); T[0] = t0 + 1; assert g1 == 1 and j.claim(rid, "w2", 60) is None                             # 租約有效：別人拿不到
     j.put_step(rid, g1, {"step_id": "s1", "tool": "dashboard.draft", "state": "running", "operation_id": f"{tag}_1"})
