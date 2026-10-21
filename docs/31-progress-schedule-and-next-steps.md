@@ -92,7 +92,7 @@ v2.1 相對 v2 的差別來自兩件事：
 | 回歸（每 PR、每晚） | **AI QA agent**（研發 R2 維護排程與腳本） | 17 組 Python 自測、80 條黃金查詢 oracle 逐列比對、真 ClickHouse 端到端、vitest、Playwright 主線（本機真資料＋示範站）；每晚全跑、每 PR 跑子集 | CI 已有；排程以 Claude Code 定時任務跑並自動分流 |
 | 產測試 | AI QA agent（研發審） | 從 Story 驗收條件生成測試案例與必拒案例；從 `openapi.yaml` 生成契約測試（schemathesis）；新頁面補 Playwright 流程 | Story 模板、契約、既有 Playwright 腳本 |
 | 資料品質 | AI QA agent（分析師審） | T1–T9 對帳排成每日作業；差異超門檻自動開 issue、附初步歸因（事件名、日期、來源） | `migration/` 對帳邏輯、docs/22 §4 |
-| 分流與第一輪審查 | AI QA agent | 自動化失敗先讀 log、重現、判斷 flake／資料／程式，開 issue 指派；PR 第一輪審查（AGENTS.md 規則） | GitHub App 審查已啟用 |
+| 分流與第一輪審查 | AI QA agent | 自動化失敗先讀 log、重現、判斷 flake／資料／程式，開 issue 指派；PR 第一輪審查（AGENTS.md 規則，在本機或雲端 session 跑） | CI 不呼叫模型、不需要 API 金鑰 |
 | **驗收判斷（人簽）** | **分析師 A（資料與口徑）＋ 分析師 B（看板與用戶視角）＋ 產品（功能）＋ 運維（效能、安全）** | 真資料上數字對不對得上舊平台報表、口徑取捨、探索式測試（客戶真實用法，B 以各部門使用情境走一遍）、看板重構數字對照、滲透與法遵檢核、UAT 現場 | — |
 
 - 人力：分析師 A 約 0.3、分析師 B 約 0.2、產品約 0.2 的時間；研發 R2 約 0.1 維護 agent。
@@ -105,7 +105,7 @@ v2.1 相對 v2 的差別來自兩件事：
 
 | 角色 | 用 Claude 做什麼 | 工具與進入點 | 產出回到哪裡 |
 |---|---|---|---|
-| 研發 R1／R2 | 寫程式、測試、修 bug；每個 Story 一個 Claude Code 雲端 session（指定分支、CLAUDE.md／AGENTS.md 規則、收工前驗證指令）；PR 由 Claude 自動審查第一輪，再互審 | Claude Code（claude.ai/code 或 CLI）、GitHub App | PR → main；自測與 CI 全綠才合併 |
+| 研發 R1／R2 | 寫程式、測試、修 bug；每個 Story 一個 Claude Code 雲端 session（指定分支、CLAUDE.md／AGENTS.md 規則、收工前驗證指令）；開 PR 前由 Claude Code 依 AGENTS.md 自審第一輪，再互審 | Claude Code（claude.ai/code 或 CLI） | PR → main；自測與 CI 全綠才合併 |
 | 產品 | 規格書、手冊、教育訓練教材、UAT 案例草稿；需求表落差逐項對照；系統圖狀態更新 | Claude.ai Project（掛 docs/ 當知識）＋ Claude Code 改 `docs/`；Artifact 發佈規格書網頁 | `docs/`、規格書 artifact、手冊 |
 | PM | 站會紀錄、風險登錄、進度報告、待確認追蹤表；時程變更影響分析 | Claude.ai Project（掛 docs/31、docs/17 §5a） | `docs/31`、issue 看板、週報 |
 | 分析師 A | 盤點清單、對帳 SQL、差異歸因、golden 口徑對照、分群／標籤規則重建 | Claude Code 在 repo 內跑 `backend/semantic/compiler/golden.py`、自定義 SQL 沙盒；Claude.ai Project 掛舊平台文件與 docs/21、22 | `golden.py`、對帳報表（repo `reports/`）、docs/22 §4 |
