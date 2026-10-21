@@ -137,6 +137,11 @@ def main() -> int:
             assert ch.scalar("SELECT count() FROM dmp.dim_instrument") == 300
             print("quarantine by reason:", ch.query("SELECT splitByChar(':', reason)[1] r, count() FROM dmp.quarantine GROUP BY r ORDER BY r FORMAT TSV").strip().replace("\n", " | "))
             assert ch.scalar("SELECT count() FROM dmp.quarantine WHERE reason LIKE 'pii:%' AND row != ''") == 0   # 拒絕列不留內容
+            assert ch.scalar("SELECT count() FROM dmp.quarantine WHERE row != ''") > 0                            # 格式不符的列仍留內容供追查……
+            qrows = [json.loads(x)["row"] for x in ch.query("SELECT row FROM dmp.quarantine WHERE row != '' FORMAT JSONEachRow").splitlines() if x.strip()]
+            raw_ids = {r["CUST_ID"] for r in files["orders_rows"]} | {r["ACCT_NO"] for r in files["orders_rows"]}
+            leaks = [q for q in qrows if any(x in q for x in ("王小明", "A123456789", "0912345678")) or json.loads(q).get("CUST_ID") in raw_ids or json.loads(q).get("ACCT_NO") in raw_ids]
+            assert not leaks, leaks[:2]                                                                           # ……但個資欄丟掉、客戶代碼與帳號已代碼化
             assert ch.scalar("SELECT count() FROM dmp.ingest_recon") == 4
             # 關聯屬性：events.symbol = dim_instrument.symbol（docs/06 §7.2）
             joined = ch.scalar("SELECT count() FROM dmp.events e INNER JOIN dmp.dim_instrument d ON e.symbol = d.symbol")

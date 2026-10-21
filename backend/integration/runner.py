@@ -160,7 +160,9 @@ class LocalRunner:
         for i in range(0, len(target_rows), 50_000):
             self.ch.insert_json(model.target_table, target_rows[i:i + 50_000])
         at = now.strftime("%Y-%m-%d %H:%M:%S.") + f"{now.microsecond // 1000:03d}"
-        q_rows = [{"task_id": task["id"], "batch_id": batch_id, "at": at, "reason": reason, "row": json.dumps(row, ensure_ascii=False, default=str)} for row, reason in out.quarantined]
+        forbidden = modeling.Semantic.load().forbidden_l4
+        q_rows = [{"task_id": task["id"], "batch_id": batch_id, "at": at, "reason": reason,
+                   "row": json.dumps(modeling.quarantine_row(model, row, forbidden), ensure_ascii=False, default=str)} for row, reason in out.quarantined]   # 個資不入庫：隔離列也先去個資
         q_rows += [{"task_id": task["id"], "batch_id": batch_id, "at": at, "reason": reason, "row": ""} for _, reason in out.rejected]
         self.ch.insert_json("dmp.quarantine", q_rows)
         if model.entity == "event":

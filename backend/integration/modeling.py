@@ -319,6 +319,30 @@ def _event_id(model: Model, row: dict[str, Any], event: str) -> str:
     return hashlib.sha256("|".join(vals).encode()).hexdigest()[:32]
 
 
+def quarantine_row(model: Model, row: dict[str, Any], forbidden: set[str] | None = None) -> dict[str, Any]:
+    """隔離區要留下來源列供追查，但個資不入庫：drop_fields 與 L4 名單的欄位（不分大小寫）丟掉、值像個資（身分證／手機／email，
+    含巢狀）的欄位丟掉、身分來源欄（客戶代碼、帳號）換成與入倉相同的代碼（金鑰未注入就丟）。只記被丟的欄位名（_dropped），不記值。"""
+    drop = {str(x).lower() for x in model.raw.get("drop_fields", [])} | {str(x).lstrip("$").lower() for x in (forbidden or set())}
+    ident = {i.get("from"): i.get("transform") for i in model.raw.get("identities", []) if i.get("from")}
+    ref = model.raw.get("entity_ref") or {}
+    if ref.get("id_from"):
+        ident.setdefault(ref["id_from"], ref.get("transform"))
+    out: dict[str, Any] = {}; dropped: list[str] = []
+    for k, v in row.items():
+        if str(k).lower() in drop or T.pii_scan_deep(v, str(k)):
+            dropped.append(str(k)); continue
+        if k in ident:
+            try:
+                out[k] = apply_transform(ident[k], v)
+            except KeyError:
+                dropped.append(str(k))
+            continue
+        out[k] = v
+    if dropped:
+        out["_dropped"] = sorted(dropped)
+    return out
+
+
 def apply(model: Model, rows: list[dict[str, Any]], *, known_fields: set[str] | None = None,
           now: datetime | None = None, batch_id: str = "") -> Outcome:
     """欄位映射 + 清洗；輸出符合目標表的列。known_fields 給了就偵測來源新欄位（Schema drift）。"""
@@ -531,4 +555,10 @@ if __name__ == "__main__":
     bad = Model({**m.raw, "fields": m.fields + [{"target": "mobile", "from": "PHONE"}], "identities": [{"target": "$identity_login_id", "from": "CUST_ID"}]})
     e = validate(bad)
     assert any("L4" in x for x in e) and any("drop_fields" in x for x in e) and any("代碼化" in x for x in e), e
+    # 隔離列不留個資：drop_fields／L4 名單／值像個資的欄位丟掉，客戶代碼與帳號換成入倉同款代碼
+    qr = quarantine_row(m, {**o.quarantined[0][0], "CUST_NAME": "王小明", "ID_NO": "A123456789", "PHONE": "0912345678", "MEMO": "請回電 0912345678", "Mobile": "x"}, {"mobile"})
+    qs = json.dumps(qr, ensure_ascii=False)
+    for leak in ("王小明", "A123456789", "0912345678", o.quarantined[0][0]["CUST_ID"], o.quarantined[0][0]["ACCT_NO"]):
+        assert leak not in qs, (leak, qs)
+    assert {"CUST_NAME", "ID_NO", "PHONE", "MEMO", "Mobile"} <= set(qr["_dropped"]) and qr["CUST_ID"].startswith("v1_") and qr["STK_CODE"] and qr["ORD_NO"], qr
     print("modeling ok", o.summary)
