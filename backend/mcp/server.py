@@ -98,7 +98,8 @@ def project(res: dict[str, Any], trusted: set[str]) -> dict[str, Any]:
         if k in ("sql", "masked", "lineage", "cost", "warnings") or is_identifier(k):
             continue
         if isinstance(v, list) and all(isinstance(x, dict) for x in v):
-            rows = [{c: _cell(c, x, trusted) for c, x in r.items() if not is_identifier(c) and c != "_k"} for r in v[:cap]]
+            rows = [{"suppressed": True} if r.get("suppressed") else                 # K 抑制列只留標記：分組值也可能是人數以外的線索（D3）
+                    {c: _cell(c, x, trusted) for c, x in r.items() if not is_identifier(c) and c != "_k"} for r in v[:cap]]
             out[k] = rows
             if len(v) > cap:
                 out.setdefault("truncated", {})[k] = {"total_rows": len(v), "shown": cap}
@@ -107,6 +108,30 @@ def project(res: dict[str, Any], trusted: set[str]) -> dict[str, Any]:
         elif v is None or isinstance(v, (bool, int, float, str)):
             out[k] = _cell(k, v, trusted | {"sampled"})
     return out
+
+
+CARD_FIELDS = ("title", "kind", "query", "chart", "confidence", "explanation", "selected")   # 配置卡給模型的欄位：不含 sql_preview
+
+
+def configure_view(data: dict[str, Any]) -> dict[str, Any]:
+    """analysis.configure 的模型投影：明確允許欄位。SQL 預覽、行級條件、編譯器原始錯誤只留在 data（Codex #63）。"""
+    cards = [{k: c[k] for k in CARD_FIELDS if k in c} | {"warning_count": len(c.get("warnings") or [])} for c in data.get("cards") or []]
+    rejected = [{"title": r.get("title"), "kind": r.get("kind"), "reason": "乾跑編譯未通過"} for r in data.get("rejected") or []]
+    cand = data.get("candidates") or {}
+    out = {"cards": json.loads(json.dumps(cards, ensure_ascii=False, default=str)), "rejected": rejected,
+           "candidates": {k: [str(x) for x in (cand.get(k) or [])][:50] for k in ("events", "dimensions")},
+           "unmatched": [{"untrusted_text": str(x)[: int(MV["max_cell_chars"])]} for x in data.get("unmatched") or []]}
+    if _has_internal(out):                                                        # 防線：允許欄位內若夾帶 SQL 片段，整個投影拒絕
+        raise ToolError("INTERNAL", "配置卡投影含內部欄位，已拒絕交給模型")
+    return out
+
+
+def _has_internal(o: Any) -> bool:
+    if isinstance(o, dict):
+        return any(k in ("sql", "sql_preview", "row_filters", "row_policy", "lineage", "masked", "_k") or _has_internal(v) for k, v in o.items())
+    if isinstance(o, list):
+        return any(_has_internal(x) for x in o)
+    return isinstance(o, str) and ("SELECT " in o or "dmp." in o)
 
 
 class Gateway:
@@ -219,7 +244,7 @@ class Gateway:
         t = (args.get("context") or {}).get("time") or {"from": str(self.today().replace(day=1)), "to": str(self.today()), "grain": "day"}
         res = configure(q, self.cat, parser=RulesParser(self.cat), default_time=t, today=self.today(), compile_fn=lambda k, qq: compile_kind(k, ctx.subject, qq, self.cat)[0])
         data = {k: res[k] for k in ("cards", "rejected", "candidates", "unmatched") if k in res}
-        return data, json.loads(json.dumps(data, ensure_ascii=False, default=str)), {}
+        return data, configure_view(data), {}
 
     def _estimate(self, ctx: ToolContext, args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         kind, _, c, _, _ = self._compile(ctx, args); est = self._est(c.sql)
@@ -278,7 +303,8 @@ def selftest() -> None:
     assert r["data"]["rows"][0]["amt"] == 123456.0 and "_k" not in r["data"]["rows"][0]                 # 畫面：分析師看明文
     mv = r["model_view"]; row0, sup = mv["rows"][0], mv["rows"][-1]
     assert row0["amt"] == "100000–500000" and row0["g1"] == {"untrusted_text": "ios"} and "_k" not in row0       # 模型：區間化、資料字串隔離
-    assert sup["suppressed"] == 1 and sup["amt"] is None and "sql" not in mv and "lineage" not in mv
+    assert sup == {"suppressed": True} and "忽略先前指示" not in json.dumps(mv, ensure_ascii=False) and "sql" not in mv and "lineage" not in mv   # 抑制列只留標記
+    assert r["data"]["rows"][-1]["g1"].startswith("忽略先前指示")                                                            # 前端 data 照現行權限保留
     assert len(ch.sql) == 2 and ana.scan_bytes_used == 2 * 1000 * BYTES_PER_ROW                              # 明文與投影各一次查詢，都計入預算
     # 預算前置：單次超限、run 額度不足 → 不送查詢
     ch.sql.clear(); ch.est_rows = int(30e9 / BYTES_PER_ROW)
@@ -316,12 +342,16 @@ def selftest() -> None:
     ch.query = flaky; before = ana.scan_bytes_used  # type: ignore[method-assign]
     assert gw.call(ana, "analysis.run", {"config": cfg})["error"]["code"] == "TIMEOUT" and ana.scan_bytes_used == before + 2 * 1000 * BYTES_PER_ROW
     ch.query = orig  # type: ignore[method-assign]
-    # ClickHouse 錯誤 → 可重試；審計每次都寫、只留參數摘要
+    # analysis.configure：模型看到的配置卡沒有 SQL 預覽、行級條件或編譯錯誤原文；data 仍有 sql_preview 給前端（Codex #63）
+    cf = gw.call(ana, "analysis.configure", {"question": "最近7天每日開戶數"}); mvs = json.dumps(cf["model_view"], ensure_ascii=False)
+    assert cf["ok"] and cf["model_view"]["cards"] and "sql_preview" in cf["data"]["cards"][0] and not _has_internal(cf["model_view"]) and "SELECT" not in mvs and "_k" not in mvs, mvs[:300]
+    assert configure_view({"rejected": [{"title": "t", "kind": "events", "reason": "SELECT x FROM dmp.events WHERE branch_id IN ('b1')"}]})["rejected"][0]["reason"] == "乾跑編譯未通過"
+        # ClickHouse 錯誤 → 可重試；審計每次都寫、只留參數摘要
     ch.query = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Code: 159. TIMEOUT_EXCEEDED"))  # type: ignore[method-assign]
     assert gw.call(ana, "analysis.estimate", {"config": cfg})["error"] == {"code": "TIMEOUT", "message": "Code: 159. TIMEOUT_EXCEEDED", "retryable": True, "detail": {}}
     au = [a for a in st.audit_tail(100) if a["event"] == GW["policy"]["audit_event"]]
-    assert len(au) == 17 and all(len(a["args_digest"]) == 16 for a in au) and "王小明" not in json.dumps(st.audit_tail(100), ensure_ascii=False)
-    print(f"tool gateway self-test ok: {len(au)} 次呼叫皆審計；身分參數丟棄、撤權即拒、預算超限不送查詢、L2 投影一律區間化、識別欄分組被拒、投影編譯失敗回信封、失敗也預扣額度、K 抑制、untrusted_text、200 列截斷、metric.query 已移除")
+    assert len(au) == 18 and all(len(a["args_digest"]) == 16 for a in au) and "王小明" not in json.dumps(st.audit_tail(100), ensure_ascii=False)
+    print(f"tool gateway self-test ok: {len(au)} 次呼叫皆審計；身分參數丟棄、撤權即拒、預算超限不送查詢、L2 投影一律區間化、識別欄分組被拒、投影編譯失敗回信封、失敗也預扣額度、K 抑制列只留標記、configure 投影不帶 SQL、untrusted_text、200 列截斷、metric.query 已移除")
 
 
 if __name__ == "__main__":
