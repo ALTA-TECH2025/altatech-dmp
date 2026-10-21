@@ -21,6 +21,8 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from . import modeling
 from .runner import ClickHouseHTTP, LocalRunner, local_ddl
 from .scheduler import Scheduler
@@ -233,14 +235,18 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
     size_mb = src.stat().st_size / 1048576
     # 改版前入倉的舊列（舊公式 event_id 由 ClickHouse 算：sha256(distinct_id|time|event|JSONExtractString($track_id))，同一台伺服器算才一致）：重放同一行不能再寫一次
     from .legacy_format import LegacyLoader as _LL
-    first = next(json.loads(x) for x in src.read_text(encoding="utf-8").splitlines() if x.startswith('{"type": "track"') and '"$is_login_id": true' in x)
+    first = next(json.loads(x) for x in src.read_text(encoding="utf-8").splitlines() if x.startswith('{"type": "track"') and '"$is_login_id": true' in x and '"channel": "app"' in x)
+    from .legacy_format import alias_lists, ops_drop_props, scrub
+    _al, _ca = alias_lists(); _forbid = set(yaml.safe_load((ROOT / "semantic" / "user_properties.yaml").read_text(encoding="utf-8")).get("forbidden_l4", [])) | ops_drop_props()
+    first_props, _ = scrub(dict(first["properties"]), _forbid)                       # 改版前入倉的舊列：正式事件名、清理後的屬性（與舊 normalize 寫入的內容相同）
+    first_event = _ca[_al.index(first["event"])] if first["event"] in _al else first["event"]
     tok = modeling.apply_transform("token_v1(k_idm)", first["distinct_id"])
     pj = json.dumps(first["properties"], ensure_ascii=False).replace("\\", "\\\\").replace("'", "\\'")
     v1 = ch.query(f"SELECT {_LL.V1_ID} FROM (SELECT '{tok}' AS distinct_id, toInt64({first['time']}) AS time, '{first['event']}' AS event, '{pj}' AS properties) FORMAT TSV").strip()
     assert len(v1) == 32 and not v1.startswith("e2_"), v1
-    ch.insert_json("dmp.events", [{"project": "altatech_dmp", "time": modeling.ms_to_dt(first["time"]), "event": first["event"], "source": "legacy_format", "one_id": tok,
+    ch.insert_json("dmp.events", [{"project": "altatech_dmp", "time": modeling.ms_to_dt(first["time"]), "event": first_event, "source": "legacy_format", "one_id": tok,
                                    "entity_type": "", "entity_id": "", "distinct_id": tok, "session_id": "", "event_id": v1, "platform": "iOS", "app_id": "", "symbol": "", "side": "", "channel": "",
-                                   "amount": None, "utm_source": "", "utm_campaign": "", "props": {}, "ingest_time": "2026-10-15 00:00:00.000", "schema_version": 1, "late": 0, "batch_id": "pre_v1"}])
+                                   "amount": None, "utm_source": "", "utm_campaign": "", "props": first_props, "ingest_time": "2026-10-15 00:00:00.000", "schema_version": 1, "late": 0, "batch_id": "pre_v1"}])
     loader = LegacyLoader(ch, local=True)
     t0 = _t.perf_counter(); r = loader.run_file(src, work / "user_files", "sa_20261016", "k_idm", via_http=via_http); dt = _t.perf_counter() - t0
     st = r["stage"]
@@ -276,6 +282,36 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
           f"(skipped {r['events_skipped']}: {n_dup} duplicate lines + 1 pre-v1 row; full replay wrote 0) prop_log {r['prop_log']:,} id_map {r['id_map']:,} in {dt:.1f}s "
           f"(≈ {3800 / max(size_mb, 1) * dt / 60:.0f} min per 3.8 GB)")
     print("  events by name:", by_ev)
+    legacy_v1_collision(ch, loader, work, via_http)
+
+
+def legacy_v1_collision(ch: ClickHouseHTTP, loader: Any, work: Path, via_http: bool) -> None:
+    """Codex #51 複審 P1：改版前公式的舊 id 只含 distinct_id／時間／事件名／$track_id、不含屬性。舊 id 命中只是候選，
+    清理後內容也相同才算同一筆；同 did／時間／事件但金額不同 → 另一筆，兩筆都保留。日彙總與對帳也要對得上。"""
+    from .legacy_format import LegacyLoader as _LL
+    t_ms, did = 1_792_454_400_000, "synthetic_cookie"                               # 2026-10-19 08:00 台北；未登入（不代碼化）
+    v1 = ch.query(f"SELECT {_LL.V1_ID} FROM (SELECT '{did}' AS distinct_id, toInt64({t_ms}) AS time, 'order_submit' AS event, '{{\"amount\":100}}' AS properties) FORMAT TSV").strip()
+    ch.insert_json("dmp.events", [{"project": "altatech_dmp", "time": modeling.ms_to_dt(t_ms), "event": "bond_order", "source": "legacy_format", "one_id": did,
+                                   "entity_type": "", "entity_id": "", "distinct_id": did, "session_id": "", "event_id": v1, "platform": "", "app_id": "", "symbol": "", "side": "", "channel": "",
+                                   "amount": 100.0, "utm_source": "", "utm_campaign": "", "props": {"amount": 100}, "ingest_time": "2026-10-19 00:00:00.000", "schema_version": 1, "late": 0, "batch_id": "pre_v1_collide"}])
+    line = lambda amt: json.dumps({"type": "track", "event": "order_submit", "distinct_id": did, "time": t_ms, "project": "sbp_family", "properties": {"amount": amt}}) + "\n"
+    day = f"toDate(fromUnixTimestamp64Milli(toInt64({t_ms})), 'Asia/Taipei')"
+    def state() -> tuple[int, float, int, float]:
+        ev = ch.query(f"SELECT count(), sum(amount) FROM dmp.events FINAL WHERE distinct_id = '{did}' AND event = 'bond_order' FORMAT TSV").strip().split("\t")
+        ag = ch.query(f"SELECT countMerge(cnt), sumMerge(amount) FROM dmp.events_daily_agg WHERE project = 'altatech_dmp' AND event_date = {day} AND event = 'bond_order' AND platform = '' AND channel = '' FORMAT TSV").strip().split("\t")
+        return int(ev[0]), float(ev[1]), int(ag[0]), float(ag[1])
+    assert state() == (1, 100.0, 1, 100.0), state()
+    # (1) 同 did／時間／事件、金額 100 → 200：舊 id 相同但內容不同 → 新 id 寫入，兩筆都在
+    src = work / "v1_collide.jsonl"; src.write_text(line(200), encoding="utf-8")
+    r = loader.run_file(src, work / "user_files", "v1_collide", "k_idm", via_http=via_http)
+    assert r["recon_ok"] and r["events"] == 1 and r["events_skipped"] == 0, r
+    assert state() == (2, 300.0, 2, 300.0), state()
+    # (2) 與舊列內容完全相同的重送 → 只一筆（skipped），彙總不變；再送一次金額 200 的那行 → 已有同新 id，也不寫
+    src.write_text(line(100) + line(200), encoding="utf-8")
+    r2 = loader.run_file(src, work / "user_files", "v1_replay", "k_idm", via_http=via_http)
+    assert r2["recon_ok"] and r2["events"] == 0 and r2["events_skipped"] == 2, r2
+    assert state() == (2, 300.0, 2, 300.0), state()
+    print(f"legacy v1 collision: old id + amount 100→200 → kept both (events 2, agg cnt 2, amount 300); identical replay skipped {r2['events_skipped']}")
 
 
 def agg_stage(ch: ClickHouseHTTP) -> None:

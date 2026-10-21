@@ -187,13 +187,17 @@ class LegacyLoader:
 
     V1_ID = "substring(lower(hex(SHA256(concat(distinct_id, '|', toString(time), '|', event, '|', JSONExtractString(properties, '$track_id'))))), 1, 32)"   # 改版前的公式
 
-    def _not_loaded(self, batch_id: str) -> str:
-        """事件只追加：同批完全相同的行只留一行（LIMIT 1 BY）；倉裡已有同 event_id（或改版前公式算出的舊 id，重放舊檔不倍增）的不再寫。
-        比對範圍限在這批的時間區間與舊平台來源，不掃整張事件表。"""
+    def _not_loaded(self, batch_id: str, ev: str) -> str:
+        """事件只追加：同批完全相同的行只留一行（LIMIT 1 BY）；倉裡已有同 event_id 的不再寫。
+        改版前入倉的舊列（舊公式 id）：舊 id 只含 distinct_id／時間／事件名／$track_id、不含屬性，命中只是候選——
+        還要同一個正式事件名、清理後的屬性也相同（ClickHouse JSON 正規化後比：鍵序、1000.0 與 1000、null 都一致）才算同一筆；
+        內容不同就是另一筆，以新 id 寫入。比對範圍限在這批的時間區間與舊平台來源，不掃整張事件表。"""
         lo, hi = (self.ch.query(f"SELECT min(time), max(time) FROM dmp.raw_legacy WHERE batch_id = '{batch_id}' AND type = 'track' FORMAT TSV").strip().split("\t") + ["0", "0"])[:2]
-        known = (f"SELECT event_id FROM dmp.events WHERE project = '{self.project}' AND source = 'legacy_format' "
-                 f"AND time BETWEEN fromUnixTimestamp64Milli(toInt64({int(lo or 0)})) AND fromUnixTimestamp64Milli(toInt64({int(hi or 0)}))")
-        return f"event_id NOT IN ({known}) AND {self.V1_ID} NOT IN ({known})"
+        rng = (f"project = '{self.project}' AND source = 'legacy_format' "
+               f"AND time BETWEEN fromUnixTimestamp64Milli(toInt64({int(lo or 0)})) AND fromUnixTimestamp64Milli(toInt64({int(hi or 0)}))")
+        known = f"SELECT event_id FROM dmp.events WHERE {rng}"
+        known_v1 = f"SELECT event_id, event, toJSONString(props) FROM dmp.events WHERE {rng} AND NOT startsWith(event_id, '{modeling.EVENT_ID_V2}')"
+        return f"event_id NOT IN ({known}) AND ({self.V1_ID}, {ev}, toJSONString(CAST(properties, 'JSON'))) NOT IN ({known_v1})"
 
     def normalize(self, batch_id: str) -> dict[str, int]:
         aliases, canon = alias_lists()
@@ -207,7 +211,7 @@ SELECT '{self.project}', fromUnixTimestamp64Milli(time), {ev}, 'legacy_format', 
   JSONExtract(properties, 'amount', 'Nullable(Float64)'), JSONExtractString(properties, '$utm_source'), JSONExtractString(properties, '$utm_campaign'),
   CAST(properties, 'JSON'), now64(3), 1, 0, '{batch_id}'
 FROM (SELECT * FROM dmp.raw_legacy WHERE batch_id = '{batch_id}' AND type = 'track' ORDER BY line_no LIMIT 1 BY event_id)
-WHERE {self._not_loaded(batch_id)}""", settings={"max_insert_threads": 4})
+WHERE {self._not_loaded(batch_id, ev)}""", settings={"max_insert_threads": 4})
         self.ch.query(f"""INSERT INTO dmp.user_prop_log (one_id, prop, value, op, ts)
 SELECT distinct_id, kv.1, kv.2, transform(type, {sql_list(PROFILE_TYPES)}, {sql_list(PROFILE_TYPES.values())}, 'set'), fromUnixTimestamp64Milli(time)
 FROM dmp.raw_legacy ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) AS kv
