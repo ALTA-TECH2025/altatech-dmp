@@ -599,8 +599,8 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
 
 
 def agg_upgrade_stage(ch: ClickHouseHTTP) -> None:
-    """既有環境升版（Codex #32）：日彙總還是舊版 MaterializedView 時，migrate_legacy_mv 拆掉它，重套 schema 建出分區目標表 + _mv，rebuild_all 回填，彙總 = 底表。"""
-    from .aggregates import AGG_TABLE, migrate_legacy_mv, rebuild_all, verify
+    """既有環境升版（Codex #32）：日彙總還是舊版 MaterializedView 時，migrate_legacy_mv 拆掉它，重套 schema 建出分區目標表 + _mv；回填做到一半中斷後重跑，backfill_missing 補完其餘日期，彙總 = 底表。"""
+    from .aggregates import AGG_TABLE, backfill_missing, migrate_legacy_mv, rebuild, verify
     days = [x for x in ch.query("SELECT DISTINCT toString(event_date) FROM dmp.events ORDER BY 1 FORMAT TSV").split("\n") if x.strip()]
     ch.query("DROP VIEW IF EXISTS dmp.events_daily_agg_mv"); ch.query(f"DROP TABLE IF EXISTS {AGG_TABLE}")
     ch.query("CREATE MATERIALIZED VIEW dmp.events_daily_agg ENGINE = AggregatingMergeTree ORDER BY (project, event_date, event, platform, channel, utm_source) "
@@ -611,9 +611,13 @@ def agg_upgrade_stage(ch: ClickHouseHTTP) -> None:
         ch.query(st, settings={"allow_experimental_json_type": 1})
     eng = ch.query("SELECT engine, partition_key FROM system.tables WHERE database = 'dmp' AND name = 'events_daily_agg' FORMAT TSV").strip()
     assert eng.startswith("AggregatingMergeTree") and "event_date" in eng, eng
-    done = rebuild_all(ch); bad = [v for v in (verify(ch, d) for d in days) if v["agg_cnt"] != v["events_cnt"] or v["amount_diff"] > 1e-3]
-    assert set(days) <= set(done) and not bad, bad[:3]
-    print(f"daily_agg upgrade: legacy MV dropped → partitioned target table + _mv; rebuild_all {len(done)} days, agg == events for all")
+    half = days[: len(days) // 2]; rebuild(ch, half, "upgrade", with_pending=False)                       # 回填做到一半中斷
+    for st in local_ddl((ROOT / "clickhouse" / "schema.sql").read_text(encoding="utf-8")):                   # 重跑升級：舊 MV 已不在
+        ch.query(st, settings={"allow_experimental_json_type": 1})
+    assert not migrate_legacy_mv(ch)
+    done = backfill_missing(ch); bad = [v for v in (verify(ch, d) for d in days) if v["agg_cnt"] != v["events_cnt"] or v["amount_diff"] > 1e-3]
+    assert set(done) == set(days) - set(half) and not bad and backfill_missing(ch) == [], (done, bad[:3])
+    print(f"daily_agg upgrade: legacy MV dropped → partitioned target table + _mv; interrupted after {len(half)} days, rerun backfilled {len(done)} → agg == events for all {len(days)} days")
 
 
 def dbapi_stage(ch: ClickHouseHTTP | None, work: Path, rows: list[dict[str, Any]]) -> None:

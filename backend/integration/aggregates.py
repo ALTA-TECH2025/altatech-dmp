@@ -395,12 +395,21 @@ class Rebuild:
 
 def migrate_legacy_mv(ch: CH) -> bool:
     """既有環境升版：舊版的 dmp.events_daily_agg 是 MaterializedView（自帶 .inner 表）。CREATE TABLE IF NOT EXISTS 換不掉它，
-    之後的 _mv 與 REPLACE PARTITION 會打到舊物件。套 schema 之前先呼叫：是舊 MV 就 DROP，回 True（套完 schema 要 rebuild_all 回填）。"""
+    之後的 _mv 與 REPLACE PARTITION 會打到舊物件。套 schema 之前先呼叫：是舊 MV 就 DROP，回 True。
+    回填不看這個回傳值：套完 schema 一律呼叫 backfill_missing（中斷後重跑也會補）。"""
     eng = ch.query("SELECT engine FROM system.tables WHERE database = 'dmp' AND name = 'events_daily_agg' FORMAT TSV").strip()
     if eng != "MaterializedView":
         return False
     ch.query("DROP VIEW dmp.events_daily_agg")
     return True
+
+
+def backfill_missing(ch: CH) -> list[str]:
+    """底表有事件、彙總表卻沒有分區的日期 → 重建。不靠「這次是否剛拆掉舊 MV」：升級在拆掉舊 MV 後、回填完成前中斷，
+    下次重跑仍會補上（Codex #66）。正常環境兩邊日期一致，什麼都不做。"""
+    base = {x for x in ch.query("SELECT DISTINCT toString(event_date) FROM dmp.events FORMAT TSV").split("\n") if x.strip()}
+    missing = sorted(base - set(agg_dates(ch)))
+    return rebuild(ch, missing, "backfill", with_pending=False) if missing else []
 
 
 def gc_marks(ch: CH) -> None:
