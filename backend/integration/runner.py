@@ -126,6 +126,10 @@ class LocalRunner:
             for _, why in b.quarantined: by[why.split(":")[0]] = by.get(why.split(":")[0], 0) + 1
             log(f"quarantined by L4/PII gate (not loaded into dmp.events): {by}")
         if self.ch is None or not (b.rows or b.quarantined):
+            if self.ch is not None:                                                # 空批次（表不存在、重述沒變）也要補做上次中斷留下的待重建日期
+                done = aggregates.rebuild(self.ch, set(), batch_id)
+                if done:
+                    log(f"daily_agg rebuilt for {done} (pending from an interrupted run; this batch was empty)")
             res.rows_loaded = res.rows_ok; return res
         marks = aggregates.begin(self.ch, set(), batch_id, touch=[aggregates.event_date_of(r) for r in b.rows])   # 這批會寫到的日期先登記（帶租約；去重之前，並行寫入者才看得到彼此）
         d = aggregates.dedupe(self.ch, b.rows)                                    # 事件只追加：倉裡已有的 event_id 不再寫入（保留第一筆）→ 日彙總不會多算

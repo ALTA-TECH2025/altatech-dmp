@@ -191,7 +191,7 @@
 | PD = T0 | 正式上線、舊平台停止寫入、4 週內最終增量與對帳；舊平台 2027-10-31 到期 | 2027-09-30 |
 | 第二階段 | AI 洞察（工具閘道、異常 agent、問答、golden evals）、即時 Kafka 交易、即時觸發進階 | 另案 |
 
-測試層：單元（≥70%，編譯器 ≥90%）、契約（schemathesis）、新舊資料整合（docs/22 §4 T1–T9：元數據覆蓋、筆數三方對帳、用戶對帳、口徑 golden、並行雙軌、OneID 銜接）、口徑一致性（UI 與 API 同 SQL、golden 答案集）、資料（dbt tests、1 千萬 fixture）、權限／隱碼（5 角色打每個 API；自定義 SQL 遮罩欄位與唯讀檢查）、OneID 改寫（attribution.py 自測 S1–S10）、e2e（Playwright 桌機＋390px）、效能（1 億 → 10 億）、安全（CI 掃描）；AI 品質（golden evals）移到第二階段。協同：trunk-based、squash、branch protection、CODEOWNERS、Claude 自動審查與 @claude 指派（docs/16）。
+測試層：單元（≥70%，編譯器 ≥90%）、契約（schemathesis）、新舊資料整合（docs/22 §4 T1–T9：元數據覆蓋、筆數三方對帳、用戶對帳、口徑 golden、並行雙軌、OneID 銜接）、口徑一致性（UI 與 API 同 SQL、golden 答案集）、資料（dbt tests、1 千萬 fixture）、權限／隱碼（5 角色打每個 API；自定義 SQL 遮罩欄位與唯讀檢查）、OneID 改寫（attribution.py 自測 S1–S10）、e2e（Playwright 桌機＋390px）、效能（1 億 → 10 億）、安全（CI 掃描）；AI 品質（golden evals）移到第二階段。協同：trunk-based、squash、branch protection、CODEOWNERS（docs/16）。
 
 每模組驗收條件寫在 Story issue（模板 `.github/ISSUE_TEMPLATE/story.md`），以 docs/04 §8 的驗收矩陣為基準。
 
