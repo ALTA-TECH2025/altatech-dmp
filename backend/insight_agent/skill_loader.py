@@ -47,16 +47,20 @@ def contract_versions() -> dict[str, str]:
     return {"semantic": str(y("semantic/events.yaml")["version"]), "tools": str(y("mcp/tools.yaml")["contract_version"]), "oneid_rules": str(y("semantic/oneid_rules.yaml")["version"])}
 
 
+def _ver(v: str) -> tuple[int, ...] | None:
+    """'v1'、'4'、'1.10.2' → 各段整數；不是這種格式就 None（不相容）。不轉浮點：1.2 與 1.10 要能分開。"""
+    m = re.fullmatch(r"v?(\d+(?:\.\d+)*)", str(v).strip())
+    return tuple(int(x) for x in m.group(1).split(".")) if m else None
+
+
 def _ok(req: str, cur: str) -> bool:
     req = str(req).strip()
-    for op in (">=", "<=", "==", ">", "<"):
-        if req.startswith(op):
-            try:
-                a, b = float(cur), float(req[len(op):])
-            except ValueError:
-                return False
-            return {">=": a >= b, "<=": a <= b, "==": a == b, ">": a > b, "<": a < b}[op]
-    return req == cur                          # 例："v1"
+    op = next((o for o in (">=", "<=", "==", ">", "<") if req.startswith(o)), "==")
+    a, b = _ver(cur), _ver(req[len(op):] if req.startswith(op) else req)
+    if a is None or b is None:
+        return False
+    n = max(len(a), len(b)); a, b = a + (0,) * (n - len(a)), b + (0,) * (n - len(b))
+    return {">=": a >= b, "<=": a <= b, "==": a == b, ">": a > b, "<": a < b}[op]
 
 
 def _split(text: str) -> tuple[dict[str, Any], str]:
@@ -68,7 +72,8 @@ def _split(text: str) -> tuple[dict[str, Any], str]:
 
 def _event_names() -> set[str]:
     ev = yaml.safe_load((BACKEND / "semantic" / "events.yaml").read_text(encoding="utf-8"))["events"]
-    return {str(e["name"]) for e in ev if len(str(e["name"])) >= 4}
+    names = {str(e["name"]) for e in ev} | {str(x) for e in ev for x in (e.get("aliases") or [])}   # 別名也是語意層事件識別字
+    return {n for n in names if len(n) >= 4}
 
 
 def _mvp_tools() -> dict[str, dict[str, Any]]:
@@ -121,6 +126,8 @@ def selftest() -> None:
             return e.code
     assert code(good.replace('semantic: ">=4"', 'semantic: ">=5"')) == "CONTRACT_MISMATCH"                     # A17
     assert code(good.replace('tools: "v1"', 'tools: "v2"')) == "CONTRACT_MISMATCH"
+    assert _ok(">=1.10", "1.10.0") and not _ok(">=1.10", "1.2") and _ok("==v1", "v1") and _ok("v1", "v1") and not _ok(">=4", "x4")   # 版本逐段比，不轉浮點
+    assert code(good.replace("## 口徑\n", "## 口徑\n用 fund_subscribe 計算。\n")) == "INVALID_ARGUMENT"                          # 事件別名也算事件名
     assert code(good.replace("tools: [semantic.describe, data.readiness]", "tools: [semantic.describe, profile.get]")) == "INVALID_ARGUMENT"   # 不給模型的工具
     assert code(good.replace("tools: [semantic.describe, data.readiness]", "tools: [metric.query]")) == "INVALID_ARGUMENT"                    # 非 MVP
     assert code(good.replace("## 歧義處理", "## 其他")) == "INVALID_ARGUMENT"
