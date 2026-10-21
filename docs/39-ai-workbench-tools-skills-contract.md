@@ -288,6 +288,80 @@ frontmatter 只用 Agent Skills 標準欄位（`name`、`description`）加上�
 - 契約小版本（加欄位）向下相容；大版本（改事件定義）要求 skill 升版並重跑該 skill 的 docs/40 案例。
 - run 紀錄存當時所有契約版本，舊結果可重現。
 
+### 7.5 技能庫：可編輯口徑的資料模型與 API（D5 方向；提案，待 Windy 確認後走 contract PR）
+
+**分層**：語意層定義（中央，契約流程）→ Skill 版本（場景參數）→ Agent 版本（引用固定 Skill 版本與允許的使用者參數）。Skill 的步驟與工具清單在 SKILL.md（工程審查）；技能庫存的是**參數與說明的版本**，執行時疊在 SKILL.md 上。
+
+```yaml
+SkillVersion:
+  name: diagnose-conversion
+  version: "1.3.0"                 # 發布才有版本號；草案為 null，另有 draft_id
+  state: published                  # draft | in_review | published | trial | retired；trial = 含待確認參數的發布，限制見下
+  base_version: "1.2.0"
+  refs:                             # 只引用語意層 ID@版本，不複製定義
+    funnels: ["f_kh_open@v2"]
+    metrics: ["m_new_accounts@v4"]
+    events:  []
+  params:
+    - key: compare_period
+      type: enum
+      value: last_week_vs_prev
+      allowed: [last_week_vs_prev, last_month_vs_prev]
+      status: proposed              # confirmed | proposed | pending_client
+      source: "docs/41 D5；簡報 p12"
+      confirmed_by: null
+    - key: min_group_size
+      type: int
+      value: 200
+      allowed: { min: 20, max: 5000 }  # 下限不得低於 K 匿名門檻
+      status: proposed
+  timezone: Asia/Taipei
+  identity: { rules: "oneid_rules@v1" }          # 唯讀：歸戶情境由 OneID 契約決定
+  readiness: { require_sources: [login, account_open], on_missing: truncate_and_label }
+  output: [two_period_result, top_drop_step, segment_diff, hypotheses, limitations]
+  examples: ["A01", "A02"]                       # 對應 docs/40 案例
+  notes_md: string                               # 給模型的補充說明
+  audit: { created_by, submitted_by, approved_by, published_at, diff_from_base }
+
+AgentVersion:
+  name: 開戶主管助理
+  version: "1.0.0"
+  state: published                  # draft | in_review | published | retired
+  skills: [{ name: diagnose-conversion, version: "1.2.0" }]   # 固定版本，不接受 latest
+  user_overridable: [{ skill: diagnose-conversion, param: compare_period }]
+```
+
+**驗證器（伺服器端，存草案與送發布時都跑）**
+
+- `refs` 必須在指定版本的語意層解析得到；解析不到 → 不能存。
+- 每個參數要有型別與允許範圍；超出 → 不能存。
+- 不能新增或移除工具、不能調整模型可見範圍（D3）或自動化界線（D4）：這些欄位**不在資料模型裡**，由控制器與 Gateway 依 SKILL.md 與 `rbac.yaml` 強制，Skill 參數與 `notes_md` 改不到。
+- `notes_md` 仍掃描明顯的越權指示（例如要求列出個人資料、直接送審），命中則退回並提示；**安全不靠這個掃描**，靠工具白名單與 Gateway。
+- 含 `pending_client` 或 `proposed` 參數的版本只能以 `trial` 發布：結果一律帶 `CONTRACT_PENDING`、不能設為預設版本、不能用在排程（P3）、分享看板或受眾送審。
+
+**發布與版本**
+
+- 草案 → 乾跑比對（同一使用者權限、同一期間，草案與目前發布版各跑一次，回兩份證據與差異）→ 送發布 → **另一位**有發布權的人確認（`submitted_by ≠ approved_by`）→ 生效。
+- 每次發布產生新版本號與差異；操作寫審計（`agent_skill.drafted／dry_run／submitted／approved／rejected／rolled_back`）。
+- 回復 = 以舊版內容建立新草案再走發布，不改寫歷史版本。
+- run 紀錄存 `skill@version`、`agent@version`、語意層版本（§7.4）；發布新版不影響既有 run 的重現。
+- Agent 引用固定 Skill 版本：Skill 發新版不會自動改變 Agent，要 Agent 發新版才會跟上。
+- 要改共用定義（指標、漏斗步驟）→ 技能庫只提供「開變更單」連結，走既有契約流程。
+
+**API（提案）**
+
+| 方法 | 路徑 | 權限（提案） |
+|---|---|---|
+| GET | `/v1/agent/skills`、`/v1/agent/skills/{name}`、`/v1/agent/skills/{name}/versions/{v}`、`…/diff?from=&to=` | `ai_skills.view` |
+| POST／PATCH | `/v1/agent/skills/{name}/drafts`、`…/drafts/{id}` | `ai_skills.edit` |
+| POST | `…/drafts/{id}/dry-run` | `ai_skills.edit` + 被乾跑模組的 `use` |
+| POST | `…/drafts/{id}/submit` | `ai_skills.edit` |
+| POST | `…/drafts/{id}/approve`、`…/reject` | `ai_skills.publish`（不得核可自己送的） |
+| POST | `/v1/agent/skills/{name}/rollback` `{to_version}` → 新草案 | `ai_skills.edit` |
+| 同上 | `/v1/agent/agents/…` | 同上 |
+
+權限分配（提案，待 Windy 確認、走 `rbac.yaml` contract PR）：所有可進工作台的角色 `ai_skills.view`；數據分析 `ai_skills.edit`；數位經營 `ai_skills.publish`（與現行審批角色一致）；系統管理員全部。
+
 ## 8. 既有 skills 對照與遷移
 
 | 既有（`backend/insight_agent/skills/`） | 問題 | 去向 |
@@ -307,3 +381,4 @@ frontmatter 只用 Agent Skills 標準欄位（`name`、`description`）加上�
 - `agent_operations` 與 `agent_runs` 表放 PostgreSQL 主庫或獨立 schema。
 - 行銷是否給 `overview.use`（§6 落差 1）——權限治理，非工程決定。
 - `svc_insight` 的新權限範圍（§6 落差 2）。
+- 技能庫的權限分配（`ai_skills.view／edit／publish` 給哪些角色）與 `trial` 版本規則（§7.5）。
