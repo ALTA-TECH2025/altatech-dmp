@@ -301,9 +301,63 @@ CREATE TABLE IF NOT EXISTS dmp.tag_imports
 ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.tag_imports', '{replica}')
 ORDER BY (import_id, tag_value, one_id_uint);
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS dmp.events_daily_agg
+-- 日彙總（查詢編譯器的 L1）：明確目標表 + MV TO，而不是 MV 自帶的 .inner 表——
+-- MV 是「每次 INSERT 都累加」，底表 ReplacingMergeTree 之後合併掉的重複列（GA4 重疊窗口重讀、日批覆蓋、重試）彙總不會回滾（R12）。
+-- 所以：(1) 載入路徑先去重（backend/integration/aggregates.dedupe：同 event_id 內容相同不再寫入）；
+--       (2) 內容不同的重插（日批覆蓋串流、時間更正）記下分區，載入後從 dmp.events FINAL 重算該日到暫存表，REPLACE PARTITION 原子換掉。
+-- 按 event_date 分區：一天一個分區，重建只動那一天。既有環境升版：DROP VIEW dmp.events_daily_agg 後建這三個物件，
+-- 再 `python3 -m backend.integration.aggregates rebuild --all` 回填。
+CREATE TABLE IF NOT EXISTS dmp.events_daily_agg
+(
+    project      LowCardinality(String),
+    event_date   Date,
+    event        LowCardinality(String),
+    platform     LowCardinality(String),
+    channel      LowCardinality(String),
+    utm_source   LowCardinality(String),
+    cnt          AggregateFunction(count),
+    users        AggregateFunction(uniq, String),
+    amount       AggregateFunction(sum, Float64)
+)
 ENGINE = ReplicatedAggregatingMergeTree('/ch/{shard}/dmp.events_daily_agg', '{replica}')
-ORDER BY (project, event_date, event, platform, channel, utm_source)
+PARTITION BY event_date
+ORDER BY (project, event_date, event, platform, channel, utm_source);
+
+CREATE TABLE IF NOT EXISTS dmp.events_daily_agg_stage
+(
+    project      LowCardinality(String),
+    event_date   Date,
+    event        LowCardinality(String),
+    platform     LowCardinality(String),
+    channel      LowCardinality(String),
+    utm_source   LowCardinality(String),
+    cnt          AggregateFunction(count),
+    users        AggregateFunction(uniq, String),
+    amount       AggregateFunction(sum, Float64)
+)
+ENGINE = ReplicatedAggregatingMergeTree('/ch/{shard}/dmp.events_daily_agg_stage', '{replica}')
+PARTITION BY event_date
+ORDER BY (project, event_date, event, platform, channel, utm_source);
+
+-- 日彙總重建的標記日誌（append-only）：寫入者在清舊版本／寫入之前為每個要重建的日期登記 phase 0（帶租約），資料落地後記 phase 1；
+-- 重建把「這批 ∪ 還沒 phase 2 的日期」重做，只確認（phase 2）落地早於自己快照、或租約過期沒落地的標記；在自己快照之後才落地的
+-- 留給下一次重建。寫入者對只寫了新事件的日期也登記 touch；落地後若期間有重建換過那天的分區（replace 紀錄），由寫入者補重建。
+-- 多個寫入者／重建交錯都不會把別人的資料或恢復工作吃掉；中斷後的重試（哪怕一筆不寫）會先修好彙總。
+-- 重建用「與 events_daily_agg_stage 同結構」的私有暫存表（SHOW CREATE 換名建、用完即丟），stage 本身只是範本。
+CREATE TABLE IF NOT EXISTS dmp.events_daily_agg_pending
+(
+    event_date   Date,
+    id           String,                               -- 寫入者／重建者在這一天的標記
+    phase        UInt8,                                -- 0 登記（帶租約）、1 資料已落地、2 已由某次重建確認
+    owner        String,                               -- batch_id／rebuild／cli
+    at           DateTime64(3, 'UTC') DEFAULT now64(3),
+    lease_until  DateTime64(3, 'UTC'),                 -- phase 0 用：過期就不准再寫
+    kind         LowCardinality(String) DEFAULT 'change' -- change＝一定要重建（歸戶改寫、並行重複寫入）；touch＝這批會寫到的日期；rebuild＝重建者自己的標記；replace＝重建換過分區
+)
+ENGINE = ReplicatedMergeTree('/ch/{shard}/dmp.events_daily_agg_pending', '{replica}')
+ORDER BY (event_date, id, phase, at);
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS dmp.events_daily_agg_mv TO dmp.events_daily_agg
 AS SELECT project, event_date, event, platform, channel, utm_source,
           countState() AS cnt, uniqState(one_id) AS users, sumState(coalesce(amount, 0)) AS amount
 FROM dmp.events GROUP BY project, event_date, event, platform, channel, utm_source;
