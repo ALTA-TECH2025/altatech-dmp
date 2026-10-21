@@ -1,6 +1,9 @@
 # 39. AI 分析工作台：工具／技能契約草案
 
-> 版本 v0.1 草案（2026-10-20），對應 Issue #34，與 docs/38 同組。**狀態：待規格複審／待 Windy 確認。** 這是草案：本文不改 `backend/mcp/tools.yaml`、`backend/openapi.yaml`、`backend/security/*.yaml`；確認後依 CLAUDE.md 規則另開 `contract:` PR（docs/38 §8 W0）。
+> 版本 v0.2（2026-10-21），對應 Issue #34，與 docs/38 同組。**狀態（分項）：**
+> - Codex 規格複審已通過；D1–D4 與 D5 技能庫基礎管理已由 Windy 確認、授權開發。
+> - 已拆出的契約 PR：#60（工具與 run 契約 v1：§1–§5）、#61（技能庫 API 與 `ai_skills` 權限：§7.5）。本文不直接改契約檔，以這兩個 PR 為準。
+> - 仍待定（不得當正式預設）：模型供應商／端點／區域（D2）、模型投影的 K 值與金額區間（D3，§2.4）、D5 業務參數與技能庫權限分配、`trial` 版本規則（§7.5、§9）。
 > 程式引用以 `main` @ `9512adf` 為準。
 
 ## 1. 工具清單（MVP 需要的子集）
@@ -33,9 +36,9 @@ ToolRequest:
   run_id: string            # 由任務控制器發；模型不可自填
   step_id: string           # run 內遞增
   tool: string              # §1 名稱
-  args: object              # 依工具 schema；不得含 user_id / roles / project 以外的身分欄位（出現即丟棄並記 warning）
+  args: object              # 依工具 schema；一律不得含任何身分欄位（user_id、roles、project／project_override、subject 等），出現即丟棄並記 warning（A16）
   contract: { tools: "v1", semantic: "<catalog digest>", skill: "<name>@<version>" }
-# 身分不在信封裡：Gateway 從 run 綁定的 Subject 取（互動 = session；排程 = 擁有者現在的角色，同 backend/api/app.py:74-89）
+# 身分、角色與專案範圍只能由認證／run 上下文決定，不在信封裡：Gateway 從 run 綁定的 Subject 取（互動 = session；排程 = 擁有者現在的角色，同 backend/api/app.py:74-89）
 ```
 
 ### 2.2 回應信封
@@ -66,6 +69,7 @@ ToolResponse:
 | `CONFLICT` | 同 `operation_id` 不同 `args_digest`，或 `dashboard.update` 的產物版本已被改過 | 否 | step failed；要改參數須使用者確認、發新 `operation_id`（§3.1） |
 | `NOT_FOUND` | 草稿／證據不存在或無權看 | 否 | — |
 | `RATE_LIMITED` | 每使用者同時 run 數或每日額度 | 是（延後） | run 排隊 |
+| `MODEL_ENDPOINT_NOT_CONFIGURED` | 模型端點設定（D2）、模型投影參數（D3 `approved_params`）或供應商 transport 任一未設定；`detail.missing` 列出缺項 | 否 | run 建立後第一次要呼叫模型時 → `failed`，不呼叫任何工具；前端顯示「AI 工作台尚未設定模型」與缺項，不改用其他模型或預設值 |
 | `INTERNAL` | 其他 | 是（最多 2 次、指數退避） | — |
 
 ### 2.4 模型可見投影（model_view）
@@ -148,15 +152,19 @@ BEGIN
   INSERT INTO agent_operations (operation_id, run_id, tool, args_digest, artifact_kind, artifact_id, generation, state)
        VALUES ($op, $run, $tool, $digest, $kind, $artifact_id, $gen, 'committed')
        ON CONFLICT (operation_id) DO NOTHING             -- 已有 → 下面不寫產物
-  -- 只有上一句真的插入時才寫產物（同一交易）：
-  INSERT INTO items (kind, id, doc) VALUES ($kind, $artifact_id, $doc)
+  -- 只有上一句真的插入時才寫產物（同一交易），依產物種類寫各自的表：
+  --   dashboard.draft：
+  INSERT INTO items (kind, id, doc) VALUES ('dashboard', $artifact_id, $doc)
        ON CONFLICT (kind, id) DO NOTHING                 -- 不覆蓋使用者事後的編輯
+  --   segment.draft（分群 API 只讀 segments 表）：
+  INSERT INTO segments (id, doc) VALUES ($artifact_id, $doc)
+       ON CONFLICT (id) DO NOTHING
   -- 圍籬：run 的 generation 必須還是自己的（§5）
   UPDATE agent_runs SET updated_at = now() WHERE run_id = $run AND generation = $gen   -- 0 列 → ROLLBACK
 COMMIT
 ```
 
-- `artifact_id` 由 `operation_id` 決定（例：`dash_` + sha256(operation_id) 前 16 碼），不是隨機產生。崩潰後重試會算出同一個 id，`ON CONFLICT DO NOTHING` 保證產物只有一份。
+- `artifact_id` 由 `operation_id` 決定（看板 `d_`、分群 `sg_` + sha256(operation_id) 前 16 碼，沿用現有 id 前綴），不是隨機產生。崩潰後重試會算出同一個 id，`ON CONFLICT DO NOTHING` 保證產物只有一份。
 - 「建了產物、還沒記成功就崩潰」的窗口不存在：兩筆在同一交易，要嘛都在、要嘛都不在。
 - 若產物改到另一個儲存而無法共用交易：產物本身帶唯一的 `operation_id` 欄位（唯一索引）。恢復時先用 `operation_id` 查回產物，查到就補記 `agent_operations`，不再建立。
 - 既有 `put_item` 是覆寫式寫入，不能直接用；需新增 `insert_item_if_absent`／交易版本的 store 方法（W3）。
@@ -224,7 +232,7 @@ step:  pending → running → succeeded | failed | skipped
 
 - **租約與圍籬（fencing）：**
   - worker 取 run 時，以 `UPDATE agent_runs SET generation = generation + 1, lease_owner = $w, lease_until = now() + 60s WHERE run_id = $r AND (lease_until < now() OR lease_owner = $w) RETURNING generation` 取得新世代，每步續租。
-  - 每一個寫入（產物交易、step 狀態、run 狀態）都帶 `WHERE generation = $gen`。過期 worker 醒來後世代已被接手者加 1，它的寫入 0 列、交易回滾，不能再寫。
+  - 每一個寫入（產物交易、step 狀態、run 狀態、續租）都帶 `WHERE generation = $gen AND state = 'running' AND lease_until >= now()`：租約到期、還沒被接手的 worker 也不能寫，也不能把過期租約續長。過期 worker 醒來後世代已被接手者加 1，它的寫入 0 列、交易回滾，不能再寫。
   - 接手者從最後一個 `succeeded` 的 step 之後繼續。寫入步驟先用 `operation_id` 查 `agent_operations`；已 committed 就直接取回產物 id，不重做。
   - 外部副作用只有 ClickHouse 查詢（唯讀），被取代的 worker 頂多多跑一次讀取，不會多寫。
 - **取消：** 設 `cancel_requested`；控制器在每步之間檢查；執行中的 ClickHouse 查詢以 `KILL QUERY WHERE query_id` 結束（query_id = step 的 `operation_id` + attempt）。
@@ -389,4 +397,4 @@ AgentVersion:
 - `agent_operations` 與 `agent_runs` 表放 PostgreSQL 主庫或獨立 schema。
 - 行銷是否給 `overview.use`（§6 落差 1）——權限治理，非工程決定。
 - `svc_insight` 的新權限範圍（§6 落差 2）。
-- 技能庫的權限分配（`ai_skills.view／edit／publish` 給哪些角色）與 `trial` 版本規則（§7.5）。
+- 技能庫的權限分配（`ai_skills.view／use／approve` 給哪些角色；目前僅提案，`rbac.yaml` 只有 admin 經 `*` 取得）與 `trial` 版本規則（§7.5）。
