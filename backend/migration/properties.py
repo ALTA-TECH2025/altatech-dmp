@@ -14,8 +14,8 @@
 分級與決定（docs/10 §欄位等級、docs/22 §3.3）：
 - L4 可識別（姓名、手機、信箱、生日、客戶銀行帳號、收件人）→ decision=drop_l4：接入預處理 stage() 丟棄，永不入倉；
   名單必須同步登記在 semantic/user_properties.yaml 的 forbidden_l4（--check 會比對）。
-- L3 代碼化識別（客戶 UUID／去識別化 ID、證券帳號、員工編號、裝置 ID、匿名關聯 ID）→ decision=hash：入倉前 token_v1（HMAC），
-  查詢時依 masking.yaml 尾碼遮罩。
+- L3 代碼化識別（客戶 UUID／去識別化 ID、證券帳號、員工編號、裝置 ID、匿名關聯 ID）→ decision=hash：個資不入庫，
+  事件屬性在接入預處理整個丟（不留雜湊值）；客戶身分只經 user id 進來（客戶 IT 提供的去識別化 ID key，token_v1）。
 - L2 敏感業務（金額、費用、稅、餘額、額度、交割、KYC、信用、身分類別，以及數據中台交易／帳務／開戶欄位預設）→ keep，按角色遮罩／分桶。
 - L1 行為（頁面、元素、UTM、裝置、App、課程、問卷、推播計畫等）→ keep。
 - 顯示名以 (X) 開頭的維護／清理欄位與 $ip 類 → drop_ops，不入倉。
@@ -151,7 +151,7 @@ def classify(name: str, display: str) -> tuple[str, str, str, str]:
     if name in L4_NAMES or L4_DISPLAY.search(display):
         return dom, 'L4', 'drop_l4', '可識別個資：接入預處理丟棄（forbidden_l4）'
     if name in L3_NAMES or L3_DISPLAY.search(display):
-        return dom, 'L3', 'hash', '代碼化識別：入倉前 token_v1，查詢尾碼遮罩'
+        return dom, 'L3', 'hash', '代碼化識別：個資不入庫，接入預處理整個丟；身分只經 user id（客戶 IT 去識別化 key）'
     if dom == 'ma':
         return dom, 'L1', 'keep', '舊平台智能運營事件屬性：只匯入歷史'
     if dom == 'batch' or L2_DISPLAY.search(display):
