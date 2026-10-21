@@ -319,11 +319,13 @@ EVENT_ID_V2 = "e2_"     # 內容雜湊版 event_id 的前綴；舊版（v1）是
 
 
 def canon(v: Any) -> Any:
-    """可雜湊的正規形：dict 鍵排序、數字統一（5 與 5.0 相同）、其餘原樣；供 content_id 與比對用。"""
+    """可雜湊的正規形：dict 鍵排序、數字統一（5 與 5.0 相同）、其餘原樣；供 content_id 與比對用。
+    整數原樣保留、不經過浮點（9007199254740992 與 9007199254740993 轉 float 會變成同一個值，兩筆不同事件會被算成同一個 id）；
+    只有「值是整數的浮點數」轉成 int（5.0 → 5），這個轉換是精確的。"""
     if isinstance(v, bool) or v is None: return v
-    if isinstance(v, (int, float)):
-        f = float(v)
-        return int(f) if f.is_integer() and abs(f) < 2 ** 63 else f
+    if isinstance(v, int): return v
+    if isinstance(v, float):
+        return int(v) if v.is_integer() else v
     if isinstance(v, dict): return {str(k): canon(x) for k, x in sorted(v.items(), key=lambda kv: str(kv[0]))}
     if isinstance(v, (list, tuple)): return [canon(x) for x in v]
     return v if isinstance(v, str) else str(v)
@@ -581,4 +583,8 @@ if __name__ == "__main__":
     bad = Model({**m.raw, "fields": m.fields + [{"target": "mobile", "from": "PHONE"}], "identities": [{"target": "$identity_login_id", "from": "CUST_ID"}]})
     e = validate(bad)
     assert any("L4" in x for x in e) and any("drop_fields" in x for x in e) and any("代碼化" in x for x in e), e
+    # canon（Codex #51 複審）：整數不經浮點；5 與 5.0 同值；相鄰大整數（> 2^53）不能合併成同一個內容 id
+    assert canon(9007199254740992) != canon(9007199254740993) and canon_json({"n": 2 ** 70}) == '{"n":' + str(2 ** 70) + '}'
+    assert canon(5.0) == canon(5) == 5 and isinstance(canon(5.0), int) and canon(1000.5) == 1000.5 and canon(True) is True
+    assert content_id(["x", canon_json({"n": 9007199254740992})]) != content_id(["x", canon_json({"n": 9007199254740993})])
     print("modeling ok", o.summary)

@@ -292,4 +292,7 @@ if __name__ == "__main__":
     fa3 = flatten(a3, {}, "p", "ga360_daily", "b", 0); assert fa3["event_id"] == fa1["event_id"] and fa3["_event_id_v1"] != fa1["_event_id_v1"], "日批補欄位不改 event_id"
     a4 = ga4_row(500, base, "kh_apply"); a4["event_params"][3] = {"key": "amount", "value": {"int_value": 1000.5}}; assert flatten(a4, {}, "p", "s", "b", 0)["event_id"] == fa1["event_id"]
     a5 = ga4_row(500, base, "kh_apply", uid="v1_abc"); assert flatten(a5, {}, "p", "s", "b", 0)["event_id"] != fa1["event_id"], "user_id 是核心欄位"
+    b1, b2 = ga4_row(500, base, "kh_apply"), ga4_row(500, base, "kh_apply")                                   # 相鄰大整數（> 2^53）的參數 → 兩筆，不經浮點合併
+    b1["event_params"][3] = {"key": "amount", "value": {"int_value": 9007199254740992}}; b2["event_params"][3] = {"key": "amount", "value": {"int_value": 9007199254740993}}
+    assert flatten(b1, {}, "p", "s", "b", 0)["event_id"] != flatten(b2, {}, "p", "s", "b", 0)["event_id"], "相鄰大整數不能合併"
     print("ga4_source ok")

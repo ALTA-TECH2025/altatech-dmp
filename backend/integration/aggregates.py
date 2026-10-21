@@ -535,6 +535,7 @@ def selftest() -> None:
     f3 = ga4_source.flatten(g3, {}, "p", "ga360_intraday", "b", 0); assert f3["event_id"] != f1["event_id"]
     gold3 = {**gold, "event_id": f3["_event_id_v1"]}; fk = Fake({}); fk.legacy = {gold3["event_id"]: [gold3]}
     d = dedupe(fk, [f3]); assert len(d.rows) == 1 and d.skipped_v1 == 0, d                                                        # 核心內容不同 → 追加
+    assert _props_norm({"n": 9007199254740992}) != _props_norm('{"n":9007199254740993}') and _props_norm({"a": 1000.0}) == _props_norm('{"a":1000}')   # 大整數不經浮點；1000.0 與 1000 同值
     print("aggregates self-test ok: dedupe(append-only: existing id → skipped if identical / kept_first if different; in-batch first wins; "
           "content event_id: partial fills at different times → 2 rows; v1 rows replayed → skipped_v1, v1 collisions appended; GA4 daily enrichment = same event)/event_date/"
           "rebuild(pending ∪ dates → own mark → private stage → replace partition → re-snapshot while newer landed → ack landed-before-snapshot/expired)/marks(change+touch, lease check, renew, landed, overlapped replace, settle self-ack, landed-unacked touch stays pending/not gc'd, concurrent writer window overlap)")

@@ -263,6 +263,11 @@ if __name__ == "__main__":
     stage(dup, d / "dup.out.jsonl", d / "dup.q.jsonl", "k_idm", [])
     ids = [json.loads(x)["event_id"] for x in (d / "dup.out.jsonl").read_text(encoding="utf-8").splitlines()]
     assert ids[0] == ids[1] == ids[3] and ids[2] != ids[0] and ids[0].startswith("e2_"), ids
+    big = d / "big.jsonl"; big_ev = {**base_ev, "properties": {"$is_login_id": True, "n": 9007199254740992}}
+    big.write_text("\n".join([json.dumps(big_ev), json.dumps({**big_ev, "properties": {"$is_login_id": True, "n": 9007199254740993}}), json.dumps(big_ev)]), encoding="utf-8")
+    stage(big, d / "big.out.jsonl", d / "big.q.jsonl", "k_idm", [])
+    bids = [json.loads(x)["event_id"] for x in (d / "big.out.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert bids[0] != bids[1] and bids[0] == bids[2], bids                                                       # 相鄰大整數是不同事件；完全相同才同 id
     # 個資不入庫：字典 hash／drop 類整個丟（不分大小寫、巢狀也丟）、自由文字與巢狀的身分證／手機／email 命中就丟該屬性；未登入的 ID 像個資 → 整列隔離
     drop = ops_drop_props(); assert {"S_IDNO", "MT_ACNO", "$device_id"} <= drop, sorted(drop)[:10]
     pii = d / "pii.jsonl"

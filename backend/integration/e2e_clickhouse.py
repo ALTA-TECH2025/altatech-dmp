@@ -283,6 +283,7 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
           f"(≈ {3800 / max(size_mb, 1) * dt / 60:.0f} min per 3.8 GB)")
     print("  events by name:", by_ev)
     legacy_v1_collision(ch, loader, work, via_http)
+    legacy_bigint(ch, loader, work, via_http)
 
 
 def legacy_v1_collision(ch: ClickHouseHTTP, loader: Any, work: Path, via_http: bool) -> None:
@@ -312,6 +313,27 @@ def legacy_v1_collision(ch: ClickHouseHTTP, loader: Any, work: Path, via_http: b
     assert r2["recon_ok"] and r2["events"] == 0 and r2["events_skipped"] == 2, r2
     assert state() == (2, 300.0, 2, 300.0), state()
     print(f"legacy v1 collision: old id + amount 100→200 → kept both (events 2, agg cnt 2, amount 300); identical replay skipped {r2['events_skipped']}")
+
+
+
+def legacy_bigint(ch: ClickHouseHTTP, loader: Any, work: Path, via_http: bool) -> None:
+    """Codex #51 複審 P1：相鄰大整數（> 2^53）只差 1 的兩筆事件，內容 id 不能因為經過浮點而相同。同批、跨批都要兩筆入庫，值原樣保留。"""
+    t_ms, n0, n1 = 1_792_454_500_000, 9007199254740992, 9007199254740993
+    line = lambda did, n: json.dumps({"type": "track", "event": "order_submit", "distinct_id": did, "time": t_ms, "project": "sbp_family", "properties": {"n": n}}) + "\n"
+    vals = lambda did: ch.query(f"SELECT arraySort(groupArray(toString(props.n))) FROM dmp.events FINAL WHERE distinct_id = '{did}' FORMAT TSV").strip()
+    src = work / "bigint.jsonl"
+    # 同批：兩行只差 1 → 兩筆
+    src.write_text(line("bigint_cookie", n0) + line("bigint_cookie", n1), encoding="utf-8")
+    r = loader.run_file(src, work / "user_files", "bigint_same", "k_idm", via_http=via_http)
+    assert r["recon_ok"] and r["events"] == 2 and r["events_skipped"] == 0, r
+    assert vals("bigint_cookie") == f"['{n0}','{n1}']", vals("bigint_cookie")
+    # 跨批：先 n0、再 n1 → 各寫一筆；再送 n1 → 跳過
+    for i, (n, written) in enumerate([(n0, 1), (n1, 1), (n1, 0)]):
+        src.write_text(line("bigint_cookie2", n), encoding="utf-8")
+        r = loader.run_file(src, work / "user_files", f"bigint_cross{i}", "k_idm", via_http=via_http)
+        assert r["recon_ok"] and r["events"] == written and r["events_skipped"] == 1 - written, (i, r)
+    assert vals("bigint_cookie2") == f"['{n0}','{n1}']", vals("bigint_cookie2")
+    print(f"legacy bigint: {n0} vs {n1} → same batch 2 events, cross batch 2 events, replay skipped; values exact")
 
 
 def agg_stage(ch: ClickHouseHTTP) -> None:
