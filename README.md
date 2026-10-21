@@ -44,7 +44,7 @@ backend/                                            後端骨架（可讀、可�
   auth/idp.yaml  oidc.py  ldap.py  session.py  mapping.py  api.py   登入整合：Keycloak 代理或直連 Entra ID（OIDC+PKCE）／AD（LDAPS）、群組 → 角色、session／CSRF／API token、FastAPI 路由（自測）
   openapi.yaml                                     人與 agent 共用的 API
   semantic/{events,metrics,dimensions,dimension_tables,user_properties,oneid_rules,ga4_mapping}.yaml   語意層定義（事件、指標、維度、維度表／字典／虛擬屬性、用戶表、OneID 規則；agent 的資料地圖）
-  mcp/tools.yaml  mcp/server.py                    Agent Tool Gateway（工具目錄 + 權限/預算/脫敏/審計骨架）
+  mcp/tools.yaml  mcp/server.py                    Agent Tool Gateway（工具目錄 + 每次授權／預算前置／模型投影／審計）
   semantic/compiler/README.md  parser.py  catalog.py  events.py  policy.py  oracle.py  golden.py  budgets.yaml   語意查詢編譯器：事件分析樣板（MV／明細選層、公式、top_n、compare、K 匿名、遮罩、預算）＋ 30 條黃金查詢在真 ClickHouse 誤差 0
   insight_agent/agents.yaml  skills/*.md  evals/golden.yaml  runtime.py   agent 註冊、skill、評測、執行迴圈
   migration/bridge.py  ga360_tracking_spec.csv  semantic/legacy_ga4_bridge.yaml   舊平台 → GA360 埋點銜接：由事件字典產生 GA4 事件名／參數（給導入商）與接入用橋接表，檢查 GA4 限制（自測）
@@ -89,7 +89,7 @@ UI：AltaTech 品牌色（#2C73EA）與四角箭頭標記；橫向導覽（首�
 
 ```bash
 pip install pyyaml
-python3 backend/mcp/server.py              # 工具閘道：semantic.search 範例呼叫 + 審計事件
+python3 -m backend.mcp.server              # 工具閘道自測：身分、每次授權、預算前置、模型投影、審計
 python3 backend/insight_agent/runtime.py   # agent 執行迴圈：plan → execute → verify → narrate
 python3 backend/integration/transforms.py  # 欄位轉換函式庫自測
 python3 backend/integration/auth.py        # 連線鑑權自測：密鑰參照驗證、逐步連線診斷、輪替、審計
