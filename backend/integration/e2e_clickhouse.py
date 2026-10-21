@@ -139,7 +139,27 @@ def main() -> int:
             assert ch.scalar("SELECT count() FROM dmp.dim_instrument") == 300
             print("quarantine by reason:", ch.query("SELECT splitByChar(':', reason)[1] r, count() FROM dmp.quarantine GROUP BY r ORDER BY r FORMAT TSV").strip().replace("\n", " | "))
             assert ch.scalar("SELECT count() FROM dmp.quarantine WHERE reason LIKE 'pii:%' AND row != ''") == 0   # 拒絕列不留內容
+            assert ch.scalar("SELECT count() FROM dmp.quarantine WHERE row != ''") > 0                            # 格式不符的列仍留內容供追查……
+            qrows = [json.loads(x)["row"] for x in ch.query("SELECT row FROM dmp.quarantine WHERE row != '' FORMAT JSONEachRow").splitlines() if x.strip()]
+            raw_ids = {r["CUST_ID"] for r in files["orders_rows"]} | {r["ACCT_NO"] for r in files["orders_rows"]}
+            leaks = [q for q in qrows if any(x in q for x in ("王小明", "A123456789", "0912345678")) or json.loads(q).get("CUST_ID") in raw_ids or json.loads(q).get("ACCT_NO") in raw_ids]
+            assert not leaks, leaks[:2]                                                                           # ……但個資欄丟掉、客戶代碼與帳號已代碼化
             assert ch.scalar("SELECT count() FROM dmp.ingest_recon") == 4
+            # Codex #52 複審：巢狀／$ 前綴／點分的禁止鍵（值不像個資樣式，如姓名）經實際 runner 寫進 dmp.quarantine 時也要丟；隔離原因不帶原始值
+            probe = work / "orders_pii_probe.jsonl"; base_row = {k: v for k, v in all_rows[0].items() if k not in ("CUST_NAME", "ID_NO", "PHONE")}
+            base_row = {**base_row, "STATUS": "WEIRD", "CUST_NAME": "王小明", "nested": {"CUST_NAME": "王小明"}, "$name": "王小明", "profile.name": "王小明", "arr": [{"x.Cust_Name": "王小明"}]}
+            probe.write_text(json.dumps(base_row, ensure_ascii=False) + "\n" + json.dumps({**base_row, "STATUS": "王小明"}, ensure_ascii=False) + "\n", encoding="utf-8")
+            s.add_task("q_pii_probe", str(ROOT / "integration" / "models.example.yaml"), cron="0 0 1 1 *", mode="full", retries=0, backoff_s=60,
+                       schema_change="auto_map", source={"kind": "jsonl", "path": str(probe)}, now=t0)
+            pr = s.run_now("q_pii_probe", t0); assert pr["status"] == "success", pr
+            pr = s.runs("q_pii_probe", 1)[0]; assert pr["rows_quarantined"] == 2 and pr["rows_ok"] == 0, pr
+            qp = [json.loads(x) for x in ch.query("SELECT reason, row FROM dmp.quarantine WHERE task_id = 'q_pii_probe' FORMAT JSONEachRow").splitlines() if x.strip()]
+            assert len(qp) == 2 and all(q["reason"] == "no_transition:STATUS" for q in qp), qp
+            p0 = json.loads(next(q["row"] for q in qp if '"WEIRD"' in q["row"]))
+            assert "王小明" not in json.dumps(p0, ensure_ascii=False) and {"CUST_NAME", "nested", "$name", "profile.name", "arr"} <= set(p0["_dropped"]), p0
+            p1 = json.loads(next(q["row"] for q in qp if '"WEIRD"' not in q["row"]))
+            assert all("王小明" not in q["reason"] + q["row"] for q in qp) and p0["CUST_ID"].startswith("v1_") and p0["STATUS"] == "WEIRD" and p1["_masked"] == ["STATUS"], qp   # 原因、列都無原值；不像代碼的狀態值遮罩
+            print(f"quarantine pii probe: 2 rows via runner → reasons {sorted({q['reason'] for q in qp})}, dropped {p0['_dropped']}")
             # 關聯屬性：events.symbol = dim_instrument.symbol（docs/06 §7.2）
             joined = ch.scalar("SELECT count() FROM dmp.events e INNER JOIN dmp.dim_instrument d ON e.symbol = d.symbol")
             assert joined == n_ev, (joined, n_ev)
