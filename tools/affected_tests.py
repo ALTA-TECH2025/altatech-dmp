@@ -175,6 +175,7 @@ def plan(files: list[str], full: bool = False) -> dict:
     for m in sorted(set(touched) - covered):
         notes.append(f"{m} 不在任何自測的 import 閉包裡，沒有自測涵蓋")
     jobs = {job: full or any(_match(f, globs) for f in files) for job, globs in GLOB_JOBS.items()}
+    jobs["contract"] = any(_match(f, GLOB_JOBS["contract"]) for f in files)   # 這是「改了契約要標籤」的判斷，不是測試開關，全跑也不能強制
     jobs["backend"] = bool(suites)
     jobs["e2e_clickhouse"] = full_backend or any(m in ch_closure for m in touched)
     jobs["yaml"] = full or any(_match(f, YAML_GLOBS) for f in files)

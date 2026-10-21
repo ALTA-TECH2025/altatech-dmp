@@ -44,4 +44,8 @@ def test_web_and_docs_only():
 def test_conservative_fallbacks():
     assert names(at.plan(["backend/requirements.txt"])) >= ALL_PY
     assert names(at.plan(["backend/api/removed_module.py"])) >= ALL_PY
-    p = at.plan(["tools/affected_tests.py"]); assert names(p) >= ALL_PY and all(p["jobs"].values())
+    p = at.plan(["tools/affected_tests.py"]); assert names(p) >= ALL_PY and all(on for j, on in p["jobs"].items() if j != "contract")
+
+
+def test_full_run_does_not_flag_contract():
+    assert not at.plan(["tools/affected_tests.py"], full=True)["jobs"]["contract"]
