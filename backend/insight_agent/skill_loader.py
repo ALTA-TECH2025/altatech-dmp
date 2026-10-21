@@ -41,9 +41,14 @@ class Skill:
     meta: dict[str, Any] = field(default_factory=dict)
 
 
+def _yaml_text(text: str) -> Any:
+    """純量一律保留原字串（BaseLoader）：版本寫成未加引號的 1.10 時，safe_load 會變成浮點 1.1。"""
+    return yaml.load(text, Loader=yaml.BaseLoader)   # BaseLoader 不建構任何物件
+
+
 def contract_versions() -> dict[str, str]:
     """現行契約版本；run 紀錄的 contracts 欄位也存這份。"""
-    y = lambda p: yaml.safe_load((BACKEND / p).read_text(encoding="utf-8"))
+    y = lambda p: _yaml_text((BACKEND / p).read_text(encoding="utf-8"))
     return {"semantic": str(y("semantic/events.yaml")["version"]), "tools": str(y("mcp/tools.yaml")["contract_version"]), "oneid_rules": str(y("semantic/oneid_rules.yaml")["version"])}
 
 
@@ -126,6 +131,7 @@ def selftest() -> None:
             return e.code
     assert code(good.replace('semantic: ">=4"', 'semantic: ">=5"')) == "CONTRACT_MISMATCH"                     # A17
     assert code(good.replace('tools: "v1"', 'tools: "v2"')) == "CONTRACT_MISMATCH"
+    assert _yaml_text("version: 1.10")["version"] == "1.10" and _ok(">=1.10", _yaml_text("version: 1.10")["version"])        # 未加引號的 1.10 不被轉成 1.1
     assert _ok(">=1.10", "1.10.0") and not _ok(">=1.10", "1.2") and _ok("==v1", "v1") and _ok("v1", "v1") and not _ok(">=4", "x4")   # 版本逐段比，不轉浮點
     assert code(good.replace("## 口徑\n", "## 口徑\n用 fund_subscribe 計算。\n")) == "INVALID_ARGUMENT"                          # 事件別名也算事件名
     assert code(good.replace("tools: [semantic.describe, data.readiness]", "tools: [semantic.describe, profile.get]")) == "INVALID_ARGUMENT"   # 不給模型的工具
