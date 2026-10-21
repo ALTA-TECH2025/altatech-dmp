@@ -393,20 +393,39 @@ class Rebuild:
         return self.ack()
 
 
+UPGRADE_MARK = "dmp.events_daily_agg_upgrade"     # 舊 MV → 目標表的升級待辦：拆 MV 前建立，從底表重建完才刪
+
+
 def migrate_legacy_mv(ch: CH) -> bool:
     """既有環境升版：舊版的 dmp.events_daily_agg 是 MaterializedView（自帶 .inner 表）。CREATE TABLE IF NOT EXISTS 換不掉它，
-    之後的 _mv 與 REPLACE PARTITION 會打到舊物件。套 schema 之前先呼叫：是舊 MV 就 DROP，回 True。
-    回填不看這個回傳值：套完 schema 一律呼叫 backfill_missing（中斷後重跑也會補）。"""
+    之後的 _mv 與 REPLACE PARTITION 會打到舊物件。套 schema 之前先呼叫：是舊 MV 就先留升級待辦（持久表），再 DROP，回 True。
+    套完 schema 呼叫 finish_upgrade 完成回填；中斷後重跑，只要待辦還在就再做一次完整重建。"""
     eng = ch.query("SELECT engine FROM system.tables WHERE database = 'dmp' AND name = 'events_daily_agg' FORMAT TSV").strip()
     if eng != "MaterializedView":
         return False
+    ch.query(f"CREATE TABLE IF NOT EXISTS {UPGRADE_MARK} (at DateTime DEFAULT now()) ENGINE = MergeTree ORDER BY tuple()")
+    ch.query(f"INSERT INTO {UPGRADE_MARK} (at) VALUES (now())")
     ch.query("DROP VIEW dmp.events_daily_agg")
     return True
 
 
+def upgrade_pending(ch: CH) -> bool:
+    return ch.query(f"SELECT count() FROM system.tables WHERE database = 'dmp' AND name = '{UPGRADE_MARK.split('.')[1]}' FORMAT TSV").strip() not in ("", "0")
+
+
+def finish_upgrade(ch: CH) -> list[str]:
+    """套完 schema 後呼叫。升級待辦還在 → 底表所有日期一律從底表重建（不看分區在不在：升級中斷期間新 MV 可能已為某天
+    建出只含新事件的部分分區，Codex #66），全部完成才刪待辦。沒有待辦 → 只補「底表有、彙總沒有分區」的日期。"""
+    if upgrade_pending(ch):
+        done = rebuild_all(ch)
+        ch.query(f"DROP TABLE IF EXISTS {UPGRADE_MARK}")
+        return done
+    return backfill_missing(ch)
+
+
 def backfill_missing(ch: CH) -> list[str]:
-    """底表有事件、彙總表卻沒有分區的日期 → 重建。不靠「這次是否剛拆掉舊 MV」：升級在拆掉舊 MV 後、回填完成前中斷，
-    下次重跑仍會補上（Codex #66）。正常環境兩邊日期一致，什麼都不做。"""
+    """底表有事件、彙總表卻沒有分區的日期 → 重建。正常環境兩邊日期一致，什麼都不做。
+    （升級中的部分分區由 finish_upgrade 的升級待辦處理，這裡只是保險。）"""
     base = {x for x in ch.query("SELECT DISTINCT toString(event_date) FROM dmp.events FORMAT TSV").split("\n") if x.strip()}
     missing = sorted(base - set(agg_dates(ch)))
     return rebuild(ch, missing, "backfill", with_pending=False) if missing else []

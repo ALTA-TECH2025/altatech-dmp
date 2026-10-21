@@ -74,7 +74,7 @@ if aggregates.migrate_legacy_mv(ch):               # 舊版日彙總是 MV：先
     print(">> 已拆除舊版日彙總 MV")
 for st in local_ddl(Path("backend/clickhouse/schema.sql").read_text(encoding="utf-8")):
     ch.query(st, settings={"allow_experimental_json_type": 1})
-filled = aggregates.backfill_missing(ch)            # 底表有、彙總沒有的日期一律補（升級中斷後重跑也會補）
+filled = aggregates.finish_upgrade(ch)             # 有升級待辦就從底表完整重建再清待辦；否則只補缺分區的日期
 if filled:
     print(">> 日彙總回填日期：", len(filled))
 print(">> schema ok · tables:", ch.query("SELECT count() FROM system.tables WHERE database='dmp'").strip())

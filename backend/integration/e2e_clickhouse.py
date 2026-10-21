@@ -600,24 +600,37 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
 
 def agg_upgrade_stage(ch: ClickHouseHTTP) -> None:
     """既有環境升版（Codex #32）：日彙總還是舊版 MaterializedView 時，migrate_legacy_mv 拆掉它，重套 schema 建出分區目標表 + _mv；回填做到一半中斷後重跑，backfill_missing 補完其餘日期，彙總 = 底表。"""
-    from .aggregates import AGG_TABLE, backfill_missing, migrate_legacy_mv, rebuild, verify
+    from .aggregates import AGG_TABLE, backfill_missing, begin, finish_upgrade, migrate_legacy_mv, pending_dates, rebuild, upgrade_pending, verify
     days = [x for x in ch.query("SELECT DISTINCT toString(event_date) FROM dmp.events ORDER BY 1 FORMAT TSV").split("\n") if x.strip()]
     ch.query("DROP VIEW IF EXISTS dmp.events_daily_agg_mv"); ch.query(f"DROP TABLE IF EXISTS {AGG_TABLE}")
     ch.query("CREATE MATERIALIZED VIEW dmp.events_daily_agg ENGINE = AggregatingMergeTree ORDER BY (project, event_date, event, platform, channel, utm_source) "
              "AS SELECT project, event_date, event, platform, channel, utm_source, countState() AS cnt, uniqState(one_id) AS users, sumState(coalesce(amount, 0)) AS amount "
              "FROM dmp.events GROUP BY project, event_date, event, platform, channel, utm_source")          # 升版前（main 舊版）的物件
-    assert migrate_legacy_mv(ch) and not migrate_legacy_mv(ch)                                             # 舊 MV → 拆掉；第二次無事
-    for st in local_ddl((ROOT / "clickhouse" / "schema.sql").read_text(encoding="utf-8")):
-        ch.query(st, settings={"allow_experimental_json_type": 1})
+    assert migrate_legacy_mv(ch) and upgrade_pending(ch) and not migrate_legacy_mv(ch)                    # 拆 MV 前留升級待辦；第二次無事
+    def apply_schema() -> None:
+        for st in local_ddl((ROOT / "clickhouse" / "schema.sql").read_text(encoding="utf-8")):
+            ch.query(st, settings={"allow_experimental_json_type": 1})
+    apply_schema()
     eng = ch.query("SELECT engine, partition_key FROM system.tables WHERE database = 'dmp' AND name = 'events_daily_agg' FORMAT TSV").strip()
     assert eng.startswith("AggregatingMergeTree") and "event_date" in eng, eng
-    half = days[: len(days) // 2]; rebuild(ch, half, "upgrade", with_pending=False)                       # 回填做到一半中斷
-    for st in local_ddl((ROOT / "clickhouse" / "schema.sql").read_text(encoding="utf-8")):                   # 重跑升級：舊 MV 已不在
-        ch.query(st, settings={"allow_experimental_json_type": 1})
-    assert not migrate_legacy_mv(ch)
-    done = backfill_missing(ch); bad = [v for v in (verify(ch, d) for d in days) if v["agg_cnt"] != v["events_cnt"] or v["amount_diff"] > 1e-3]
-    assert set(done) == set(days) - set(half) and not bad and backfill_missing(ch) == [], (done, bad[:3])
-    print(f"daily_agg upgrade: legacy MV dropped → partitioned target table + _mv; interrupted after {len(half)} days, rerun backfilled {len(done)} → agg == events for all {len(days)} days")
+    # 中斷：回填只做了一半；另一天在回填前被新 MV 收到同日新事件（正常寫入協定：touch → 寫 → landed → settle 自行確認）
+    half = days[: len(days) // 2]; rebuild(ch, half, "upgrade", with_pending=False)
+    late = days[-1]
+    newrow = {"project": "altatech_dmp", "time": f"{late} 05:00:00.000", "event": "bond_deal", "source": "e2e_upgrade", "one_id": "v1_upgrade_new", "entity_type": "", "entity_id": "",
+              "distinct_id": "", "session_id": "", "event_id": "upgrade-new-1", "platform": "iOS", "app_id": "", "symbol": "2330", "side": "B", "channel": "app", "amount": 20.0,
+              "utm_source": "", "utm_campaign": "", "props": {}, "ingest_time": f"{late} 05:00:00.000", "schema_version": 1, "late": 0, "batch_id": "upgrade_new"}
+    m = begin(ch, set(), "upgrade_new", touch=[late]); ch.insert_json("dmp.events", [newrow]); m.landed(); m.settle()
+    v = verify(ch, late); assert v["agg_cnt"] < v["events_cnt"] and late not in pending_dates(ch), v      # 部分分區：日期存在、但缺歷史事件
+    assert late not in backfill_missing(ch)                                                                # 只看日期存在會漏（Codex #66 P1）
+    # 重跑升級：舊 MV 已不在，但升級待辦還在 → 全部從底表重建，完成才清待辦
+    apply_schema(); assert not migrate_legacy_mv(ch) and upgrade_pending(ch)
+    done = finish_upgrade(ch); days = sorted(set(days) | {late})
+    bad = [v for v in (verify(ch, d) for d in days) if v["agg_cnt"] != v["events_cnt"] or v["agg_users"] != v["events_users"] or v["amount_diff"] > 1e-3]
+    assert set(days) <= set(done) and not bad and not upgrade_pending(ch) and finish_upgrade(ch) == [], (bad[:3], upgrade_pending(ch))
+    ch.query("DELETE FROM dmp.events WHERE event_id = 'upgrade-new-1'"); rebuild(ch, [late], "upgrade_cleanup", with_pending=False)   # 不影響後面的階段
+    v = verify(ch, late); assert v["agg_cnt"] == v["events_cnt"], v
+    print(f"daily_agg upgrade: legacy MV dropped (upgrade mark kept) → partitioned target table + _mv; interrupted after {len(half)} days and a new same-day event on {late} "
+          f"(partial partition); rerun rebuilt {len(done)} days → agg == events for all {len(days)} days, mark cleared")
 
 
 def dbapi_stage(ch: ClickHouseHTTP | None, work: Path, rows: list[dict[str, Any]]) -> None:
