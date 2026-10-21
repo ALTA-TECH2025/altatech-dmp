@@ -70,7 +70,15 @@ ToolResponse:
 
 ### 2.4 模型可見投影（model_view）
 
-> 範圍依 docs/41 D3（Windy 2026-10-21 確認：目錄 + 彙總結果）。`model_view` 是給模型的投影；同一個工具結果的完整內容（依使用者權限）放在 `data`（§2.2）與證據，由 Gateway 直接回前端，**不進模型上下文**，畫面數字也不由模型文字產生。K 值與金額區間邊界本次未另指定：目前沿用現行契約（`rbac.yaml` `k_anonymity.min_group_size: 20`、`masking.yaml` 的 `bucket` 邊界），不是 Windy 針對模型投影核定的值，日後可另行調整。
+> 範圍依 docs/41 D3（Windy 2026-10-21 確認：目錄 + 彙總結果）。`model_view` 是給模型的投影；同一個工具結果的完整內容（依使用者權限）放在 `data`（§2.2）與證據，由 Gateway 直接回前端，**不進模型上下文**，畫面數字也不由模型文字產生。
+
+K 值與金額區間分三件事，不可混用：
+
+- **現行安全下限**（已在契約，所有查詢都適用）：`rbac.yaml` `k_anonymity.min_group_size: 20`、`masking.yaml` 的 `bucket` 邊界。模型投影只能比它嚴，不能比它鬆。
+- **合成測試設定**：自測與驗收用測試替身模型（`provider: test-double`）時，投影直接套現行下限；只出現在標示為合成的 fixture，不是正式配置。
+- **正式模型投影的啟用條件**：模型投影專屬的 K 值與金額區間邊界**尚未核定**（`tools.yaml` `model_view.approved_params: null`）。正式環境要同時有已核定的端點（D2）與投影參數才會呼叫模型；缺任一項，Gateway 回 `MODEL_ENDPOINT_NOT_CONFIGURED`，`detail.missing` 列出缺的設定。工程不得把現行下限直接填成已核定的投影參數。
+
+投影規則：
 
 - 彙總表最多 200 列、每格字串 ≤ 200 字元；超過只給前 N 列 + `truncated: true` + 總列數。
 - 先套檢視者的遮罩與 K 匿名（被抑制列只給 `suppressed: true`，不給人數，同 `analytics.py:172-181`）。
