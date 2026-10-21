@@ -66,6 +66,7 @@ def _artifact_doc(kind: str, run_id: str, op: str, doc: dict[str, Any]) -> dict[
 class MemoryJournal:
     """run／step／operation 放在 MemoryStore.d，和產物共用 store.lock，所以「操作紀錄 + 產物」是原子的。"""
     fault: Any = None   # 測試用：在「操作紀錄已寫、產物未寫」之間注入崩潰
+    clock: Any = staticmethod(time.time)   # 租約時鐘；測試換成可控時間
 
     def __init__(self, store: Any):
         self.s = store
@@ -94,7 +95,7 @@ class MemoryJournal:
             return self._get(rid)
 
     def claim(self, rid: str, worker: str, lease_s: float = 60, now: float | None = None) -> int | None:
-        now = time.time() if now is None else now
+        now = self.clock() if now is None else now
         with self.s.lock:
             r = self.s.d["agent_runs"][rid]
             if r["state"] not in CLAIMABLE or r["cancel_requested"] or not (r["lease_until"] < now or r["lease_owner"] == worker):
@@ -103,14 +104,15 @@ class MemoryJournal:
             return int(r["generation"])
 
     def _fenced(self, rid: str, gen: int) -> dict[str, Any]:
+        """寫入條件：世代相同、run 仍在 running、租約未過期。過期但尚未被接手的 worker 也不能寫（含續租）。"""
         r = self.s.d["agent_runs"][rid]
-        if r["generation"] != gen:
-            raise Fenced(f"{rid} generation={r['generation']}，寫入者帶 {gen}")
+        if r["generation"] != gen or r["state"] != "running" or r["lease_until"] < self.clock():
+            raise Fenced(f"{rid} generation={r['generation']} state={r['state']}，寫入者帶 {gen}（租約過期或已被接手）")
         return r
 
     def renew(self, rid: str, gen: int, lease_s: float = 60, now: float | None = None) -> None:
         with self.s.lock:
-            self._fenced(rid, gen)["lease_until"] = (time.time() if now is None else now) + lease_s; self.s._save()
+            self._fenced(rid, gen)["lease_until"] = (self.clock() if now is None else now) + lease_s; self.s._save()
 
     def set_state(self, rid: str, gen: int, to: str, **fields: Any) -> None:
         with self.s.lock:
@@ -186,6 +188,7 @@ CREATE TABLE IF NOT EXISTS {s}.agent_operations (operation_id TEXT PRIMARY KEY, 
 class PostgresJournal:
     """表放在 PostgresStore 同一個 schema；看板（items）與分群（segments）同庫，所以產物與操作紀錄同一交易。"""
     fault: Any = None
+    clock: Any = staticmethod(time.time)
 
     def __init__(self, store: Any):
         self.s = store
@@ -201,9 +204,11 @@ class PostgresJournal:
         return self.s._loop.run(go())
 
     async def _fence(self, c: Any, rid: str, gen: int) -> Any:
-        row = await c.fetchrow(f"UPDATE {self.s.t('agent_runs')} SET updated_at = now() WHERE run_id = $1 AND generation = $2 RETURNING state, lease_until", rid, gen)
+        """同 MemoryJournal._fenced；UPDATE 取列鎖，同一 run 的寫入在此排隊。"""
+        row = await c.fetchrow(f"UPDATE {self.s.t('agent_runs')} SET updated_at = now() WHERE run_id = $1 AND generation = $2 AND state = 'running' AND lease_until >= $3 "
+                               "RETURNING state, lease_until", rid, gen, self.clock())
         if row is None:
-            raise Fenced(f"{rid} 世代已不是 {gen}")                              # 例外 → 交易回滾
+            raise Fenced(f"{rid} 世代已不是 {gen}、不在 running 或租約已過期")       # 例外 → 交易回滾
         return row
 
     def create_run(self, doc: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
@@ -225,14 +230,14 @@ class PostgresJournal:
         return self._run(fn)
 
     def claim(self, rid: str, worker: str, lease_s: float = 60, now: float | None = None) -> int | None:
-        now = time.time() if now is None else now
+        now = self.clock() if now is None else now
         return self._run(lambda c: c.fetchval(
             f"UPDATE {self.s.t('agent_runs')} SET generation = generation + 1, lease_owner = $2, lease_until = $3 + $4, state = 'running', updated_at = now() "
             "WHERE run_id = $1 AND state = ANY($5::text[]) AND NOT cancel_requested AND (lease_until < $3 OR lease_owner = $2) RETURNING generation",
             rid, worker, now, lease_s, sorted(CLAIMABLE)))
 
     def renew(self, rid: str, gen: int, lease_s: float = 60, now: float | None = None) -> None:
-        until = (time.time() if now is None else now) + lease_s
+        until = (self.clock() if now is None else now) + lease_s
         async def fn(c: Any) -> None:
             await self._fence(c, rid, gen)
             await c.execute(f"UPDATE {self.s.t('agent_runs')} SET lease_until = $2 WHERE run_id = $1", rid, until)
@@ -299,12 +304,12 @@ def selftest(j: Any, store: Any, label: str) -> None:
     """docs/40 B03／B04 的確定性版本：崩潰點、接手、過期 worker、改參數、雙 run 併發同一 operation_id。"""
     from concurrent.futures import ThreadPoolExecutor
     dash = lambda: [d for d in store.items("dashboard") if d.get("operation_id", "").startswith(tag)]
-    tag = "op_" + uuid.uuid4().hex[:6]; t0 = 1_000_000.0
+    tag = "op_" + uuid.uuid4().hex[:6]; t0 = 1_000_000.0; T = [t0]; j.clock = lambda: T[0]
     who = {"initiator": {"user_id": "u_synth", "auth_source": "test"}, "entry": "dashboard", "question": "合成案例：週報"}
     r = j.create_run(who, idempotency_key=tag); assert j.create_run(who, idempotency_key=tag)["run_id"] == r["run_id"]      # 同使用者同鍵 = 同一 run
     assert j.create_run({**who, "initiator": {"user_id": "u_other"}}, idempotency_key=tag)["run_id"] != r["run_id"]
     rid = r["run_id"]; args = {"name": "合成週報", "cards": [{"kind": "metric", "query": {"metric": "m_dau"}}]}
-    g1 = j.claim(rid, "w1", 60, t0); assert g1 == 1 and j.claim(rid, "w2", 60, t0 + 1) is None                              # 租約有效：別人拿不到
+    g1 = j.claim(rid, "w1", 60); T[0] = t0 + 1; assert g1 == 1 and j.claim(rid, "w2", 60) is None                             # 租約有效：別人拿不到
     j.put_step(rid, g1, {"step_id": "s1", "tool": "dashboard.draft", "state": "running", "operation_id": f"{tag}_1"})
     # (c) 操作紀錄已寫、產物未寫時崩潰 → 整筆回滾，0 筆
     def boom(_: str) -> None:
@@ -318,13 +323,22 @@ def selftest(j: Any, store: Any, label: str) -> None:
     # (a) 成功後同一 worker 重試 → existing、同一 id
     st, aid = j.commit_operation(rid, g1, f"{tag}_1", "dashboard.draft", "dashboard", args, args); assert st == "committed" and aid == artifact_id("dashboard", f"{tag}_1")
     assert j.commit_operation(rid, g1, f"{tag}_1", "dashboard.draft", "dashboard", args, args) == ("existing", aid) and len(dash()) == 1
+    # 租約已過期、還沒人接手：世代雖然還是 g1，step、產物、續租都不能寫（Codex #62 P1）
+    T[0] = t0 + 61; expired = 0
+    for fn in (lambda: j.put_step(rid, g1, {"step_id": "s1", "state": "succeeded"}), lambda: j.renew(rid, g1, 60),
+               lambda: j.commit_operation(rid, g1, f"{tag}_x", "dashboard.draft", "dashboard", args, args)):
+        try:
+            fn()
+        except Fenced:
+            expired += 1
+    assert expired == 3 and len(j.operations(rid)) == 1 and j.get_run(rid)["lease_until"] == t0 + 60
     # (b) 提交後、step 記成功前崩潰；租約過期由 w2 接手 → 查回同一產物
-    g2 = j.claim(rid, "w2", 60, t0 + 61); assert g2 == g1 + 1 and j.get_run(rid)["steps"][0]["state"] == "running"
+    g2 = j.claim(rid, "w2", 60); assert g2 == g1 + 1 and j.get_run(rid)["steps"][0]["state"] == "running"
     assert j.commit_operation(rid, g2, f"{tag}_1", "dashboard.draft", "dashboard", args, args) == ("existing", aid) and len(dash()) == 1
     # (d) 舊 worker 醒來：step、狀態、產物、續租都被圍籬擋下
     fenced = 0
     for fn in (lambda: j.put_step(rid, g1, {"step_id": "s1", "state": "succeeded"}), lambda: j.set_state(rid, g1, "succeeded"),
-               lambda: j.commit_operation(rid, g1, f"{tag}_2", "dashboard.draft", "dashboard", args, args), lambda: j.renew(rid, g1, 60, t0 + 62)):
+               lambda: j.commit_operation(rid, g1, f"{tag}_2", "dashboard.draft", "dashboard", args, args), lambda: j.renew(rid, g1, 60)):
         try:
             fn()
         except Fenced:
@@ -338,16 +352,16 @@ def selftest(j: Any, store: Any, label: str) -> None:
     assert [d["name"] for d in dash()] == ["合成週報"]
     j.put_step(rid, g2, {"step_id": "s1", "tool": "dashboard.draft", "state": "succeeded", "operation_id": f"{tag}_1"})
     # 狀態機：waiting_input 不可接手、使用者回答後回佇列；終態不可再轉；step 不可倒退
-    j.set_state(rid, g2, "waiting_input", pending_question={"question_id": "q1", "text": "合成問題"}); assert j.claim(rid, "w3", 60, t0 + 999) is None
-    assert j.resume(rid, answer={"q1": "a"}) and not j.resume(rid); g3 = j.claim(rid, "w3", 60, t0 + 1000); assert g3 == g2 + 1
+    j.set_state(rid, g2, "waiting_input", pending_question={"question_id": "q1", "text": "合成問題"}); T[0] = t0 + 999; assert j.claim(rid, "w3", 60) is None
+    assert j.resume(rid, answer={"q1": "a"}) and not j.resume(rid); T[0] = t0 + 1000; g3 = j.claim(rid, "w3", 60); assert g3 == g2 + 1
     for bad in (lambda: j.put_step(rid, g3, {"step_id": "s1", "state": "running"}), lambda: j.set_state(rid, g3, "queued")):
         try:
             bad(); raise AssertionError("應拒絕")
         except BadTransition:
             pass
-    j.set_state(rid, g3, "succeeded"); assert j.get_run(rid)["state"] == "succeeded" and j.claim(rid, "w4", 60, t0 + 5000) is None
+    j.set_state(rid, g3, "succeeded"); assert j.get_run(rid)["state"] == "succeeded" and j.claim(rid, "w4", 60) is None
     # B04(b) 原 run 與 retry_of run 併發提交同一 operation_id → 一個 committed、一個 existing、同一產物
-    runs = [j.create_run({**who, "retry_of": rid}) for _ in range(2)]; gens = [j.claim(x["run_id"], f"wc{i}", 60, t0) for i, x in enumerate(runs)]
+    T[0] = t0 + 6000; runs = [j.create_run({**who, "retry_of": rid}) for _ in range(2)]; gens = [j.claim(x["run_id"], f"wc{i}", 60) for i, x in enumerate(runs)]
     with ThreadPoolExecutor(2) as ex:
         res = list(ex.map(lambda i: j.commit_operation(runs[i]["run_id"], gens[i], f"{tag}_9", "dashboard.draft", "dashboard", args, args), range(2)))
     assert sorted(x[0] for x in res) == ["committed", "existing"] and res[0][1] == res[1][1] and len(dash()) == 2
@@ -355,9 +369,9 @@ def selftest(j: Any, store: Any, label: str) -> None:
     s, sid = j.commit_operation(runs[0]["run_id"], gens[0], f"{tag}_s", "segment.draft", "segment", {"rule": {"all": []}}, {"name": "合成受眾"})
     assert s == "committed" and sid.startswith("sg_") and next(x for x in store.segments() if x["id"] == sid)["status"] == "draft"
     q = j.create_run(who); j.request_cancel(q["run_id"]); assert j.get_run(q["run_id"])["state"] == "cancelled"
-    j.request_cancel(runs[1]["run_id"]); assert j.get_run(runs[1]["run_id"])["cancel_requested"] and j.claim(runs[1]["run_id"], "wc1", 60, t0 + 99) is None
+    j.request_cancel(runs[1]["run_id"]); assert j.get_run(runs[1]["run_id"])["cancel_requested"] and j.claim(runs[1]["run_id"], "wc1", 60) is None
     j.set_state(runs[1]["run_id"], gens[1], "cancelled")
-    print(f"run journal self-test ok ({label}): 崩潰回滾 0 筆、重試/接手 existing 同 id、過期 worker 被擋 {fenced} 次、改參數 CONFLICT、雙 run 併發 1 committed + 1 existing、狀態機與取消")
+    print(f"run journal self-test ok ({label}): 崩潰回滾 0 筆、重試/接手 existing 同 id、租約過期未接手被擋 {expired} 次、被接手後舊 worker 被擋 {fenced} 次、改參數 CONFLICT、雙 run 併發 1 committed + 1 existing、狀態機與取消")
 
 
 if __name__ == "__main__":
