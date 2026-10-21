@@ -201,13 +201,17 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
     with src.open("w", encoding="utf-8") as f:
         for i in range(n_lines):
             cust = f"C{rnd.randint(1, 50000):06d}"; anon = f"ck-{rnd.randint(1, 80000)}"
-            kind = rnd.choices(["track_login", "track_anon", "profile_set", "track_signup", "bad", "pii_login", "pii_anon_id"], [60, 25, 10, 4, 1, 2, 1])[0]
+            kind = rnd.choices(["track_login", "track_anon", "profile_set", "track_signup", "bad", "pii_login", "pii_anon_id", "pii_dotted"], [60, 25, 10, 4, 1, 2, 1, 1])[0]
             if kind == "bad":
                 f.write("{broken json\n"); continue
             if kind == "pii_login":     # 舊平台實際會出現的個資：字典 hash 類欄位、自由文字電話、巢狀 email → 都不能入庫
                 f.write(json.dumps({"type": "track", "event": "order_submit", "distinct_id": cust, "time": base + i * 10, "project": "sbp_family",
                                     "properties": {"$is_login_id": True, "$lib": "iOS", "$track_id": i, "S_IDNO": "A123456789", "MT_ACNO": "9800012345", "note": "請回電 0912345678",
                                                    "extra": {"contact": {"email": "pii@example.com"}}, "symbol": "2330", "amount": 1000}}, ensure_ascii=False) + "\n"); continue
+            if kind == "pii_dotted":    # Codex 複審：點分鍵（頂層／巢狀）與中文緊貼的手機 → ClickHouse JSON 會展成巢狀，不能靠鍵名比對繞過
+                f.write(json.dumps({"type": "track", "event": "$pageview", "distinct_id": anon, "time": base + i * 10, "project": "sbp_family",
+                                    "properties": {"$is_login_id": False, "$track_id": i, "profile.S_ACNO": "9800012345", "note": "手機0912345678請聯絡",
+                                                   "nested": {"profile.MT_ACNO": "9800012345"}, "msg": "身分證A123456789號", "$lib": "js"}}, ensure_ascii=False) + "\n"); continue
             if kind == "pii_anon_id":   # 未登入卻用手機當 distinct_id → 整列隔離
                 f.write(json.dumps({"type": "track", "event": "$pageview", "distinct_id": "0912345678", "time": base + i * 10, "project": "sbp_family",
                                     "properties": {"$is_login_id": False, "$lib": "js", "$track_id": i}}) + "\n"); continue
@@ -234,11 +238,14 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND JSONHas(toString(props), '$ip')") == 0                                       # $ip 不入倉
     assert ch.scalar("SELECT count() FROM dmp.user_prop_log WHERE prop IN ('name','mobile')") == 0                                                                  # L4 不入倉
     pii_re = "'\\\\b[A-Z][12][0-9]{8}\\\\b|\\\\b09[0-9]{8}\\\\b|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+[.]'"                                                     # 身分證／手機／email（與 transforms.PII_PATTERNS 同樣以字界判斷，v1_ 代碼的 hex 不算）
-    assert st["pii_rows"] > 0 and {"S_IDNO", "MT_ACNO", "note", "extra"} <= set(st["pii_dropped"]), (st["pii_rows"], st["pii_dropped"])
+    assert st["pii_rows"] > 0 and {"S_IDNO", "MT_ACNO", "note", "extra", "profile.S_ACNO", "nested", "msg"} <= set(st["pii_dropped"]), (st["pii_rows"], st["pii_dropped"])
+    assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND event = '$pageview' AND JSONHas(toString(props), '$track_id')") > 0           # 非敏感欄照常保留
     for sql in (f"SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND (match(toString(props), {pii_re}) OR match(distinct_id, {pii_re}) OR match(one_id, {pii_re}))",
                 f"SELECT count() FROM dmp.raw_legacy WHERE batch_id='sa_20261016' AND (match(properties, {pii_re}) OR match(distinct_id, {pii_re}) OR match(original_id, {pii_re}))",
                 f"SELECT count() FROM dmp.user_prop_log WHERE match(value, {pii_re}) OR match(one_id, {pii_re})",
-                "SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND (JSONHas(toString(props), 'S_IDNO') OR JSONHas(toString(props), 'MT_ACNO'))"):
+                "SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND (JSONHas(toString(props), 'S_IDNO') OR JSONHas(toString(props), 'MT_ACNO'))",
+                "SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND (position(toString(props), '9800012345') > 0 OR JSONHas(toString(props), 'profile') OR JSONHas(toString(props), 'nested'))",
+                "SELECT count() FROM dmp.raw_legacy WHERE batch_id='sa_20261016' AND position(properties, '9800012345') > 0"):
         assert ch.scalar(sql) == 0, sql                                                                                                                             # 個資不入庫（含隔離檔以外的所有落地處）
     qf = work / "user_files" / "sa_20261016.quarantine.jsonl"
     assert "0912345678" not in qf.read_text(encoding="utf-8") and "broken json" not in qf.read_text(encoding="utf-8")                                         # 隔離檔只記行號與原因

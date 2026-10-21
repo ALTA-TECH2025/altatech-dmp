@@ -56,25 +56,30 @@ def scrub(props: dict[str, Any], drop: set[str]) -> tuple[dict[str, Any], list[s
     names = {_norm(x) for x in drop}
     out: dict[str, Any] = {}; dropped: list[str] = []
     for k, v in props.items():
-        if k in DROP_PROPS or _norm(k) in names or _nested_name_hit(v, names) or pii_scan_deep(v, str(k)):
+        if k in DROP_PROPS or _name_hit(k, names) or _nested_name_hit(v, names) or pii_scan_deep(v, str(k)):
             dropped.append(str(k)); continue
         out[k] = v
     return out, dropped
 
 
+def _name_hit(k: Any, names: set[str]) -> bool:
+    """整個鍵或以 . 分段的任一段在丟棄名單（不分大小寫、忽略 $）：ClickHouse JSON 會把 profile.S_ACNO 展成 profile→S_ACNO，點分鍵不能繞過。"""
+    return _norm(k) in names or any(_norm(seg) in names for seg in str(k).split(".") if seg)
+
+
 def _nested_name_hit(v: Any, names: set[str], depth: int = 0) -> bool:
-    """巢狀物件／陣列裡任一層的鍵名在丟棄名單（不分大小寫、忽略 $）。"""
+    """巢狀物件／陣列裡任一層的鍵名（含點分段）在丟棄名單。"""
     if depth > 16: return True                      # 過深的結構不冒險，整個丟
     if isinstance(v, dict):
-        return any(_norm(k) in names or _nested_name_hit(x, names, depth + 1) for k, x in v.items())
+        return any(_name_hit(k, names) or _nested_name_hit(x, names, depth + 1) for k, x in v.items())
     if isinstance(v, list):
         return any(_nested_name_hit(x, names, depth + 1) for x in v)
     return False
 
 
 def _looks_pii(v: Any) -> bool:
-    from .transforms import PII_PATTERNS
-    return isinstance(v, str) and any(p.search(v) for p in PII_PATTERNS.values())
+    from .transforms import PII_PATTERNS, _pii_text
+    return isinstance(v, str) and any(p.search(_pii_text(v)) for p in PII_PATTERNS.values())
 PROFILE_TYPES = {"profile_set": "set", "profile_set_once": "set_once", "profile_increment": "increment", "profile_unset": "unset", "profile_append": "append"}
 
 RAW_DDL = """CREATE TABLE IF NOT EXISTS dmp.raw_legacy
@@ -247,4 +252,16 @@ if __name__ == "__main__":
     t0 = json.loads(json.loads(staged.splitlines()[0])["properties"]); assert t0 == {"$is_login_id": True, "symbol": "2330", "amount": 5}, t0
     assert sorted(r2.pii_dropped) == sorted(["S_IDNO", "s_acno", "MT_ACNO", "$device_id", "note", "extra", "form", "tags", "PART_IDNO", "memo"]), r2.pii_dropped
     assert json.loads(json.loads(staged.splitlines()[1])["properties"]) == {"$is_login_id": True, "lifecycle": "成長"}
+    # Codex 複審 #37：點分鍵（頂層／巢狀／陣列內，大小寫與 $ 前綴組合）與中文緊貼的手機／身分證都不能入庫
+    cx = d / "cx.jsonl"
+    cx.write_text("\n".join(json.dumps({"type": "track", "event": "$pageview", "distinct_id": f"ck-{i}", "time": 1760000010000 + i, "properties": p}, ensure_ascii=False) for i, p in enumerate([
+        {"$is_login_id": False, "profile.S_ACNO": "9800012345", "note": "手機0912345678請聯絡", "nested": {"profile.MT_ACNO": "9800012345"}},
+        {"$is_login_id": False, "a.$s_idno": "x1", "PROFILE.$Device_ID": "x2", "list": [{"x.Mt_Acno": "x3"}], "msg": "身分證A123456789號", "keep": "TSE", "n": 123091234567, "ord": "O20260912345"}])), encoding="utf-8")
+    r3 = stage(cx, d / "cx.out.jsonl", d / "cx.q.jsonl", "k_idm", drop)
+    out3 = (d / "cx.out.jsonl").read_text(encoding="utf-8")
+    for leak in ("9800012345", "0912345678", "A123456789", "x1", "x2", "x3"):
+        assert leak not in out3, leak
+    p3 = [json.loads(json.loads(x)["properties"]) for x in out3.splitlines()]
+    assert p3 == [{"$is_login_id": False}, {"$is_login_id": False, "keep": "TSE", "n": 123091234567, "ord": "O20260912345"}], p3          # 非敏感欄保留；較長的數字不誤擋
+    assert sorted(r3.pii_dropped) == sorted(["profile.S_ACNO", "note", "nested", "a.$s_idno", "PROFILE.$Device_ID", "list", "msg"]), r3.pii_dropped
     print("legacy_format ok", r.by_type, "| pii: dropped", sorted(r2.pii_dropped), "rows quarantined", r2.pii_rows)
