@@ -48,7 +48,6 @@
 | httpx | HTTP | BSD-3 | Encode | 英國 | 無疑慮 |
 | PyYAML | 設定 | MIT | PyYAML 社群 | 美國 | 無疑慮 |
 | PyJWT / cryptography | 登入 token | MIT / Apache-2.0 或 BSD-3 | José Padilla / PyCA | 美國 | 無疑慮 |
-| python-ldap（direct 模式才用） | AD | PSF 式 | python-ldap 社群 | 德國 | 無疑慮 |
 | mcp（官方 SDK）/ LangGraph | Agent | MIT | Anthropic / LangChain | 美國 | 無疑慮 |
 | pyroaring / RoaringBitmap（Java） | Bitmap | MIT / Apache-2.0 | Tom Cornebize / Daniel Lemire | 法國／加拿大 | 無疑慮 |
 | Go 1.23 + franz-go | Collector | BSD-3 / BSD-3 | Google / Travis Bischel | 美國 | 無疑慮 |

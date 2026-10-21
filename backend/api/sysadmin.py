@@ -206,7 +206,7 @@ def settings_view(auth_cfg: dict[str, Any], local_accounts: LocalAccounts | None
     items = lambda **kw: [{"key": k, "cn": cn, "value": v, "note": n} for k, (cn, v, n) in kw.items()]
     sections = [
         {"key": "identity", "cn": "身分與登入", "source": "backend/auth/idp.yaml", "items": items(
-            mode=("部署模式", auth_cfg.get("mode"), "broker = Keycloak 身分代理；direct = 直連 Entra ID／AD／本機帳號"),
+            mode=("部署模式", auth_cfg.get("mode"), "broker = Keycloak 身分代理（AD 經 Keycloak）；direct = 直連 Entra ID／本機帳號"),
             providers=("身分提供者", provs, "密鑰只存 secret_ref"),
             group_mapping=("群組 → 角色", [{"group": x.get("group"), "roles": x.get("roles")} for x in rm.get("by_group", [])], "IdP 群組對應內建角色；本地指派疊加（assignment_overlay）"),
             admin_requires=("admin 取得條件", rm.get("admin_requires"), "需 MFA 且認證在 max_auth_age_s 內，否則降級直到 step-up"),
