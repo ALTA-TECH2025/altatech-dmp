@@ -19,6 +19,7 @@ AltaTech DMP：數位軌跡／客戶數據中台。`docs/` 是設計文件，`pr
 
 ## 怎麼驗證
 ```bash
+python3 tools/affected_tests.py --run           # 只跑這次異動影響到的測試（下列清單的子集；--all 全跑，不加 --run 只列出）
 python3 backend/security/policy.py            # 權限引擎自測
 python3 backend/oneid/attribution.py          # OneID 歸戶 20 個情境（含 v1.2 血緣、傳遞映射、合併拆分）
 python3 -m backend.api                        # REST API 自測：角色 CRUD、指派、行級模擬、/v1/semantic/compile、/v1/analytics/events（假 ClickHouse）、審計、CSRF

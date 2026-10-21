@@ -9,12 +9,10 @@
 
 ## 收工前（每個 PR 都要）
 ```bash
-python3 backend/security/policy.py && python3 backend/integration/transforms.py && python3 backend/integration/auth.py && python3 backend/oneid/attribution.py && python3 -m backend.auth && python3 -m backend.auth.local selftest && python3 -m backend.api && python3 -m backend.segments && python3 -m backend.api.store_pg
-python3 -m backend.integration.modeling && python3 -m backend.integration.scheduler && python3 -m backend.integration.legacy_api && python3 -m backend.semantic.compiler.golden && python3 -m backend.integration.e2e_clickhouse
-python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True) if '/templates/' not in f]"
-node --check prototype/js/app.js && node --check prototype/js/data.js
-(cd web && npm ci && npm run typecheck && npm test && npm run build)
+python3 tools/affected_tests.py --run          # 依相對 origin/main 的異動（含未提交）只跑受影響的測試
+python3 tools/affected_tests.py --run --all    # 全跑：改了共用基礎或不確定影響範圍時
 ```
+挑法：Python 自測沿 import 閉包挑（改 `backend/api` 只跑會載入它的自測），資料檔看哪個模組引用它；前端（`web/` typecheck／test／build 與全端 Playwright）只在動到 `web/` 或請求／回應 schema（`backend/openapi.yaml`）時才跑。不加 `--run` 只列出會跑什麼與原因。完整指令清單見 `AGENTS.md`「怎麼驗證」；CI 用同一份規則，PR 加 `full-ci` 標籤可強制全跑。
 再加上該工作流自己的測試（pytest / vitest / go test / Playwright）。PR 描述用 `.github/pull_request_template.md`，「跑過的驗證」欄位要貼實際輸出摘要，不要只寫「已測」。
 
 ## 規則
