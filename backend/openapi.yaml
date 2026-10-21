@@ -159,7 +159,8 @@ paths:
         '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Dashboard' } } } } }
     post:
       tags: [Dashboards]
-      summary: 建立看板（需 overview.use）；擁有者 = 建立者；可同時帶卡片
+      summary: 建立看板（需 overview.use）；擁有者 = 建立者；可同時帶卡片。draft=true：私人草稿，不可分享、排程、外寄（AI 工作台 dashboard.draft）。Idempotency-Key = operation_id：同鍵同內容回原看板，同鍵不同內容 409 CONFLICT
+      parameters: [{ name: Idempotency-Key, in: header, required: false, schema: { type: string, maxLength: 128 } }]
       requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/DashboardCreate' } } } }
       responses:
         '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Dashboard' } } } }
@@ -277,7 +278,7 @@ paths:
       responses: { '200': { description: ok } }
   /v1/segments:
     get: { tags: [Segments], summary: '列出分群（q 搜尋、status、kind；回收站用 status=recycled）', parameters: [{ name: q, in: query, schema: { type: string } }, { name: status, in: query, schema: { type: string } }, { name: kind, in: query, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Segment' } } } } } } }
-    post: { tags: [Segments], summary: '建立分群（規則 = UsersQuery；行銷與 agent 提議者為 pending_approval，數據分析／數位經營／admin 直接 active；每專案 ≤ 500）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SegmentCreate' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Segment' } } } }, '400': { description: 規則不合法 }, '409': { description: 名稱重複或超過上限 } } }
+    post: { tags: [Segments], summary: '建立分群（規則 = UsersQuery；行銷與 agent 提議者為 pending_approval，數據分析／數位經營／admin 直接 active；每專案 ≤ 500）。status=draft：私人草稿，不例行計算、不出現在推送單與匯出、不送審（AI 工作台 segment.draft）。Idempotency-Key = operation_id：同鍵同內容回原分群，同鍵不同內容 409 CONFLICT', parameters: [{ name: Idempotency-Key, in: header, required: false, schema: { type: string, maxLength: 128 } }], requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/SegmentCreate' } } } }, responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/Segment' } } } }, '400': { description: 規則不合法 }, '409': { description: 名稱重複或超過上限 } } }
   /v1/segments/{id}/preview:
     post: { tags: [Segments], summary: '預估人數（Bitmap 基數，精確）與畫像（生命週期／價值分級／資產區間／分公司分布）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SegmentPreview' } } } } } }
   /v1/segments/{id}:
@@ -389,8 +390,65 @@ paths:
       summary: 自然語言提問（on-demand agent），串流回傳計畫、工具呼叫與答案
       requestBody: { content: { application/json: { schema: { type: object, properties: { question: { type: string }, context: { type: object } }, required: [question] } } } }
       responses: { '200': { description: text/event-stream } }
+  /v1/agents/runs:
+    post:
+      tags: [Agents]
+      summary: 建立 AI 工作台 run（contract v1，docs/39 §4–§5）：身分 = 目前登入者（不可在 body 指定使用者或角色）；需 ai_ask.use；控制器依 skill 的工具白名單與 tools.yaml 預算執行；模型端點未設定時回 503 MODEL_ENDPOINT_NOT_CONFIGURED（不預設任何供應商）；審計 agent.run.created
+      parameters: [{ name: Idempotency-Key, in: header, required: false, schema: { type: string, maxLength: 128 }, description: '同鍵重送回同一個 run，不重複建立' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AgentRunCreate' } } } }
+      responses:
+        '202': { description: accepted（queued）, content: { application/json: { schema: { $ref: '#/components/schemas/AgentRun' } } } }
+        '403': { description: 無 ai_ask.use }
+        '409': { description: CONTRACT_MISMATCH（skill 要求的契約版本與目前不相容） }
+        '429': { description: RATE_LIMITED（每使用者同時 run 數或每日額度） }
+        '503': { description: MODEL_ENDPOINT_NOT_CONFIGURED }
+    get:
+      tags: [Agents]
+      summary: run 列表：自己發起的；有 ai_admin.view 可看全部（不含他人 run 的資料結果，只有狀態與用量）
+      parameters: [{ name: state, in: query, schema: { type: string } }, { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AgentRun' } } } } } }
   /v1/agents/runs/{run_id}:
-    get: { tags: [Agents], summary: '執行紀錄（計畫、工具呼叫、成本）', parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok } } }
+    get:
+      tags: [Agents]
+      summary: run 狀態與步驟（計畫、工具呼叫、用量、產物、錯誤）；發起人或 ai_admin.view；步驟只帶 model_view 摘要與 evidence_id，畫面數字以 evidence 依讀取者現在的權限重算
+      parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AgentRun' } } } }
+        '404': { description: 不存在或無權看 }
+  /v1/agents/runs/{run_id}/cancel:
+    post:
+      tags: [Agents]
+      summary: 取消（設 cancel_requested；控制器在步驟之間檢查，執行中的查詢以 KILL QUERY 結束）；發起人或 ai_admin.view；已建立的草稿保留
+      parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }]
+      responses: { '202': { description: accepted, content: { application/json: { schema: { $ref: '#/components/schemas/AgentRun' } } } }, '409': { description: run 已結束 } }
+  /v1/agents/runs/{run_id}/retry:
+    post:
+      tags: [Agents]
+      summary: 使用者觸發的重試 → 新 run（retry_of）；沿用已成功步驟的證據（同權限指紋才沿用），寫入步驟沿用原 operation_id；參數不同 → CONFLICT，須使用者確認才發新操作
+      parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: false, content: { application/json: { schema: { type: object, properties: { from_step: { type: string }, confirm_new_operations: { type: boolean, default: false } } } } } }
+      responses: { '202': { description: 新 run, content: { application/json: { schema: { $ref: '#/components/schemas/AgentRun' } } } }, '409': { description: CONFLICT } }
+  /v1/agents/runs/{run_id}/answer:
+    post:
+      tags: [Agents]
+      summary: 回答口徑問題（run 在 waiting_input，AMBIGUOUS）；一次一題，選項由控制器給
+      parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [question_id, choice], properties: { question_id: { type: string }, choice: { type: string } } } } } }
+      responses: { '202': { description: accepted, content: { application/json: { schema: { $ref: '#/components/schemas/AgentRun' } } } }, '409': { description: run 不在 waiting_input } }
+  /v1/agents/runs/{run_id}/evidence/{evidence_id}:
+    get:
+      tags: [Agents]
+      summary: 證據：配置、期間、契約版本、新鮮度、結果摘要雜湊；data 以讀取者現在的權限重算（權限指紋不同不給快取）；不回 SQL 本文與明細
+      parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }, { name: evidence_id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Evidence' } } } }
+        '403': { description: 讀取者現在沒有產生證據的模組權限 }
+  /v1/data/readiness:
+    post:
+      tags: [Agents]
+      summary: 資料就緒（data.readiness 工具的 REST 入口）：依來源／日期的新鮮度、回填狀態、歸戶品質；identity／aggregates 依賴 #33、#32，未完成時回 null 並帶 READINESS_PARTIAL；需 events.view
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [events, period], properties: { events: { type: array, items: { type: string } }, metrics: { type: array, items: { type: string } }, period: { type: object, properties: { from: { type: string }, to: { type: string } } } } } } } }
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Readiness' } } } } }
   /auth/providers:
     get: { tags: [Auth], summary: '可用的身分提供者（broker：Keycloak；direct：Entra ID + AD）', responses: { '200': { description: ok, content: { application/json: { schema: { type: object, properties: { mode: { type: string, enum: [broker, direct] }, providers: { type: array, items: { type: object, properties: { key: { type: string }, cn: { type: string }, kind: { type: string, enum: [oidc, ldap] } } } } } } } } } } }
   /auth/login:
@@ -638,6 +696,79 @@ components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer }
   schemas:
+    AgentRunCreate:
+      type: object
+      required: [entry, question]
+      properties:
+        entry: { type: string, enum: [explore, analyze, dashboard, audience] }
+        question: { type: string, maxLength: 2000 }
+        skill: { type: string, description: 'skill 名稱；不帶由控制器依 entry 選；版本由技能庫發布版決定，run 固定引用' }
+        period: { type: object, properties: { from: { type: string }, to: { type: string }, tz: { type: string, default: Asia/Taipei } } }
+        context: { type: object, description: '畫面上下文（目前看板、分析配置）；不得含使用者或角色' }
+    AgentRun:
+      type: object
+      properties:
+        run_id: { type: string }
+        state: { type: string, enum: [queued, running, waiting_input, waiting_lease, succeeded, failed, cancelled] }
+        entry: { type: string }
+        question: { type: string }
+        initiator: { type: object, properties: { user_id: { type: string }, auth_source: { type: string } } }
+        skill: { type: object, properties: { name: { type: string }, version: { type: string } } }
+        model: { type: object, properties: { provider: { type: string }, id: { type: string } }, description: '模型供應商與型號待定（docs/41 D2）；測試替身為 provider=test-double' }
+        contracts: { type: object, properties: { tools: { type: string }, semantic: { type: string }, oneid_rules: { type: string }, preset_properties: { type: string } } }
+        budget: { type: object, properties: { scan_bytes_used: { type: number }, tokens_used: { type: integer } } }
+        steps: { type: array, items: { $ref: '#/components/schemas/AgentStep' } }
+        pending_question: { type: object, description: 'waiting_input 時的口徑問題：question_id、text、choices（2–3 個）、default' }
+        artifacts: { type: array, items: { type: object, properties: { kind: { type: string, enum: [dashboard, segment, evidence] }, id: { type: string }, operation_id: { type: string } } } }
+        retry_of: { type: string }
+        error: { $ref: '#/components/schemas/ToolError' }
+        created_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+    AgentStep:
+      type: object
+      properties:
+        step_id: { type: string }
+        tool: { type: string }
+        operation_id: { type: string, description: '寫入類工具由控制器產生；模型不可產生或修改' }
+        args_digest: { type: string }
+        state: { type: string, enum: [pending, running, retry_wait, succeeded, failed, skipped] }
+        attempts: { type: integer }
+        evidence_id: { type: string }
+        warnings: { type: array, items: { type: object, properties: { code: { type: string }, message: { type: string } } } }
+        usage: { type: object, properties: { scan_bytes_est: { type: number }, scan_bytes: { type: number }, rows_read: { type: number }, ms: { type: number } } }
+        error: { $ref: '#/components/schemas/ToolError' }
+    ToolError:
+      type: object
+      properties:
+        code: { type: string, enum: [INVALID_ARGUMENT, AMBIGUOUS, AUTHZ_DENIED, BUDGET_EXCEEDED, TIMEOUT, DATA_NOT_READY, CONTRACT_MISMATCH, CONFLICT, NOT_FOUND, RATE_LIMITED, MODEL_ENDPOINT_NOT_CONFIGURED, INTERNAL] }
+        message: { type: string }
+        retryable: { type: boolean }
+        detail: { type: object }
+    Evidence:
+      type: object
+      properties:
+        evidence_id: { type: string }
+        run_id: { type: string }
+        kind: { type: string, enum: [events, funnel, retention, path, attribution, segment_estimate, readiness] }
+        query: { type: object, description: 配置，可貼回 UI 重跑 }
+        sql_hash: { type: string, description: SQL 本文不給模型、不在此回傳 }
+        contract: { type: object, properties: { semantic: { type: string }, tools: { type: string }, skill: { type: string } } }
+        period: { type: object, properties: { from: { type: string }, to: { type: string }, tz: { type: string } } }
+        freshness: { type: object, properties: { max_event_time: { type: string }, backfill_pending: { type: boolean } } }
+        result_digest: { type: string }
+        subject_fingerprint: { type: string }
+        data: { type: object, description: '依讀取者現在的權限重算的結果（與 /v1/analytics/* 相同結構）' }
+        created_at: { type: string, format: date-time }
+    Readiness:
+      type: object
+      properties:
+        sources: { type: array, items: { type: object, properties: { source: { type: string }, max_event_time: { type: string }, lag_minutes: { type: number }, expected_lag_minutes: { type: number }, status: { type: string, enum: [ok, late, missing] } } } }
+        dates: { type: array, items: { type: object, properties: { date: { type: string }, complete: { type: boolean }, missing_sources: { type: array, items: { type: string } } } } }
+        backfill: { type: object, properties: { pending_distinct_ids: { type: integer }, oldest_pending: { type: string } } }
+        identity: { type: [object, 'null'], description: '依賴 #33；未完成回 null' }
+        aggregates: { type: [object, 'null'], description: '依賴 #32（events_daily_agg_pending）；未完成回 null' }
+        contract: { type: object }
+        warnings: { type: array, items: { type: object, properties: { code: { type: string }, message: { type: string } } } }
     MetaEvent:
       type: object
       required: [name, cn, entity, source, kind, owner]
@@ -983,6 +1114,7 @@ components:
         rule: { $ref: '#/components/schemas/UsersQuery' }
         update: { type: object, properties: { mode: { type: string, enum: [manual, routine], default: routine, description: '預設例行（動態分群：每日凌晨重算符合規則的受眾）' }, freq: { type: string, enum: [daily, weekly, monthly], default: daily }, earliest: { type: string, default: '02:00', description: 'HH:MM，最早計算時間' }, keep: { type: integer, minimum: 1, maximum: 100, default: 7, description: 例行版本保留數；手動固定 1 } } }
         tz: { type: string, default: Asia/Taipei }
+        status: { type: string, enum: [draft], description: '只接受 draft（私人草稿）；不帶則依角色決定 pending_approval 或 active' }
     SegmentImportCreate:
       type: object
       required: [id_type, values]
@@ -1194,6 +1326,7 @@ components:
         shared: { type: object, properties: { roles: { type: array, items: { type: string }, description: 'rbac 角色 key；看得到看板，但每張卡片仍以查看者自己的權限執行' }, users: { type: array, items: { type: string } } } }
         cards: { type: array, items: { $ref: '#/components/schemas/DashboardCard' }, description: '更新時整組取代（順序與寬度）；新增卡片用 /cards' }
         time: { type: object, properties: { preset: { type: string, enum: [7d, 14d, 30d, 90d], default: 30d } }, description: '看板共用期間；卡片查詢的 time 以此覆寫' }
+        draft: { type: boolean, default: false, description: 'true = 私人草稿：shared 必須為空；不可設定定時寄送或外寄' }
     Dashboard:
       allOf:
         - $ref: '#/components/schemas/DashboardCreate'
