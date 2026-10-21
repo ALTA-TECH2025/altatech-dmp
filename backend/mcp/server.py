@@ -37,7 +37,15 @@ GW = SPEC["gateway"]
 MV = SPEC["model_view"]
 ANALYSIS_KINDS = ("events", "funnel", "retention", "path", "attribution")
 BYTES_PER_ROW = 150                                     # 與 /v1/semantic/compile 的估算一致
-IDENTIFIERS = {"one_id", "distinct_id", "user_id", "device_id", "cookie_id", "anonymous_id", "mobile", "email"} | {f["name"] for f in MASK["fields"] if f.get("level") in ("L3", "L4")}
+IDENTIFIERS = {"one_id", "distinct_id", "user_id", "device_id", "cookie", "cookie_id", "anonymous_id", "login_id", "cust_id", "cust_code", "account_no", "acct_no", "sacno",
+               "order_no", "ord_no", "event_id", "track_id", "ip", "mobile", "email"} | {f["name"].lower() for f in MASK["fields"] if f.get("level") in ("L3", "L4")}
+
+
+def is_identifier(name: str) -> bool:
+    n = str(name).lower().lstrip("$")
+    for pre in ("props.", "u.", "e."):
+        n = n[len(pre):] if n.startswith(pre) else n
+    return n in IDENTIFIERS or n.startswith("identity_")
 TRUSTED_COLS = {"bucket", "cohort", "period", "step", "alias", "event", "touch", "complete", "suppressed"}   # 系統產生的值，不是資料字串
 
 
@@ -59,10 +67,19 @@ def args_digest(args: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(args, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
 
+def _model_policy(f: dict[str, Any]) -> str:
+    if "*" in f.get("plain_roles", []):
+        return "plain"
+    other = str(f.get("others", "hide"))
+    if f.get("level") == "L2":                                                    # L2 一律區間化（round 等近似值也不行）
+        return other if other.startswith("bucket") else "bucket"
+    return other
+
+
 def model_decision(d: Any) -> Any:
-    """模型投影用的決策：行級條件與 K 不變；欄位一律用「非授權角色」的策略（L2 區間化、L3 遮罩），忽略揭露。"""
+    """模型投影用的決策：行級條件與 K 不變；L2 一律 bucket、L3 用非授權角色的遮罩，忽略揭露。"""
     m = copy.deepcopy(d)
-    m.field_policies = {f["name"]: "plain" if "*" in f.get("plain_roles", []) else f.get("others", "hide") for f in MASK["fields"]}
+    m.field_policies = {f["name"]: _model_policy(f) for f in MASK["fields"]}
     return m
 
 
@@ -78,10 +95,10 @@ def project(res: dict[str, Any], trusted: set[str]) -> dict[str, Any]:
     """D3 模型可見投影：只留列表與純量，去識別欄、截列截字、資料字串包 untrusted_text；不帶 SQL、行級條件、遮罩清單。"""
     out: dict[str, Any] = {}; cap = int(MV["max_rows"])
     for k, v in res.items():
-        if k in ("sql", "masked", "lineage", "cost", "warnings") or k in IDENTIFIERS:
+        if k in ("sql", "masked", "lineage", "cost", "warnings") or is_identifier(k):
             continue
         if isinstance(v, list) and all(isinstance(x, dict) for x in v):
-            rows = [{c: _cell(c, x, trusted) for c, x in r.items() if c not in IDENTIFIERS and c != "_k" and not c.startswith("$identity")} for r in v[:cap]]
+            rows = [{c: _cell(c, x, trusted) for c, x in r.items() if not is_identifier(c) and c != "_k"} for r in v[:cap]]
             out[k] = rows
             if len(v) > cap:
                 out.setdefault("truncated", {})[k] = {"total_rows": len(v), "shown": cap}
@@ -120,6 +137,12 @@ class Gateway:
             raise ToolError("AUTHZ_DENIED" if e.status_code == 403 else "INVALID_ARGUMENT", str(e.detail)) from None
         return kind, body, c, q, d
 
+    def _resolve(self, field: str) -> Any:
+        try:
+            return self.cat.resolve(field, None)
+        except ValueError:
+            return None
+
     def _est(self, sql: str) -> float:
         if self.ch is None:
             raise ToolError("DATA_NOT_READY", "此環境未連接 ClickHouse")
@@ -153,14 +176,16 @@ class Gateway:
             handler = self.handlers.get(tool)
             if handler is None:
                 raise ToolError("INTERNAL", f"{tool} 的 handler 尚未提供", handler_not_implemented=True)
-            data, mv, use = handler(ctx, args)
-            usage.update(use); ctx.scan_bytes_used += float(usage.get("scan_bytes_est") or 0)
+            data, mv, use = handler(ctx, args)                                       # 掃描額度由 handler 在送查詢前預扣
+            usage.update(use)
             warnings += data.pop("_warnings", [])
             env.update(ok=True, data=data, model_view=mv)
         except ToolError as e:
             env["error"] = {"code": e.code, "message": e.message, "retryable": e.retryable, "detail": e.detail}
         except RuntimeError as e:                                                     # ClickHouse 執行錯誤
             env["error"] = {"code": "TIMEOUT" if "TIMEOUT" in str(e).upper() else "INTERNAL", "message": str(e)[:300], "retryable": True, "detail": {}}
+        except Exception as e:                                                        # 任何其他例外也回信封、照樣審計，不往外拋
+            env["error"] = {"code": "INTERNAL", "message": type(e).__name__, "retryable": False, "detail": {}}
         usage["ms"] = round((time.perf_counter() - t0) * 1000)
         self.store.audit(GW["policy"]["audit_event"], {"user": ctx.subject.user_id, "run_id": ctx.run_id, "step_id": ctx.step_id, "tool": tool, "args_digest": args_digest(args)[:16],
                                                       "ok": env["ok"], "error": (env["error"] or {}).get("code"), "warnings": [w["code"] for w in warnings], **usage})
@@ -204,9 +229,18 @@ class Gateway:
     def _run(self, ctx: ToolContext, args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         kind, body, c, q, d = self._compile(ctx, args)
         run = RUNNERS[kind]
-        cm, qm = run.compile(body, model_decision(d), self.cat)                       # 模型投影版：L2 區間化
+        gb = body.get("group_by") or []
+        bad = [str(g.get("field") if isinstance(g, dict) else g) for g in (gb if isinstance(gb, list) else [gb])]
+        bad = [g for g in bad if is_identifier(g) or is_identifier(getattr(self._resolve(g), "name", ""))]
+        if bad:
+            raise ToolError("AUTHZ_DENIED", "模型投影不開放依識別欄分組（D3）", fields=bad)
+        try:
+            cm, qm = run.compile(body, model_decision(d), self.cat)                   # 模型投影版：L2 區間化
+        except (PermissionError, ValueError) as e:
+            raise ToolError("AUTHZ_DENIED", "這個配置在模型投影的遮罩下無法編譯（例如公式引用了敏感指標）；請在畫面上直接查看", reason=str(e)[:200]) from None
         est = self._est(c.sql) + (0.0 if cm.sql == c.sql else self._est(cm.sql))
         self._budget(ctx, est)                                                        # 送查詢之前
+        ctx.scan_bytes_used += est                                                    # 先預扣；查詢失敗或逾時也不退，避免重試繞過 run 預算
         t0 = time.perf_counter()
         rows = run_rows(self.ch, c)
         data = {**strip_internal(run.shape(rows, q, c)), "lineage": c.lineage}
@@ -265,12 +299,29 @@ def selftest() -> None:
     assert gw.call(ana, "semantic.describe", {"kind": "event", "name": "no_such_event"})["error"]["code"] == "NOT_FOUND"
     assert gw.call(ana, "metric.query", {})["error"]["code"] == "INVALID_ARGUMENT" and gw.call(ana, "profile.get", {})["error"]["code"] == "AUTHZ_DENIED"
     assert gw.call(ana, "analysis.run", {"config": {"model": "sql", "params": {}}})["error"]["code"] == "INVALID_ARGUMENT"   # SQL 沙盒不給模型
+    # Codex #63：L2 一律區間（fee 的非授權策略是 round）、識別欄分組被拒、投影編譯失敗回信封、查詢失敗也已預扣額度
+    md = model_decision(authorize(ana.subject, "use", "events")).field_policies
+    assert all(md[f["name"]].startswith("bucket") for f in MASK["fields"] if f.get("level") == "L2") and md["fee"].startswith("bucket")
+    ch.n = 2; ch.sql.clear()
+    for gbf in ("distinct_id", {"field": "props.CUST_ID", "type": "string"}):
+        bad = gw.call(ana, "analysis.run", {"config": {**cfg, "params": {**cfg["params"], "group_by": [gbf]}}})
+        assert bad["error"]["code"] == "AUTHZ_DENIED" and not ch.sql, bad
+    form = {**cfg, "params": {**cfg["params"], "metrics": cfg["params"]["metrics"] + [{"event": "bond_deal", "agg": "total", "alias": "n"}], "formulas": [{"alias": "avg_amt", "expr": "amt / n"}]}}
+    fr = gw.call(ana, "analysis.run", {"config": form}); assert fr["error"]["code"] == "AUTHZ_DENIED" and fr["usage"]["ms"] >= 0 and not ch.sql, fr
+    orig, calls = ch.query, []
+    def flaky(sql: str, data: bytes | None = None, settings: dict[str, Any] | None = None) -> str:
+        if not sql.startswith("EXPLAIN") and "multiIf(" in sql:
+            raise RuntimeError("Code: 159. TIMEOUT_EXCEEDED")
+        calls.append(sql); return orig(sql, data, settings)
+    ch.query = flaky; before = ana.scan_bytes_used  # type: ignore[method-assign]
+    assert gw.call(ana, "analysis.run", {"config": cfg})["error"]["code"] == "TIMEOUT" and ana.scan_bytes_used == before + 2 * 1000 * BYTES_PER_ROW
+    ch.query = orig  # type: ignore[method-assign]
     # ClickHouse 錯誤 → 可重試；審計每次都寫、只留參數摘要
     ch.query = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Code: 159. TIMEOUT_EXCEEDED"))  # type: ignore[method-assign]
     assert gw.call(ana, "analysis.estimate", {"config": cfg})["error"] == {"code": "TIMEOUT", "message": "Code: 159. TIMEOUT_EXCEEDED", "retryable": True, "detail": {}}
     au = [a for a in st.audit_tail(100) if a["event"] == GW["policy"]["audit_event"]]
-    assert len(au) == 13 and all(len(a["args_digest"]) == 16 for a in au) and "王小明" not in json.dumps(st.audit_tail(100), ensure_ascii=False)
-    print(f"tool gateway self-test ok: {len(au)} 次呼叫皆審計；身分參數丟棄、撤權即拒、預算超限不送查詢、L2 投影區間化、K 抑制、untrusted_text、200 列截斷、metric.query 已移除")
+    assert len(au) == 17 and all(len(a["args_digest"]) == 16 for a in au) and "王小明" not in json.dumps(st.audit_tail(100), ensure_ascii=False)
+    print(f"tool gateway self-test ok: {len(au)} 次呼叫皆審計；身分參數丟棄、撤權即拒、預算超限不送查詢、L2 投影一律區間化、識別欄分組被拒、投影編譯失敗回信封、失敗也預扣額度、K 抑制、untrusted_text、200 列截斷、metric.query 已移除")
 
 
 if __name__ == "__main__":
