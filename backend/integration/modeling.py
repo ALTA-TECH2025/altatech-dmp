@@ -239,6 +239,14 @@ def validate(model: Model, sem: Semantic | None = None) -> list[str]:
             errs.append("事件模型需要 time")
         if not model.identities:
             errs.append("事件模型需要至少一個 identities（歸戶用）")
+        id_parts = _id_parts((model.raw.get("dedupe") or {}).get("event_id", ""), "content")
+        if id_parts is None:
+            errs.append("事件模型需要 dedupe.event_id: content(欄位|欄位|…)（明列來源欄位，事件只追加、內容全同才去重）")
+        elif "*" in id_parts:
+            errs.append("dedupe.event_id 不可用 *：Python 與 SQL 兩條路徑要逐欄一致，請明列欄位")
+        elif tf := (model.raw.get("time") or {}).get("field"):
+            if tf not in id_parts:
+                errs.append(f"dedupe.event_id 必須包含時間欄位 {tf}（不同時間點的事件要分開保留）")
     if model.entity == "dim" and not model.raw.get("target", {}).get("table"):
         errs.append("維度表模型需要 target.table")
     dropped = set(model.raw.get("drop_fields", []))
@@ -306,17 +314,103 @@ def _event_for(model: Model, row: dict[str, Any]) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------- event_id（事件只追加：時間與屬性全同才算同一筆）
+EVENT_ID_V2 = "e2_"     # 內容雜湊版 event_id 的前綴；舊版（v1）是 32 位 hex，重放時以 _event_id_v1 對照（見 aggregates.dedupe）
+
+
+def canon(v: Any) -> Any:
+    """可雜湊的正規形：dict 鍵排序、數字統一（5 與 5.0 相同）、其餘原樣；供 content_id 與比對用。
+    整數原樣保留、不經過浮點（9007199254740992 與 9007199254740993 轉 float 會變成同一個值，兩筆不同事件會被算成同一個 id）；
+    只有「值是整數的浮點數」轉成 int（5.0 → 5），這個轉換是精確的。"""
+    if isinstance(v, bool) or v is None: return v
+    if isinstance(v, int): return v
+    if isinstance(v, float):
+        return int(v) if v.is_integer() else v
+    if isinstance(v, dict): return {str(k): canon(x) for k, x in sorted(v.items(), key=lambda kv: str(kv[0]))}
+    if isinstance(v, (list, tuple)): return [canon(x) for x in v]
+    return v if isinstance(v, str) else str(v)
+
+
+def canon_json(v: Any) -> str:
+    return json.dumps(canon(v), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+def content_id(parts: list[str]) -> str:
+    """'e2_' + sha256('a|b|c') 前 32 位：與 compile_sql 的 SQL 公式相同（concat + SHA256 + 前 32 位 hex）。"""
+    return EVENT_ID_V2 + hashlib.sha256("|".join(parts).encode()).hexdigest()[:32]
+
+
+def _id_parts(tpl: str, kind: str) -> list[str] | None:
+    m = re.fullmatch(kind + r"\((.*)\)", (tpl or "").strip())
+    return [p.strip() for p in m.group(1).split("|")] if m else None
+
+
+def _src_val(row: dict[str, Any], p: str) -> str:
+    v = row.get(p)
+    return "" if v is None else str(v)
+
+
 def _event_id(model: Model, row: dict[str, Any], event: str) -> str:
-    tpl = (model.raw.get("dedupe") or {}).get("event_id", "")
-    m = re.fullmatch(r"sha256\((.*)\)", tpl.strip())
-    parts = [p.strip() for p in m.group(1).split("|")] if m else ["source", "*"]
-    vals = []
-    for p in parts:
-        if p == "source": vals.append(model.id)
-        elif p == "*": vals.append(json.dumps(row, sort_keys=True, default=str))
-        elif p == "event": vals.append(event)
-        else: vals.append(str(row.get(p, "")))
+    """dedupe.event_id = content(來源欄位|…)：明列的來源欄位（含時間與全部業務欄位）＋事件名的內容雜湊；任何一欄不同就是另一筆事件。
+    不放客戶代碼、帳號等識別欄（個資不入雜湊，委託單號已足以區分）。Python 與 compile_sql 的 SQL 公式逐字相同。"""
+    parts = _id_parts((model.raw.get("dedupe") or {}).get("event_id", ""), "content")
+    if parts is None:
+        raise ValueError("事件模型需要 dedupe.event_id: content(欄位|欄位|…)")
+    return content_id([model.id if p == "source" else event if p == "event" else _src_val(row, p) for p in parts])
+
+
+def _event_id_v1(model: Model, row: dict[str, Any], event: str) -> str | None:
+    """舊版公式（dedupe.legacy_event_id，sha256(…)）：只給重放對照用，不寫入。沒有宣告就回 None。"""
+    parts = _id_parts((model.raw.get("dedupe") or {}).get("legacy_event_id", ""), "sha256")
+    if parts is None: return None
+    vals = [model.id if p == "source" else event if p == "event" else json.dumps(row, sort_keys=True, default=str) if p == "*" else str(row.get(p, "")) for p in parts]
     return hashlib.sha256("|".join(vals).encode()).hexdigest()[:32]
+
+
+def quarantine_row(model: Model, row: dict[str, Any], forbidden: set[str] | None = None, reason: str | None = None) -> dict[str, Any]:
+    """隔離區要留下來源列供追查，但個資不入庫：
+    - drop_fields 與 L4 名單的鍵：任何深度（巢狀物件、陣列）、不分大小寫、忽略 $ 前綴、點分鍵逐段比對；命中就丟掉該頂層欄位（禁止鍵的值不靠樣式判斷）；
+    - 其餘值像個資（身分證／手機／email，含巢狀）的欄位也丟掉；
+    - 身分來源欄（客戶代碼、帳號）換成與入倉相同的代碼（金鑰未注入就丟）。只記被丟的欄位名（_dropped），不記值；
+    - 造成隔離的那一欄（reason 的欄位，例如狀態、枚舉）只在值像代碼（英數字、32 字內）時保留供追查，否則遮掉、記在 _masked——
+      那一欄的值本來就不合規格，可能是任意文字（例如姓名）。"""
+    names = {str(x) for x in model.raw.get("drop_fields", [])} | {str(x) for x in (forbidden or set())}
+    ident = {i.get("from"): i.get("transform") for i in model.raw.get("identities", []) if i.get("from")}
+    ref = model.raw.get("entity_ref") or {}
+    if ref.get("id_from"):
+        ident.setdefault(ref["id_from"], ref.get("transform"))
+    out: dict[str, Any] = {}; dropped: list[str] = []
+    for k, v in row.items():
+        if T._key_hit(k, names) or T.pii_scan_deep(v, str(k), names):
+            dropped.append(str(k)); continue
+        if k in ident:
+            try:
+                out[k] = apply_transform(ident[k], v)
+            except KeyError:
+                dropped.append(str(k))
+            continue
+        out[k] = v
+    bad = _reason_source_field(model, reason)
+    if bad and bad in out and not (isinstance(out[bad], (int, float)) or (isinstance(out[bad], str) and _CODE_LIKE.fullmatch(out[bad]))):
+        out[bad] = "[非代碼值，已遮罩]"; out["_masked"] = [bad]
+    if dropped:
+        out["_dropped"] = sorted(dropped)
+    return out
+
+
+_CODE_LIKE = re.compile(r"[A-Za-z0-9_.\-]{0,32}")
+
+
+def _reason_source_field(model: Model, reason: str | None) -> str | None:
+    """隔離原因碼 → 來源欄位名：no_transition 是狀態欄（來源欄），enum／range 是目標欄位，換回它的來源欄。"""
+    if not reason or ":" not in reason:
+        return None
+    code, field = reason.split(":", 1)
+    if code == "no_transition":
+        return field
+    if code in ("enum", "range"):
+        return next((f.get("from") for f in model.fields if f.get("target") == field and f.get("from")), None)
+    return None
 
 
 def apply(model: Model, rows: list[dict[str, Any]], *, known_fields: set[str] | None = None,
@@ -341,7 +435,7 @@ def apply(model: Model, rows: list[dict[str, Any]], *, known_fields: set[str] | 
             if model.entity == "event":
                 ev = _event_for(model, row)
                 if not ev:
-                    out.quarantined.append((row, f"no_transition:{row.get((model.raw.get('eventize') or {}).get('status_field'))}"))
+                    out.quarantined.append((row, f"no_transition:{(model.raw.get('eventize') or {}).get('status_field')}"))   # 原因只記欄位名、不記原始值（隔離原因也不能外洩個資）
                     continue
                 rec["event"] = ev
                 ms = T.to_ms_utc(row.get(sem_time.get("field")), sem_time.get("tz", "Asia/Taipei"))
@@ -365,6 +459,8 @@ def apply(model: Model, rows: list[dict[str, Any]], *, known_fields: set[str] | 
                     rec["entity_type"] = er["type"]
                     rec["entity_id"] = apply_transform(er.get("transform"), row.get(er["id_from"]))
                 rec["event_id"] = _event_id(model, row, ev)
+                v1 = _event_id_v1(model, row, ev)
+                if v1: rec["_event_id_v1"] = v1
             props: dict[str, Any] = {}
             for f in model.fields:
                 if "expr" in f:
@@ -376,7 +472,7 @@ def apply(model: Model, rows: list[dict[str, Any]], *, known_fields: set[str] | 
                 props[f["target"]] = val
             rec["props"] = props
         except (KeyError, ValueError) as e:
-            out.quarantined.append((row, f"transform_error:{e}"))
+            out.quarantined.append((row, f"transform_error:{type(e).__name__}"))   # 例外訊息可能帶原始值，只記類型
             continue
         # 清洗規則
         reason = None
@@ -387,10 +483,10 @@ def apply(model: Model, rows: list[dict[str, Any]], *, known_fields: set[str] | 
                 if missing: reason = f"required:{','.join(missing)}"
             elif rule == "enum":   # 枚舉即必填：對不上（含 map 後為空）一律隔離
                 v = props.get(r["field"], rec.get(r["field"]))
-                if v not in r["values"]: reason = f"enum:{r['field']}={v}"
+                if v not in r["values"]: reason = f"enum:{r['field']}"
             elif rule == "range":
                 v = props.get(r["field"], rec.get(r["field"]))
-                if v is not None and (("min" in r and v < r["min"]) or ("max" in r and v > r["max"])): reason = f"range:{r['field']}={v}"
+                if v is not None and (("min" in r and v < r["min"]) or ("max" in r and v > r["max"])): reason = f"range:{r['field']}"
             elif rule == "time_window" and model.entity == "event":
                 age_days = (now.timestamp() * 1000 - rec["time"]) / 86_400_000
                 if age_days > r.get("days", 7) or age_days < -1: reason = f"time_window:{age_days:.1f}d"
@@ -407,7 +503,7 @@ def apply(model: Model, rows: list[dict[str, Any]], *, known_fields: set[str] | 
 def preview(model: Model, rows: list[dict[str, Any]], limit: int = 1000) -> dict[str, Any]:
     o = apply(model, rows[:limit], known_fields=set(model.raw.get("source_fields", [])) or None)
     return {"summary": o.summary, "sample_ok": o.ok[:5],
-            "quarantined": [{"reason": r, "row": row} for row, r in o.quarantined[:20]],
+            "quarantined": [{"reason": r, "row": quarantine_row(model, row, Semantic.load().forbidden_l4, r)} for row, r in o.quarantined[:20]],   # 預覽也不回傳個資
             "rejected": [{"reason": r} for _, r in o.rejected[:20]],   # 拒絕列含個資，不回傳內容
             "new_fields": sorted(o.new_fields)}
 
@@ -430,6 +526,7 @@ def to_ch_row(model: Model, rec: dict[str, Any], project: str = "altatech_dmp", 
                "amount": props.pop("amount", None), "utm_source": "", "utm_campaign": "", "props": props,
                "ingest_time": ms_to_dt(ingest_ms), "schema_version": 1, "late": 0, "batch_id": rec.get("batch_id", "")}
         row["props"]["$identities"] = rec.get("identities", {})
+        if rec.get("_event_id_v1"): row["_event_id_v1"] = rec["_event_id_v1"]   # 只給去重對照（aggregates.dedupe 寫入前移除）
         return row
     if model.entity == "user":   # 寬表：已登記屬性直接是欄位，未登記的進 props_extra
         return {"one_id": rec["one_id"], **rec["props"], "props_extra": {}, "first_seen": ms_to_dt(ingest_ms), "updated_at": ms_to_dt(ingest_ms)}
@@ -465,9 +562,10 @@ def compile_sql(model: Model, raw_table: str, project: str = "altatech_dmp", bat
         er = model.raw.get("entity_ref")
         if er:
             cols["entity_type"] = f"'{er['type']}'"; cols["entity_id"] = f"toString({er['id_from']})"
-        dedupe = (model.raw.get("dedupe") or {}).get("event_id", "sha256(source|*)")
-        parts = [p.strip() for p in re.fullmatch(r"sha256\((.*)\)", dedupe).group(1).split("|")]
-        idp = ", '|', ".join("'" + model.id + "'" if p == "source" else ("toString(" + p + ")" if p not in ("*", "event") else ev) for p in parts)
+        parts = _id_parts((model.raw.get("dedupe") or {}).get("event_id", ""), "content")
+        if parts is None or "*" in parts:
+            raise ValueError("compile_sql 需要 dedupe.event_id: content(明列欄位)")
+        idp = ", '|', ".join("'" + model.id + "'" if p == "source" else ev if p == "event" else f"ifNull(toString({p}), '')" for p in parts)
         where = []
         src_of = {f["target"]: f["from"] for f in model.fields if f.get("from")}
         for r in model.cleansing:
@@ -482,7 +580,7 @@ SELECT
   toString({login['from']}) AS one_id,
   {cols['entity_type']} AS entity_type, {cols['entity_id']} AS entity_id,
   toString({login['from']}) AS distinct_id, {cols['session_id']} AS session_id,
-  substring(lower(hex(SHA256(concat({idp})))), 1, 32) AS event_id,   -- 與 Python 端 _event_id 同一公式
+  concat('{EVENT_ID_V2}', substring(lower(hex(SHA256(concat({idp})))), 1, 32)) AS event_id,   -- 與 Python 端 _event_id（content_id）同一公式
   {cols['platform']} AS platform, {cols['app_id']} AS app_id, {cols['symbol']} AS symbol, {cols['side']} AS side, {cols['channel']} AS channel,
   {cols['amount']} AS amount, {cols['utm_source']} AS utm_source, {cols['utm_campaign']} AS utm_campaign,
   {("CAST(toJSONString(map(" + ', '.join(props) + ")), 'JSON')") if props else "CAST('{}', 'JSON')"} AS props,
@@ -516,7 +614,7 @@ if __name__ == "__main__":
     o = apply(m, rows, now=datetime(2026, 10, 16, tzinfo=UTC), known_fields=set(rows[0]))
     assert o.summary == {"in": 7, "ok": 2, "quarantined": 4, "rejected": 1}, o.summary
     reasons = sorted(r for _, r in o.quarantined)
-    assert reasons[:3] == ["enum:market=None", "no_transition:WEIRD", "required:qty"] and reasons[3].startswith("time_window:"), reasons
+    assert reasons[:3] == ["enum:market", "no_transition:STATUS", "required:qty"] and reasons[3].startswith("time_window:"), reasons
     assert o.rejected[0][1] == "pii:MEMO:mobile" and o.new_fields == {"FILL_QTY", "RJ_CODE", "MEMO"}
     a1 = o.ok[0]
     assert a1["event"] == "bond_order" and a1["one_id"].startswith("v1_") and len(a1["one_id"]) == 23
@@ -531,4 +629,26 @@ if __name__ == "__main__":
     bad = Model({**m.raw, "fields": m.fields + [{"target": "mobile", "from": "PHONE"}], "identities": [{"target": "$identity_login_id", "from": "CUST_ID"}]})
     e = validate(bad)
     assert any("L4" in x for x in e) and any("drop_fields" in x for x in e) and any("代碼化" in x for x in e), e
+    # canon（Codex #51 複審）：整數不經浮點；5 與 5.0 同值；相鄰大整數（> 2^53）不能合併成同一個內容 id
+    assert canon(9007199254740992) != canon(9007199254740993) and canon_json({"n": 2 ** 70}) == '{"n":' + str(2 ** 70) + '}'
+    assert canon(5.0) == canon(5) == 5 and isinstance(canon(5.0), int) and canon(1000.5) == 1000.5 and canon(True) is True
+    assert content_id(["x", canon_json({"n": 9007199254740992})]) != content_id(["x", canon_json({"n": 9007199254740993})])
+    # 隔離列不留個資：drop_fields／L4 名單／值像個資的欄位丟掉，客戶代碼與帳號換成入倉同款代碼
+    qr = quarantine_row(m, {**o.quarantined[0][0], "CUST_NAME": "王小明", "ID_NO": "A123456789", "PHONE": "0912345678", "MEMO": "請回電 0912345678", "Mobile": "x"}, {"mobile"})
+    qs = json.dumps(qr, ensure_ascii=False)
+    for leak in ("王小明", "A123456789", "0912345678", o.quarantined[0][0]["CUST_ID"], o.quarantined[0][0]["ACCT_NO"]):
+        assert leak not in qs, (leak, qs)
+    assert {"CUST_NAME", "ID_NO", "PHONE", "MEMO", "Mobile"} <= set(qr["_dropped"]) and qr["CUST_ID"].startswith("v1_") and qr["STK_CODE"] and qr["ORD_NO"], qr
+    # Codex #52 複審：巢狀／$ 前綴／點分的禁止鍵（值不像個資樣式）也要丟；隔離原因不帶原始值
+    fl4 = Semantic.load().forbidden_l4
+    base = {**rows[4], "CUST_NAME": "王小明", "nested": {"CUST_NAME": "王小明", "ok": 1}, "$name": "王小明", "profile.name": "王小明", "arr": [{"x.Cust_Name": "王小明"}], "keep": "TSE"}
+    o2 = apply(m, [base, {**base, "STATUS": "王小明"}], now=datetime(2026, 10, 16, tzinfo=UTC))
+    assert o2.summary["quarantined"] == 2 and [r for _, r in o2.quarantined] == ["no_transition:STATUS", "no_transition:STATUS"], o2.quarantined
+    q2 = quarantine_row(m, o2.quarantined[0][0], fl4); q2s = json.dumps(q2, ensure_ascii=False)
+    assert "王小明" not in q2s and {"CUST_NAME", "nested", "$name", "profile.name", "arr"} <= set(q2["_dropped"]) and q2["keep"] == "TSE", q2
+    assert all("王小明" not in r for _, r in o2.quarantined)                                                # 原因碼只有欄位名
+    q3 = quarantine_row(m, o2.quarantined[1][0], fl4, o2.quarantined[1][1]); assert "王小明" not in json.dumps(q3, ensure_ascii=False) and q3["_masked"] == ["STATUS"], q3   # 造成隔離的欄位值不像代碼 → 遮罩
+    assert quarantine_row(m, o2.quarantined[0][0], fl4, o2.quarantined[0][1])["STATUS"] == "WEIRD"                                          # 像代碼的值保留供追查
+    qe = quarantine_row(m, {**rows[2], "MKT": "王小明"}, fl4, "enum:market"); assert qe["MKT"] == "[非代碼值，已遮罩]", qe                       # enum 目標欄換回來源欄
+    pv = json.dumps(preview(m, [base]), ensure_ascii=False); assert "王小明" not in pv and "9800000002" not in pv, pv   # 預覽也不回傳個資
     print("modeling ok", o.summary)
