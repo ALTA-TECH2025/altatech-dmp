@@ -374,7 +374,7 @@ paths:
   /v1/agents/skills/{name}:
     get:
       tags: [Agents]
-      summary: skill 詳情：目前發布版（或 trial）全文、草案清單；需 ai_skills.view
+      summary: skill 目前發布版（或 trial）全文；草案清單用 GET …/drafts；需 ai_skills.view
       parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
       responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } }, '404': { description: not found } }
   /v1/agents/skills/{name}/versions:
@@ -396,6 +396,11 @@ paths:
       parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: from, in: query, required: true, schema: { type: string } }, { name: to, in: query, required: true, schema: { type: string } }]
       responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/VersionDiff' } } } } }
   /v1/agents/skills/{name}/drafts:
+    get:
+      tags: [Agents]
+      summary: 這個 skill 的草案清單（draft／in_review）：draft_id、revision、state、建立者、最後修改；需 ai_skills.view
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/SkillVersion' } } } } } }
     post:
       tags: [Agents]
       summary: 以某版本為底建立草案（不影響發布版與既有 run）；需 ai_skills.use；審計 agent_skill.drafted
@@ -434,7 +439,7 @@ paths:
       tags: [Agents]
       summary: 送發布：body 指明 revision、content_digest 與同一內容的 dry_run_id（草案改過後舊乾跑失效）；送出後內容鎖定（in_review 不可 PATCH）；含 proposed／pending_client 參數者只能以 trial 送出；需 ai_skills.use；審計 agent_skill.submitted
       parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: draft_id, in: path, required: true, schema: { type: string } }]
-      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReviewBinding' } } } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SubmitBinding' } } } }
       responses: { '202': { description: in_review, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } }, '409': { description: 'revision／content_digest 與目前草案不符、乾跑不是這一版內容、或驗證未過' } }
   /v1/agents/skills/{name}/drafts/{draft_id}/withdraw:
     post:
@@ -471,7 +476,7 @@ paths:
   /v1/agents/configs/{name}:
     get:
       tags: [Agents]
-      summary: Agent 設定詳情：目前發布版、草案清單；需 ai_skills.view
+      summary: Agent 設定目前發布版；草案清單用 GET …/drafts；需 ai_skills.view
       parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
       responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AgentConfigVersion' } } } } }
   /v1/agents/configs/{name}/versions:
@@ -516,9 +521,9 @@ paths:
   /v1/agents/configs/{name}/drafts/{draft_id}/submit:
     post:
       tags: [Agents]
-      summary: 送發布：同 skills（ReviewBinding 指明 revision、content_digest、dry_run_id；送出後鎖定）；需 ai_skills.use；審計 agent_config.submitted
+      summary: 送發布：同 skills（SubmitBinding 指明 revision、content_digest、dry_run_id；送出後鎖定）；需 ai_skills.use；審計 agent_config.submitted
       parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: draft_id, in: path, required: true, schema: { type: string } }]
-      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReviewBinding' } } } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SubmitBinding' } } } }
       responses: { '202': { description: in_review, content: { application/json: { schema: { $ref: '#/components/schemas/AgentConfigVersion' } } } }, '409': { description: 內容或乾跑不符 } }
   /v1/agents/configs/{name}/drafts/{draft_id}/withdraw:
     post:
@@ -548,6 +553,11 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [to_version], properties: { to_version: { type: string } } } } } }
       responses: { '201': { description: 新草案, content: { application/json: { schema: { $ref: '#/components/schemas/AgentConfigVersion' } } } } }
   /v1/agents/configs/{name}/drafts:
+    get:
+      tags: [Agents]
+      summary: 這個 Agent 設定的草案清單（draft／in_review）；需 ai_skills.view
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AgentConfigVersion' } } } } } }
     post:
       tags: [Agents]
       summary: 以某版本為底建立 Agent 設定草案（不影響發布版與既有 run）；skill 發新版不會自動改變 agent，需 agent 發新版；需 ai_skills.use
@@ -2024,7 +2034,7 @@ components:
       type: object
       properties:
         name: { type: string }
-        version: { type: string, description: 發布才有版本號；草案為 null }
+        version: { type: [string, 'null'], description: 發布才有版本號；草案為 null }
         draft_id: { type: string }
         revision: { type: integer, description: 草案修訂號（PATCH 的 If-Match）；每次 PATCH +1 }
         content_digest: { type: string, description: 'sha256(草案可編輯內容的正規 JSON)；乾跑、送審、核可都綁這個值' }
@@ -2074,6 +2084,7 @@ components:
         state: { type: string, enum: [draft, in_review, published, retired] }
         skills: { type: array, items: { type: object, required: [name, version], properties: { name: { type: string }, version: { type: string, description: '固定版本，不接受 latest' } } } }
         user_overridable: { type: array, items: { type: object, properties: { skill: { type: string }, param: { type: string } } } }
+        notes_md: { type: string, maxLength: 2000 }
         audit: { type: object }
         last_dry_run: { type: object, properties: { dry_run_id: { type: string }, revision: { type: integer }, content_digest: { type: string }, at: { type: string, format: date-time }, ok: { type: boolean } } }
         submitted: { type: object, properties: { revision: { type: integer }, content_digest: { type: string }, dry_run_id: { type: string }, at: { type: string, format: date-time } } }
@@ -2086,12 +2097,20 @@ components:
         notes_md: { type: string, maxLength: 2000 }
     ReviewBinding:
       type: object
-      description: 送審／核可要指明針對哪一版內容；與伺服器目前值不符 → 409
+      description: 核可要指明針對哪一版內容；須等於送審時鎖定的值，不符 → 409
       required: [revision, content_digest]
       properties:
         revision: { type: integer }
         content_digest: { type: string }
-        dry_run_id: { type: string, description: 送審時必填：同一 content_digest 的乾跑 }
+        note: { type: string, maxLength: 500 }
+    SubmitBinding:
+      type: object
+      description: 送審要指明哪一版內容與同一內容的乾跑；任一不符 → 409
+      required: [revision, content_digest, dry_run_id]
+      properties:
+        revision: { type: integer }
+        content_digest: { type: string }
+        dry_run_id: { type: string, description: content_digest 相同的乾跑 }
         note: { type: string, maxLength: 500 }
     DryRunResult:
       type: object
