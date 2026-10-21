@@ -365,6 +365,108 @@ paths:
   /v1/triggers:
     get: { tags: [Triggers], summary: '即時規則', responses: { '200': { description: ok } } }
     post: { tags: [Triggers], summary: '建立規則', responses: { '201': { description: created } } }
+  /v1/agents/skills:
+    get:
+      tags: [Agents]
+      summary: 技能庫列表：每個 skill 的發布版、草案數、參數狀態摘要（已核定／提案／待客戶核定）、最近執行；需 ai_skills.view
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/SkillSummary' } } } } } }
+  /v1/agents/skills/{name}:
+    get:
+      tags: [Agents]
+      summary: skill 詳情：目前發布版（或 trial）全文、草案清單；需 ai_skills.view
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } }, '404': { description: not found } }
+  /v1/agents/skills/{name}/versions:
+    get:
+      tags: [Agents]
+      summary: 版本歷史（發布、核可者、時間、相對上一版的差異摘要）；需 ai_skills.view
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/SkillVersion' } } } } } }
+  /v1/agents/skills/{name}/versions/{version}:
+    get:
+      tags: [Agents]
+      summary: 指定版本全文；既有 run 固定引用的版本永遠可讀（不被新版本改寫）；需 ai_skills.view
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: version, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } } }
+  /v1/agents/skills/{name}/diff:
+    get:
+      tags: [Agents]
+      summary: 兩個版本（或版本與草案）的欄位差異；需 ai_skills.view
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: from, in: query, required: true, schema: { type: string } }, { name: to, in: query, required: true, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/VersionDiff' } } } } }
+  /v1/agents/skills/{name}/drafts:
+    post:
+      tags: [Agents]
+      summary: 以某版本為底建立草案（不影響發布版與既有 run）；需 ai_skills.use；審計 agent_skill.drafted
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: false, content: { application/json: { schema: { type: object, properties: { base_version: { type: string, description: 不帶 = 目前發布版 } } } } } }
+      responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } }, '403': { description: 無 ai_skills.use } }
+  /v1/agents/skills/{name}/drafts/{draft_id}:
+    get:
+      tags: [Agents]
+      summary: 草案全文；需 ai_skills.view
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: draft_id, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } } }
+    patch:
+      tags: [Agents]
+      summary: 編輯草案的參數、篩選、資料完整性條件、輸出、驗收範例、說明；伺服器端驗證器（引用須在語意層解析得到、參數型別與範圍、不能改工具／模型可見範圍／自動化界線——這些欄位不在資料模型裡）；帶 If-Match（草案修訂號），不符 409；需 ai_skills.use
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: draft_id, in: path, required: true, schema: { type: string } }, { name: If-Match, in: header, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SkillDraftUpdate' } } } }
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } }
+        '400': { description: 驗證失敗（回欄位與原因） }
+        '409': { description: 草案已被改過 }
+    delete:
+      tags: [Agents]
+      summary: 捨棄草案；需 ai_skills.use
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: draft_id, in: path, required: true, schema: { type: string } }]
+      responses: { '204': { description: deleted } }
+  /v1/agents/skills/{name}/drafts/{draft_id}/dry-run:
+    post:
+      tags: [Agents]
+      summary: 乾跑比對：以呼叫者自己的權限、同一期間，草案與目前發布版各跑一次（用驗收範例或指定配置），回兩份證據與差異；畫面數字由 DMP 直接給；需 ai_skills.use + 被乾跑分析模組的 use；不建立任何產物
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: draft_id, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: false, content: { application/json: { schema: { type: object, properties: { period: { type: object, properties: { from: { type: string }, to: { type: string } } }, example: { type: string, description: 驗收範例 ID（docs/40） } } } } } }
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/DryRunResult' } } } } }
+  /v1/agents/skills/{name}/drafts/{draft_id}/submit:
+    post:
+      tags: [Agents]
+      summary: 送發布（須至少乾跑過一次）；含 proposed／pending_client 參數者只能以 trial 送出；需 ai_skills.use；審計 agent_skill.submitted
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: draft_id, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: false, content: { application/json: { schema: { type: object, properties: { note: { type: string, maxLength: 500 } } } } } }
+      responses: { '202': { description: in_review, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } }, '409': { description: 未乾跑或驗證未過 } }
+  /v1/agents/skills/{name}/drafts/{draft_id}/approve:
+    post:
+      tags: [Agents]
+      summary: 核可發布 → 產生新版本號（published 或 trial）；核可者不得為送出者；需 ai_skills.approve；審計 agent_skill.approved
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: draft_id, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } }, '403': { description: 自己核可自己或無 ai_skills.approve } }
+  /v1/agents/skills/{name}/drafts/{draft_id}/reject:
+    post:
+      tags: [Agents]
+      summary: 退回草案（附理由）；需 ai_skills.approve；審計 agent_skill.rejected
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: draft_id, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string, maxLength: 500 } } } } } }
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } } }
+  /v1/agents/skills/{name}/rollback:
+    post:
+      tags: [Agents]
+      summary: 回復 = 以指定舊版內容建立新草案（再走乾跑、送發布、核可）；不改寫歷史版本；需 ai_skills.use；審計 agent_skill.rolled_back
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [to_version], properties: { to_version: { type: string } } } } } }
+      responses: { '201': { description: 新草案, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } } }
+  /v1/agents/configs:
+    get:
+      tags: [Agents]
+      summary: Agent 設定列表（引用的 skill 固定版本、允許使用者調整的參數）；需 ai_skills.view
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AgentConfigVersion' } } } } } }
+  /v1/agents/configs/{name}/drafts:
+    post:
+      tags: [Agents]
+      summary: Agent 設定草案（與 skill 相同的草案 → 乾跑 → 送發布 → 他人核可流程，路徑 …/drafts/{draft_id}、/submit、/approve、/reject、/rollback 同 skills）；skill 發新版不會自動改變 agent，需 agent 發新版；需 ai_skills.use
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: false, content: { application/json: { schema: { type: object, properties: { base_version: { type: string } } } } } }
+      responses: { '201': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/AgentConfigVersion' } } } } }
   /v1/insights:
     get:
       tags: [Insights]
@@ -1688,3 +1790,78 @@ components:
         actions: { type: array, items: { type: object } }
         created_by: { type: object }
         status: { type: string, enum: [open, acknowledged, resolved, dismissed] }
+    SkillParam:
+      type: object
+      required: [key, type, value, status]
+      properties:
+        key: { type: string }
+        type: { type: string, enum: [int, number, string, enum, bool, date_window] }
+        value: {}
+        allowed: { description: 'enum 的選項陣列，或 { min, max }' }
+        status: { type: string, enum: [confirmed, proposed, pending_client], description: 'confirmed = 已核定（附 source 與 confirmed_by）；proposed = 提案；pending_client = 待客戶核定。未核定的參數不可當正式預設' }
+        source: { type: string, description: 口徑來源（文件、簡報頁、決策紀錄） }
+        confirmed_by: { type: string }
+    SkillVersion:
+      type: object
+      properties:
+        name: { type: string }
+        version: { type: string, description: 發布才有版本號；草案為 null }
+        draft_id: { type: string }
+        revision: { type: integer, description: 草案修訂號（PATCH 的 If-Match） }
+        state: { type: string, enum: [draft, in_review, published, trial, retired], description: 'trial = 含未核定參數的發布：結果帶 CONTRACT_PENDING，不能設為預設、不能排程、不能分享或送審' }
+        base_version: { type: string }
+        purpose: { type: string }
+        refs: { type: object, properties: { funnels: { type: array, items: { type: string } }, metrics: { type: array, items: { type: string } }, events: { type: array, items: { type: string } } }, description: '引用語意層 ID@版本（唯讀，不複製定義；改共用定義走既有契約流程）' }
+        params: { type: array, items: { $ref: '#/components/schemas/SkillParam' } }
+        timezone: { type: string, default: Asia/Taipei }
+        identity: { type: object, properties: { rules: { type: string, description: 'oneid_rules@版本，唯讀' } } }
+        readiness: { type: object, properties: { require_sources: { type: array, items: { type: string } }, on_missing: { type: string, enum: [truncate_and_label, delay, stop] } } }
+        output: { type: array, items: { type: string } }
+        examples: { type: array, items: { type: string }, description: 驗收範例 ID（docs/40） }
+        notes_md: { type: string, maxLength: 4000, description: '給模型的補充說明；不能放寬可見範圍或自動化界線（安全由工具白名單與 Gateway 強制，不靠這段文字）' }
+        audit: { type: object, properties: { created_by: { type: string }, submitted_by: { type: string }, approved_by: { type: string }, published_at: { type: string, format: date-time } } }
+        last_dry_run: { type: object, properties: { at: { type: string, format: date-time }, ok: { type: boolean } } }
+    SkillSummary:
+      type: object
+      properties:
+        name: { type: string }
+        published_version: { type: string }
+        state: { type: string }
+        drafts: { type: integer }
+        params_status: { type: object, properties: { confirmed: { type: integer }, proposed: { type: integer }, pending_client: { type: integer } } }
+        last_run_at: { type: string, format: date-time }
+    SkillDraftUpdate:
+      type: object
+      description: 只能改這些欄位；工具清單、模型可見範圍、自動化界線不在可編輯範圍
+      properties:
+        purpose: { type: string }
+        refs: { type: object }
+        params: { type: array, items: { $ref: '#/components/schemas/SkillParam' } }
+        timezone: { type: string }
+        readiness: { type: object }
+        output: { type: array, items: { type: string } }
+        examples: { type: array, items: { type: string } }
+        notes_md: { type: string, maxLength: 4000 }
+    AgentConfigVersion:
+      type: object
+      properties:
+        name: { type: string }
+        version: { type: string }
+        draft_id: { type: string }
+        state: { type: string, enum: [draft, in_review, published, retired] }
+        skills: { type: array, items: { type: object, required: [name, version], properties: { name: { type: string }, version: { type: string, description: '固定版本，不接受 latest' } } } }
+        user_overridable: { type: array, items: { type: object, properties: { skill: { type: string }, param: { type: string } } } }
+        audit: { type: object }
+    DryRunResult:
+      type: object
+      properties:
+        published: { type: object, properties: { version: { type: string }, evidence_id: { type: string }, data: { type: object } } }
+        draft: { type: object, properties: { draft_id: { type: string }, evidence_id: { type: string }, data: { type: object } } }
+        diff: { type: array, items: { type: object, properties: { path: { type: string }, published: {}, draft: {} } } }
+        warnings: { type: array, items: { type: object, properties: { code: { type: string }, message: { type: string } } }, description: '含未核定參數時帶 CONTRACT_PENDING' }
+    VersionDiff:
+      type: object
+      properties:
+        from: { type: string }
+        to: { type: string }
+        changes: { type: array, items: { type: object, properties: { field: { type: string }, before: {}, after: {} } } }

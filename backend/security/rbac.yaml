@@ -1,6 +1,8 @@
 # 角色 × 模組 × 動作 矩陣；scope 型別：global | project | segment | aggregate_only（branch / agent 保留給自訂角色，本系統內建角色不用）
 actions: [view, use, export, approve, admin]
-modules: [overview, events, funnel, path, attribution, users, profile, segments, triggers, integration, ai_ask, ai_admin, governance, audit, iam]
+modules: [overview, events, funnel, path, attribution, users, profile, segments, triggers, integration, ai_ask, ai_admin, ai_skills, governance, audit, iam]
+# ai_skills（AI 工作台技能庫，docs/38 §6.6、docs/39 §7.5）：view = 看口徑與參數狀態；use = 編輯草案、乾跑比對、送發布、回復；approve = 核可發布（不可核可自己送的）。
+# 角色分配【提案，待 Windy 核定，尚未生效】：行銷／資訊管理 view；數據分析 view+use；數位經營 view+approve。核定前只有系統管理員（"*"）有權限。
 roles:
   # 本系統的使用者只有五種：系統管理員、行銷、數據分析、數位經營、資訊管理。營業員／分公司主管不進本系統（客戶歸屬只是維度）。
   admin:        { cn: 系統管理員, scope: global, grants: { "*": [view, use, export, approve, admin] } }
