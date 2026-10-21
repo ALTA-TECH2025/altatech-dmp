@@ -189,6 +189,7 @@ def main() -> int:
             legacy_stage(ch, work, int(os.environ.get("E2E_SENSORS_LINES", "200000")), via_http=proc is None)   # 現成伺服器讀不到本機 user_files
             ga4_stage(ch, work, int(os.environ.get("E2E_GA4_PER_TICK", "20000")))
             agg_stage(ch)
+            agg_upgrade_stage(ch)
             dbapi_stage(ch, work, all_rows)
             if os.environ.get("E2E_USERS", "1") != "0":
                 main_users_bench(ch)
@@ -597,6 +598,24 @@ def agg_stage(ch: ClickHouseHTTP) -> None:
           "two rebuilds racing with a writer converge; lease fencing; new-only writers inside / spanning a rebuild never lost; touch writer crashing after landed stays pending through lease expiry and gc; normal batches self-ack")
 
 
+def agg_upgrade_stage(ch: ClickHouseHTTP) -> None:
+    """既有環境升版（Codex #32）：日彙總還是舊版 MaterializedView 時，migrate_legacy_mv 拆掉它，重套 schema 建出分區目標表 + _mv，rebuild_all 回填，彙總 = 底表。"""
+    from .aggregates import AGG_TABLE, migrate_legacy_mv, rebuild_all, verify
+    days = [x for x in ch.query("SELECT DISTINCT toString(event_date) FROM dmp.events ORDER BY 1 FORMAT TSV").split("\n") if x.strip()]
+    ch.query("DROP VIEW IF EXISTS dmp.events_daily_agg_mv"); ch.query(f"DROP TABLE IF EXISTS {AGG_TABLE}")
+    ch.query("CREATE MATERIALIZED VIEW dmp.events_daily_agg ENGINE = AggregatingMergeTree ORDER BY (project, event_date, event, platform, channel, utm_source) "
+             "AS SELECT project, event_date, event, platform, channel, utm_source, countState() AS cnt, uniqState(one_id) AS users, sumState(coalesce(amount, 0)) AS amount "
+             "FROM dmp.events GROUP BY project, event_date, event, platform, channel, utm_source")          # 升版前（main 舊版）的物件
+    assert migrate_legacy_mv(ch) and not migrate_legacy_mv(ch)                                             # 舊 MV → 拆掉；第二次無事
+    for st in local_ddl((ROOT / "clickhouse" / "schema.sql").read_text(encoding="utf-8")):
+        ch.query(st, settings={"allow_experimental_json_type": 1})
+    eng = ch.query("SELECT engine, partition_key FROM system.tables WHERE database = 'dmp' AND name = 'events_daily_agg' FORMAT TSV").strip()
+    assert eng.startswith("AggregatingMergeTree") and "event_date" in eng, eng
+    done = rebuild_all(ch); bad = [v for v in (verify(ch, d) for d in days) if v["agg_cnt"] != v["events_cnt"] or v["amount_diff"] > 1e-3]
+    assert set(days) <= set(done) and not bad, bad[:3]
+    print(f"daily_agg upgrade: legacy MV dropped → partitioned target table + _mv; rebuild_all {len(done)} days, agg == events for all")
+
+
 def dbapi_stage(ch: ClickHouseHTTP | None, work: Path, rows: list[dict[str, Any]]) -> None:
     """MSSQL 的替身：sqlite（同樣是 DB-API 2.0）；正式環境 db_connections={'dwh_trade': lambda: pyodbc.connect(...)}。"""
     import sqlite3
@@ -677,6 +696,11 @@ def ga4_stage(ch: ClickHouseHTTP, work: Path, n_per_tick: int = 20000) -> None:
     assert ch.scalar("SELECT count() FROM (SELECT event_id FROM dmp.events FINAL WHERE source LIKE 'ga360%' GROUP BY event_id HAVING count() > 1)") == 0
     v = verify(ch, "2026-10-16"); assert v["agg_cnt"] == v["events_cnt"] and v["agg_users"] == v["events_users"] and v["amount_diff"] < 1e-6, v   # 重寫重載（內容相同的列略過、新列照寫）後仍一致
     assert "dedupe: skipped=" in s.runs("ga360_restate", 2)[-1]["log"]
+    # 上次中斷留下待重建日期，這次重試是空批次（重述沒變）→ 仍要補重建（Codex #32）
+    from .aggregates import mark_pending, pending_dates
+    mark_pending(ch, ["2026-10-16"], "ga_crashed"); assert "2026-10-16" in pending_dates(ch)
+    r = s.run_now("ga360_restate", t0 + timedelta(days=2, minutes=3)); elog = s.runs("ga360_restate", 1)[0]["log"]
+    assert s.runs("ga360_restate", 1)[0]["rows_in"] == 0 and "this batch was empty" in elog and "2026-10-16" not in pending_dates(ch), elog[-400:]
     print(f"ga360 bigquery: intraday 3 ticks in={sum(x['rows_in'] for x in runs):,} (incl. overlap re-reads) → unique {n_intraday:,}; daily kept intraday copies (kept_first={total:,}) + {n_daily_src:,} late; restate +120 → {total + 420:,}; dup event_id after FINAL: 0")
     print("  by source/event:", ch.query("SELECT event, count() FROM dmp.events FINAL WHERE source='ga360_daily' GROUP BY event ORDER BY 2 DESC FORMAT TSV").strip().replace("\n", " | "))
 

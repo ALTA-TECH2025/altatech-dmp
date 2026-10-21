@@ -305,8 +305,8 @@ ORDER BY (import_id, tag_value, one_id_uint);
 -- MV 是「每次 INSERT 都累加」，底表 ReplacingMergeTree 之後合併掉的重複列（GA4 重疊窗口重讀、日批覆蓋、重試）彙總不會回滾（R12）。
 -- 所以：(1) 載入路徑先去重（backend/integration/aggregates.dedupe：同 event_id 內容相同不再寫入）；
 --       (2) 內容不同的重插（日批覆蓋串流、時間更正）記下分區，載入後從 dmp.events FINAL 重算該日到暫存表，REPLACE PARTITION 原子換掉。
--- 按 event_date 分區：一天一個分區，重建只動那一天。既有環境升版：DROP VIEW dmp.events_daily_agg 後建這三個物件，
--- 再 `python3 -m backend.integration.aggregates rebuild --all` 回填。
+-- 按 event_date 分區：一天一個分區，重建只動那一天。既有環境升版：套 schema 前先跑 aggregates.migrate_legacy_mv（舊 MV 就 DROP），
+-- 套完再 aggregates.rebuild_all 回填；deploy/quickstart/run_local.sh 的 schema 步驟已自動做這兩步。
 CREATE TABLE IF NOT EXISTS dmp.events_daily_agg
 (
     project      LowCardinality(String),

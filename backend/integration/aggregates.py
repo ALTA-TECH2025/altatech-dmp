@@ -386,7 +386,21 @@ class Rebuild:
             self.snapshot(); self.replace()
             if not self.newer_landed(): break
             self.wait_newer()                                                     # 下一次快照一定晚於那筆落地 + 餘量 → 這次就能確認它
+        else:
+            # 重試用完仍有人在最後一次快照後落地：那個寫入者可能已自己確認了標記，而我換上的分區沒包到它的事件。
+            # 留一筆 change 標記，確保這天之後一定會再重建（Codex #32）。
+            _mark_rows(self.ch, [(self.d, uuid.uuid4().hex, 1, self.owner, "")], "change")
         return self.ack()
+
+
+def migrate_legacy_mv(ch: CH) -> bool:
+    """既有環境升版：舊版的 dmp.events_daily_agg 是 MaterializedView（自帶 .inner 表）。CREATE TABLE IF NOT EXISTS 換不掉它，
+    之後的 _mv 與 REPLACE PARTITION 會打到舊物件。套 schema 之前先呼叫：是舊 MV 就 DROP，回 True（套完 schema 要 rebuild_all 回填）。"""
+    eng = ch.query("SELECT engine FROM system.tables WHERE database = 'dmp' AND name = 'events_daily_agg' FORMAT TSV").strip()
+    if eng != "MaterializedView":
+        return False
+    ch.query("DROP VIEW dmp.events_daily_agg")
+    return True
 
 
 def gc_marks(ch: CH) -> None:
@@ -487,6 +501,8 @@ def selftest() -> None:
     assert any(x == f"ALTER TABLE {AGG_TABLE} DROP PARTITION ID '20261003'" for x in ch.sql) and not any("REPLACE" in x for x in ch.sql), ch.sql   # 那天沒事件 → 丟掉目標分區
     ch.stage_rows = 1; ch.newer = 1; ch.sql.clear(); rebuild(ch, ["2026-10-04"], with_pending=False)
     assert sum(1 for x in ch.sql if "REPLACE PARTITION ID '20261004'" in x) == MAX_ROUNDS, "有人在我快照後落地 → 再快照，直到沒有（上限 MAX_ROUNDS）"
+    last_rep = max(i for i, x in enumerate(ch.sql) if "REPLACE PARTITION ID '20261004'" in x)
+    assert any(x.startswith(f"INSERT INTO {AGG_PENDING}") and "toDate('2026-10-04')" in x and x.rstrip().endswith("'change')") for x in ch.sql[last_rep:]), "重試用完 → 留 change 標記，之後一定再重建"
     ch.newer = 0
     m = begin(ch, ["2026-10-16", "2026-10-16", "2026-10-17"], "b'1"); assert sorted(m.ids) == ["2026-10-16", "2026-10-17"] and len(set(m.ids.values())) == 2
     assert "', 0, 'b\\'1', toDateTime64('2026-10-16 00:00:00.000'" in ch.sql[-1], ch.sql[-1]                                          # phase 0 + 租約

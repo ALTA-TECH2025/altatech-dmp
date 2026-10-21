@@ -67,10 +67,14 @@ schema() {
   cd "$ROOT" && python3 - <<'PY'
 import os
 from pathlib import Path
+from backend.integration import aggregates
 from backend.integration.runner import ClickHouseHTTP, local_ddl
 ch = ClickHouseHTTP("http://127.0.0.1:8123", password=os.environ.get("CH_PASSWORD", "dmp-local"))
+migrated = aggregates.migrate_legacy_mv(ch)        # 舊版日彙總是 MV：先拆掉，套完 schema 再回填
 for st in local_ddl(Path("backend/clickhouse/schema.sql").read_text(encoding="utf-8")):
     ch.query(st, settings={"allow_experimental_json_type": 1})
+if migrated:
+    print(">> 日彙總由舊 MV 升級為目標表，回填日期：", len(aggregates.rebuild_all(ch)))
 print(">> schema ok · tables:", ch.query("SELECT count() FROM system.tables WHERE database='dmp'").strip())
 PY
 }
