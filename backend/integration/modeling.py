@@ -336,8 +336,9 @@ def canon_json(v: Any) -> str:
 
 
 def content_id(parts: list[str]) -> str:
-    """'e2_' + sha256('a|b|c') 前 32 位：與 compile_sql 的 SQL 公式相同（concat + SHA256 + 前 32 位 hex）。"""
-    return EVENT_ID_V2 + hashlib.sha256("|".join(parts).encode()).hexdigest()[:32]
+    """'e2_' + sha256(每段「位元組長度:內容」串接) 前 32 位。用長度前綴而不是分隔符：來源欄位是任意字串，
+    'a|b'+'c' 與 'a'+'b|c' 用 '|' 串接會撞成同一個 id（Codex #32）。與 compile_sql 的 SQL 公式相同（length 是位元組數）。"""
+    return EVENT_ID_V2 + hashlib.sha256("".join(f"{len(p.encode())}:{p}" for p in parts).encode()).hexdigest()[:32]
 
 
 def _id_parts(tpl: str, kind: str) -> list[str] | None:
@@ -565,7 +566,8 @@ def compile_sql(model: Model, raw_table: str, project: str = "altatech_dmp", bat
         parts = _id_parts((model.raw.get("dedupe") or {}).get("event_id", ""), "content")
         if parts is None or "*" in parts:
             raise ValueError("compile_sql 需要 dedupe.event_id: content(明列欄位)")
-        idp = ", '|', ".join("'" + model.id + "'" if p == "source" else ev if p == "event" else f"ifNull(toString({p}), '')" for p in parts)
+        exprs = ["'" + model.id + "'" if p == "source" else ev if p == "event" else f"ifNull(toString({p}), '')" for p in parts]
+        idp = ", ".join(f"toString(length({x})), ':', {x}" for x in exprs)        # 長度前綴，與 content_id 相同
         where = []
         src_of = {f["target"]: f["from"] for f in model.fields if f.get("from")}
         for r in model.cleansing:
@@ -633,6 +635,7 @@ if __name__ == "__main__":
     assert canon(9007199254740992) != canon(9007199254740993) and canon_json({"n": 2 ** 70}) == '{"n":' + str(2 ** 70) + '}'
     assert canon(5.0) == canon(5) == 5 and isinstance(canon(5.0), int) and canon(1000.5) == 1000.5 and canon(True) is True
     assert content_id(["x", canon_json({"n": 9007199254740992})]) != content_id(["x", canon_json({"n": 9007199254740993})])
+    assert content_id(["a|b", "c"]) != content_id(["a", "b|c"]) and content_id(["中文", "x"]) != content_id(["中", "文x"])   # 長度前綴：分隔符與多位元組字元都不會撞
     # 隔離列不留個資：drop_fields／L4 名單／值像個資的欄位丟掉，客戶代碼與帳號換成入倉同款代碼
     qr = quarantine_row(m, {**o.quarantined[0][0], "CUST_NAME": "王小明", "ID_NO": "A123456789", "PHONE": "0912345678", "MEMO": "請回電 0912345678", "Mobile": "x"}, {"mobile"})
     qs = json.dumps(qr, ensure_ascii=False)

@@ -386,7 +386,49 @@ class Rebuild:
             self.snapshot(); self.replace()
             if not self.newer_landed(): break
             self.wait_newer()                                                     # 下一次快照一定晚於那筆落地 + 餘量 → 這次就能確認它
+        else:
+            # 重試用完仍有人在最後一次快照後落地：那個寫入者可能已自己確認了標記，而我換上的分區沒包到它的事件。
+            # 留一筆 change 標記，確保這天之後一定會再重建（Codex #32）。
+            _mark_rows(self.ch, [(self.d, uuid.uuid4().hex, 1, self.owner, "")], "change")
         return self.ack()
+
+
+UPGRADE_MARK = "dmp.events_daily_agg_upgrade"     # 舊 MV → 目標表的升級待辦：拆 MV 前建立，從底表重建完才刪
+
+
+def migrate_legacy_mv(ch: CH) -> bool:
+    """既有環境升版：舊版的 dmp.events_daily_agg 是 MaterializedView（自帶 .inner 表）。CREATE TABLE IF NOT EXISTS 換不掉它，
+    之後的 _mv 與 REPLACE PARTITION 會打到舊物件。套 schema 之前先呼叫：是舊 MV 就先留升級待辦（持久表），再 DROP，回 True。
+    套完 schema 呼叫 finish_upgrade 完成回填；中斷後重跑，只要待辦還在就再做一次完整重建。"""
+    eng = ch.query("SELECT engine FROM system.tables WHERE database = 'dmp' AND name = 'events_daily_agg' FORMAT TSV").strip()
+    if eng != "MaterializedView":
+        return False
+    ch.query(f"CREATE TABLE IF NOT EXISTS {UPGRADE_MARK} (at DateTime DEFAULT now()) ENGINE = MergeTree ORDER BY tuple()")
+    ch.query(f"INSERT INTO {UPGRADE_MARK} (at) VALUES (now())")
+    ch.query("DROP VIEW dmp.events_daily_agg")
+    return True
+
+
+def upgrade_pending(ch: CH) -> bool:
+    return ch.query(f"SELECT count() FROM system.tables WHERE database = 'dmp' AND name = '{UPGRADE_MARK.split('.')[1]}' FORMAT TSV").strip() not in ("", "0")
+
+
+def finish_upgrade(ch: CH) -> list[str]:
+    """套完 schema 後呼叫。升級待辦還在 → 底表所有日期一律從底表重建（不看分區在不在：升級中斷期間新 MV 可能已為某天
+    建出只含新事件的部分分區，Codex #66），全部完成才刪待辦。沒有待辦 → 只補「底表有、彙總沒有分區」的日期。"""
+    if upgrade_pending(ch):
+        done = rebuild_all(ch)
+        ch.query(f"DROP TABLE IF EXISTS {UPGRADE_MARK}")
+        return done
+    return backfill_missing(ch)
+
+
+def backfill_missing(ch: CH) -> list[str]:
+    """底表有事件、彙總表卻沒有分區的日期 → 重建。正常環境兩邊日期一致，什麼都不做。
+    （升級中的部分分區由 finish_upgrade 的升級待辦處理，這裡只是保險。）"""
+    base = {x for x in ch.query("SELECT DISTINCT toString(event_date) FROM dmp.events FORMAT TSV").split("\n") if x.strip()}
+    missing = sorted(base - set(agg_dates(ch)))
+    return rebuild(ch, missing, "backfill", with_pending=False) if missing else []
 
 
 def gc_marks(ch: CH) -> None:
@@ -487,6 +529,8 @@ def selftest() -> None:
     assert any(x == f"ALTER TABLE {AGG_TABLE} DROP PARTITION ID '20261003'" for x in ch.sql) and not any("REPLACE" in x for x in ch.sql), ch.sql   # 那天沒事件 → 丟掉目標分區
     ch.stage_rows = 1; ch.newer = 1; ch.sql.clear(); rebuild(ch, ["2026-10-04"], with_pending=False)
     assert sum(1 for x in ch.sql if "REPLACE PARTITION ID '20261004'" in x) == MAX_ROUNDS, "有人在我快照後落地 → 再快照，直到沒有（上限 MAX_ROUNDS）"
+    last_rep = max(i for i, x in enumerate(ch.sql) if "REPLACE PARTITION ID '20261004'" in x)
+    assert any(x.startswith(f"INSERT INTO {AGG_PENDING}") and "toDate('2026-10-04')" in x and x.rstrip().endswith("'change')") for x in ch.sql[last_rep:]), "重試用完 → 留 change 標記，之後一定再重建"
     ch.newer = 0
     m = begin(ch, ["2026-10-16", "2026-10-16", "2026-10-17"], "b'1"); assert sorted(m.ids) == ["2026-10-16", "2026-10-17"] and len(set(m.ids.values())) == 2
     assert "', 0, 'b\\'1', toDateTime64('2026-10-16 00:00:00.000'" in ch.sql[-1], ch.sql[-1]                                          # phase 0 + 租約
