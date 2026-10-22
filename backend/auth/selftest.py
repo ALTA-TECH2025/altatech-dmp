@@ -186,7 +186,22 @@ def main() -> None:
         from fastapi.testclient import TestClient
     except ImportError:
         print("auth self-test ok (fastapi 未安裝，略過路由測試)"); return
-    from .api import AuthService, build_router
+    import copy
+
+    from .api import AuthService, apply_env_overrides, build_router
+    # 部署覆寫：broker 模式列 Keycloak；issuer、回呼網址跟著環境變數；打錯模式（例：oidc）啟動就報錯，不會默默沒有登入入口
+    ov = apply_env_overrides(copy.deepcopy(CFG), {"DMP_IDP_MODE": "broker", "DMP_OIDC_ISSUER": "https://dmp.example.test/auth/realms/dmp", "DMP_PUBLIC_URL": "https://dmp.example.test/"})
+    kc = ov["providers"]["keycloak"]
+    assert ov["mode"] == "broker" and kc["issuer"] == "https://dmp.example.test/auth/realms/dmp", kc
+    assert kc["redirect_uri"] == "https://dmp.example.test/auth/callback" and kc["post_logout_redirect_uri"] == "https://dmp.example.test/login", kc
+    assert CFG["providers"]["keycloak"]["redirect_uri"] != kc["redirect_uri"]       # 不改到共用設定
+    for bad in ({"DMP_IDP_MODE": "oidc"}, {"DMP_PUBLIC_URL": "dmp.example.test"}):
+        try:
+            apply_env_overrides(copy.deepcopy(CFG), bad); raise AssertionError(bad)
+        except ValueError:
+            pass
+    stub = type("P", (), {"cfg": kc})()
+    assert [p["key"] for p in AuthService(ov, {"keycloak": stub}, sm).visible_providers()] == ["keycloak"]
     cfg = dict(CFG); cfg["mode"] = "direct"
     svc = AuthService(cfg, {"entra": entra, "ad": ad}, sm, tokens, lambda: asg)
     app = FastAPI(); app.include_router(build_router(svc))
