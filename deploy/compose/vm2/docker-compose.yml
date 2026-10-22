@@ -1,4 +1,4 @@
-# VM-2：dmp-core worker、dmp-batch、dmp-web/API 第二份、ClickHouse 副本 2、Keeper 2、PostgreSQL 備援、Redis 從＋Sentinel、SeaweedFS master/volume、node-exporter、cAdvisor、Alloy（docs/44 §2）
+# VM-2（備援）：dmp-web／API 備援（平時不接流量、不跑背景作業；worker、batch 只在接管時以 takeover profile 啟動）、ClickHouse 副本 2、Keeper 2、PostgreSQL 備援、Redis 從＋Sentinel、SeaweedFS master/volume、node-exporter、cAdvisor、Alloy（docs/44 §2）
 # 啟動：cd deploy/compose && ./dmp.sh vm2 up    （.env 的 VM_HOST=VM2、KEEPER_ID=2、CH_REPLICA=r2）
 name: dmp-vm2
 
@@ -43,7 +43,7 @@ services:
     cap_add: [SYS_NICE, NET_ADMIN, IPC_LOCK]
     healthcheck: { test: ["CMD", "clickhouse-client", "--user", "${CH_USER}", "--password", "${CH_PASSWORD}", "-q", "SELECT 1"], interval: 30s, timeout: 5s, retries: 5, start_period: 60s }
 
-  postgres:
+  postgres:                              # 從庫可自動重啟；promote 成主庫後若要長期當主，比照 VM1 改 restart: "no"
     <<: [*logging, *restart]
     image: ${POSTGRES_IMAGE}
     network_mode: host
@@ -92,18 +92,20 @@ services:
     command: ["volume", "-ip=${VM_HOST}", "-port=8380", "-mserver=${VM1_HOST}:9333,${VM2_HOST}:9333,${VM3_HOST}:9333", "-dir=/data/volume", "-max=0", "-dataCenter=sinopac", "-rack=${VM_HOST}"]
     volumes: ["${DATA_ROOT}/seaweedfs:/data"]
 
-  worker:
+  worker:                                # 接管才起：COMPOSE_PROFILES=takeover ./dmp.sh vm2 up worker batch（docs/44 §5.1；起之前先確認 VM1 的 worker 已停）
+    profiles: [takeover]
     <<: [*logging, *restart]
     image: ${REGISTRY}/dmp-core:${DMP_TAG}
     depends_on: { clickhouse: { condition: service_healthy }, redis: { condition: service_started } }
-    extra_hosts: ["host.docker.internal:host-gateway"]
+    extra_hosts: ["host.docker.internal:host-gateway", "pg-primary:${PG_PRIMARY_HOST}"]
     environment:
       DMP_ROLE: worker
-      DMP_TICK: "1"                      # 唯一一份背景排程：同步任務、分群例行、對照寫入、推送
+      DMP_SCHED_DB: /app-data/sched.db   # VM1 每 15 分鐘同步過來的那份
+      DMP_EXPORT_DIR: /app-data/exports
       CLICKHOUSE_URL: "http://host.docker.internal:8123"
       CLICKHOUSE_USER: "${CH_USER}"
       CLICKHOUSE_PASSWORD: "${CH_PASSWORD}"
-      DMP_PG_DSN: "postgresql://${PG_USER}:${PG_PASSWORD}@${VM1_HOST}:5432/dmp"
+      DMP_PG_DSN: "postgresql://${PG_USER}:${PG_PASSWORD}@pg-primary:5432/dmp"
       REDIS_URL: "redis://:${REDIS_PASSWORD}@${VM1_HOST}:6379/0"
       DMP_SECRETS_JSON: /run/secrets/dmp-secrets.json
       S3_ENDPOINT: "http://${VM1_HOST}:8333"
@@ -111,20 +113,22 @@ services:
       S3_SECRET_KEY: "${S3_SECRET_KEY}"
     volumes:
       - /run/secrets/dmp-secrets.json:/run/secrets/dmp-secrets.json:ro
-      - ${DATA_ROOT}/landing:/landing          # 接收區（永豐 IT SFTP 落檔目錄）唯讀掛給匯入器
+      - ${APP_DATA}:/app-data
+      - ${DATA_ROOT}/landing:/landing          # 接管後由永豐 IT 把 SFTP 落檔改指 VM2
     read_only: true
     tmpfs: ["/tmp"]
     deploy: { resources: { limits: { cpus: "6", memory: 12g } } }
 
   batch:
+    profiles: [takeover]
     <<: [*logging, *restart]
     image: ${REGISTRY}/dmp-batch:${DMP_TAG}
     depends_on: [worker]
     command: standalone
-    extra_hosts: ["host.docker.internal:host-gateway"]
+    extra_hosts: ["host.docker.internal:host-gateway", "pg-primary:${PG_PRIMARY_HOST}"]
     ports: ["8082:8080"]                 # Airflow UI，只開給內網維運
     environment:
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://${PG_USER}:${PG_PASSWORD}@${VM1_HOST}:5432/dmp"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://${PG_USER}:${PG_PASSWORD}@pg-primary:5432/dmp"
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "False"
       CLICKHOUSE_URL: "http://host.docker.internal:8123"
@@ -142,15 +146,17 @@ services:
     image: ${REGISTRY}/dmp-core:${DMP_TAG}
     depends_on: { clickhouse: { condition: service_healthy } }
     ports: ["8080:8080"]
-    extra_hosts: ["host.docker.internal:host-gateway"]
+    extra_hosts: ["host.docker.internal:host-gateway", "pg-primary:${PG_PRIMARY_HOST}"]
     environment:
-      DMP_ROLE: api
+      DMP_ROLE: api                      # 備援：F5 平常不送這台；登入狀態在 PostgreSQL（#72），切過來使用者不必重登
       DMP_PORT: "8080"
       DMP_TICK: "0"
+      DMP_SCHED_DB: /app-data/sched.db
+      DMP_EXPORT_DIR: /app-data/exports
       CLICKHOUSE_URL: "http://host.docker.internal:8123"
       CLICKHOUSE_USER: "${CH_USER}"
       CLICKHOUSE_PASSWORD: "${CH_PASSWORD}"
-      DMP_PG_DSN: "postgresql://${PG_USER}:${PG_PASSWORD}@${VM1_HOST}:5432/dmp"
+      DMP_PG_DSN: "postgresql://${PG_USER}:${PG_PASSWORD}@pg-primary:5432/dmp"
       REDIS_URL: "redis://:${REDIS_PASSWORD}@${VM1_HOST}:6379/0"
       DMP_IDP_MODE: "${DMP_IDP_MODE}"
       DMP_OIDC_ISSUER: "http://${VM3_HOST}:8180/realms/dmp"
@@ -158,7 +164,9 @@ services:
       DMP_SECRETS_JSON: /run/secrets/dmp-secrets.json
       DMP_METRICS_TOKEN: "${DMP_METRICS_TOKEN}"
       DMP_WEB_DIST: ""
-    volumes: ["/run/secrets/dmp-secrets.json:/run/secrets/dmp-secrets.json:ro"]
+    volumes:
+      - /run/secrets/dmp-secrets.json:/run/secrets/dmp-secrets.json:ro
+      - ${APP_DATA}:/app-data
     read_only: true
     tmpfs: ["/tmp"]
     deploy: { resources: { limits: { cpus: "4", memory: 8g } } }
@@ -167,7 +175,7 @@ services:
     <<: [*logging, *restart]
     image: ${REGISTRY}/dmp-web:${DMP_TAG}
     depends_on: [api]
-    ports: ["80:8080"]
+    ports: ["80:8080"]                   # F5 的 backup 成員：VM1 健康檢查失敗才送這裡
     environment: { API_UPSTREAM: "http://api:8080" }
     read_only: true
     tmpfs: ["/tmp", "/var/cache/nginx", "/var/run"]

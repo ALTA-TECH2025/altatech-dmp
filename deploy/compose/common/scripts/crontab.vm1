@@ -1,0 +1,4 @@
+# VM1 主機 crontab（root）：sudo crontab -u root common/scripts/crontab.vm1 ；路徑依實際 checkout 位置調整
+# 接管（VM2 變主）後在 VM1 移除這份，避免舊資料蓋回新主機
+CD=/opt/altatech-dmp/deploy/compose
+*/15 * * * *  cd $CD && ./common/scripts/sync_app_data.sh >> /var/log/dmp-sync.log 2>&1

@@ -57,9 +57,10 @@ services:
     image: ${KEYCLOAK_IMAGE}
     command: ["start", "--http-port=8180", "--hostname=${DMP_PUBLIC_URL}/auth", "--http-relative-path=/auth", "--proxy-headers=xforwarded", "--http-enabled=true"]
     ports: ["8180:8180"]                 # F5／HAProxy 把 /auth 轉到這裡；TLS 在 LB 終結
+    extra_hosts: ["pg-primary:${PG_PRIMARY_HOST}"]   # 主庫切換時只改 .env 的 PG_PRIMARY_HOST（docs/44 §5.1）
     environment:
       KC_DB: postgres
-      KC_DB_URL: "jdbc:postgresql://${VM1_HOST}:5432/keycloak"
+      KC_DB_URL: "jdbc:postgresql://pg-primary:5432/keycloak"
       KC_DB_USERNAME: "${PG_USER}"
       KC_DB_PASSWORD: "${PG_PASSWORD}"
       KEYCLOAK_ADMIN: admin
@@ -105,8 +106,9 @@ services:
   ingest:
     <<: [*logging, *restart]
     image: ${REGISTRY}/dmp-ingest:${DMP_TAG}
-    profiles: [ingest]                   # 選配：MA／LINE 直送 /v1/events 時才啟用（./dmp.sh vm3 up --profile ingest）
+    profiles: [ingest]                   # 選配：MA／LINE 直送 /v1/events 時才啟用（COMPOSE_PROFILES=ingest ./dmp.sh vm3 up ingest）
     ports: ["8081:8081"]
+    # CORE_URL 指平常接流量的 VM1；切到 VM2 時改這裡或改指 F5 內部位址
     environment: { CORE_URL: "http://${VM1_HOST}:8080", DMP_SECRETS_JSON: /run/secrets/dmp-secrets.json }
     volumes: ["/run/secrets/dmp-secrets.json:/run/secrets/dmp-secrets.json:ro"]
     read_only: true
@@ -121,7 +123,7 @@ services:
       CH_HOST: "${VM1_HOST}"
       CH_USER: "${CH_USER}"
       CH_PASSWORD: "${CH_PASSWORD}"
-      PG_HOST: "${VM1_HOST}"
+      PG_HOST: "${PG_PRIMARY_HOST}"      # 跟著主庫走，切換後不用改
       PG_USER: "${PG_USER}"
       PGPASSWORD: "${PG_PASSWORD}"
       S3_ENDPOINT: "http://${VM1_HOST}:8333"
