@@ -10,7 +10,7 @@
         <default><password></password><networks><ip>127.0.0.1</ip></networks><profile>default</profile><quota>default</quota></default>
         <dmp>
             <password from_env="CH_PASSWORD"/>
-            <networks><ip>10.10.0.0/24</ip><ip>127.0.0.1</ip></networks>
+            <networks><ip>10.10.0.0/24</ip><ip>172.30.0.0/24</ip><ip>127.0.0.1</ip></networks>   <!-- 172.30.0.0/24＝.env 的 APP_SUBNET（應用容器經 host.docker.internal 連入的來源）-->
             <profile>default</profile><quota>default</quota>
             <access_management>1</access_management>
         </dmp>

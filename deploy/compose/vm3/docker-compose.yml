@@ -55,8 +55,8 @@ services:
   keycloak:
     <<: [*logging, *restart]
     image: ${KEYCLOAK_IMAGE}
-    command: ["start", "--http-port=8180", "--hostname=${DMP_PUBLIC_URL}/auth", "--http-relative-path=/auth", "--proxy-headers=xforwarded", "--http-enabled=true"]
-    ports: ["8180:8180"]                 # F5／HAProxy 把 /auth 轉到這裡；TLS 在 LB 終結
+    command: ["start", "--http-port=8180", "--hostname=${DMP_PUBLIC_URL}/sso", "--http-relative-path=/sso", "--proxy-headers=xforwarded", "--http-enabled=true"]
+    ports: ["8180:8180"]                 # F5／HAProxy 只把 /sso/* 轉到這裡（/auth/* 是 DMP 自己的登入路由，留給 core API）；TLS 在 LB 終結
     extra_hosts: ["pg-primary:${PG_PRIMARY_HOST}"]   # 主庫切換時只改 .env 的 PG_PRIMARY_HOST（docs/44 §5.1）
     environment:
       KC_DB: postgres
@@ -178,3 +178,8 @@ services:
       - /var/run:/var/run:ro
       - /sys:/sys:ro
       - /var/lib/docker:/var/lib/docker:ro
+
+networks:
+  default:
+    ipam:
+      config: [{ subnet: "${APP_SUBNET}" }]   # 固定網段，users.xml／pg_hba.conf 只放行這段（不放寬成 0.0.0.0/0）

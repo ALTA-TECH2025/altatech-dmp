@@ -10,13 +10,13 @@
 
 SeaweedFS 三台都放（master ×3 Raft、每台一個 volume、複本 `001` 每檔 2 份落不同主機、filer＋S3 閘道在 VM1 與 VM3），任一台掉仍可讀寫；Redis 由 Sentinel 三票自動切換主從，應用連線字串仍指 VM1（Sentinel 切換後由運維改 .env 或改接 Sentinel，列為後續）。
 
-網路：資料服務用 host 網路，三台以內網位址互連；應用容器走 bridge 網路對外發佈埠（80、8080、8082、8180）。F5／HAProxy 把 `https://dmp.…` 只送 VM1 的 80（VM2 設成 backup 成員，VM1 健康檢查失敗才送），`/auth` 指到 VM3 的 8180。第一階段是主備，不是雙活：雙活要等排程狀態搬進 PostgreSQL（見 §5）；TLS 在 LB 終結（內部 CA），容器間走內網明文——若資安要求容器間也要 TLS，改走 ClickHouse 9440／PostgreSQL ssl，列為待討論。
+網路：資料服務用 host 網路，三台以內網位址互連；應用容器走 bridge 網路對外發佈埠（80、8080、8082、8180）。F5／HAProxy 把 `https://dmp.…` 只送 VM1 的 80（VM2 設成 backup 成員，VM1 健康檢查失敗才送），只有 `/sso/*` 指到 VM3 的 8180（Keycloak）；`/auth/*` 是 DMP 自己的登入路由（providers、login、callback、logout），跟其他路徑一樣送 VM1。應用容器的 bridge 網段固定為 `APP_SUBNET`（172.30.0.0/24），ClickHouse users.xml 與 pg_hba.conf 只多放行這一段。第一階段是主備，不是雙活：雙活要等排程狀態搬進 PostgreSQL（見 §5）；TLS 在 LB 終結（內部 CA），容器間走內網明文——若資安要求容器間也要 TLS，改走 ClickHouse 9440／PostgreSQL ssl，列為待討論。
 
 ## 1. 主機前置（三台都做）
 
 - OS：RHEL 9.x 或 Rocky 9.x；`dnf install docker-ce docker-compose-plugin`（Docker Engine 27、Compose v2）；Docker Desktop 不裝。
 - 核心參數（Ansible 角色或手動）：`vm.max_map_count=262144`、`fs.file-max=2097152`、`net.core.somaxconn=4096`；關 swap 或 `vm.swappiness=1`。
-- 目錄：資料碟掛 `/data`（SSD），`mkdir -p /data/dmp`；NAS 掛 `/mnt/nas/dmp-backup`（VM1 的 WAL 歸檔與 VM3 的備份都寫這裡）。VM1、VM2 都建 `/data/dmp/landing`（接收區：永豐 IT SFTP 平常落檔到 VM1，接管後改指 VM2；設唯讀給容器）與 `/data/dmp/app`（`APP_DATA`）。
+- 目錄：資料碟掛 `/data`（SSD），`mkdir -p /data/dmp`；NAS 掛 `/mnt/nas/dmp-backup`（VM1 的 WAL 歸檔與 VM3 的備份都寫這裡）。VM1、VM2 都建 `/data/dmp/landing`（接收區：永豐 IT SFTP 平常落檔到 VM1，接管後改指 VM2；設唯讀給容器）與 `APP_DATA`：`install -d -o 10001 -g 10001 -m 0700 /data/dmp/app /data/dmp/app/exports && chcon -Rt container_file_t /data/dmp/app`（容器以 UID 10001 寫入；同步腳本會維持這個擁有者）。
 - 密鑰：密鑰庫（OpenBao／HSM）在開機時把 secret_ref 對照檔掛到 `/run/secrets/dmp-secrets.json`，程式只在執行節點看得到明文（docs/06 §4）。映像以非 root 執行（core UID 10001、Airflow UID 50000），所以檔案權限用群組給：`groupadd -g 10500 dmp-secrets`（GID 與 `.env` 的 `DMP_SECRETS_GID` 一致）→ `chown root:dmp-secrets` → `chmod 0440` → SELinux `chcon -t container_file_t`。只有 compose 裡帶 `group_add` 的容器（api、worker、batch、ingest）讀得到，不要改成所有人可讀。起機後驗收：`./dmp.sh vm1 exec api python3 -c "import json,os;json.load(open(os.environ['DMP_SECRETS_JSON']));print('ok')"`。
 - 防火牆（只開內網 10.10.0.0/24）：8123／9000／9009（ClickHouse）、9181／9234（Keeper）、5432、6379／26379（Redis／Sentinel）、8333／8380／8888／9333（SeaweedFS）、9100／9101／9363／9364（exporter、cAdvisor）、3100（Loki）、12345（Alloy）、9090／3000（Prometheus／Grafana，維運網段）、8080／80／8180／8082（LB 與維運）。
 - `git clone` 到 `/opt/altatech-dmp`，`cd deploy/compose && cp .env.example .env`，填值；**每台的 `VM_HOST`、`KEEPER_ID`、`CH_REPLICA` 不同**（VM1=1/r1、VM2=2/r2、VM3=3/—）。`.env` 已 gitignore。
@@ -62,7 +62,7 @@ curl -s http://10.10.0.11:9333/cluster/status | head                            
 **VM1 掛 → VM2 接管**（同一時間只能有一個可寫主庫、一個在跑的 worker）：
 1. **先隔離 VM1**：確認 VM1 已關機，或已 `systemctl stop docker`，或已在防火牆切斷它對 5432、ClickHouse 的連線。無法確認就不接管（網路分區時 VM1 可能還活著）。
 2. **PostgreSQL 升主**：`docker compose -f vm2/docker-compose.yml exec postgres pg_ctl promote`。
-3. **改主庫名稱指向**：三台 `.env` 的 `PG_PRIMARY_HOST` 改成 VM2 位址，各台 `./dmp.sh vmN up` 重建應用容器（api、keycloak 等；連線字串都寫 `pg-primary`，不用改）。
+3. **改主庫名稱指向**：三台 `.env` 的 `PG_PRIMARY_HOST` 改成 VM2 位址，各台 `./dmp.sh vmN up` 重建應用容器（api、keycloak 等；連線字串都寫 `pg-primary`，不用改）。VM2 的 api 一定要重建（`./dmp.sh vm2 up --force-recreate api web`），才會打開同步過來的最新 `sched.db`。
 4. **起背景作業**：確認 VM1 的 worker 已停後，`COMPOSE_PROFILES=takeover ./dmp.sh vm2 up worker batch`。排程狀態用最近一次同步的 `sched.db`（最多落後 15 分鐘，水位較舊的任務會重跑一次，寫入以批次 ID 去重）。
 5. F5 健康檢查會自動把流量轉到 VM2；登入狀態在 PostgreSQL，使用者不必重登。永豐 IT 把 SFTP 落檔改指 VM2 的 `/data/dmp/landing`。
 6. Redis：Sentinel 會自動把 VM2 升主，應用 `REDIS_URL` 改指 VM2（快取可丟，不急）。ClickHouse 由 r2 承接查詢與寫入。

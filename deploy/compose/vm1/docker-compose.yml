@@ -129,7 +129,7 @@ services:
       DMP_PG_DSN: "postgresql://${PG_USER}:${PG_PASSWORD}@pg-primary:5432/dmp"
       REDIS_URL: "redis://:${REDIS_PASSWORD}@host.docker.internal:6379/0"
       DMP_IDP_MODE: "${DMP_IDP_MODE}"
-      DMP_OIDC_ISSUER: "${DMP_PUBLIC_URL}/auth/realms/dmp"   # Keycloak 以 --hostname=<對外網址>/auth 啟動，token 的 iss 就是這個（程式讀取見 #80）
+      DMP_OIDC_ISSUER: "${DMP_PUBLIC_URL}/sso/realms/dmp"   # Keycloak 以 --hostname=<對外網址>/sso 啟動，token 的 iss 就是這個（程式讀取見 #80）
       DMP_PUBLIC_URL: "${DMP_PUBLIC_URL}"
       DMP_BASE_URL: "${DMP_PUBLIC_URL}"  # 看板分享連結前綴
       DMP_SECRETS_JSON: /run/secrets/dmp-secrets.json
@@ -230,3 +230,8 @@ services:
       - /var/run:/var/run:ro
       - /sys:/sys:ro
       - /var/lib/docker:/var/lib/docker:ro
+
+networks:
+  default:
+    ipam:
+      config: [{ subnet: "${APP_SUBNET}" }]   # 固定網段，users.xml／pg_hba.conf 只放行這段（不放寬成 0.0.0.0/0）
