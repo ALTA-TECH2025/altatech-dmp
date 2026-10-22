@@ -2,11 +2,11 @@
 
 > 版本 v0.1 草案（2026-10-22）。起因：Windy 2026-10-22 指示「Flink 要改第一階段」。本文取代 docs/23 §1「第一階段不上 Flink、不以 Kafka 為主幹」的決定（決定確認後再回寫 docs/23、02、17、27、13、31、32）。
 >
-> **狀態**：規劃草案，§0 的三項決定待 Windy 確認；確認前只做不影響方向的準備工作（本文、本機與 CI 的 Flink 測試環境）。
+> **狀態**：D-F1 已確認採 A（Windy 2026-10-22「A ok」）；D-F2 延遲目標、D-F3 實作方式待確認，確認前契約只把延遲標為 proposed。
 
 ## 0. 要你決定的 3 件事
 
-### D-F1　哪些路徑改走 Flink
+### D-F1　哪些路徑改走 Flink　✅ 已確認採 A（2026-10-22）
 
 | | 範圍 | 差異 |
 |---|---|---|
@@ -113,13 +113,24 @@ Flink 不直接寫 ClickHouse。`dmp.events` 由一個**串流寫入器**（Pyth
 
 ### 4.1 本機驗證（PyFlink 重用現有 Python 規則）
 
-（驗證進行中，結果補在此節：版本、能否逐列一致、keyed state 與 checkpoint、吞吐與額外開銷。）
+2026-10-22 在本機（4 vCPU、OpenJDK 21、Python 3.12）以合成資料驗證，腳本未進 repo：
+
+| 項目 | 結果 |
+|---|---|
+| 版本 | apache-flink **2.3.0**（PyPI 最新）、Python 3.12、Java 21 直接可用，沒有 Java 模組相容警告；套件安裝約 820 MB（含 Beam、pyarrow、pandas），要算進 flink-jobs 映像大小 |
+| 重用現有規則 | 21 列合成輸入（一般列、個資列、完全重複、只差時間 1 秒）經 Table API 純量 UDF（process／thread 兩種模式）與 DataStream ProcessFunction，呼叫 repo 的 `modeling.apply`、`quarantine_row`、`to_ch_row`、`canon_json`，**三種寫法與批次 `apply()` 逐列完全相同**；重複列同 event_id、只差時間 1 秒則不同；個資列依模型設定被拒收或隔離，輸出內容沒有任何個資字串 |
+| 有狀態運算 | KeyedProcessFunction 以 distinct_id 為鍵、ValueState 保存首次登入對應，hashmap 與 RocksDB 兩種狀態後端的 checkpoint 都完成，取消後從 checkpoint 還原狀態正確 |
+| 吞吐（5 萬列） | 瓶頸是規則本身的 Python 運算（約 0.26 ms／列，單核約 3,800 列／秒），不是 Flink 傳輸；process 模式平行度 4 時約 6,000 列／秒（扣除作業啟動約 10,900）；thread 模式不會隨平行度增加。尖峰 7,000 事件／秒（docs/13）需要 J1 平行度約 4–8，正式檔位的 TM slot 足夠 |
+
+上線前要固定的設定（寫進 F2）：每個運算子給固定 `uid()`（否則從 checkpoint 還原會失敗）；`python.executable` 指到映像內的 Python；Python 工作程序用 process 模式；`python.fn-execution.bundle.size` 調小（預設值讓一次 checkpoint 等了 24 秒，調成 20 後約 0.2 秒）。
+
+結論：D-F3 建議的作法可行——批次與串流共用同一份個資守門與 event_id 規則，結果可逐列比對。
 
 ### 4.2 元件與授權
 
 | 元件 | 版本（建議） | 授權 | 備註 |
 |---|---|---|---|
-| Apache Flink（含 PyFlink） | 2.x（依 §4.1 驗證結果定） | Apache-2.0 | LICENSES.md 已列（原寫 1.19，確認後更新版本並附 CVE 檢查） |
+| Apache Flink（含 PyFlink） | 2.3（§4.1 已驗證；Operator 版本需相容 2.x） | Apache-2.0 | LICENSES.md 已列（原寫 1.19，確認後更新版本並附 CVE 檢查） |
 | Flink Kubernetes Operator | 1.10 以上 | Apache-2.0 | Chart.yaml 已列 |
 | Apache Kafka（Strimzi） | 3.8（KRaft） | Apache-2.0 | values.yaml 已有 `kafka.operator` |
 | checkpoint 儲存 | GCS／機房 S3 相容儲存 | — | values.yaml `flink.checkpointDir` 已有 |
