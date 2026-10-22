@@ -1,0 +1,133 @@
+# 即時路徑的 Kafka topic 與訊息格式（docs/43：Flink 改列第一階段，D-F1 = A「只有即時路徑走 Kafka + Flink」，Windy 2026-10-22 確認）
+# 原則：
+#   1. 訊息用 JSON；欄位與 ClickHouse 表一致（dmp.events、dmp.quarantine），不另設 Schema Registry。寫入器（stream_writer）依本檔驗證，不合格整筆拒收並記錄。
+#   2. 傳遞保證為「至少一次」：重送、重啟都靠冪等鍵吸收（events → event_id；triggers → dedupe_key）。寫入器寫入 ClickHouse 成功後才提交 offset。
+#   3. ClickHouse 只有一條寫入規則：Flink 不直接寫 ClickHouse，dmp.events 由寫入器沿用批次的去重（倉裡已有的 event_id 保留第一筆）與日彙總標記協定寫入（docs/43 §3.5）。
+#   4. 個資：raw topic 在接入端就拒收 L4 欄位；個資守門（手機／身分證樣式、hash／drop 欄位）在 J1 執行，命中列只以去個資後的內容進 dmp.quarantine。
+#      任何 topic 都不得出現 L3／L4 明文；one_id、客戶代碼一律是 HMAC 後的值。
+#   5. 延遲目標仍待核定（docs/43 D-F2），本檔只標 proposed，不作為驗收預設。
+version: 1
+status: draft
+encoding: json
+delivery: at_least_once
+
+latency_targets:                     # docs/43 D-F2，待 Windy 確認；未確認前不得當成 SLA
+  status: proposed
+  trigger_p95_seconds: 10            # 事件進 Kafka → dmp.triggers
+  events_queryable_p95_seconds: 60   # 事件進 Kafka → ClickHouse 可查（GA360 串流匯出本身的延遲不計）
+  trade_p95_seconds: 60              # 只在數據中台提供 Kafka topic 時適用；否則維持 15 分鐘批次
+
+topics:
+  - name: dmp.raw.ga4
+    cn: GA360 串流匯出原始列
+    producer: ga4_importer          # backend/integration/ga4_source.py（events_intraday_）
+    consumers: [flink.j1_normalize]
+    message: raw_row
+    partition_key: distinct_id
+    retention_days: 7
+    note: GA360 日批（events_）仍走批次並覆蓋串流結果，不進此 topic
+  - name: dmp.raw.api
+    cn: 直送事件（MA、LINE、短鏈；POST /v1/events）
+    producer: api_events
+    consumers: [flink.j1_normalize]
+    message: raw_row
+    partition_key: distinct_id
+    retention_days: 7
+  - name: dmp.raw.dwh
+    cn: 數據中台交易／帳務增量列
+    producer: dwh_connector
+    consumers: [flink.j2_trade]
+    message: raw_row
+    partition_key: order_key        # 委託單號（已代碼化）
+    retention_days: 7
+    enabled_when: 數據中台提供 Kafka topic；否則交易維持批次匯入
+  - name: dmp.events
+    cn: 標準化事件
+    producer: [flink.j1_normalize, flink.j2_trade]
+    consumers: [stream_writer, flink.j3_oneid, flink.j4_triggers]
+    message: event_record
+    partition_key: one_id           # 無 one_id 時用 distinct_id
+    idempotency_key: event_id
+    retention_days: 7
+  - name: dmp.quarantine
+    cn: 隔離列（已去個資）
+    producer: [flink.j1_normalize, flink.j2_trade]
+    consumers: [stream_writer]
+    message: quarantine_record
+    retention_days: 30
+  - name: dmp.identity
+    cn: 綁定與歸戶變更
+    producer: flink.j3_oneid
+    consumers: [stream_writer]
+    message: identity_record
+    partition_key: distinct_id
+    retention_days: 7
+  - name: dmp.triggers
+    cn: 即時觸發事件
+    producer: flink.j4_triggers
+    consumers: [activation]         # 推送服務：沿用 Webhook 簽章、重試、DLQ、交付紀錄、每人限發
+    message: trigger_record
+    partition_key: one_id
+    idempotency_key: dedupe_key
+    retention_days: 7
+
+messages:
+  raw_row:
+    required: [source, task_id, received_at, row]
+    fields:
+      source:      { type: string, cn: 來源（ga360、api、dwh） }
+      task_id:     { type: string, cn: 同步任務 ID（對應 /v1/integration 的任務；對帳用） }
+      batch_id:    { type: string, cn: 小批或檔案識別；串流可為空 }
+      received_at: { type: datetime_ms_utc, cn: 接入時間 }
+      row:         { type: object, cn: 來源原始列；接入端已移除 L4 欄位，其餘欄位依連接器建模（backend/integration/models）解析 }
+  event_record:                      # 對應 dmp.events；event_date、one_id_uint、late 由 ClickHouse 產生，不在訊息內
+    required: [project, time, event, source, one_id, distinct_id, event_id, ingest_time, schema_version]
+    fields:
+      project:        { type: string }
+      time:           { type: datetime_ms_utc }
+      event:          { type: string, cn: 正式事件名（已由別名／GA 事件名轉回） }
+      source:         { type: string }
+      one_id:         { type: string }
+      entity_type:    { type: string, default: "" }
+      entity_id:      { type: string, default: "" }
+      distinct_id:    { type: string }
+      session_id:     { type: string, default: "" }
+      event_id:       { type: string, cn: 內容雜湊（時間與屬性全同才是同一筆；與批次同一公式） }
+      platform:       { type: string, default: "" }
+      app_id:         { type: string, default: "" }
+      symbol:         { type: string, default: "" }
+      side:           { type: string, default: "" }
+      channel:        { type: string, default: "" }
+      amount:         { type: number, nullable: true }
+      utm_source:     { type: string, default: "" }
+      utm_campaign:   { type: string, default: "" }
+      props:          { type: object, default: {} }
+      ingest_time:    { type: datetime_ms_utc }
+      schema_version: { type: integer }
+      batch_id:       { type: string, default: "", cn: 串流寫入時填「stream:<topic>:<partition>:<起始 offset>」，三方對帳用 }
+  quarantine_record:                 # 對應 dmp.quarantine
+    required: [task_id, at, reason]
+    fields:
+      task_id:  { type: string }
+      batch_id: { type: string, default: "" }
+      at:       { type: datetime_ms_utc }
+      reason:   { type: string, cn: 原因碼（不帶原值） }
+      row:      { type: string, default: "", cn: 去個資後的來源列 JSON；造成隔離的非代碼值已遮罩 }
+  identity_record:
+    required: [at, action, distinct_id, source_event_id]
+    fields:
+      at:              { type: datetime_ms_utc }
+      action:          { type: string, enum: [first_link, bind, conflict], cn: 首次關聯／綁定／衝突待人工（規則同 oneid_rules.yaml） }
+      distinct_id:     { type: string }
+      one_id:          { type: string, nullable: true }
+      ids:             { type: object, cn: "ID 類型 → 值（皆為 HMAC／FPE 後的值，例：$identity_login_id）" }
+      source_event_id: { type: string }
+  trigger_record:
+    required: [rule_id, rule_version, one_id, fired_at, dedupe_key, evidence_event_ids]
+    fields:
+      rule_id:            { type: string }
+      rule_version:       { type: integer, cn: 審批通過的規則版本；未核准的規則不會部署 }
+      one_id:             { type: string }
+      fired_at:           { type: datetime_ms_utc }
+      dedupe_key:         { type: string, cn: "rule_id + one_id + 觸發窗口起點；同一鍵只推送一次" }
+      evidence_event_ids: { type: array, items: string, cn: 構成觸發的事件 ID（不帶事件內容） }

@@ -1811,6 +1811,17 @@ components:
           description: 資料品質指標（隔離率、拒絕率、K 匿名抑制、同步失敗）
           items: { type: object, properties: { key: { type: string }, cn: { type: string }, value: { type: number, nullable: true }, text: { type: string }, status: { type: string, enum: [ok, warn, error, unknown] } } }
         slo: { type: object, additionalProperties: true, description: 設計目標（backend/ops/sla.yaml） }
+        streaming:
+          type: object
+          nullable: true
+          description: 即時路徑（docs/43；backend/semantic/streams.yaml）；Kafka／Flink 未部署時為 null
+          properties:
+            topics:
+              type: array
+              items: { type: object, properties: { topic: { type: string }, consumer: { type: string }, lag: { type: integer, nullable: true, description: 未消費訊息數 }, lag_seconds: { type: number, nullable: true, description: 最舊未消費訊息距今秒數 }, status: { type: string, enum: [ok, warn, error, unknown] } } }
+            jobs:
+              type: array
+              items: { type: object, properties: { name: { type: string, description: 'j1_normalize、j2_trade、j3_oneid、j4_triggers' }, state: { type: string, enum: [running, restarting, failed, suspended, not_deployed] }, last_checkpoint_at: { type: string, format: date-time, nullable: true }, checkpoint_failures_1h: { type: integer, nullable: true }, backpressured: { type: boolean, nullable: true }, status: { type: string, enum: [ok, warn, error, unknown] } } }
     OpsQueryPerf:
       type: object
       properties:
