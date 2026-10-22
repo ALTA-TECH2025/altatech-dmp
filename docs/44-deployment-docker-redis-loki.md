@@ -40,6 +40,8 @@ Redis 的授權歷史：7.2 以前 BSD-3；7.4 起 RSALv2／SSPLv1 雙授權（�
 
 另：RSALv2 其實也允許「內部使用」，只禁止把 Redis 當託管服務賣給第三方；但它不是 OSI 授權，會破壞「全部 OSI 授權」的對外說法，所以選 AGPLv3 而不是 RSALv2。
 
+**與 repo 規則的衝突**：`AGENTS.md`「禁止」寫明不得引入 AGPL／SSPL／BSL／ELv2 授權的執行期元件，目前唯一例外是 Grafana OSS（LICENSES.md）。Redis 8 與 Loki 都是執行期元件，所以**法務核可前，部署檔與 CI 不得改用 Redis 8 映像**（現有 `backend/docker-compose.yml` 的 Valkey 維持不動；Valkey 與 Redis 協定相容，運維操作方式相同）。核可後同一個 PR 更新：AGENTS.md 例外條文、LICENSES.md 備註、compose 映像。
+
 落實：客戶端只用 redis-py（MIT）、只用 Redis 與 Valkey 共通的指令（不用 Redis 8 專有模組功能），連線設定 `REDIS_URL`；萬一法務不核可，換 Valkey 只改映像，不改程式。
 
 ## 4. Loki 授權
@@ -79,4 +81,4 @@ Loki 3.x 為 AGPLv3，與 Grafana OSS 同一家、同一種處理：官方映像
 | infra | `deploy/compose/`：主機角色 compose、.env 範本、啟動腳本（含 Flink 從最近 checkpoint 續跑）、CI `docker compose config` 驗證；backend/docker-compose.yml 的 valkey 映像換 redis:8（附 CVE 掃描結果） |
 | infra | 監控：Loki ＋ Alloy ＋ cAdvisor 設定、Grafana 資料源、Prometheus file_sd |
 | docs | docs/07、12、13、32、37 與簡報第 4、5 頁改為 Docker 版；Helm 標示不使用 |
-| 法務 | Redis 8（AGPLv3）與 Loki（AGPLv3）列入白名單例外 |
+| 法務 | Redis 8（AGPLv3）與 Loki（AGPLv3）列入白名單例外；核可後更新 AGENTS.md「禁止」的例外條文，再換部署映像 |
