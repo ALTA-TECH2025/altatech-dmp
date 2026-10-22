@@ -1,6 +1,18 @@
 # 架構圖集：系統架構、元件組成、數據流
 
-> 版本 v0.4（2026-10-17）。四張圖由 `docs/diagrams/build.py` 產生（純 Python，無相依）；改資料結構後執行 `python3 docs/diagrams/build.py` 重新產生 SVG（加 `--list` 印出每個方塊的狀態），PNG 預覽以瀏覽器轉出。**v0.4 起每個方塊右上角標示實作狀態**（已實作／部分實作／規劃中／第二階段／待確認；`STATUS` 表對照 docs/27 §1，待確認清單見 docs/17 §5a）。下方另附 Mermaid 版本供 GitHub 直接渲染與快速修改。
+> 版本 v0.5（2026-10-23）。**第一階段定版三張圖**（2026-10-22 與研發、運維定案：3 台 VM Docker Compose、微批不上 Flink、事件表只增刪不改寫、OneID 回補查詢時換算；對照 PR #74／#75／#76）由 `docs/diagrams/build_phase1.py` 產生，PNG 由 `render_png.py`（Playwright／Chromium）產生。原四張圖是 GCP／第二階段的目標架構，保留在下方。
+>
+> | 圖 | 檔案 | 用途 |
+> |---|---|---|
+> | 系統架構圖（第一階段） | `diagrams/phase1-system-architecture.svg` / `.png` | 提案與評審：六層＋安全、觀測、部署、授權；底部為去重與 OneID 規則 |
+> | 元件組成圖（3 台 VM 部署） | `diagrams/phase1-component-deployment.svg` / `.png` | 運維與資安：每台 VM 的容器、埠、入口、故障切換；對應 `deploy/compose/` |
+> | 數據流圖（第一階段微批） | `diagrams/phase1-data-flow.svg` / `.png` | 工程與資料治理：六段資料流、關鍵規則（去重、先刪再寫、回補對照）、頻率與延遲 |
+>
+> ![第一階段系統架構](diagrams/phase1-system-architecture.png)
+> ![第一階段元件組成](diagrams/phase1-component-deployment.png)
+> ![第一階段數據流](diagrams/phase1-data-flow.png)
+>
+> 原版本 v0.4（2026-10-17）說明如下。四張圖由 `docs/diagrams/build.py` 產生（純 Python，無相依）；改資料結構後執行 `python3 docs/diagrams/build.py` 重新產生 SVG（加 `--list` 印出每個方塊的狀態），PNG 預覽以瀏覽器轉出。**v0.4 起每個方塊右上角標示實作狀態**（已實作／部分實作／規劃中／第二階段／待確認；`STATUS` 表對照 docs/27 §1，待確認清單見 docs/17 §5a）。下方另附 Mermaid 版本供 GitHub 直接渲染與快速修改。
 
 | 圖 | 檔案 | 用途 |
 |---|---|---|
