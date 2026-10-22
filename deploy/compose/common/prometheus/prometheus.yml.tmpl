@@ -1,0 +1,18 @@
+# Prometheus（VM3）：抓三台的 node-exporter、ClickHouse／Keeper 內建 /metrics、Postgres／Redis exporter、core API /metrics（Bearer token）
+global: { scrape_interval: 30s, evaluation_interval: 30s }
+rule_files: [alerts.yml]
+alerting:
+  alertmanagers: []   # 告警由 core API /v1/ops/notify 走 Email／LINE（backend/ops/notify.py）；要接 Alertmanager 時在此加
+scrape_configs:
+  - job_name: node
+    static_configs: [{ targets: ["${VM1_HOST}:9100", "${VM2_HOST}:9100", "${VM3_HOST}:9100"] }]
+  - job_name: clickhouse
+    static_configs: [{ targets: ["${VM1_HOST}:9363", "${VM2_HOST}:9363"] }]
+  - job_name: keeper
+    static_configs: [{ targets: ["${VM1_HOST}:9364", "${VM2_HOST}:9364", "${VM3_HOST}:9364"] }]
+  - job_name: dmp-api
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials: "${DMP_METRICS_TOKEN}" }
+    static_configs: [{ targets: ["${VM1_HOST}:8080", "${VM2_HOST}:8080"] }]
+  - job_name: prometheus
+    static_configs: [{ targets: ["localhost:9090"] }]
