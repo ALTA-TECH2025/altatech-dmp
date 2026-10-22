@@ -279,8 +279,24 @@ def _shared_two_nodes(cfg: dict[str, Any], entra: OIDCProvider, idp: FakeEntra, 
         mine = ca.get("/v1/iam/sessions").json(); assert len(mine) == 1 and mine[0]["current"], mine
         raw = pgs[0]._loop.run(_fetch(pgs[0], f"SELECT sid_hash, doc::text AS doc FROM {schema}.iam_sessions"))
         assert raw and all(sid not in (x["sid_hash"] + x["doc"]) for x in raw)                                     # 只存雜湊
-        assert cb.post("/auth/logout", headers={"X-CSRF-Token": csrf}).status_code == 200
-        assert ca.get("/v1/iam/me").status_code == 401                                                             # B 登出，A 也失效
+        ca.cookies.set(ck, raw[0]["sid_hash"], domain="dmp.internal")
+        assert ca.get("/v1/iam/me").status_code == 401                                                             # 資料庫裡的雜湊不能當 cookie
+        ca.cookies.set(ck, sid, domain="dmp.internal")
+        # 撤銷 vs 在途請求：A 已讀到 session（resolve 前半）→ B 登出 → A 才寫回活動時間（resolve 後半）；不得復活
+        import threading
+        a_read, b_done = threading.Event(), threading.Event()
+        def node_a() -> None:
+            stale = sa.sessions.store.get(sid); assert stale is not None
+            a_read.set(); b_done.wait(10)
+            stale.last_seen = clock() + 1; sa.sessions.store.put(stale)
+        def node_b() -> None:
+            a_read.wait(10)
+            assert cb.post("/auth/logout", headers={"X-CSRF-Token": csrf}).status_code == 200
+            b_done.set()
+        ts = [threading.Thread(target=node_a), threading.Thread(target=node_b)]
+        [t.start() for t in ts]; [t.join(20) for t in ts]
+        assert sa.sessions.store.get(sid) is None and sa.sessions.resolve(sid) is None
+        assert ca.get("/v1/iam/me").status_code == 401 and cb.get("/v1/iam/me").status_code == 401             # B 登出後，舊請求也救不回來
         n = int(CFG["session"]["concurrent_sessions"])
         for i in range(n + 1):
             (sa if i % 2 else sb).sessions.create(user_id="entra:oid-x", username="x", name="X", email="", provider="entra", roles=["marketing"], groups=[], amr=["mfa"], auth_time=int(clock()))
@@ -288,7 +304,7 @@ def _shared_two_nodes(cfg: dict[str, Any], entra: OIDCProvider, idp: FakeEntra, 
         url, st = entra.begin("/")
         sa.login_states[st.state] = st; clock.t += 601
         assert sb.login_states.pop(st.state, None) is None                                                         # 逾時的登入前狀態視同不存在
-        return "shared-session(2 nodes: callback/cookie/logout/one-time-state/hash/evict/ttl)"
+        return "shared-session(2 nodes: callback/cookie/hash-not-cookie/logout-vs-inflight/one-time-state/hash/evict/ttl)"
     finally:
         pgs[0].drop_schema()
         for pg in pgs:

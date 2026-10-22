@@ -203,7 +203,7 @@ def build_router(svc: AuthService) -> APIRouter:
             target = next((x for x in (lister() if lister else []) if x.sid.startswith(sid)), None)
             if target is None:
                 raise HTTPException(404, "session 不存在")
-        svc.sessions.logout(target.sid)
+        svc.sessions.revoke(target)
         svc.sessions.audit("auth.session.revoked", {"user": s.user_id, "target": target.user_id, "sid": target.sid[:8], "self": target.user_id == s.user_id})
         return Response(status_code=204)
 

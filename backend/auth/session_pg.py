@@ -3,8 +3,10 @@
 為什麼：每個 API 程序原本各有一份記憶體 session（SessionMemory）與 login_states，同一個 cookie 打到另一台會 401，
 SSO 回呼若被分到另一台也會找不到登入前狀態。改放共用的 PostgreSQL 後，任何一台都認得同一個 cookie、登出一處全部失效。
 
-- session id 只存 SHA-256 雜湊：資料庫外洩也拿不到可用的 cookie 值。列出（list_user／list_all）時回傳的 Session.sid 是雜湊值，
-  delete／get 兩種都接受（雜湊是 64 個十六進位字元，原始 sid 是 43 字元的 base64url，不會混淆）。
+- session id 只存 SHA-256 雜湊：資料庫外洩也拿不到可用的 cookie 值。cookie 查詢（get）一律先驗格式（43 字元 base64url）再雜湊，
+  所以拿資料庫裡的雜湊當 cookie 也查不到。列出（list_user／list_all）時回傳的 Session.sid 是雜湊值，只給伺服器端的
+  delete（撤銷、踢舊 session、停用帳號）用；delete 兩種都接受。
+- 新建用 add（INSERT）；活動更新用 put，只 UPDATE 仍存在的列：別台已登出／撤銷的 session 不會被舊請求寫回來。
 - 登入前狀態只能取用一次：pop 用 DELETE … RETURNING，兩台同時回呼只有一台拿得到；超過 TTL（預設 600 秒）視同不存在。
 - 共用 PostgresStore 的連線池與背景事件迴圈；表名帶 schema（同 store_pg 的理由）。
 """
@@ -13,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import re
 import time
 from collections.abc import Callable
 from typing import Any
@@ -27,8 +30,16 @@ CREATE TABLE IF NOT EXISTS {s}.iam_login_states (state_hash TEXT PRIMARY KEY, do
 """
 
 
+_RAW_SID = re.compile(r"[A-Za-z0-9_-]{43}")          # secrets.token_urlsafe(32)
+
+
+def cookie_key(sid: str) -> str | None:
+    """cookie 送來的值 → 雜湊；格式不符（含 64 位雜湊本身）一律查不到。"""
+    return hashlib.sha256(sid.encode()).hexdigest() if _RAW_SID.fullmatch(sid or "") else None
+
+
 def sid_key(sid: str) -> str:
-    """原始 sid → 雜湊；已經是雜湊（列表回傳的）就原樣。"""
+    """伺服器端用：原始 sid → 雜湊；已經是雜湊（列表回傳的）就原樣。不可用在 cookie 查詢。"""
     if len(sid) == 64 and all(c in "0123456789abcdef" for c in sid):
         return sid
     return hashlib.sha256(sid.encode()).hexdigest()
@@ -54,7 +65,9 @@ class PgSessionStore(_Pg):
         return Session(sid=key, **d)
 
     def get(self, sid: str) -> Session | None:
-        key = sid_key(sid)
+        key = cookie_key(sid)
+        if key is None:
+            return None
         row = self._run(lambda c: c.fetchrow(f"SELECT doc FROM {self.pg.t('iam_sessions')} WHERE sid_hash=$1", key))
         if not row:
             return None
@@ -62,11 +75,15 @@ class PgSessionStore(_Pg):
         s.sid = sid                                  # 用原始 sid 查的就還原始 sid（cookie_headers、current 比對要用）
         return s
 
+    def add(self, s: Session) -> None:
+        d = dataclasses.asdict(s); d.pop("sid")
+        sql = f"INSERT INTO {self.pg.t('iam_sessions')} (sid_hash, user_id, doc, last_seen) VALUES ($1,$2,$3::jsonb,$4)"
+        self._run(lambda c: c.execute(sql, sid_key(s.sid), s.user_id, json.dumps(d, ensure_ascii=False), s.last_seen))
+
     def put(self, s: Session) -> None:
         d = dataclasses.asdict(s); d.pop("sid")
-        sql = (f"INSERT INTO {self.pg.t('iam_sessions')} (sid_hash, user_id, doc, last_seen) VALUES ($1,$2,$3::jsonb,$4) "
-               "ON CONFLICT (sid_hash) DO UPDATE SET doc=EXCLUDED.doc, last_seen=EXCLUDED.last_seen")
-        self._run(lambda c: c.execute(sql, sid_key(s.sid), s.user_id, json.dumps(d, ensure_ascii=False), s.last_seen))
+        sql = f"UPDATE {self.pg.t('iam_sessions')} SET doc=$2::jsonb, last_seen=$3 WHERE sid_hash=$1"     # 不存在就什麼都不做（不會復活）
+        self._run(lambda c: c.execute(sql, sid_key(s.sid), json.dumps(d, ensure_ascii=False), s.last_seen))
 
     def delete(self, sid: str) -> None:
         self._run(lambda c: c.execute(f"DELETE FROM {self.pg.t('iam_sessions')} WHERE sid_hash=$1", sid_key(sid)))
