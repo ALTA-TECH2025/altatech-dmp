@@ -76,6 +76,7 @@
 - Redis 授權：Redis 8 起為 RSALv2／SSPLv1／AGPLv3 三選一，本案**選 AGPLv3**，官方映像、不修改、只在中台內部使用、不對外提供 Redis 服務，比照既有 Grafana OSS 例外；Loki（AGPLv3）同樣處理。兩項例外**待法務核可**；不核可時換 Valkey 8（BSD-3，指令相容）只改映像（docs/44 §3–4）。
 - 拿掉 Kubernetes 的代價與處置：程序掛掉靠 `restart` ＋ `healthcheck`；主機故障靠服務自身多副本（ClickHouse 雙副本、Kafka／Keeper 三節點、Redis Sentinel），PostgreSQL 改手動 promote（RTO 30 分鐘）；Flink 單一 JobManager、從最近 checkpoint 續跑；換版逐台、無自動擴縮（docs/44 §5）。
 - API 先採主備、不雙活：目前登入 session 與 SSO 登入前狀態都在 API 程序記憶體、背景作業沒有跨程序租約，所以只有主機 1 的 API 接流量、只有主機 1 的 worker 跑背景作業；主機 1 故障時改送主機 2（使用者需重新登入）。雙活前置工作（共用 session、作業租約）列為後續 backend PR（docs/44 §5a）。
+- 主備也要先做到的三件事（docs/44 §2、§5.1、§5a）：① API 與 worker 拆成兩個容器時，同步排程狀態與產物目錄要共用（暫行：同一台、同一個持久目錄，每 15 分鐘同步到主機 2；正式：排程器改 PostgreSQL、產物放物件儲存）；② 手動接管前先隔離舊主機，舊主庫恢復後以 pg_rewind 改當從庫、不得自行回到主角色；③ SeaweedFS 三台都放、每個檔案 2 份，備份每日再複製到叢集外。
 - 一併檢查出的架構問題：Flink 已改第一階段但舊圖仍標第二階段；Keycloak、OpenBao、監控集中在主機 3 是單點；Helm 改為保留不使用、部署套件改 `deploy/compose/`；RHEL 預設 Podman；docs/07、12、13、32、37 與簡報第 4、5 頁待改（docs/44 §6）。
 
 ## 2. 元件模組圖

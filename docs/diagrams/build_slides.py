@@ -219,7 +219,7 @@ def s6():
         ("主機 3", [("dmp-ingest ＋ Flink", "JobManager ＋ TaskManager：J1–J4", "teal"), ("Kafka broker 3 ＋ Keeper 3", "三節點多數決", "teal"),
                    ("Redis Sentinel 3", "第三票", "yellow"), ("Keycloak ＋ OpenBao", "SSO／OIDC；密鑰落檔掛載", "purple"),
                    ("Prometheus ＋ Alertmanager", "指標、告警 → Email／LINE", "purple"), ("Grafana ＋ Loki", "看板與日誌查詢（Loki 取代其他日誌元件）", "purple"),
-                   ("SeaweedFS（機房 S3）", "備份、checkpoint、冷層；GCP 用 GCS", "yellow")]),
+                   ("SeaweedFS（三台都有）", "master＋volume 2 副本；備份另複製到叢集外", "yellow")]),
     ]
     for i, (hn, items) in enumerate(hosts):
         x = 96 + i * 408; w = 392

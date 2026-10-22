@@ -19,13 +19,17 @@
 |---|---|
 | 1 | dmp-web（nginx，TLS）、dmp-core API（唯一接流量）＋ dmp-core worker（唯一開背景作業）、ClickHouse 副本 1、Keeper 1、Kafka 1、PostgreSQL 主庫、Redis 主 ＋ Sentinel |
 | 2 | dmp-web、dmp-core API 備援（平時不接流量、不開背景作業）、ClickHouse 副本 2、Keeper 2、Kafka 2、PostgreSQL 從庫、Redis 從 ＋ Sentinel |
-| 3 | dmp-ingest、Flink（JobManager ＋ TaskManager，跑 docs/43 的 J1–J4）、Kafka 3、Keeper 3、Redis Sentinel、Keycloak、OpenBao、Prometheus ＋ Alertmanager、Grafana ＋ Loki、SeaweedFS（機房） |
-| 每台 | Alloy（容器日誌 → Loki）、node-exporter、cAdvisor；RHEL／Rocky 9，SELinux enforcing |
+| 3 | dmp-ingest、Flink（JobManager ＋ TaskManager，跑 docs/43 的 J1–J4）、Kafka 3、Keeper 3、Redis Sentinel、Keycloak、OpenBao、Prometheus ＋ Alertmanager、Grafana ＋ Loki |
+| 每台 | SeaweedFS master ＋ volume（機房物件儲存，見下）、Alloy（容器日誌 → Loki）、node-exporter、cAdvisor；RHEL／Rocky 9，SELinux enforcing |
 
 - A 檔 6 台：ClickHouse 兩副本移到兩台專用機（olap），其餘同上分散到 4 台。
 - 單機測試環境（docs/17 §5a 建議 1 台 4 vCPU／16 GB）：同一份 compose、每種服務 1 份、不開 Sentinel。
 - GCP：Compute Engine VM 跑同一份 compose；可選擇改用託管 Cloud SQL（PostgreSQL）、Memorystore for Redis、GCS，compose 裡對應服務不啟動、連線字串改指託管端點。
 - 入口：客戶既有負載平衡（機房 F5 等，GCP 內部 LB）→ 主機 1 的 nginx，主機 2 設為備援（backup）；不新增 keepalived 等元件。雙活要等 §5a 完成。
+- **SeaweedFS（機房物件儲存）三台都放**，不是只在主機 3：master ×3（Raft，任兩台在就能寫）、每台一個 volume server 用本機 HDD、複本設定 `001`（每個檔案 2 份、落在不同主機）、filer ×2（主機 1、3；中繼資料存 PostgreSQL 控制面，filer 本身無狀態）。
+  - 可用容量 ≈ 原始 HDD ÷ 2，再保留約 15% 空間：D 檔 3 台 × 2 × 8 TB = 48 TB 原始 → 約 20 TB 可用。docs/13 寫的「約 16–24 TB」是按 K8s 版估的，M1 依實機與實際複本設定重算，不直接沿用。
+  - 任一台損毀：另一份複本仍在、master 剩 2 票可寫；損毀主機上的 Flink 由其他主機以同一映像啟動，從物件儲存上最近一次 checkpoint 續跑（docs/43 §5）。
+  - **備份要有叢集外的第二份**：ClickHouse、PostgreSQL 備份先寫 SeaweedFS，再每日複製到獨立目的地（客戶既有備份系統／NAS／異地；GCP 為另一個區域的 GCS bucket）。同一個 SeaweedFS 叢集內的備份不算數，因為叢集整個損毀時會一起不見。
 
 ## 3. Redis 授權怎麼處理（需法務確認）
 
@@ -64,12 +68,23 @@ Loki 3.x 為 AGPLv3，與 Grafana OSS 同一家、同一種處理：官方映像
 | cert-manager | 客戶內部 CA 簽發，檔案掛載；到期前 30 天告警 | 換憑證手動 |
 | ServiceMonitor／PrometheusRule | Prometheus 靜態設定（file_sd）；告警規則沿用 `ops/alerts.yaml` 同一份 | 無 |
 
+### 5.1 手動接管時的隔離規則（避免兩個 worker 或兩個可寫主庫）
+
+1. **接管前先隔離舊主機**：確認主機 1 已關機，或已停掉它的 Docker 服務，或已在防火牆切斷它對 PostgreSQL（5432）、Kafka、ClickHouse 的連線。無法確認時不接管（網路分區時，主機 1 可能還活著）。
+2. **應用連 PostgreSQL 一律用名稱 `pg-primary`**（各主機 hosts／內部 DNS），不寫主機 IP；接管時把 `pg-primary` 改指主機 2，從庫 promote。
+3. **舊主庫恢復後不得自行回到主角色**：PostgreSQL 主庫容器用 `restart: "no"`，程序崩潰由告警通知運維依手冊重啟（RTO 30 分鐘內）。主機 1 復電後，主庫先以 `pg_rewind` 對齊新主庫、改當從庫，之後才可在維護窗口做計畫性回切。
+4. **舊 worker 不得自行恢復**：主機 1 的 worker 在接管後要停用（`docker compose stop` 並取消開機啟動），直到回切。#73（主控租約）合併後，即使兩份 worker 同時起來也只有一份會跑，但仍維持此規則。
+5. 驗收情境（部署驗收必做）：主機 1 網路分區但仍存活、主機 1 斷電後復電、計畫性回切；每個情境都要確認同一時間只有一個可寫主庫、一個在跑的 worker。
+
 ## 5a. 雙活前置工作（目前程式不支援，審查已重現）
 
 | 缺口 | 現況 | 要做的 | 驗收 |
 |---|---|---|---|
 | 登入 session 跨 API 實例 | `backend/api/main.py` 每個程序建立自己的 `SessionMemory()`；OIDC 登入前狀態 `AuthService.login_states` 也在程序內（`backend/auth/api.py`）。同一個 cookie 打到另一個 API 會回 401 | 共用 session store 與 login-state adapter（Redis 或 PostgreSQL 控制面） | 跨節點的 SSO callback、cookie、登出、主機故障切換不需重新登入 |
 | 背景作業單一執行 | `start_ticker` 直接呼叫各服務 tick（例：看板定時寄送先讀 last_run、寄完才更新），沒有跨程序 claim／租約；兩份 worker 同時跑會重複寄送 | 每類例行作業加分散式 claim／租約（PostgreSQL 列鎖或租約表） | 兩份 worker 併發同一排程只執行一次；持有者中斷後租約到期由另一份接手 |
+| 同步排程狀態與產物（**單一 API ＋ worker 拆成兩個容器就需要**） | 同步任務排程存在 SQLite（`DMP_SCHED_DB`，未設時預設各容器的 `/tmp/dmp-sched.db`，`backend/api/app.py`）；API 建的任務寫進 API 那份，worker 只輪詢自己那份，排程會靜默不執行。建模產物寫在映像內的 `backend/integration/models.generated`（`MODELS_DIR` 固定），看板寄送與資料輸出產物寫本機 `DMP_EXPORT_DIR` | 排程器改用 PostgreSQL（與控制面同庫）；`MODELS_DIR`、`DMP_EXPORT_DIR` 改成可設定，並放到物件儲存或共享持久目錄 | API 建立任務 → worker 執行 → API 可下載產物；接管到主機 2 後，同步水位與已產生的檔案仍可用 |
+
+完成前的暫行規則（單一主備也適用）：API 與 worker 放同一台、掛同一個持久目錄（例 `/data/dmp`），`DMP_SCHED_DB=/data/dmp/sched.db`、`DMP_EXPORT_DIR=/data/dmp/exports`，建模產物目錄也指到這裡；這個目錄每 15 分鐘同步到主機 2（接管時最多遺失 15 分鐘內新建的任務與產物，需在驗收時確認可接受）。
 
 完成前的部署規則：負載平衡只送主機 1 的 API；只有主機 1 的 `DMP_ROLE=worker` 開背景作業，兩個 API 都不開 `DMP_TICK`；主機 1 故障時改送主機 2 的 API（使用者重新登入）、運維手動啟動主機 2 的 worker。
 
@@ -87,7 +102,7 @@ Loki 3.x 為 AGPLv3，與 Grafana OSS 同一家、同一種處理：官方映像
 
 | PR | 內容 |
 |---|---|
-| backend | 雙活前置（§5a）：共用 session／login-state adapter、背景作業分散式租約，含跨節點驗收 |
+| backend | 雙活前置（§5a）：共用 session／login-state（#72）、背景作業主控租約（#73）、排程器改 PostgreSQL 與產物目錄可設定（待開），含跨節點驗收 |
 | infra | `deploy/compose/`：主機角色 compose、.env 範本、啟動腳本（含 Flink 從最近 checkpoint 續跑）、CI `docker compose config` 驗證；backend/docker-compose.yml 的 valkey 映像換 redis:8（附 CVE 掃描結果） |
 | infra | 監控：Loki ＋ Alloy ＋ cAdvisor 設定、Grafana 資料源、Prometheus file_sd |
 | docs | docs/07、12、13、32、37 與簡報第 4、5 頁改為 Docker 版；Helm 標示不使用 |
