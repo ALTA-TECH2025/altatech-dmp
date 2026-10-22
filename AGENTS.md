@@ -34,6 +34,7 @@ python3 -m backend.integration.legacy_api    # 舊平台查詢 API 連接器自�
 python3 -m backend.semantic.compiler.golden   # 查詢編譯器黃金測試乾跑（30 條編譯 + oracle、10 條必拒）；設 CLICKHOUSE_BIN 走真 ClickHouse 逐列比對
 python3 -m backend.integration.e2e_clickhouse # 接入端到端乾跑；設 CLICKHOUSE_BIN（自啟）或 CLICKHOUSE_URL（現成伺服器）走真 ClickHouse，最後一段跑編譯器黃金測試
 python3 backend/insight_agent/runtime.py      # agent 迴圈煙霧測試
+python3 -m backend.streaming.parity          # 批流一致性（docs/43）：沒裝 PyFlink 只跑純 Python；--require-flink 時另比 Flink 三種寫法（需 requirements-flink.txt 與 JDK 17/21）
 python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True) if '/templates/' not in f]"
 node --check prototype/js/app.js && node --check prototype/js/data.js
 cd web && npm ci && npm run typecheck && npm test && npm run build   # 正式前端（React + Vite + TS）：型別、單元測試、建置
@@ -51,4 +52,4 @@ cd prototype && python3 -m http.server 8080   # 手動或 Playwright 檢視
 - 把真實客戶資料放進 repo 或原型模擬資料。
 - 在前端或 agent 繞過 Policy Engine。
 - fork 修改開源元件；需要客製走 plugin / UDF / 設定。
-- 引入 AGPL / SSPL / BSL / ELv2 授權的執行期元件。
+- 引入 AGPL / SSPL / BSL / ELv2 授權的執行期元件。例外（只限官方映像、不修改、僅內部使用、不對外提供服務）：Grafana OSS（法務核可）；Redis 8（選 AGPLv3）、Loki——Windy 2026-10-23 決定法務未否決前照此規劃，否決即撤銷並換 Valkey 8／VictoriaLogs（docs/44 §3、docs/45 D-02、D-03）。
