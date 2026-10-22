@@ -204,15 +204,15 @@ def s6():
     s = Slide("部署架構（2026-10 決議版）：Docker Compose，不用 Kubernetes",
               "快取用 Redis、日誌用 Loki；每台主機一份 Compose、同一批 6 個自建映像；機房 RHEL／Rocky 9，GCP 用 Compute Engine VM（可改託管 Cloud SQL／Memorystore／GCS）", 6)
     # 入口列
-    s.box(96, 196, 560, 96, "入口", ["客戶負載平衡（F5／GCP 內部 LB）→ 主機 1、2 的 nginx（TLS）"], "red", 22, 16)
+    s.box(96, 196, 560, 96, "入口", ["客戶負載平衡（F5／GCP 內部 LB）→ 主機 1 nginx（TLS）", "主機 2 為備援；雙活待共用 session 與作業租約"], "red", 22, 15)
     s.box(672, 196, 560, 96, "映像與部署", ["Harbor 離線映像倉（Trivy 弱掃）；每台 compose ＋ .env，逐台換版"], "gray", 22, 16)
     s.box(1248, 196, 576, 96, "主機規模", ["本頁 3 台版（D 檔正式／C 檔測試）；A 檔 6 台把", "ClickHouse 兩副本移到專用機；單機測試全放一台"], "gray", 22, 15)
     hosts = [
-        ("主機 1", [("dmp-web（nginx）", "前端靜態檔＋反向代理", "brand"), ("dmp-core", "API、語意層、分群、同步、推送、背景作業", "brand"),
+        ("主機 1", [("dmp-web（nginx）", "前端靜態檔＋反向代理", "brand"), ("dmp-core API ＋ worker", "唯一接流量；背景作業只在這台執行", "brand"),
                    ("ClickHouse 副本 1", "行為事件倉、MV、Bitmap", "yellow"), ("ClickHouse Keeper 1", "副本協調", "yellow"),
                    ("Kafka broker 1（KRaft）", "原始事件、推送、即時路徑", "teal"), ("PostgreSQL 16 主庫", "控制面；pgBackRest WAL 歸檔", "yellow"),
                    ("Redis 主 ＋ Sentinel", "登入狀態、快取、佇列；AOF", "yellow")]),
-        ("主機 2", [("dmp-web（nginx）", "同主機 1，負載平衡雙活", "brand"), ("dmp-core", "同主機 1；背景作業以租約保證單一執行", "brand"),
+        ("主機 2", [("dmp-web（nginx）", "備援；平時不接流量", "brand"), ("dmp-core API（備援）", "不開背景作業；切換時使用者需重新登入", "brand"),
                    ("ClickHouse 副本 2", "任一台故障另一副本續服", "yellow"), ("ClickHouse Keeper 2", "副本協調", "yellow"),
                    ("Kafka broker 2（KRaft）", "三節點、replication 3", "teal"), ("PostgreSQL 16 從庫", "串流複寫；切換走手動程序", "yellow"),
                    ("Redis 從 ＋ Sentinel", "主庫故障由 Sentinel 自動切換", "yellow")]),
@@ -235,7 +235,7 @@ def s6():
     s.rect(1328, 312, 496, 548, C["redsoft"], C["red"], 16)
     s.text(1352, 346, "拿掉 Kubernetes 後由誰補位", 22, 800, C["red"])
     tips = [("程序掛掉", ["restart: unless-stopped ＋ healthcheck"]),
-            ("主機掛掉", ["ClickHouse／Kafka／Keeper 三節點自身容錯", "Redis 由 Sentinel 自動切換", "PostgreSQL 手動 promote（RTO 30 分鐘）"]),
+            ("主機掛掉", ["ClickHouse／Kafka／Keeper 三節點自身容錯；Redis Sentinel", "PostgreSQL 手動 promote（RTO 30 分鐘）", "主機 1 掛：改送主機 2 API、手動起 worker"]),
             ("Flink 中斷", ["單一 JobManager；checkpoint 存物件儲存", "重啟從最近一次續跑，寫入冪等不重算"]),
             ("換版與容量", ["逐台 pull ＋ up，維護窗口內", "沒有自動擴縮，容量按檔位預留"]),
             ("隔離", ["每台 Docker 網路＋主機防火牆", "容器非 root、唯讀、cap_drop ALL"]),
