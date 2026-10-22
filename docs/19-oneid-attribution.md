@@ -1,6 +1,8 @@
-# OneID 歸戶邏輯（v1.2，2026-10-16）— 對齊舊平台 IDM 3.0「全域用戶關聯」＋ 登入時近 7 天匿名行為改寫
+# OneID 歸戶邏輯（v1.3，2026-10-22）— 對齊舊平台 IDM 3.0「全域用戶關聯」＋ 登入時近 7 天匿名行為回補（查詢時換算，事件不改寫）
 
 > 取代 docs/01 §6 的「圖連通 + 合併 + 夜間改寫」設計。規則表：`backend/semantic/oneid_rules.yaml`；參考實作與 10 個情境自測：`backend/oneid/attribution.py`；原型「治理 › 用戶表 › OneID 規則」。GA360 埋點與交易事件如何打通、去識別化 ID 如何產生：docs/20。
+>
+> **v1.3 變更（2026-10-22，事件表只增刪不改寫）**：登入回補與人工合併／拆分不再改寫 `dmp.events`，改為寫 `oneid_backfill` 對照、查詢時以區間字典換算成 `one_id_eff`（§2.5）；事件表排序鍵改為 `(project, event_date, event, distinct_id_uint, time, event_id)`、抽樣改按 `distinct_id_uint` 分桶（`backend/clickhouse/schema.sql`）。去重與線下資料入庫規則見 docs/23 §4.1。
 >
 > **v1.2 變更（多主體與血緣，對齊 V-CDP 的 ID Mapping 可視化）**：主體定義 `backend/semantic/entities.yaml`（客戶為唯一錨點；帳戶、裝置、渠道掛在客戶下）；每條 ID 關聯是一條有來源、證據事件、時間、信心、狀態的邊（`dmp.id_edges`），血緣圖與衝突清單（`dmp.oneid_conflicts`）從邊來；共用裝置（90 天內 ≥ 3 個客戶）信心打折、不做傳遞映射；傳遞性映射（弱 ID 改綁時，同匿名用戶下高信心共現的弱 ID 一起跟過去，最多兩跳、信心乘積 ≥ 0.8）；人工合併／拆分／撤銷寫 `dmp.oneid_merge_log`（前後快照、審批角色）；表級血緣 `dmp.lineage_edges`。參考實作情境自測擴到 S1–S20（§3b）。
 >
@@ -80,30 +82,31 @@
    c. 它已有用戶 → 該用戶就是歸屬
 4. 資料裡其餘的 ID：
    - 新 ID → 綁到歸屬用戶（單值類型已有值則不綁、記 conflict）
-   - 屬於別的用戶 → 依該類型的改綁政策：never_auto（裝置／cookie／匿名）：原主人是匿名用戶 → 整個匿名用戶併入歸屬客戶、近 7 天事件改寫；原主人是已識別客戶 → **關聯失敗**，弱 ID 留在原主人、記 conflict（shared_device），事件仍歸登入客戶；manual（手機／帳號）保留原綁定、記 conflict；never（客戶代碼）不動
+   - 屬於別的用戶 → 依該類型的改綁政策：never_auto（裝置／cookie／匿名）：原主人是匿名用戶 → 整個匿名用戶併入歸屬客戶、近 7 天事件寫回補對照（查詢時換算）；原主人是已識別客戶 → **關聯失敗**，弱 ID 留在原主人、記 conflict（shared_device），事件仍歸登入客戶；manual（手機／帳號）保留原綁定、記 conflict；never（客戶代碼）不動
 5. 事件寫入 one_id = 歸屬用戶、distinct_id = 第一個弱 ID；寫 oneid.resolved 審計（綁定／改綁／衝突）
 6. 若這筆是登入事件（帶客戶代碼 + distinct_id，且同意）：
-   把同 distinct_id、event time 在 [登入 − 7 天, 登入]、目前仍屬「未識別用戶」的事件改寫 one_id → 歸屬客戶
-   （已歸任何客戶的事件不動；7 天外的留在匿名用戶）；寫 oneid.backfilled 審計（筆數、視窗）
+   寫一條回補對照（distinct_id、[登入 − 7 天, 登入]、原匿名用戶、歸屬客戶）到 oneid_backfill；
+   查詢時視窗內仍屬「未識別用戶」的事件算到歸屬客戶名下（已歸任何客戶的事件不受影響；7 天外的留在匿名用戶）；
+   事件表的 one_id 不改寫；寫 oneid.backfilled 審計（對照筆數、視窗）
 ```
 
-不會發生的事：兩個已存在的用戶被自動合併；已歸到某個客戶的事件被改到另一個客戶；超過 7 天的匿名事件被改寫。
+不會發生的事：兩個已存在的用戶被自動合併；已歸到某個客戶的事件被算到另一個客戶；超過 7 天的匿名事件被回補；**事件表的任何一列被改寫**（事件表只新增、刪除，見 §2.5 與 docs/23 §4.1）。
 
 ### 2.3 情境（與 `attribution.py` 自測一一對應）
 
 | 情境 | 輸入 | 結果 |
 |---|---|---|
 | S1 匿名瀏覽 → 首次登入 | cookie C1 → 匿名用戶 U1；登入事件 {C1, cust_A}，A 尚無用戶 | U1 升級為客戶 A；登入前事件自動屬於 A（同一 one_id） |
-| S2 既有客戶在新裝置 | 新裝置 C2 先成匿名用戶 U2（9 天前、3 天前、1 天前各一筆）；登入事件 {C2, cust_A} | 事件歸 A；C2 改綁到 A；**3 天前與 1 天前的匿名事件改寫到 A**（`backfilled=2`）；9 天前那筆留在 U2 |
-| S3 共用裝置換人登入 | A 登入後 C2 上又有匿名事件（歸 A）；兩天後 {C2, cust_B} | 事件歸 B（登入事件以客戶代碼為準）；**C2 關聯失敗、留在 A、記 conflict**；A 的事件不改寫（`backfilled=0`）。舊平台 IDM 2.0：「X 已與 A 關聯，此次關聯失敗…事件歸屬為 login_id 對應用戶」；IDM 3.0：「小米 1 和 A2 無法成功關聯…行為歸屬於 A2」 |
+| S2 既有客戶在新裝置 | 新裝置 C2 先成匿名用戶 U2（9 天前、3 天前、1 天前各一筆）；登入事件 {C2, cust_A} | 事件歸 A；C2 改綁到 A；**3 天前與 1 天前的匿名事件查詢時算到 A**（`backfilled=2`，事件列不動）；9 天前那筆留在 U2 |
+| S3 共用裝置換人登入 | A 登入後 C2 上又有匿名事件（歸 A）；兩天後 {C2, cust_B} | 事件歸 B（登入事件以客戶代碼為準）；**C2 關聯失敗、留在 A、記 conflict**；A 的事件不回補（`backfilled=0`）。舊平台 IDM 2.0：「X 已與 A 關聯，此次關聯失敗…事件歸屬為 login_id 對應用戶」；IDM 3.0：「小米 1 和 A2 無法成功關聯…行為歸屬於 A2」 |
 | S4 B 登出後 C2 的匿名事件 | {C2} | 歸 A（首次關聯者）。舊平台同樣如此，並明文列為限制：「舊手機送人後…若不登入就操作，則都會被識別為同一個用戶（舊手機成功關聯的登錄 ID）」。分析端可用 conflict 清單排除共用裝置的匿名事件 |
 | S5 交易事件只帶帳號 | {ACC9}，CRM 尚未送綁定 | 以帳號建立用戶；CRM 綁定 {cust_C, ACC9} 到達 → 升級為客戶 C，歷史交易自動歸戶 |
 | S5b 既有客戶的新帳戶 | {cust_A, ACC10} | ACC10 綁到 A |
 | S6 同手機兩個客戶 | {cust_D, M1}，M1 已屬 A | D 另建用戶、事件歸 D；手機不改綁、記 conflict；A、D 不合併 |
 | S7 GA user_id | {ga_user_id=cust_A, C7} | 視同客戶代碼，歸 A |
 | S8 未同意 | {cust_A, C8}，analytics_storage 拒絕 | 事件歸 A；C8 不綁定 |
-| S9 解綁 | unbind(cookie C7) 允許；unbind(login_id) 拒絕 | 人工合併／拆分由資訊管理發起、系統管理員審批，是登入改寫之外唯一會改寫事件的操作 |
-| S10 未同意的登入 | C9 匿名事件；{C9, cust_A} 且 analytics_storage 拒絕 | 登入事件歸 A；C9 不綁定、匿名事件不改寫（`backfilled=0`） |
+| S9 解綁 | unbind(cookie C7) 允許；unbind(login_id) 拒絕 | 人工合併／拆分由資訊管理發起、系統管理員審批；做法同登入回補：寫對照（source=manual）、事件不改寫，撤銷即刪對照 |
+| S10 未同意的登入 | C9 匿名事件；{C9, cust_A} 且 analytics_storage 拒絕 | 登入事件歸 A；C9 不綁定、匿名事件不回補（`backfilled=0`） |
 
 ### 2.4 證券業特有的部分
 
@@ -112,39 +115,45 @@
 - **同意**：`privacy_info.analytics_storage` 拒絕時，弱 ID 不與強 ID 建立關聯。
 - **舊平台歷史匯入**：匯入的事件已帶舊平台 identities，走同一套規則，口徑一致。
 
-### 2.5 登入改寫：近 7 天匿名行為歸到登入客戶（`login_backfill`，預設開）
+### 2.5 登入回補：近 7 天匿名行為歸到登入客戶（`login_backfill`，預設開；v1.3 改為查詢時換算，事件不改寫）
+
+> **v1.3 變更（2026-10-22）**：事件表 `dmp.events` 定為「只新增、刪除，不改寫」（docs/23 §4.1）。原 v1.1 以 `ALTER TABLE UPDATE` 改寫 `one_id` 的做法取消——除了違反只增刪原則，`one_id_uint` 原本在排序鍵與 `SAMPLE BY` 裡，ClickHouse 不允許更新排序鍵欄位，改寫也會把事件搬到另一個抽樣桶，路徑分析的 1/10 抽樣會前後不一致。改為：登入時只寫一條對照，查詢時用區間字典把視窗內的匿名事件算到客戶名下。功能與 v1.1 相同（S1–S10 結果不變），差別只在事件列永遠不動。
 
 | 項目 | 規則 |
 |---|---|
 | 觸發 | 帶客戶代碼 + distinct_id 的資料：GA `login`、Collector `$SignUp`／`login`、CRM `oneid.bind`；未同意（analytics_storage 拒絕）不觸發 |
-| 範圍 | 同 distinct_id、event time ∈ [登入 − 7 天, 登入]、目前 one_id 仍是「未識別用戶」的事件；已歸任何客戶的事件不動（所以 S3 不會把 A 的事件改給 B） |
-| 改寫內容 | `one_id`、`one_id_uint` → 登入客戶；`distinct_id` 保留原值 |
-| 7 天之外 | 留在匿名用戶；匿名用戶若沒有剩餘事件則標記已併入（users.merged_into） |
-| 落地方式 | Flink 在登入事件上輸出 `oneid.backfill` 指令（distinct_id、目標、視窗）→ 每 10 分鐘合併一批 → ClickHouse 輕量更新（`ALTER … UPDATE one_id, one_id_uint WHERE distinct_id IN (…) AND event_date BETWEEN … AND one_id IN (匿名用戶)`），只動近 8 個日分區；Iceberg 冷層由夜間作業同步 |
-| 查詢一致性 | 改寫落地前，查詢層以 `oneid_backfill` 覆蓋表（distinct_id, from, to, target）在 SQL 編譯時套用，報表不會「先少後多」 |
-| 審計 | `oneid.backfilled`：distinct_id、目標客戶、筆數、視窗；用戶細查可看「原 distinct_id」 |
-| 成本 | 每日登入 ~40 萬次、每次平均改寫 ~30 筆 → 每日 ~1,200 萬列更新，集中在 7 個分區；微批後每批 ~3,000 次登入，一次 UPDATE 完成；P95 落地 < 15 分鐘 |
+| 範圍 | 同 distinct_id、event time ∈ [登入 − 7 天, 登入]、寫入時 one_id 仍是「未識別用戶」的事件；已歸任何客戶的事件不受影響（所以 S3 不會把 A 的事件算給 B） |
+| 落地方式 | 登入事件 → 寫一條對照到 `dmp.oneid_backfill`（distinct_id、from_time、to_time、anon_one_id、target_one_id、source=login）；**事件表不動** |
+| 查詢換算 | `dmp.oneid_backfill_dict`（range_hashed 區間字典，key = distinct_id_uint、區間 = [from_time, to_time]，每 10 分鐘重載）；事件表 ALIAS 欄 `one_id_eff`：視窗內、且寫入時 `one_id_uint` 等於對照的 `anon_one_id_uint` 的事件 → `target_one_id_uint`，否則 `one_id_uint`（所以已歸其他客戶的事件不會被算走）。編譯器所有「用戶」口徑（uniq、分群 IN、用戶屬性 dictGet、歸因 JOIN）一律用 `one_id_eff`，不用 `one_id_uint`；日彙總 `events_daily_agg` 由重建作業（`aggregates.rebuild`，按日分區重建、不是插入時 MV）以 `one_id_eff` 聚合，近 8 天的日期每日重建一次以吸收新對照。L0 明細查詢在對照寫入後字典下次重載即生效（≤ 10 分鐘），報表不會「先少後多」 |
+| `distinct_id` | 永不改寫；事件寫入時的 `one_id` 也保留，任何一筆事件都能追溯「寫入當時歸誰、現在算誰」 |
+| 7 天之外 | 留在匿名用戶；匿名用戶若視窗外沒有剩餘事件則標記已併入（users.merged_into，只是用戶表的標記） |
+| 人工合併／拆分 | 同一張對照表，source=manual、視窗可為全期；撤銷 = 刪該條對照（`DELETE FROM oneid_backfill WHERE …`），事件不回滾 |
+| 審計 | `oneid.backfilled`：distinct_id、目標客戶、視窗、估算影響筆數；用戶細查可看「原 distinct_id」與「寫入時 one_id」 |
+| 成本 | 每日登入 ~40 萬次 → 每日 ~40 萬條對照（不再是 1,200 萬列更新）；對照保留 90 天 ≈ 3,600 萬條、字典數 GB 記憶體；查詢多一次字典查找（實測目標：事件分析 P95 增加 < 10%，M3 以黃金測試量） |
+| 冷層 | 事件不改寫，Iceberg 冷層不需同步回補；冷層查詢同樣經 `one_id_eff` 換算 |
 
-為什麼偏離舊平台的「不回填」：證券場景的關鍵漏斗（看行情／看商品 → 登入 → 下單）與歸因都橫跨登入，若登入前的瀏覽留在匿名用戶，漏斗第一步永遠接不到客戶；7 天視窗覆蓋 App 自動登出與行銷活動的典型週期，又限制了改寫成本與歷史數字變動的範圍。
+為什麼偏離舊平台的「不回填」：證券場景的關鍵漏斗（看行情／看商品 → 登入 → 下單）與歸因都橫跨登入，若登入前的瀏覽留在匿名用戶，漏斗第一步永遠接不到客戶；7 天視窗覆蓋 App 自動登出與行銷活動的典型週期，又限制了對照表大小與歷史數字變動的範圍。
+
+抽樣的取捨：`SAMPLE BY` 改按 `distinct_id_uint`（裝置／cookie）分桶，同一裝置登入前後的事件一定在同一桶，橫跨登入的漏斗抽樣一致；一客多裝置會分在不同桶，`SAMPLE` 下的用戶數是近似值（原本按 one_id 分桶在回補後也有同樣問題，且回補後桶會變）。
 
 其他可選政策（預設關閉）：
 
 | 政策 | 效果 | 代價 |
 |---|---|---|
-| `window_days` 改大（14／30） | 更多登入前行為歸戶 | 改寫列數與歷史數字變動成比例增加；超過 31 天會跨月分區 |
+| `window_days` 改大（14／30） | 更多登入前行為歸戶 | 對照視窗變長、歷史數字變動範圍變大；字典不受分區限制 |
 | 手機改綁政策改 latest | 同手機第二個客戶會把手機搶走 | 家人共用手機會互相搶 |
 
 ## 3. 實作對應
 
 | 元件 | 內容 |
 |---|---|
-| Flink `oneid` 算子 | keyed state `(id_type, id_hash) → one_id`；每筆事件執行 §2.2；輸出事件（含 one_id、one_id_uint、distinct_id）與 `id_map` 變更、`oneid.resolved` 審計；登入事件另輸出 `oneid.backfill` 指令 |
-| `backfill` 微批 | 每 10 分鐘讀 `oneid.backfill`，合併同分區指令，執行 ClickHouse 輕量更新；寫 `oneid_backfill` 覆蓋表（套用前）與 `oneid.backfilled` 審計（套用後）|
+| `oneid` 歸戶（第一階段為微批：`normalize.sql` 的 `dictGet('id_map')`，docs/23 §2；第二階段才有 Flink 算子） | 每筆事件執行 §2.2；輸出事件（含寫入時 one_id、one_id_uint、distinct_id、distinct_id_uint）與 `id_map` 變更、`oneid.resolved` 審計；登入事件另寫一條 `oneid_backfill` 對照 |
+| `oneid_backfill` 對照表 + `oneid_backfill_dict` 區間字典 | 對照只新增、刪除；字典每 10 分鐘重載；事件表 ALIAS 欄 `one_id_eff` 查詢時換算；寫 `oneid.backfilled` 審計。**沒有任何作業會 UPDATE 事件表** |
 | Valkey | 熱 ID → one_id 快取（供 API／即時規則查詢） |
 | ClickHouse `id_map` | `(id_type, id_hash) → one_id, version, bound_at, unbound_at`；可回溯任一時刻的綁定 |
-| `users` | 一個 one_id 一列；`one_id_uint` 在建立時分配、永不改變；匿名用戶在 7 天匿名事件全數改寫後標記 `merged_into` |
-| API | `/v1/oneid/resolve`、`/bind`、`/unbind`、`/merge`（人工，審批）、`/{one_id}/history`、`/backfills`（登入改寫批次與狀態）、`/erase`（DSAR） |
-| 治理頁 | ID 類型表、數量／改綁政策、昨日升級／改綁／登入改寫／衝突統計、衝突待處理清單 |
+| `users` | 一個 one_id 一列；`one_id_uint` 在建立時分配、永不改變；匿名用戶在 7 天匿名事件全數回補後標記 `merged_into`（用戶表標記，事件不動） |
+| API | `/v1/oneid/resolve`、`/bind`、`/unbind`、`/merge`（人工，審批）、`/{one_id}/history`、`/backfills`（回補對照與字典重載狀態）、`/erase`（DSAR） |
+| 治理頁 | ID 類型表、數量／改綁政策、昨日升級／改綁／登入回補／衝突統計、衝突待處理清單 |
 
 ### 3b. v1.2 多主體與血緣（entities.yaml、三張表、S11–S20）
 
@@ -157,11 +166,11 @@
 | `dmp.lineage_edges` | 表級血緣：來源 → raw → 目標 → id_map／users／分群／推送，via 任務或模組 |
 | `oneid/attribution.py` v1.2 | `_edge`／`_record_edges`（同筆資料兩兩記邊，含錨 ID 用資料來源、弱–弱用 cooccur）、`is_shared_device`、`_follow_transitive`、`merge`／`split`／`undo`、`graph(one_id)` 給身分圖 |
 
-自測 S11–S20：S11 邊的來源／證據／信心；S12 高信心共現（8 次，0.95）→ 跟著改綁並改寫匿名事件；S13 低信心（1 次，0.6）不跟；S14 共用裝置（3 個客戶）→ 邊 conflict、信心打折、不傳遞；S15 同筆兩個客戶代碼拒收；S16 同手機第二客戶記 conflict；S17 合併：客戶代碼不同拒絕、需 admin、快照與事件改寫；S18 撤銷還原、二次撤銷拒絕；S19 拆分從指定時間起、錨 ID 不可拆；S20 圖資料含主體、邊、時間軸，表級血緣有「來源 → id_map」。
+自測 S11–S20：S11 邊的來源／證據／信心；S12 高信心共現（8 次，0.95）→ 跟著改綁並寫匿名事件的回補對照；S13 低信心（1 次，0.6）不跟；S14 共用裝置（3 個客戶）→ 邊 conflict、信心打折、不傳遞；S15 同筆兩個客戶代碼拒收；S16 同手機第二客戶記 conflict；S17 合併：客戶代碼不同拒絕、需 admin、快照與回補對照（source=manual，事件不改寫）；S18 撤銷還原、二次撤銷拒絕；S19 拆分從指定時間起、錨 ID 不可拆；S20 圖資料含主體、邊、時間軸，表級血緣有「來源 → id_map」。
 
 ## 4. 待確認
 
 - 手機改綁政策：預設「人工」；若客戶希望「最新者取得」請明示。
 - 登入改寫視窗：預設 7 天（event time）；是否要含 App 自動登出後的更長視窗（14 天）請明示。
-- 登入改寫是否也套用在「歷史匯入」（舊平台舊資料的 `$SignUp`）：預設套用，匯入期間以批次而非微批執行。
+- 登入回補是否也套用在「歷史匯入」（舊平台舊資料的 `$SignUp`）：預設套用，匯入期間以批次產生對照（不改寫事件）。
 - 人工合併的審批人與保留期（預設資訊管理發起、系統管理員審批、對照保留 90 天）。

@@ -66,7 +66,7 @@
 
 ![元件模組圖](diagrams/module-map.png)
 
-功能模組與它們負責的資料、模組間關係：數據治理（數據整合、元事件管理、用戶表／維度表、資料流與效能）→ 核心資料（events + MV + oneid_backfill 覆蓋表、users／dim_*／id_map、Bitmap／segments／user_tags／insights／mid_tables）；分析（六模組 + 自定義 SQL）、營運（分群與標籤、觸發／推送）與 AI 洞察都經「語意層 + 查詢編譯器」與「Policy Engine」存取資料；系統管理（權限中心、日誌統計、平台設定）橫切所有模組。部署視圖（節點池、Pod、託管服務）見 `diagrams/component-deployment.png`（docs/12）。
+功能模組與它們負責的資料、模組間關係：數據治理（數據整合、元事件管理、用戶表／維度表、資料流與效能）→ 核心資料（events + MV + oneid_backfill 對照表、users／dim_*／id_map、Bitmap／segments／user_tags／insights／mid_tables）；分析（六模組 + 自定義 SQL）、營運（分群與標籤、觸發／推送）與 AI 洞察都經「語意層 + 查詢編譯器」與「Policy Engine」存取資料；系統管理（權限中心、日誌統計、平台設定）橫切所有模組。部署視圖（節點池、Pod、託管服務）見 `diagrams/component-deployment.png`（docs/12）。
 
 ## 3. 數據流圖
 
@@ -75,12 +75,12 @@
 | 流 | 路徑 | 延遲目標 |
 |---|---|---|
 | 準即時行為 | GA360（user_id = 去識別化客戶代碼 `v1_…`，登入時由 ID 服務簽發；user_pseudo_id 為匿名 distinct_id）BigQuery 串流匯出（events_intraday_）→ Importer → Kafka raw → Flink（normalize／eventize（GA 事件名經橋接表轉回舊平台正式事件名；別名 → 正式事件名）／OneID／session）→ ClickHouse | 分鐘級（P95 < 15 分鐘，受 GA 串流匯出延遲限制） |
-| 日批行為 | GA360 BigQuery 日批匯出（events_，權威）→ Storage Read API → Kafka raw → 同上；event_id 去重，覆蓋串流 | 前日資料 07:00 前到齊 |
+| 日批行為 | GA360 BigQuery 日批匯出（events_，權威）→ Storage Read API → 暫存表 → 同上；time＋event_id 去重（倉裡已有的串流列保留，只補漏）；GA 72 小時重寫的 D-2／D-3 先依 batch_id 刪除再重載 | 前日資料 07:00 前到齊 |
 | 交易／帳務 | 數據中台／CDP 事實表批次導入（每 15 分鐘增量 + 日批校正；數據中台有 Kafka 則流任務）→ Kafka → Flink 狀態機事件化（委託／成交／失敗／刪單）；不直連交易主機 | < 20 分鐘（批次）／< 1 分鐘（Kafka） |
 | 主檔 | CRM／HR／商品主檔 → 建模映射 → users／items | 每日 |
 | 分析查詢 | UI／API／agent → 語意層編譯 → Policy（行級、遮罩）→ ClickHouse（MV 優先）→ 快取 → 審計 | 各模組 P95 SLA 見 §5.9 |
 | 舊平台歷史資料（一次性） | Impala／HDFS Parquet 直讀（IDM 2.0：second_id → 客戶代碼，first_id 保留為匿名）→ Importer（legacy_export）→ 暫存 Parquet → ClickHouse SQL 標準化（事件名保留、時間轉 UTC、`$ip` 丟棄、登入 ID HMAC 成客戶代碼；第一階段微批，不經 Flink，docs/23）→ ClickHouse 歷史分區 → 三方對帳（來源／導出／載入） | 70 億約 2–3 天（Impala／HDFS 直讀，客戶已同意）；分片差異 > 0.1% 重跑 |
-| OneID 登入改寫 | 登入／綁定事件 → 查該 distinct_id 近 7 天仍歸匿名用戶的事件 → 寫入 oneid_backfill 覆蓋表（查詢即時生效）→ 每 10 分鐘微批 lightweight update 回寫 events（≤ 8 個日分區）→ 審計 oneid.backfilled；拒絕同意者不改寫 | 覆蓋表即時；回寫 < 10 分鐘 |
+| OneID 登入回補 | 登入／綁定事件 → 寫一條 oneid_backfill 對照（distinct_id、近 7 天視窗、目標客戶）→ 區間字典每 10 分鐘重載 → 查詢以 events.one_id_eff 換算；事件表不改寫（docs/19 v1.3）；拒絕同意者不回補 | 對照即時；查詢生效 < 10 分鐘 |
 | 標籤與分群 | 例行（日／週／月）或手動計算 → user_tags Bitmap（保留 1–100 版）→ 分群（規則／匯入／結果存檔；交／聯／差；1/16 抽樣估數）→ 審批 → 推送紀錄 | 日批 < 20 分鐘；500 分群估數 < 3 s |
 | 名單推送 | 分群／標籤 → 推送單審批 → Webhook／Kafka／GCS（內部系統）→ deliveries | 增量 15 分鐘送完 |
 | 自定義 SQL | 編輯器（唯讀 SELECT／WITH）→ 脫敏預校驗 → 語意層表目錄（依權限）→ ClickHouse（1,000 列預覽）→ 可視化／下載／存為概覽或中間表 → 審計 | 預覽 < 10 s；下載上限依角色 |
@@ -95,7 +95,7 @@
 - 事件字典 v4（`events.yaml`，共 264 個）：客戶模擬事件清單 112 個 ＋ 3 個補充交易事件 ＋ 舊平台埋點規格表 147 個自訂事件（2026-10-19 補；依平台判斷來源，標 (X)／已下線／過期活動的 17 個為 deprecated，只匯歷史；required 只列保留或代碼化的屬性，個資與維護欄不列）。模擬清單的 112 個舊平台事件（開戶 kh_*、定期定額 sip_*、申購／競拍 auc_*、行情 hq_*、活動 act_*、證券 bond_*、$App*／$pageview 等基礎事件、$Plan*／$Journey* 智能運營事件、LINE／Push／短鏈）＋ 3 個補充交易事件；每個事件帶 group／platforms／source／aliases，舊名（ga.page_view、quote_view、order_submit…）以別名映射到正式事件名（docs/04 §0a）。
 - 新舊銜接：正式事件名 = 舊平台事件名；GA 端事件名由 `backend/migration/bridge.py` 由事件字典產生（264 事件：157 經 GA〔自訂 155、自動 2〕、59 由數據中台／業務系統／渠道／短鏈直接接入、48 只匯舊平台歷史〔MA／LINE 與已停用事件〕），接入時以 `legacy_ga4_bridge.yaml` 轉回；登入用戶兩邊同一客戶代碼，匿名 ID 不銜接（docs/22 §2）。
 - 去識別化：一把 HMAC 金鑰（HSM）產生 `v1_` + 20 字元客戶代碼，GA `user_id` 與舊平台 `$identity_login_id` 同款；手機 HMAC／帳號 FPE 不送 GA；行為事件與交易事件不逐筆對帳，只靠 OneID 歸戶（docs/20）。
-- ClickHouse：`events`（L0，按 project／event_date／event／one_id／time／event_id 排序，月分區，13 個月熱層）、MV L1–L3、`oneid_backfill`（登入改寫覆蓋表）、`users`、維度表 `dim_*`（dictionary）、`id_map`、`user_tags`（Bitmap）、`segment_members`、`audit_log`（`backend/clickhouse/*.sql`）。
+- ClickHouse：`events`（L0，只新增、刪除、不改寫；按 project／event_date／event／distinct_id／time／event_id 排序，去重鍵 time＋event_id，月分區，13 個月熱層）、MV L1–L3、`oneid_backfill`（登入回補對照）+ `oneid_backfill_dict`（查詢時換算）、`users`、維度表 `dim_*`（dictionary）、`id_map`、`user_tags`（Bitmap）、`segment_members`、`audit_log`（`backend/clickhouse/*.sql`）。
 - 語意層 YAML：`events.yaml`、`metrics.yaml`、`dimensions.yaml`、`dimension_tables.yaml`（維度表／字典／虛擬屬性）、`user_properties.yaml`、`oneid_rules.yaml`、`ga4_mapping.yaml`；UI、API、agent 工具走同一查詢編譯器。
 - 敏感等級 L0–L4：L4 永不入倉；L3 代碼化；L2 匯出區間化；依角色遮罩（docs/10）。
 
