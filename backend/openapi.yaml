@@ -2063,7 +2063,8 @@ components:
         last_run_at: { type: string, format: date-time }
     SkillDraftUpdate:
       type: object
-      description: 只能改這些欄位；工具清單、模型可見範圍、自動化界線不在可編輯範圍
+      description: 只能改這些欄位；工具清單、模型可見範圍、自動化界線不在可編輯範圍（其他欄位一律拒絕 → 422）
+      additionalProperties: false
       properties:
         purpose: { type: string }
         refs: { type: object }
@@ -2090,10 +2091,11 @@ components:
         submitted: { type: object, properties: { revision: { type: integer }, content_digest: { type: string }, dry_run_id: { type: string }, at: { type: string, format: date-time } } }
     AgentConfigDraftUpdate:
       type: object
-      description: 只能改引用的 skill 固定版本與允許使用者調整的參數；不能改工具、模型可見範圍、自動化界線
+      description: 只能改引用的 skill 固定版本與允許使用者調整的參數；不能改工具、模型可見範圍、自動化界線（其他欄位一律拒絕 → 422）
+      additionalProperties: false
       properties:
-        skills: { type: array, items: { type: object, required: [name, version], properties: { name: { type: string }, version: { type: string, description: '固定版本，不接受 latest' } } } }
-        user_overridable: { type: array, items: { type: object, required: [skill, param], properties: { skill: { type: string }, param: { type: string } } } }
+        skills: { type: array, items: { type: object, additionalProperties: false, required: [name, version], properties: { name: { type: string }, version: { type: string, not: { const: latest }, description: '固定版本，不接受 latest' } } } }
+        user_overridable: { type: array, items: { type: object, additionalProperties: false, required: [skill, param], properties: { skill: { type: string }, param: { type: string } } } }
         notes_md: { type: string, maxLength: 2000 }
     ReviewBinding:
       type: object
