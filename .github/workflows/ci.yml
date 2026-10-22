@@ -80,7 +80,7 @@ jobs:
       - name: 骨架自測
         run: |
           python3 backend/security/policy.py && python3 backend/integration/transforms.py && python3 backend/integration/auth.py && python3 backend/insight_agent/runtime.py && python3 -m backend.insight_agent.model && python3 -m backend.insight_agent.skill_loader && python3 backend/oneid/attribution.py && python3 -m backend.auth && python3 -m backend.auth.local selftest && python3 -m backend.api && python3 -m backend.segments && python3 -m backend.api.store_pg && python3 -m backend.insight_agent.journal && python3 -m backend.ops.lease
-          python3 -m backend.integration.modeling && python3 -m backend.integration.scheduler && python3 -m backend.integration.legacy_format && python3 -m backend.integration.ga4_source && python3 -m backend.integration.legacy_api && python3 -m backend.semantic.compiler.golden && python3 -m backend.integration.e2e_clickhouse
+          python3 -m backend.integration.modeling && python3 -m backend.integration.scheduler && python3 -m backend.integration.legacy_format && python3 -m backend.integration.ga4_source && python3 -m backend.integration.legacy_api && python3 -m backend.semantic.compiler.golden && python3 -m backend.integration.e2e_clickhouse && python3 -m backend.streaming.parity
           python3 backend/migration/bridge.py --check && python3 backend/migration/properties.py --check && python3 backend/migration/legacy_specific.py --check && python3 backend/migration/presets.py
       - name: 容器入口（backend.entry）自測與啟動前檢查
         run: python3 -m backend.entry --selftest && python3 -m backend.entry --check && DMP_ROLE=worker python3 -m backend.entry --check
@@ -90,6 +90,21 @@ jobs:
       - name: 守門：工作流裡不准再出現「test … && 測試 || echo」把失敗吞掉的寫法
         run: |
           if grep -nE 'test -[fd] [^&]+ && [^|]+ \|\| echo' .github/workflows/*.yml; then echo "::error::上面的步驟會把測試失敗當成略過（R13）"; exit 1; fi
+  flink-parity:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12', cache: pip, cache-dependency-path: backend/streaming/requirements-flink.txt }
+      - name: 安裝 PyFlink（完整釘選、不解相依；刻意覆蓋的兩項見檔頭）
+        run: pip install --no-deps -r backend/streaming/requirements-flink.txt
+      - name: 批流一致性（docs/43 §3.6）：批次 apply() 與 Flink Table UDF（process／thread）、DataStream 逐列相同
+        run: python3 -m backend.streaming.parity --require-flink
   e2e-clickhouse:
     needs: changes
     if: needs.changes.outputs.backend == 'true'

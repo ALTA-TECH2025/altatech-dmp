@@ -64,7 +64,12 @@ def build() -> Any:
         store: Any = PostgresStore(resolver(os.environ["DMP_PG_DSN_REF"]) if os.environ.get("DMP_PG_DSN_REF") else os.environ["DMP_PG_DSN"])
     else:
         store = MemoryStore(Path(os.environ["DMP_STORE_PATH"]) if os.environ.get("DMP_STORE_PATH") else None)
-    sessions = SessionManager(cfg["session"], SessionMemory(), lambda e, d: store.audit(e, d), now=time.time, admin_requires=cfg["role_mapping"].get("admin_requires"))
+    session_store: Any = SessionMemory()
+    login_states: Any = {}
+    if hasattr(store, "pool"):                               # PostgreSQL 控制面 → session 與登入前狀態也放這裡，多個 API 實例共用（docs/44 §5a）
+        from ..auth.session_pg import PgLoginStates, PgSessionStore
+        session_store, login_states = PgSessionStore(store), PgLoginStates(store)
+    sessions = SessionManager(cfg["session"], session_store, lambda e, d: store.audit(e, d), now=time.time, admin_requires=cfg["role_mapping"].get("admin_requires"))
     providers: dict[str, Any] = {}
     for key, p in cfg["providers"].items():
         try:
@@ -86,7 +91,7 @@ def build() -> Any:
     if os.environ.get("DMP_API_KEY_PEM"):
         tokens = ApiTokens(cfg["session"]["api_token"], Path(os.environ["DMP_API_KEY_PEM"]).read_text(), Path(os.environ["DMP_API_PUB_PEM"]).read_text())
     ch = ClickHouseHTTP(os.environ["CLICKHOUSE_URL"], user=os.environ.get("CLICKHOUSE_USER", "default"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), timeout=120) if os.environ.get("CLICKHOUSE_URL") else None
-    auth = AuthService(cfg, providers, sessions, tokens, store.assignments)
+    auth = AuthService(cfg, providers, sessions, tokens, store.assignments, login_states)
     sched = None
     if os.environ.get("DMP_SCHED_DB"):                      # 排程狀態（SQLite）；執行器直接寫 ClickHouse
         from ..integration.runner import LocalRunner
