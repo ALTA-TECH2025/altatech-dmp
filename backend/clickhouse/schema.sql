@@ -8,11 +8,13 @@ CREATE TABLE IF NOT EXISTS dmp.events
     time             DateTime64(3, 'UTC'),
     event            LowCardinality(String),
     source           LowCardinality(String),
-    one_id           String,
-    one_id_uint      UInt64 DEFAULT cityHash64(one_id),     -- 進排序鍵與 SAMPLE BY（按用戶分桶／一致抽樣），故用 DEFAULT 而非 MATERIALIZED
+    one_id           String,                                 -- 寫入當下的歸屬；事件寫入後永不改寫（docs/19 §2.5：登入回補改在查詢時換算）
+    one_id_uint      UInt64 DEFAULT cityHash64(one_id),     -- 不進排序鍵（排序鍵只能放永不變動的欄位）；篩選靠 bloom 索引
+    -- one_id_eff（有效歸屬）為 ALIAS 欄，在 oneid_backfill_dict 建好之後以 ALTER 加上（見下方）；編譯器一律用這欄，不直接用 one_id_uint
     entity_type      LowCardinality(String),
     entity_id        String,
-    distinct_id      String,
+    distinct_id      String,                                 -- 寫入後永不改寫；回補對照與抽樣分桶都以它為準
+    distinct_id_uint UInt64 DEFAULT cityHash64(distinct_id),
     session_id       String,
     event_id         String,
     platform         LowCardinality(String),
@@ -31,9 +33,16 @@ CREATE TABLE IF NOT EXISTS dmp.events
 )
 ENGINE = ReplicatedReplacingMergeTree('/ch/{shard}/dmp.events', '{replica}', ingest_time)
 PARTITION BY toYYYYMM(event_date)
-ORDER BY (project, event_date, event, one_id_uint, time, event_id)   -- event_id 必須在排序鍵：ReplacingMergeTree 合併時以排序鍵去重，否則同客戶同事件同秒的兩筆會被合併成一筆（e2e 實測）
-SAMPLE BY one_id_uint                                                 -- 等同舊平台按用戶分桶：SAMPLE 1/10 取到的是「十分之一的用戶的全部事件」
+ORDER BY (project, event_date, event, distinct_id_uint, time, event_id)
+    -- 事件表只新增、刪除，不改寫（docs/23 §4.1）：排序鍵裡只放寫入後永不變動的欄位，one_id 不在其中。
+    -- 去重鍵 = time（毫秒）＋ event_id：event_id 由來源給或由內容雜湊產生（雜湊含事件時間），寫入前先查倉（aggregates.dedupe），
+    -- 合併時再由排序鍵保底；time 與 event_id 缺一不可，否則同裝置同事件同毫秒的兩筆會被合併成一筆（e2e 實測）。
+SAMPLE BY distinct_id_uint
+    -- 按裝置／cookie 分桶：distinct_id 永不改寫，所以同一裝置「登入前瀏覽 → 登入後下單」一定落在同一個樣本桶，
+    -- 漏斗與路徑的抽樣前後一致；一客多裝置會分在不同桶，是已知取捨（docs/19 §2.5）。
 TTL event_date + INTERVAL 13 MONTH TO VOLUME 'cold';
+-- 線下資料（交易／帳務／客戶）沒有事件時間、只有 update_time：以 update_time 當 time，每筆狀態變更都是一筆事件，不做內容去重、全部入庫；
+-- 但仍要產生 event_id（內容雜湊含 update_time），否則排序鍵相同的兩筆會在合併時被吃掉。同一批重送／重跑一律先依 batch_id 刪除再寫入。
 
 ALTER TABLE dmp.events ADD INDEX IF NOT EXISTS idx_one_id one_id TYPE bloom_filter(0.01) GRANULARITY 4;
 ALTER TABLE dmp.events ADD INDEX IF NOT EXISTS idx_event_id event_id TYPE bloom_filter(0.001) GRANULARITY 1;
@@ -147,21 +156,47 @@ ENGINE = ReplicatedReplacingMergeTree('/ch/{shard}/dmp.dim_instrument', '{replic
 ORDER BY symbol;
 -- dim_account（主鍵 account_no，180 萬列 → dictionary）、dim_branch、dim_agent、dim_campaign 同型，由同步任務 upsert／全量覆蓋
 
--- 登入改寫覆蓋表（docs/19 §2.5）：微批把近 7 天匿名事件的 one_id 改到登入客戶前，查詢層以本表在 SQL 編譯時覆蓋
+-- 登入回補對照表（docs/19 §2.5）：事件表永不改寫，登入後近 7 天匿名事件的歸屬在查詢時以本表換算（events.one_id_eff）。
+-- 一條對照 = 一個 distinct_id 在 [from_time, to_time] 之間、原本屬於 anon_one_id 的事件，算到 target_one_id 名下。
+-- 人工合併／拆分也寫這張表（source = manual），撤銷 = 刪該條對照，事件不動。
 CREATE TABLE IF NOT EXISTS dmp.oneid_backfill
 (
-    distinct_id  String,
-    from_time    DateTime64(3, 'UTC'),
-    to_time      DateTime64(3, 'UTC'),
-    anon_one_id  String,
-    target_one_id String,
-    applied      UInt8 DEFAULT 0,
-    created_at   DateTime64(3, 'UTC')
+    distinct_id          String,
+    distinct_id_uint     UInt64 DEFAULT cityHash64(distinct_id),
+    from_time            DateTime64(3, 'UTC'),
+    to_time              DateTime64(3, 'UTC'),
+    anon_one_id          String,
+    anon_one_id_uint     UInt64 DEFAULT cityHash64(anon_one_id),
+    target_one_id        String,
+    target_one_id_uint   UInt64 DEFAULT cityHash64(target_one_id),
+    source               LowCardinality(String) DEFAULT 'login',   -- login | manual
+    created_at           DateTime64(3, 'UTC')
 )
 ENGINE = ReplicatedReplacingMergeTree('/ch/{shard}/dmp.oneid_backfill', '{replica}', created_at)
-ORDER BY (distinct_id, from_time);
--- 套用：ALTER TABLE dmp.events UPDATE one_id = target, one_id_uint = cityHash64(target)
---       WHERE distinct_id IN (...) AND event_date BETWEEN d-7 AND d AND one_id IN (anon_one_ids)  -- 只動近 8 個日分區
+ORDER BY (distinct_id_uint, from_time);
+
+-- 查詢時換算用的區間字典：key = distinct_id_uint，區間 = [from_time, to_time]；每 10 分鐘重載（LIFETIME）。
+-- 量級：每日登入 ~40 萬次 → 每日 ~40 萬條對照、保留 90 天 ≈ 3,600 萬條，記憶體約數 GB；超過時改按月分表或縮短保留。
+CREATE DICTIONARY IF NOT EXISTS dmp.oneid_backfill_dict
+(
+    distinct_id_uint    UInt64,
+    from_time           DateTime64(3, 'UTC'),
+    to_time             DateTime64(3, 'UTC'),
+    anon_one_id_uint    UInt64,
+    target_one_id_uint  UInt64
+)
+PRIMARY KEY distinct_id_uint
+SOURCE(CLICKHOUSE(TABLE 'oneid_backfill' DB 'dmp'))
+LAYOUT(RANGE_HASHED())
+RANGE(MIN from_time MAX to_time)
+LIFETIME(MIN 300 MAX 600);
+
+-- 有效歸屬：回補視窗內、且寫入時歸屬正是對照裡那個匿名用戶的事件，換算成登入客戶；其餘等於 one_id_uint（docs/19 §2.5 範圍：已歸任何客戶的事件不受影響）。
+-- ALIAS 不佔空間、查詢時計算；字典未命中或匿名用戶不符都回傳 one_id_uint。
+ALTER TABLE dmp.events ADD COLUMN IF NOT EXISTS one_id_eff UInt64
+    ALIAS if(dictGetOrDefault('dmp.oneid_backfill_dict', 'anon_one_id_uint', distinct_id_uint, time, toUInt64(0)) = one_id_uint,
+             dictGetOrDefault('dmp.oneid_backfill_dict', 'target_one_id_uint', distinct_id_uint, time, one_id_uint),
+             one_id_uint);
 
 -- 隔離區（docs/06 §3）：清洗未通過的來源列，30 天後丟棄；拒絕列（個資命中）只記原因不記內容
 CREATE TABLE IF NOT EXISTS dmp.quarantine

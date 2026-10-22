@@ -32,7 +32,7 @@ CLICKHOUSE_URL=http://127.0.0.1:8123 CLICKHOUSE_USER=e2e CLICKHOUSE_PASSWORD=...
 - **身分一律代碼化**：`$identity_login_id` 用 `token_v1(k_idm)`（docs/20 的 `v1_` 客戶代碼），帳號 `fpe(k_acct)`；密鑰只以參照出現，執行時由 KMS 注入（`DMP_KEY_<ref>` 環境變數或 `set_key()`）。
 - **個資不落地**：`drop_fields` 的欄位不可映射；整列 `pii_scan` 命中直接拒絕，隔離區只記原因不記內容。
 - **三方對帳**：每批 `rows_in → rows_ok → rows_loaded`（以 `batch_id` 回查 ClickHouse），差異寫 `dmp.ingest_recon` 並告警。
-- **排序鍵含 event_id**：`dmp.events` 是 ReplacingMergeTree，排序鍵 `(project, event_date, event, one_id_uint, time, event_id)` 加 `SAMPLE BY one_id_uint`（按用戶分桶、一致抽樣）；e2e 實測少了 `event_id` 時，同客戶同事件同秒的兩筆會在合併時被去重成一筆。
+- **排序鍵含 event_id**：`dmp.events` 是 ReplacingMergeTree，排序鍵 `(project, event_date, event, distinct_id_uint, time, event_id)` 加 `SAMPLE BY distinct_id_uint`（按裝置分桶、一致抽樣；`one_id` 不進排序鍵，事件表只增刪不改寫，docs/23 §4.1）；e2e 實測少了 `event_id` 時，同裝置同事件同毫秒的兩筆會在合併時被去重成一筆。
 - **Schema 變更**：runner 回報來源新欄位；任務策略 `pause` 會停用任務並告警，`auto_map` 記錄後照跑。
 
 ## GA360 BigQuery：更新頻率與排程（已在 e2e 驗證）
