@@ -2,9 +2,9 @@
 
 > 版本 v0.1 草案（2026-10-22）。起因：Windy 2026-10-22 指示「Flink 要改第一階段」。本文取代 docs/23 §1「第一階段不上 Flink、不以 Kafka 為主幹」的決定（決定確認後再回寫 docs/23、02、17、27、13、31、32）。
 >
-> **狀態**：D-F1 已確認採 A（Windy 2026-10-22「A ok」）；D-F2 延遲目標、D-F3 實作方式待確認，確認前契約只把延遲標為 proposed。
+> **狀態**：三項決定都已確認——D-F1 採 A（Windy 2026-10-22「A ok」）；D-F2 延遲目標、D-F3 實作方式照建議（Windy 2026-10-22「flink 照建議做」）。部署方式依 2026-10-22 研發／運維決議改為 Docker Compose、不用 Kubernetes（docs/44），本文 §2、§4.2、§5、F8 已同步改為 Flink standalone。
 
-## 0. 要你決定的 3 件事
+## 0. 三項決定（2026-10-22 全部確認）
 
 ### D-F1　哪些路徑改走 Flink　✅ 已確認採 A（2026-10-22）
 
@@ -14,15 +14,15 @@
 | 替代 B：全部改走 Flink | 歷史載入、日批也進 Kafka／Flink | 一套路徑；但 70 億歷史用串流載入比批次慢、checkpoint 狀態大，已驗證的批次路徑要重驗一次 |
 | 替代 C：只上即時觸發 | 只做 J4（CEP），其餘維持微批 | 工作量最小；行為事件仍 5–15 分鐘可查，C11 仍是落差 |
 
-### D-F2　延遲目標
+### D-F2　延遲目標　✅ 已確認照建議（2026-10-22）
 
-建議（從資料進到 Kafka 起算）：
+目標（從資料進到 Kafka 起算）：
 
 - 即時觸發（J4）：P95 < 10 秒產生觸發事件；送到 MA／Webhook 再加對方處理時間。
 - 行為事件可查詢：P95 < 1 分鐘。GA360 串流匯出本身是分鐘級（Google 端），這段不在我們控制內；`/v1/events` 直送（MA、LINE、短鏈）可以做到秒級。
 - 交易事件：數據中台若提供 Kafka topic，P95 < 1 分鐘；若只能給批次表，仍是每 15 分鐘（瓶頸在來源）。
 
-### D-F3　Flink 作業用什麼寫
+### D-F3　Flink 作業用什麼寫　✅ 已確認照建議：Flink SQL ＋ PyFlink UDF 重用現有規則（2026-10-22）
 
 | | 內容 | 差異 |
 |---|---|---|
@@ -47,7 +47,7 @@ docs/23 §1 當時的理由：所有來源都是批次或分鐘級、沒有秒�
 ## 2. 架構（建議 A）
 
 ```
-來源                                   Kafka（Strimzi，KRaft，3 broker）        Flink（K8s Operator）                     ClickHouse
+來源                                   Kafka（官方映像，KRaft，3 broker）     Flink（standalone，Docker）              ClickHouse
 GA360 BigQuery 串流匯出 ─ Importer ─► dmp.raw.ga4 ──────────┐
 MA／LINE／短鏈 ─ POST /v1/events ──► dmp.raw.api ──────────┼─► J1 行為標準化 ─► dmp.events ─┬─► 串流寫入器（小批，沿用日彙總協定）─► dmp.events
 數據中台（有 Kafka 時）────────────► dmp.raw.dwh ─► J2 交易事件化 ─────────────► dmp.events ─┤                                         ├─ MV／日彙總
@@ -131,16 +131,16 @@ Flink 不直接寫 ClickHouse。`dmp.events` 由一個**串流寫入器**（Pyth
 
 | 元件 | 版本（建議） | 授權 | 備註 |
 |---|---|---|---|
-| Apache Flink（含 PyFlink） | 2.3（§4.1 已驗證；Operator 版本需相容 2.x） | Apache-2.0 | LICENSES.md 已列（原寫 1.19，確認後更新版本並附 CVE 檢查） |
-| Flink Kubernetes Operator | 1.10 以上 | Apache-2.0 | Chart.yaml 已列 |
-| Apache Kafka（Strimzi） | 3.8（KRaft） | Apache-2.0 | values.yaml 已有 `kafka.operator` |
-| checkpoint 儲存 | GCS／機房 S3 相容儲存 | — | values.yaml `flink.checkpointDir` 已有 |
+| Apache Flink（含 PyFlink） | 2.3（§4.1 已驗證） | Apache-2.0 | 官方映像，standalone session cluster；LICENSES.md 版本由 F2 更新並附 CVE 檢查 |
+| Apache Kafka | 3.8（KRaft） | Apache-2.0 | 官方映像，3 broker、replication 3；不用 Strimzi（docs/44） |
+| checkpoint 儲存 | GCS／機房 SeaweedFS（S3 相容） | — | 保留最近 3 份 externalized checkpoint，供重啟續跑 |
 
 不引入 Schema Registry：訊息用 JSON，欄位與 ClickHouse `dmp.events` 相同，schema 寫成契約檔並在寫入器驗證。
 
 ## 5. 部署與營運
 
-- Helm：啟用 `kafka.operator`、`flink.operator`（values 已有，第一階段原本關閉）；一個 FlinkDeployment（session 模式）跑 J1–J4。
+- Docker Compose（docs/44）：Kafka 3 broker 分在 3 台；Flink 一個 JobManager ＋ 1–2 個 TaskManager 容器（session 模式）跑 J1–J4；`restart: unless-stopped` ＋ healthcheck。
+- 啟動腳本（`flink-jobs` 映像內）：JobManager 起來後，對 J1–J4 逐一找物件儲存上最近一次成功的 checkpoint，有就從那裡續跑、沒有才從頭開始；換版時先取 savepoint 再停。不用 ZooKeeper／K8s HA，JobManager 中斷期間（分鐘級）即時路徑暫停，寫入器以 event_id 去重，重送不會重複入倉。
 - 監控：Flink 指標（checkpoint 時長與失敗、反壓、延遲）與 Kafka consumer lag 接 Prometheus；告警規則加進 `backend/ops/alerts.yaml`；資料流與效能頁加「Kafka 延遲／Flink 作業狀態」。
 - 故障時的降級：Flink 停擺時，GA360 日批與數據中台批次照常，串流漏掉的事件會由日批補上，只有即時性下降；觸發規則暫停並告警。
 
@@ -158,7 +158,7 @@ Flink 不直接寫 ClickHouse。`dmp.events` 由一個**串流寫入器**（Pyth
 | F5 | J3 OneID 即時歸戶 | F3、F4 | 6 人日 |
 | F6 | J4 即時觸發（CEP 規則編譯、審批後部署、接推送服務） | F3、F4 | 8 人日 |
 | F7 | J2 交易事件化（數據中台有 Kafka 才啟用） | F3、F4 | 5 人日 |
-| F8 | 部署與監控：Helm 啟用、checkpoint、告警、降級演練 | F3–F6 | 5 人日 |
+| F8 | 部署與監控：Docker Compose（Kafka、Flink JM／TM）、從 checkpoint 續跑的啟動腳本、告警、降級與重啟演練 | F3–F6 | 5 人日 |
 | F9 | 前端：觸發規則頁（目前占位）、資料流頁加 Kafka／Flink 狀態；示範站 | F6、F8 | 5 人日 |
 
 合計約 46 人日（不含 F0），主要落在研發 R1；建議另加 Flink 顧問 10–15 天審 checkpoint、狀態與反壓設定。對應里程碑（docs/31 時程 v2.1）：F1–F4 進 M2（第 7 週前），F5–F6 進 M3（GA360 接入與並行期一起驗），F7–F9 進 M4。UAT、PD 日期不變。
@@ -171,6 +171,7 @@ Flink 不直接寫 ClickHouse。`dmp.events` 由一個**串流寫入器**（Pyth
 | 批次與串流結果不一致 | 一份規則（D-F3）＋批流一致性測試在 CI 必過（§3.6）；ClickHouse 只有一條寫入路徑（§3.5） |
 | PyFlink 效能不足 | §4.1 量額外開銷；不足時只把熱點規則改為 Flink SQL 內建函式，個資守門仍呼叫同一份程式 |
 | 測試環境資源 | Kafka／Flink 在單機測試環境以最小配置跑（1 broker、1 TM）；正式檔位沿用 docs/13 |
+| 單一 JobManager（不用 K8s／ZooKeeper HA） | 容器自動重啟＋從最近 checkpoint 續跑；寫入冪等；中斷期間由日批補資料、觸發規則暫停並告警；F8 驗收含強制停 JobManager 演練 |
 | 個資經由 Kafka 外流 | 接入端就拒收 L4；raw topic 只保存 7 天、加密、限存取；隔離 topic 只存去個資後的列 |
 
 ## 8. 決定後要回寫的文件
