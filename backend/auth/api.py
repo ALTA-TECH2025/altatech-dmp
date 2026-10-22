@@ -226,5 +226,25 @@ def load_cfg() -> dict[str, Any]:
     return yaml.safe_load((Path(__file__).resolve().parent / "idp.yaml").read_text(encoding="utf-8"))
 
 
+def apply_env_overrides(cfg: dict[str, Any], env: Any) -> dict[str, Any]:
+    """部署環境覆寫 SSO 網址（idp.yaml 只放範例網域）：
+    DMP_IDP_MODE → mode；DMP_OIDC_ISSUER → keycloak.issuer；DMP_PUBLIC_URL → 各 OIDC 提供者的 redirect_uri 與登出後網址。"""
+    if env.get("DMP_IDP_MODE"):
+        if env["DMP_IDP_MODE"] not in ("broker", "direct"):
+            raise ValueError("DMP_IDP_MODE 只能是 broker 或 direct")
+        cfg["mode"] = env["DMP_IDP_MODE"]
+    if env.get("DMP_OIDC_ISSUER"):
+        cfg["providers"]["keycloak"]["issuer"] = env["DMP_OIDC_ISSUER"]
+    base = (env.get("DMP_PUBLIC_URL") or "").rstrip("/")
+    if base:
+        if not base.startswith(("https://", "http://")):
+            raise ValueError("DMP_PUBLIC_URL 要是完整網址（https://…）")
+        for p in cfg["providers"].values():
+            if p.get("kind") == "oidc":
+                p["redirect_uri"] = base + "/auth/callback"
+                p["post_logout_redirect_uri"] = base + "/login"
+    return cfg
+
+
 def login_redirect(return_to: str) -> str:
     return "/login?" + urlencode({"return_to": return_to})

@@ -1,7 +1,9 @@
 """正式啟動：uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
 
 環境變數：
-  DMP_IDP_MODE          broker | direct（覆寫 idp.yaml）
+  DMP_IDP_MODE          broker | direct（覆寫 idp.yaml；其他值啟動即報錯）
+  DMP_OIDC_ISSUER       Keycloak realm 的 issuer（覆寫 idp.yaml，例：https://dmp.internal/auth/realms/dmp）
+  DMP_PUBLIC_URL        對外網址；OIDC 回呼與登出後網址改成 <此網址>/auth/callback、/login
   DMP_SECRETS_JSON      secret_ref → 明文 的 JSON 檔路徑（只在執行節點，由密鑰庫掛載）；沒有時所有 secret_ref 解析失敗
   CLICKHOUSE_URL / CLICKHOUSE_USER / CLICKHOUSE_PASSWORD
   DMP_PG_DSN_REF        控制面 PostgreSQL 連線字串的 secret_ref（正式）；本機開發可用 DMP_PG_DSN 明文；兩者都沒有才用 DMP_STORE_PATH JSON 檔
@@ -31,7 +33,7 @@ from typing import Any
 
 import httpx
 
-from ..auth.api import AuthService, load_cfg
+from ..auth.api import AuthService, apply_env_overrides, load_cfg
 from ..auth.ldap import LdapProvider
 from ..auth.local import LocalAccounts, LocalProvider
 from ..auth.oidc import OIDCProvider
@@ -50,9 +52,7 @@ def _http(method: str, url: str, data: dict[str, Any] | None = None, headers: di
 
 
 def build() -> Any:
-    cfg = load_cfg()
-    if os.environ.get("DMP_IDP_MODE"):
-        cfg["mode"] = os.environ["DMP_IDP_MODE"]
+    cfg = apply_env_overrides(load_cfg(), os.environ)
     if os.environ.get("DMP_COOKIE_SECURE") == "0":
         cfg["session"]["cookie"]["secure"] = False
     secrets: dict[str, str] = {}
