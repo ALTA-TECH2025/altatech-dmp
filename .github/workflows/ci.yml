@@ -1,5 +1,6 @@
 name: ci
 on:
+  workflow_dispatch:
   pull_request:
   push: { branches: [main] }
 concurrency:
@@ -90,9 +91,9 @@ jobs:
       - name: 守門：工作流裡不准再出現「test … && 測試 || echo」把失敗吞掉的寫法
         run: |
           if grep -nE 'test -[fd] [^&]+ && [^|]+ \|\| echo' .github/workflows/*.yml; then echo "::error::上面的步驟會把測試失敗當成略過（R13）"; exit 1; fi
-  flink-parity:
+  flink-parity:   # Flink 第二階段（docs/45 D-04，2026-10-23）：批流一致性改為手動觸發，不擋第一階段 PR
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
