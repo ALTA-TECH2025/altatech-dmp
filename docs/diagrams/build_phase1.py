@@ -62,7 +62,7 @@ def system_architecture():
     s.box(X + 12, 414, GW - 24, 56, "Loki + Alloy", ["三台容器 stdout（Alloy 收），保留 30 天", "Loki AGPLv3 暫行例外（法務未否決照此規劃）"], "gray")
     s.group(X, 495, GW, 232, "部署  Delivery（docs/44、deploy/compose）")
     s.box(X + 12, 525, GW - 24, 72, "3 台 VM Docker Compose", ["VM1 主：web/api/worker/batch/CH r1/PG 主", "VM2 備援：web/api 待命/CH r2/PG 備", "VM3 Keeper 3/Keycloak/監控/備份；docs/44"], "gray")
-    s.box(X + 12, 603, GW - 24, 52, "入口：F5／HAProxy + TLS", ["內部 CA；/auth → Keycloak", "容器間內網；加密待討論"], "gray")
+    s.box(X + 12, 603, GW - 24, 52, "入口：F5／HAProxy + TLS", ["內部 CA；/sso → Keycloak", "容器間內網；加密待討論"], "gray")
     s.box(X + 12, 661, GW - 24, 56, "備份作業 → 永豐 NAS", ["ClickHouse 日增量／週全量（S3）", "PostgreSQL WAL 歸檔＋日 dump"], "gray")
     s.group(X, 740, GW, 120, "供應鏈與授權（docs/32）")
     s.box(X + 12, 770, GW - 24, 78, "映像 4 個（web/core/batch/ingest）", ["UBI 9／distroless、SBOM、Trivy", "全部 OSI；Grafana 法務已核可", "Redis、Loki 暫行例外；退路 Valkey／VictoriaLogs"], "gray")
@@ -80,14 +80,14 @@ def component_deployment():
     vms = [
         ("VM-1 主（測試 16C/128G · 正式 64C/256G）", [("dmp-web + dmp-core api  :80／:8080", "F5 平常只送 VM1；/healthz、/metrics", "brand"), ("dmp-core worker · batch :8082", "唯一背景排程；與 api 共用 APP_DATA", "brand"), ("ClickHouse 副本 r1  :8123/9000/9009", "config.d 三台同一份，副本名 from_env", "yellow"), ("Keeper 1  :9181/9234", "", "yellow"), ("PostgreSQL 主  :5432", "restart: no；串流複寫 → VM2；WAL → NAS", "yellow"), ("Redis 主 + Sentinel  :6379/26379", "AOF；只放快取；三票自動切換", "yellow"), ("SeaweedFS + S3 閘道 :8333", "master/volume/filer；三台 Raft、複本 001", "yellow")]),
         ("VM-2 備援", [("dmp-web / dmp-core api 待命", ":80／:8080；F5 backup 成員，VM1 失效才送", "brand"), ("worker · batch（takeover profile）", "接管才起；APP_DATA 由 VM1 每 15 分鐘同步", "brand"), ("ClickHouse 副本 r2", "", "yellow"), ("Keeper 2", "", "yellow"), ("PostgreSQL 備援（hot standby）", "首次啟動 pg_basebackup；手動 promote", "yellow"), ("Redis 從 + Sentinel · SeaweedFS", "master/volume", "yellow")]),
-        ("VM-3", [("Keeper 3 · Sentinel 3 · SeaweedFS", "三台法定人數；S3 閘道第二份 :8333", "yellow"), ("Keycloak  :8180", "/auth；broker → 永豐 AD；DB 連 pg-primary", "red"), ("Prometheus  :9090", "抓三台 node、CH、Keeper、api", "gray"), ("Grafana  :3000", "看板；法務已核可", "gray"), ("Loki  :3100", "三台 Alloy 送來；30 天；AGPLv3 暫行例外", "gray"), ("備份作業（主機 cron）", "ClickHouse、PostgreSQL、rclone → NAS", "gray"), ("dmp-ingest（選配）  :8081", "MA／LINE 直送才啟用；Kafka/Flink 第二階段（D-04）", "green")]),
+        ("VM-3", [("Keeper 3 · Sentinel 3 · SeaweedFS", "三台法定人數；S3 閘道第二份 :8333", "yellow"), ("Keycloak  :8180", "/sso；broker → 永豐 AD；DB 連 pg-primary", "red"), ("Prometheus  :9090", "抓三台 node、CH、Keeper、api", "gray"), ("Grafana  :3000", "看板；法務已核可", "gray"), ("Loki  :3100", "三台 Alloy 送來；30 天；AGPLv3 暫行例外", "gray"), ("備份作業（主機 cron）", "ClickHouse、PostgreSQL、rclone → NAS", "gray"), ("dmp-ingest（選配）  :8081", "MA／LINE 直送才啟用；Kafka/Flink 第二階段（D-04）", "green")]),
     ]
     for i, (name, items) in enumerate(vms):
         x = 316 + i * 316; y = 110
         s.group(x, y, 300, 560, name, fill="#FFFFFF", dash=True)
         for j, (t, sub, col) in enumerate(items):
             s.box(x + 10, y + 34 + j * 74, 280, 66, t, [sub] if sub else [], col, small=True)
-    s.box(316, 690, 930, 46, "入口：F5／HAProxy（永豐既有）+ TLS（內部 CA）→ VM1 :80（VM2 為 backup）；/auth → VM3 :8180；健康檢查 /healthz", [], "brand", small=True)
+    s.box(316, 690, 930, 46, "入口：F5／HAProxy（永豐既有）+ TLS（內部 CA）→ VM1 :80（VM2 為 backup）；/sso → VM3 :8180；健康檢查 /healthz", [], "brand", small=True)
     s.box(316, 746, 930, 46, "每台：node-exporter :9100、cAdvisor :9101、Alloy（容器日誌 → VM3 Loki）；安全：容器非 root、唯讀、密鑰只進 /run/secrets；防火牆只開 10.10.0.0/24", [], "red", small=True)
     s.box(316, 802, 930, 46, "映像 4 個（web／core／batch／ingest）與 Helm 方案共用；Flink、Kafka、agent 映像第一階段不啟動；升級：pull → 逐台重啟（VM2 → VM1 → VM3）", [], "gray", small=True)
     s.note(316, 866, "接管（docs/44 §5.1）：先隔離 VM1 → VM2 PG promote → PG_PRIMARY_HOST 改指 VM2 → 確認 VM1 worker 停了再起 VM2 worker；VM1 復電不自行回主。VM2 掛不影響排程；VM3 掛先救 Keycloak。")
