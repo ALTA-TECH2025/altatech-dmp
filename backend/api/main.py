@@ -119,8 +119,9 @@ def build() -> Any:
     return app
 
 
-def start_ticker(app: Any, store: Any, ch: Any) -> None:
-    """單機環境的背景例行：每分鐘 scheduler.tick()（到點的同步任務）與看板定時寄送、每 10 分鐘分群／標籤例行計算＋到期清理；每分鐘推送重試與日批後增量推送。錯誤只記錄不中斷。"""
+def start_ticker(app: Any, store: Any, ch: Any) -> Any:
+    """背景例行：每分鐘 scheduler.tick()（到點的同步任務）與看板定時寄送、每 10 分鐘分群／標籤例行計算＋到期清理；每分鐘推送重試與日批後增量推送。錯誤只記錄不中斷。
+    控制面是 PostgreSQL 時先取得主控租約（ops/lease.py）：多份 worker 同時開著也只有一份在跑，掛掉後 90 秒內由別份接手（docs/44 §5a）。"""
     import threading
 
     from ..ops.metrics import routine
@@ -129,11 +130,23 @@ def start_ticker(app: Any, store: Any, ch: Any) -> None:
     sched = getattr(app.state, "scheduler", None)
     seg = SegmentService(store, ch) if ch is not None else None
     system = Subject("system:scheduler", ["admin"])
+    lease = None
+    if hasattr(store, "pool"):
+        from ..ops.lease import PgLease
+        lease = PgLease(store, "dmp-tick", ttl_s=float(os.environ.get("DMP_TICK_LEASE_S", "90")), on_change=store.audit)
+        lease.start_heartbeat()
+
+    stop = threading.Event()
 
     def loop() -> None:
         n = 0
-        while True:
-            time.sleep(60); n += 1
+        while not stop.is_set():
+            time.sleep(60)
+            if stop.is_set():
+                break
+            if lease is not None and not lease.ensure():
+                continue                                                     # 別份 worker 是主控：這一輪不跑，也不累計 n（接手後節奏從頭算）
+            n += 1
             try:                                                             # 每段各自計耗時與成敗（dmp_routine_*），供資料流與效能頁與告警
                 if sched is not None:
                     with routine("scheduler"):
@@ -171,7 +184,10 @@ def start_ticker(app: Any, store: Any, ch: Any) -> None:
                         nf.dispatch(ops.alerts()["firing"])                  # 告警通知：Email／LINE（冷卻、最低嚴重度、恢復）
                 except Exception as e:
                     store.audit("ops.snapshot.failed", {"error": str(e)[:300]})
+        if lease is not None:
+            lease.stop()                                                     # 正常停止就釋放租約，別份 worker 不必等過期
     threading.Thread(target=loop, name="dmp-tick", daemon=True).start()
+    return stop                                                              # 測試用：set() 後下一輪結束迴圈
 
 
 app = build() if os.environ.get("DMP_BUILD_APP", "1") == "1" and __name__ != "__main__" else None
