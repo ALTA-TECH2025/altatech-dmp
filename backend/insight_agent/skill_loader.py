@@ -72,7 +72,10 @@ def _split(text: str) -> tuple[dict[str, Any], str]:
     m = re.match(r"^---\n(.*?)\n---\n(.*)$", text, re.S)
     if not m:
         raise SkillError("INVALID_ARGUMENT", "SKILL.md 缺少 frontmatter")
-    return yaml.safe_load(m.group(1)) or {}, m.group(2).strip()
+    meta = _yaml_text(m.group(1)) or {}           # 和契約檔同一套：版本要求寫成未加引號的 1.10 也保留原字串
+    if not isinstance(meta, dict):
+        raise SkillError("INVALID_ARGUMENT", "SKILL.md frontmatter 必須是對應表")
+    return meta, m.group(2).strip()
 
 
 def _event_names() -> set[str]:
@@ -132,6 +135,10 @@ def selftest() -> None:
     assert code(good.replace('semantic: ">=4"', 'semantic: ">=5"')) == "CONTRACT_MISMATCH"                     # A17
     assert code(good.replace('tools: "v1"', 'tools: "v2"')) == "CONTRACT_MISMATCH"
     assert _yaml_text("version: 1.10")["version"] == "1.10" and _ok(">=1.10", _yaml_text("version: 1.10")["version"])        # 未加引號的 1.10 不被轉成 1.1
+    for req, cur, want in [("1.10", "1.10", "ok"), ("1.10", "1.1", "CONTRACT_MISMATCH"), ('"1.10"', "1.10", "ok"), ('"1.10"', "1.1", "CONTRACT_MISMATCH")]:   # frontmatter 端：加不加引號都照原字串比
+        got = code(good.replace('semantic: ">=4"', "semantic: " + req), versions={"semantic": cur, "tools": "v1", "oneid_rules": "1"})
+        assert got == want, (req, cur, got)
+    assert code("---\n- a\n---\n本文") == "INVALID_ARGUMENT"
     assert _ok(">=1.10", "1.10.0") and not _ok(">=1.10", "1.2") and _ok("==v1", "v1") and _ok("v1", "v1") and not _ok(">=4", "x4")   # 版本逐段比，不轉浮點
     assert code(good.replace("## 口徑\n", "## 口徑\n用 fund_subscribe 計算。\n")) == "INVALID_ARGUMENT"                          # 事件別名也算事件名
     assert code(good.replace("tools: [semantic.describe, data.readiness]", "tools: [semantic.describe, profile.get]")) == "INVALID_ARGUMENT"   # 不給模型的工具
