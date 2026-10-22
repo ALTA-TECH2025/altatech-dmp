@@ -101,6 +101,9 @@ class Notifier:
             active.setdefault(k, {"severity": None, "notified_at": 0, "first_at": t, "text": ""})
         resolved = [k for k in list(active) if k not in keys_now]
         out: list[dict[str, Any]] = []
+        f = getattr(self, "fence", None)
+        if (due or resolved) and f is not None and not f.verify():         # 已不是主控（ops/lease.py）：不送、也不改冷卻狀態
+            return out
         if due:
             text = self._format(due, t)
             for ch in ("email", "line"):

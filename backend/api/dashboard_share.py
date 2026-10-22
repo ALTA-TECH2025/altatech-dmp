@@ -440,6 +440,9 @@ class DashboardShare:
             lr = s.get("last_run") or {}
             if lr.get("at", "")[:10] == now.strftime("%Y-%m-%d") and lr.get("trigger") == "tick":
                 continue
+            fence = getattr(self, "fence", None)                         # 多份 worker：寄送前到資料庫確認仍是主控，並以「排程×日期」唯一 claim 防重寄
+            if fence is not None and not fence.claim(f"dashboard_share:{s['id']}:{now:%Y-%m-%d}"):
+                continue
             ran.append(self.run_schedule(s, apply_time, k, "tick", now))
         if now.minute == 0:
             self.purge_expired()

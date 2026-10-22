@@ -517,6 +517,9 @@ class OutputService:
             hh, mm = (int(x) for x in (t.get("schedule") or {}).get("at", "02:00").split(":"))
             if (now.hour, now.minute) < (hh, mm): continue
             if any(r["task_id"] == t["id"] and r["partition_date"] == yday and (r["status"] in ("ok", "running") or r.get("skip_reason") == "no_data") for r in self.store.items("output_run")): continue   # 因目的地暫停／待核可而略過的分區，恢復後要補跑
+            f = getattr(self, "fence", None)
+            if f is not None and not f.verify():                          # 已不是主控（ops/lease.py）：不再產出
+                return out
             try:
                 r = self.run(t["id"], subject, yday, trigger="schedule"); out["ran"].append({"task": t["id"], "run": r["id"], "status": r["status"], "rows": r["rows"]})
             except (Conflict, PermissionError, ValueError) as e:

@@ -38,6 +38,12 @@ NUM_BUCKETS = [(0, "<10"), (10, "10–100"), (100, "100–1K"), (1000, "1K–10K
 Transport = Callable[[str, dict[str, str], bytes, int], tuple[int | None, int, str]]
 
 
+def _fenced(svc: Any) -> bool:
+    """背景例行的 fencing：worker 設了主控租約（ops/lease.py）就到資料庫確認仍持有；單機沒設就放行。"""
+    f = getattr(svc, "fence", None)
+    return f is None or f.verify()
+
+
 class Conflict(Exception):
     pass
 
@@ -437,6 +443,7 @@ class ActivationService:
             if dlv["status"] == "retrying" and dlv.get("next_retry_at") and dlv["next_retry_at"] <= ts and "payload" in dlv:
                 d = self.destination(dlv["destination_id"])
                 if d["status"] != "active": continue
+                if not _fenced(self): return out                          # 已不是主控：不再送出
                 self._attempt(dlv, d); out["retried"].append({"delivery": dlv["id"], "status": dlv["status"]})
         for p in self.pushes():
             if p["status"] != "active" or p["schedule"] == "now": continue
@@ -449,6 +456,7 @@ class ActivationService:
             if p["schedule"] == "cron":
                 hh, mm = (int(x) for x in p["cron"].split(":"))
                 if (now.hour, now.minute) < (hh, mm): continue
+            if not _fenced(self): return out
             try:
                 out["ran"].append({"push": p["id"], **{k: v for k, v in self.run(p["id"], subject, trigger="routine").items() if k != "destinations"}})
             except Conflict as e:

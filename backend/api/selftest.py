@@ -590,6 +590,11 @@ def main(store: Any | None = None) -> None:
     from datetime import datetime as _dt2
     from zoneinfo import ZoneInfo as _ZI2
     share_svc = app.state.dashboard_share
+    claims: list[str] = []                                                                                               # 多份 worker（ops/lease.py）：已不是主控 → claim 失敗 → 不寄
+    from types import SimpleNamespace
+    share_svc.fence = SimpleNamespace(claim=lambda k: claims.append(k) or False)
+    assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 12, 8, 5, tzinfo=_ZI2("Asia/Taipei"))) == [] and claims == [f"dashboard_share:{sch['id']}:2026-10-12"], claims
+    share_svc.fence = None
     assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 12, 8, 5, tzinfo=_ZI2("Asia/Taipei")))[0]["status"] == "rendered_no_transport"   # 週一 08:05 到點
     assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 12, 8, 30, tzinfo=_ZI2("Asia/Taipei"))) == []                             # 同一天不重跑
     assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 13, 8, 5, tzinfo=_ZI2("Asia/Taipei"))) == []                             # 週二不跑
@@ -802,6 +807,9 @@ def main(store: Any | None = None) -> None:
     txt = _gz.decompress(outbox.read_bytes()).decode("utf-8"); assert txt.splitlines()[0] == "customer_code,event,time,platform,amount,props.market,_wm" and rn["watermark"] in txt and "v1_abcdef1234" not in txt, txt
     man = json.loads((outbox.parent / "manifest.json").read_text(encoding="utf-8")); assert man["rows"] == 2 and man["masked"] == {"amount": "bucket"} and man["approval"] == ot["approval_id"], man
     assert c.get(f"/v1/exports/tasks/{ot['id']}").json()["status"] == "ended" and c.get(f"/v1/exports/tasks/{ot['id']}/runs").json()[0]["id"] == rn["id"]
+    app.state.output.fence = SimpleNamespace(verify=lambda: False)                                                       # 已不是主控（ops/lease.py）→ 不產出
+    assert app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 17, 2, 5, tzinfo=ZoneInfo("Asia/Taipei")))["ran"] == []
+    app.state.output.fence = None
     tk = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 17, 2, 5, tzinfo=ZoneInfo("Asia/Taipei"))); assert tk["ran"] and tk["ran"][0]["task"] == dy["id"] and tk["ran"][0].get("status") == "ok", tk
     tk2 = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 17, 2, 6, tzinfo=ZoneInfo("Asia/Taipei"))); assert tk2["ran"] == [], tk2                     # 同一分區不重跑
     runs = c.get(f"/v1/exports/tasks/{dy['id']}/runs").json(); assert runs[0]["trigger"] == "schedule" and runs[0]["partition_date"] == "2026-10-16", runs
