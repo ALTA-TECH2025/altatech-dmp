@@ -16,7 +16,7 @@ SeaweedFS 三台都放（master ×3 Raft、每台一個 volume、複本 `001` �
 
 - OS：RHEL 9.x 或 Rocky 9.x；`dnf install docker-ce docker-compose-plugin`（Docker Engine 27、Compose v2）；Docker Desktop 不裝。
 - 核心參數（Ansible 角色或手動）：`vm.max_map_count=262144`、`fs.file-max=2097152`、`net.core.somaxconn=4096`；關 swap 或 `vm.swappiness=1`。
-- 目錄：資料碟掛 `/data`（SSD），`mkdir -p /data/dmp`；NAS 掛 `/mnt/nas/dmp-backup`（VM1 的 WAL 歸檔與 VM3 的備份都寫這裡）。VM2 另建 `/data/dmp/landing`（接收區：永豐 IT SFTP 落檔目錄，設唯讀給容器）。
+- 目錄：資料碟掛 `/data`（SSD），`mkdir -p /data/dmp`；NAS 掛 `/mnt/nas/dmp-backup`（VM1 的 WAL 歸檔與 VM3 的備份都寫這裡）。VM1、VM2 都建 `/data/dmp/landing`（接收區：永豐 IT SFTP 平常落檔到 VM1，接管後改指 VM2；設唯讀給容器）與 `/data/dmp/app`（`APP_DATA`）。
 - 密鑰：密鑰庫（OpenBao／HSM）在開機時把 secret_ref 對照檔掛到 `/run/secrets/dmp-secrets.json`（0400，root），程式只在執行節點看得到明文（docs/06 §4）。
 - 防火牆（只開內網 10.10.0.0/24）：8123／9000／9009（ClickHouse）、9181／9234（Keeper）、5432、6379／26379（Redis／Sentinel）、8333／8380／8888／9333（SeaweedFS）、9100／9101／9363／9364（exporter、cAdvisor）、3100（Loki）、12345（Alloy）、9090／3000（Prometheus／Grafana，維運網段）、8080／80／8180／8082（LB 與維運）。
 - `git clone` 到 `/opt/altatech-dmp`，`cd deploy/compose && cp .env.example .env`，填值；**每台的 `VM_HOST`、`KEEPER_ID`、`CH_REPLICA` 不同**（VM1=1/r1、VM2=2/r2、VM3=3/—）。`.env` 已 gitignore。
