@@ -22,7 +22,7 @@
 | 產品 | 可私有化部署的數位軌跡／客戶數據中台：承接 GA360 埋點事件（去識別化客戶代碼，docs/20）與數據中台／CDP 批次導入的證券交易／帳務事件，OneID 打通（含登入後 7 天匿名事件改寫，docs/19），提供事件／漏斗／留存／路徑／歸因／用戶列表六個分析模組 + 自定義 SQL、分群與標籤（對齊舊平台分群／標籤管理，docs/21）、即時觸發與受眾推送；AI 洞察 agent 列第二階段（第一階段關閉）；數據治理（元事件／用戶表／維度表／資料流／歷史資料遷移）與系統管理（權限中心／審計／平台設定）兩個大模組；五種角色（系統管理員、行銷、數據分析、數位經營、資訊管理）＋自訂角色、欄位隱碼、審批與審計 |
 | 對標 | 舊平台 v3.0（事件／漏斗／留存／路徑／歸因使用指南、分群、標籤管理、自定義查詢、用戶畫像）與同類商用 CDP／埋點分析產品（docs/01、04 §0b、05、21） |
 | 規模 | 3 年 220 億事件（含舊平台歷史 70 億，docs/13 v0.7 勘誤）、每日 500 個標籤、50 人同時上線、尖峰 7,000 事件/秒（docs/13） |
-| 部署 | 6 個自建映像 + Helm + OpenTofu；正式 GCP A 檔 6 台（或 D 檔 3 台大機型），測試 C-經濟 3 台；機房 RKE2 同一套件（docs/07、13） |
+| 部署 | 6 個自建映像；**第一階段機房：3 台 VM ＋ Docker Compose（docs/07 §1.3，映像共用）**；GCP 方案與第二階段：Helm + OpenTofu，正式 A 檔 6 台（或 D 檔 3 台大機型），測試 C-經濟 3 台（docs/07、13） |
 | 授權 | 全部 OSI 寬鬆授權（Grafana OSS 僅內部使用），金融業無需額外商業授權（docs/07、11、LICENSES.md） |
 | 人力 | AltaTech 七人：產品 1、研發 2（vibe coding，分「資料與查詢」「應用與前端」）、PM 1、數據分析師 2（A 遷移與口徑；B 教育訓練、儀表板重構、上線後交付調優）、運維工程師 1（PM、分析師 A、運維服務過本客戶舊平台）；全員 Claude Team 帳號，協同方式見 docs/31 §2b；外加 ClickHouse 顧問 20 天 |
 | 時程 | M1 盤點與橋接表第 3 週、M2 歷史資料進倉第 7 週、M3 GA360 接入與並行第 11 週、M4 交易結合與營運第 15 週、M5 內部驗收第 19 週；UAT 2027-06-30、正式上線 PD 2027-09-30（docs/22 §6；AI 不在第一階段） |
@@ -33,23 +33,23 @@
 
 ![系統架構圖](diagrams/system-architecture.png)
 
-分層：來源 → 接入（Collector／KafkaConnect）→ 串流（Kafka、Flink 事件化、OneID、session）→ 儲存（ClickHouse 熱層 + MV、Iceberg 冷層、PostgreSQL 控制面、Valkey）→ 語意層與 Policy Engine → 服務（六個分析模組、標籤／分群、觸發／推送、AI 工具閘道）→ 前端與 API；橫切：身分與權限、資料保護、審計與法遵、觀測、部署。詳見 docs/02、12。
+分層：來源 → 接入（Collector／KafkaConnect）→ 串流（Kafka、Flink 事件化、OneID、session）→ 儲存（ClickHouse 熱層 + MV、Iceberg 冷層、PostgreSQL 控制面、Redis）→ 語意層與 Policy Engine → 服務（六個分析模組、標籤／分群、觸發／推送、AI 工具閘道）→ 前端與 API；橫切：身分與權限、資料保護、審計與法遵、觀測、部署。詳見 docs/02、12。
 
 ### 1.1 系統部署示意圖與開源元件（機房；GCP 版見 docs/07 §1 與 diagrams/slides/slide-4）
 
 ![機房部署架構](diagrams/slides/slide-5-onprem-deployment.png)
 
-- 平台應用全為無狀態 Deployment（映像 6 個）；有狀態服務只有 5 個（ClickHouse ＋ Keeper、PostgreSQL、Valkey、Kafka、物件儲存），皆由 Operator 管理、本地 NVMe；平台層 Keycloak、OpenBao、Prometheus ＋ Grafana、VictoriaLogs、Harbor、Ingress ＋ MetalLB；每節點 node-exporter、OTel Collector、LocalPV。
+- 平台應用全為無狀態容器（映像 6 個）；有狀態服務只有 5 個（ClickHouse ＋ Keeper、PostgreSQL、Redis、Kafka、物件儲存）。第一階段機房以 Docker Compose 跑在 3 台 VM（docs/07 §1.3）；GCP／第二階段由 Operator 管理、本地 NVMe；平台層 Keycloak、OpenBao、Prometheus ＋ Grafana、VictoriaLogs、Harbor、Ingress ＋ MetalLB；每節點 node-exporter、OTel Collector、LocalPV。
 - 備份：ClickHouse `BACKUP TO S3`（日增量／週全量）、PostgreSQL WAL 歸檔；HA：ClickHouse 雙副本、PostgreSQL 主從、Kafka／Keeper 三節點（docs/13 §11.4）。
 - 版本為 2026-10 的 LTS，M1 開工時依當時 LTS 重釘；原則不變：上游版本、不改寫、OSI 授權、有 Operator 或託管版（docs/32 為完整清單與來源國別，docs/37 為與舊棧的逐項對照）。
 
 | 類別 | 元件 | 版本 | 授權 | 功能說明 |
 |---|---|---|---|---|
-| 容器平台 | Kubernetes（RKE2）／GKE | 1.30+ | Apache-2.0 | 容器編排；3 個 control-plane 與 worker 共存 |
+| 容器平台 | Docker Engine ＋ Compose（第一階段機房）；Kubernetes（RKE2）／GKE（第二階段、GCP） | 27／2.x；1.30+ | Apache-2.0 | 第一階段 3 台 VM 各跑一份 Compose；K8s 留給第二階段與 GCP |
 | 容器平台 | Helm、OpenTofu | 3／1.8 | Apache-2.0／MPL-2.0 | 一套 umbrella chart 部署；IaC |
 | 容器平台 | Harbor | 2.x | Apache-2.0 | 離線映像倉；Trivy 弱掃 |
 | 線上存儲 | PostgreSQL ＋ pgvector（CloudNativePG） | 16 | PostgreSQL License | 控制面：看板、分群定義、審批、審計索引、洞察向量 |
-| 線上存儲 | Valkey | 8 | BSD-3 | 快取、工作佇列、即時標籤（第二階段） |
+| 線上存儲 | Redis | 8 | AGPL-3.0（內部使用例外，待法務核可；退路 Valkey） | 快取、工作佇列、即時標籤（第二階段） |
 | 分析存儲 | ClickHouse ＋ Keeper（Altinity operator） | 25.8 LTS | Apache-2.0 | 行為事件倉、MV 聚合層、分群／標籤 Bitmap、用戶檔案字典 |
 | 分析存儲 | SeaweedFS（機房）／GCS | 3.x | Apache-2.0 | S3 API：Iceberg 冷層、原始事件、備份、同步輸出 |
 | 訊息 | Apache Kafka（KRaft，Strimzi） | 3.8 | Apache-2.0 | 推送更新、原始事件落地；第二階段即時觸發輸入 |
@@ -58,7 +58,7 @@
 | 計算 | Apache Spark／Trino／Iceberg | 3.5／4xx／1.6 | Apache-2.0 | 第二階段：70 億歷史重算、冷層查詢 |
 | 身分與密鑰 | Keycloak；OpenBao ＋ HSM（機房）／Secret Manager ＋ KMS（GCP） | 25；2.x | Apache-2.0；MPL-2.0 | SSO／OIDC；密鑰只存參照 |
 | 觀測 | Prometheus ＋ OTel Collector ＋ node-exporter；Grafana OSS | 2.x／0.1x；11.x | Apache-2.0；AGPL-3.0（內部使用） | 指標與告警；平台「系統監控」頁同源 |
-| 觀測 | VictoriaLogs（或 OpenSearch；docs/37 §5.2） | 1.x／2.x | Apache-2.0 | 日誌 |
+| 觀測 | Loki ＋ Promtail（退路 VictoriaLogs；docs/37 §5.2） | 3.x | AGPL-3.0（內部使用例外，待法務核可） | 日誌 |
 | 執行環境 | Python、Go、Node、Temurin JDK | 3.12、1.23、22 LTS、17 | PSF／BSD／MIT／GPLv2+CE | core／ingest／web／Flink |
 | 作業系統 | RHEL 9／Rocky Linux 9；UBI 9 minimal 映像基底 | 9.4+ | — | SELinux enforcing；容器無 root、唯讀檔案系統 |
 
@@ -151,7 +151,7 @@
 
 ### 待確認清單（需客戶／PO 決定）
 
-1. 部署環境：GCP（asia-east1）或機房 RKE2；機器檔位 A 6 台 vs D 3 台（docs/13）。
+1. 部署環境：GCP（asia-east1）或機房 3 台 VM Docker Compose（第一階段定案，docs/07 §1.3）；機器檔位 A 6 台 vs D 3 台（docs/13）。
 2. 數據中台交易資料的提供方式：Trino／Hive／Iceberg 批次，或 Kafka topic；第一階段仍以批次讀（docs/23）。
 3. 身分：客戶 IdP 為 Entra ID／AD／Keycloak 何者；群組→角色對照表；本機帳號是否保留。
 4. 舊平台歷史導出方式（Impala／HDFS Parquet 或查詢 API）與 API Secret；並行期長度與舊平台到期日（2027-10-31）。

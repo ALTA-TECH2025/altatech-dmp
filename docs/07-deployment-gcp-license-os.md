@@ -1,6 +1,6 @@
 # 部署：GCP 快速部署（容器化）、開源授權審查、作業系統支援
 
-> 版本 v0.2（2026-10-14）。
+> 版本 v0.3（2026-10-22）：新增 §1.3 第一階段機房 Docker Compose 部署；快取改 Redis 8、日誌改 Loki（AGPLv3 內部使用例外，待法務核可）。
 
 ## 1. GCP 參考架構（容器化，一套 Helm 發佈）
 
@@ -52,6 +52,29 @@ deploy/
 | 大（百億級總量、日 5 億） | 5 億 | 4×2 c3-highmem-88 | 16 | 高 |
 實際報價以 GCP Pricing Calculator 為準；建議以 CUD（承諾使用折扣）降低 OLAP 池成本。
 
+
+### 1.3 第一階段機房正式部署：3 台 VM ＋ Docker Compose（2026-10-22 定案）
+
+> 與研發、運維討論後決定：**第一階段機房正式環境不上 Kubernetes，用 Docker Compose 部署在 3 台 VM**；團隊對 Docker、Redis、Loki 熟悉，優先用熟悉的元件降低維運風險。Helm 套件保留給 GCP 方案與第二階段；映像檔兩種部署共用（§1.1 的 6 個映像，第一階段只啟用 web、core、batch、ingest）。本節是 `deploy/compose/` 的規格，由運維依此撰寫並在測試環境跑過一輪（估 5–8 個工作天，列在報價「部署安裝」人天內）。
+
+| VM | 應用容器 | 資料服務 | 維運元件 |
+|---|---|---|---|
+| VM-1 | dmp-web、dmp-core（API） | ClickHouse 副本 1、Keeper 1、PostgreSQL 主、Redis 主 | node-exporter、Promtail |
+| VM-2 | dmp-core（worker：匯入、排程、推送）、dmp-batch | ClickHouse 副本 2、Keeper 2、PostgreSQL 備援（串流複寫）、Redis 從、SeaweedFS | node-exporter、Promtail |
+| VM-3 | dmp-ingest（選配） | Keeper 3 | Keycloak（AD／SSO）、Prometheus＋Grafana、Loki、備份作業（→ 永豐 NAS）、node-exporter |
+
+- **入口**：永豐既有負載平衡（F5／HAProxy）→ VM-1／VM-2 的 dmp-web；TLS 由永豐內部 CA 簽發，容器間走內網。
+- **ClickHouse**：1 分片 2 副本（ReplicatedMergeTree，Keeper 3 節點分散在三台），任一台 VM 停機查詢與寫入不中斷；備份 `BACKUP TO S3`（SeaweedFS）日增量、週全量，再同步到永豐 NAS。
+- **PostgreSQL**：主備串流複寫 + WAL 歸檔；故障切換依手冊人工執行（第一階段不做自動 failover）。
+- **Redis**：主從 + 持久化（AOF）；只放查詢快取、估數快取、登入前狀態，掉了可重建，不做 Sentinel。
+- **排程**：`dmp-batch` 內建排程器（Airflow LocalExecutor）跑匯入、dbt、對照、推送；不另起排程叢集。
+- **觀測**：Prometheus 抓各容器與 node-exporter；Grafana 看板；日誌由 Promtail 收容器 stdout 送 Loki；告警送 Email／LINE（docs/17 §5.16）。
+- **升級**：拉新版映像 → `docker compose up -d` 逐台滾動，排在維護時段；資料庫 schema 變更走 migration 腳本，先在測試環境演練。
+- **不在第一階段**：Flink、Kafka（部署套件保留、不啟動）、自動 failover、跨機房災備。
+- **規格對照**：測試 3 台（16 核／128 GB），正式 3 台（64 核／256 GB、SSD 2 TB 資料碟），見提案簡報硬體建議；以上配置待與永豐資訊部門確認。
+
+**授權處理（AGPLv3 例外，與 Grafana 同一條）**：Redis 8（RSALv2／SSPLv1／AGPLv3 三選一，本案選 AGPLv3）、Grafana OSS、Loki 都是 AGPLv3。三者只在永豐內部使用、不修改原始碼、不對外提供服務，不觸發 AGPL 的散布與網路服務義務；比照 Grafana 既有例外，**需請法務把 Redis 8 與 Loki 一併列入白名單例外**（`LICENSES.md`）。若法務不接受，退路：Redis 鎖 7.2（最後一個 BSD 版，已不更新）或改回 Valkey 8（BSD-3，指令與客戶端完全相容）；日誌改 VictoriaLogs（Apache-2.0）。
+
 ## 2. 開源授權審查（避免金融業需額外購買商業授權）
 
 原則：**只採用 OSI 核可的寬鬆授權（Apache-2.0、MIT、BSD、PostgreSQL、MPL-2.0）**；**排除** AGPL／SSPL／BSL／ELv2／RSAL 等「源碼可得但有使用或服務限制」或「需商業授權才能安心用於企業內部」的元件；Copyleft（GPL）僅限不連結進自家程式的獨立工具。
@@ -64,21 +87,21 @@ deploy/
 | OLAP | ClickHouse 24.8 LTS、ClickHouse Keeper、clickhouse-operator（Altinity） | Apache-2.0 | 無 | Druid／Pinot 亦 Apache-2.0 可替代；Snowflake／Databricks 商業 |
 | 批次／湖 | Apache Spark 3.5、Apache Iceberg、Trino | Apache-2.0 | 無 | Databricks Delta（Apache-2.0 但生態綁定） |
 | 物件儲存（機房） | **GCS（雲）**；機房：SeaweedFS（Apache-2.0）或 Ceph RGW（LGPL-2.1，獨立服務） | — | 低 | **MinIO（AGPL-3.0）**：企業內部使用雖不觸發散布義務，但金融業法務常列為紅燈；排除 |
-| 快取 | **Valkey 8**（BSD-3） | BSD-3 | 無 | **Redis ≥ 7.4（RSALv2／SSPL；8.0 起另有 AGPL）**：排除 |
+| 快取 | **Redis 8**（AGPLv3；§1.3 內部使用例外，待法務核可） | AGPL-3.0（內部使用） | 低 | 退路：Valkey 8（BSD-3，指令相容）或 Redis 7.2（BSD，已停更） |
 | 關聯式 DB | PostgreSQL 16 + pgvector、CloudNativePG | PostgreSQL／PostgreSQL／Apache-2.0 | 無 | MongoDB（SSPL）排除 |
 | 排程 | Apache Airflow 2.10 | Apache-2.0 | 無 | Prefect（Apache-2.0 可）、Dagster（Apache-2.0 可）；Astronomer 商業 |
 | 批次整合 | dlt + 自建 Python | Apache-2.0 | 無 | Airbyte（ELv2）、Talend（商業）；SeaTunnel（大陸起源）不用，見 docs/25 |
 | 資料品質 | Great Expectations、Soda Core | Apache-2.0 | 無 | — |
 | 中繼資料／血緣 | OpenMetadata、OpenLineage | Apache-2.0 | 無 | Collibra／Alation 商業 |
 | BI／看板（選配） | Apache Superset | Apache-2.0 | 無 | **Metabase（AGPL）**、**Grafana（AGPL-3.0 自 8.0）**、Tableau／Power BI 商業 |
-| 觀測 | Prometheus、OpenTelemetry；儀表板 **Grafana OSS**（AGPL-3.0，僅內部使用、不散布、不修改，法務已接受）；日誌 **OpenSearch**（Apache-2.0）或 Cloud Logging | Apache-2.0 / AGPL-3.0（內部使用） | 低 | Loki／Tempo 改用 OpenSearch／Cloud Trace；Elastic（SSPL／ELv2／AGPL 三選一）排除 |
+| 觀測 | Prometheus、OpenTelemetry；儀表板 **Grafana OSS**（AGPL-3.0，僅內部使用、不散布、不修改，法務已接受）；日誌 **Loki**（AGPL-3.0，同一例外，待法務核可）；GCP 可用 Cloud Logging | Apache-2.0 / AGPL-3.0（內部使用） | 低 | 退路：VictoriaLogs（Apache-2.0）、OpenSearch |
 | 密鑰 | Cloud KMS／Secret Manager；機房：**OpenBao**（MPL-2.0） | MPL-2.0 | 無 | **HashiCorp Vault／Terraform（BSL 1.1）**：排除 → **OpenTofu**（MPL-2.0） |
 | 身分 | Keycloak | Apache-2.0 | 無 | Okta／Auth0 商業 |
 | API／閘道 | FastAPI、Uvicorn；Envoy／Kong OSS | MIT／BSD；Apache-2.0 | 無 | Kong Enterprise 商業 |
 | 前端 | React、Vite、TypeScript、**自繪 SVG + D3**（ECharts 為百度起源，不用，見 docs/25） | MIT／MIT／Apache-2.0／ISC | 無 | Highcharts（商業）、AG Grid Enterprise（商業；Community 版 MIT 可） |
 | Agent／LLM | 官方 `mcp` SDK（MIT）、LangGraph（MIT）選配；模型經企業閘道 | MIT | 模型授權另計（Claude API 商業條款；本地開源模型注意 Llama 社群授權非 OSI） | — |
 | 容器基底 | Red Hat **UBI 9**（免費再散布）、Debian 12 slim、distroless | UBI EULA（免費）、多種 | 無 | — |
-| K8s（機房） | RKE2 或 kubeadm；Operators：Strimzi、Flink、Altinity clickhouse-operator、CloudNativePG | Apache-2.0 | 無 | OpenShift（訂閱）、Rancher Prime（訂閱） |
+| 容器（機房） | 第一階段：Docker Engine ＋ Docker Compose（§1.3）；第二階段／GCP：Kubernetes（RKE2 或 GKE）＋ Operators | Apache-2.0 | 無 | OpenShift（訂閱）、Rancher Prime（訂閱）、Docker Desktop（商業條款，伺服器不用） |
 | Java 執行環境 | Eclipse Temurin 17／21 | GPLv2+CE（標準 OpenJDK 例外，可自由使用） | 無 | Oracle JDK（商業條款） |
 
 流程保證：
@@ -91,7 +114,7 @@ deploy/
 | 層 | 建議 | 支援矩陣 |
 |---|---|---|
 | **GKE 節點** | Container-Optimized OS（Google 維護） | 預設；或 Ubuntu（GKE 提供） |
-| **機房 K8s 節點／VM** | **RHEL 9.x** 或 **Rocky Linux 9.x**（1:1 相容，免費）；次選 AlmaLinux 9、Ubuntu 22.04／24.04 LTS | RHEL 9：完整支援至 2027、維護至 2032；RHEL 10（2025/5 GA）與 Rocky 10（2025/6）可作新環境；**RHEL／Rocky 8 完整支援已於 2024/5 結束**（維護至 2029/5），新部署不採用 |
+| **機房 VM（Compose 或 K8s 節點）** | **RHEL 9.x** 或 **Rocky Linux 9.x**（1:1 相容，免費）；次選 AlmaLinux 9、Ubuntu 22.04／24.04 LTS | RHEL 9：完整支援至 2027、維護至 2032；RHEL 10（2025/5 GA）與 Rocky 10（2025/6）可作新環境；**RHEL／Rocky 8 完整支援已於 2024/5 結束**（維護至 2029/5），新部署不採用 |
 | 容器基底 | **UBI 9 minimal**（與 RHEL 9 同源，免訂閱可散布）；Python／Node 映像用 Debian 12 slim 或 distroless | 所有自建映像統一基底，CVE 修補節奏一致 |
 | 核心需求 | kernel ≥ 5.14（RHEL 9），cgroup v2，`vm.max_map_count`、`fs.file-max` 調整（ClickHouse／Kafka） | Ansible 角色統一設定 |
 | 不支援 | CentOS Linux 7／8（EOL）、Windows 節點 | — |

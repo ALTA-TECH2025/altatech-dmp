@@ -7,7 +7,7 @@
 
 | 問題 | 回答 |
 |---|---|
-| 有沒有必須付費的軟體授權？ | **沒有。** 第一階段所有元件都是 OSI 認可的開源授權（Apache-2.0、MIT、BSD、PostgreSQL、MPL-2.0、ISC）或免費再散布的基底映像（Red Hat UBI）。唯一的 copyleft 元件是 Grafana OSS（AGPL-3.0），只做內部看板、不修改、不對外提供，不觸發散布義務（法務已核可，見 docs/07 §3）。 |
+| 有沒有必須付費的軟體授權？ | **沒有。** 第一階段所有元件都是 OSI 認可的開源授權（Apache-2.0、MIT、BSD、PostgreSQL、MPL-2.0、ISC）或免費再散布的基底映像（Red Hat UBI）。copyleft 元件有三個：Grafana OSS（AGPL-3.0，法務已核可）、Redis 8 與 Loki（AGPL-3.0，2026-10-22 依運維熟悉度採用，**待法務核可**），都只做內部使用、不修改、不對外提供，不觸發散布與網路服務義務（docs/07 §1.3）。 |
 | 哪些是「可選付費」？ | 雲端託管或企業版：GCP（GKE、Cloud SQL、GCS、Managed Prometheus，依用量計費，機房部署不需要）、ClickHouse Cloud、Grafana Cloud／Enterprise、Confluent、Astronomer、Rancher Prime、Red Hat 訂閱（RHEL 節點 OS；用 Rocky Linux 則免費）。第一階段的設計都不依賴這些。 |
 | 有沒有中國大陸原產的元件？ | **沒有。** 曾評估的 Apache SeaTunnel、Flink CDC（阿里巴巴起源）、DolphinScheduler 都已排除或未採用（docs/25）；Apache ECharts 由 Apache 軟體基金會治理（Apache-2.0），列為使用中（§1.3）。需要揭露的兩項：ClickHouse 起源於俄羅斯 Yandex（2021 起由美國公司 ClickHouse Inc. 治理，Apache-2.0）；Vite／Vitest（VoidZero Inc.，美國公司）與 SeaweedFS（SeaweedFS Inc.，美國公司）的主要作者為大陸出生。 |
 | 客戶要付的只有什麼？ | 基礎設施（機房硬體或 GCP 用量）、GA360（Google 商業產品，客戶既有）、LLM API（第一階段 AI 閘道關閉，不需要）、人力。另有兩個外部服務依用量：告警通知若用 LINE 官方帳號，Messaging API 免費方案每月 200 則推送、超過要買訊息方案（Email 走客戶既有 SMTP，免費）；GA4 BigQuery 匯出的 BigQuery 儲存與查詢費。 |
@@ -22,7 +22,7 @@
 | Altinity clickhouse-operator | 0.24 | K8s 上管理 ClickHouse 叢集 | Apache-2.0 | 不需要（Altinity 支援合約可選） | Altinity（美） | — |
 | PostgreSQL + pgvector | 16 / 0.7 | 控制面（看板、分群定義、審批、審計索引） | PostgreSQL License / PostgreSQL License | 不需要（Cloud SQL 可選） | PGDG（國際）／個人（美） | — |
 | CloudNativePG | 1.24 | K8s 上管理 PostgreSQL | Apache-2.0 | 不需要 | EDB（義／美） | CNCF sandbox |
-| Valkey | 8 | 快取、工作佇列 | BSD-3 | 不需要 | Linux Foundation | Redis 7.2 的開源分支（Redis ≥ 7.4 改為 RSAL／SSPL，已排除） |
+| Redis | 8 | 快取、工作佇列 | **AGPL-3.0**（三選一授權：RSALv2／SSPLv1／AGPLv3，本案選 AGPLv3） | 不需要（Redis Enterprise 可選） | Redis Ltd.（美） | 2026-10-22 依運維熟悉度改回 Redis；只內部使用、不修改、不對外散布，比照 Grafana 例外，**待法務核可**；退路 Valkey 8（BSD-3，指令相容） |
 | Apache Kafka（KRaft）+ Strimzi | 3.8 / 0.43 | 事件匯流排（第一階段只用於推送更新與原始事件落地） | Apache-2.0 | 不需要（Confluent 可選） | ASF（美）／Red Hat（美） | 不用 Confluent 社群授權元件 |
 | Apache Flink + Kubernetes Operator | 1.20 / 1.10 | 串流（第二階段即時觸發；第一階段部署套件含、未啟用） | Apache-2.0 | 不需要 | ASF（美） | 起源德國 TU Berlin |
 | Apache Airflow | 2.10 | 日批排程（第一階段由 API 內建排程器執行，Airflow 映像已備） | Apache-2.0 | 不需要（Astronomer 可選） | ASF（美） | 起源 Airbnb |
@@ -30,10 +30,12 @@
 | OpenBao | 2.x | 機房密鑰庫（GCP 改用 Secret Manager） | MPL-2.0 | 不需要 | Linux Foundation | HashiCorp Vault 的開源分支（Vault 改 BSL，已排除） |
 | OpenTofu | 1.8 | 基礎設施即程式碼（GCP） | MPL-2.0 | 不需要 | Linux Foundation | Terraform 的開源分支（Terraform 改 BSL，已排除） |
 | Keycloak | 25 | SSO／OIDC（broker 模式；direct 模式直連客戶 AD） | Apache-2.0 | 不需要 | CNCF／Red Hat（美） | — |
+| Grafana Loki + Promtail | 3.x | 日誌（第一階段機房） | **AGPL-3.0** | 不需要（Grafana Cloud 可選） | Grafana Labs（美） | 與 Grafana 同一例外、待法務核可；退路 VictoriaLogs（Apache-2.0） |
 | Prometheus / OpenTelemetry Collector | 2.x / 0.1x | 指標抓取與告警 | Apache-2.0 | 不需要（GCP Managed Prometheus 可選） | CNCF | — |
 | Grafana OSS | 11.x | 監控看板（平台內「系統監控」頁可直接看同一組面板） | **AGPL-3.0** | 不需要（Grafana Enterprise／Cloud 可選） | Grafana Labs（美） | 只內部使用、不修改、不對外散布 → 不觸發 AGPL 義務；法務核可例外 |
 | OpenSearch | 2.x | 日誌（機房；GCP 用 Cloud Logging） | Apache-2.0 | 不需要 | Linux Foundation（AWS 捐贈） | Elasticsearch 改 SSPL／ELv2 後的開源分支 |
-| Helm / Kubernetes（RKE2 或 kubeadm） | 3 / 1.30 | 部署 | Apache-2.0 | 不需要（Rancher Prime、OpenShift 訂閱可選） | CNCF／SUSE（德） | — |
+| Docker Engine / Docker Compose | 27 / 2.x | 第一階段機房部署（3 台 VM，docs/07 §1.3） | Apache-2.0 | 不需要（Docker Desktop 商業條款，伺服器不用） | Docker Inc.（美）／CNCF | — |
+| Helm / Kubernetes（RKE2 或 GKE） | 3 / 1.30 | 第二階段與 GCP 方案部署 | Apache-2.0 | 不需要（Rancher Prime、OpenShift 訂閱可選） | CNCF／SUSE（德） | 第一階段不啟用 |
 | Red Hat UBI 9 minimal | 9.4 | 自建映像基底（core、batch） | UBI EULA（免費、可再散布） | 不需要（RHEL 節點 OS 若用 RHEL 需訂閱；Rocky Linux 9 免費） | Red Hat（美） | — |
 | Debian 12 slim / distroless | 12 | Node 建置、ingest（Go）映像 | 多種（DFSG 相容）／Apache-2.0 | 不需要 | Debian／Google（美） | — |
 | nginx-unprivileged | 1.27 | 前端靜態檔（Alpine 基底） | BSD-2 | 不需要 | NGINX（F5，美） | — |
@@ -101,7 +103,8 @@
 
 | 元件 | 原因 | 替代 |
 |---|---|---|
-| Redis ≥ 7.4、MongoDB、Elasticsearch、MinIO、Metabase | RSAL／SSPL／AGPL（伺服器端 copyleft 或非 OSI 授權） | Valkey、PostgreSQL、OpenSearch、SeaweedFS／GCS、Superset |
+| MongoDB、Elasticsearch、MinIO、Metabase | SSPL／AGPL（伺服器端 copyleft 或非 OSI 授權） | PostgreSQL、OpenSearch、SeaweedFS／GCS、Superset |
+| Redis ≥ 7.4（RSAL／SSPL 兩種授權）、Loki | — | **採用但走 AGPLv3 例外**：Redis 8、Loki 與 Grafana 同一條（內部使用、不修改、不散布），待法務核可；退路 Valkey、VictoriaLogs |
 | HashiCorp Vault／Terraform、Airbyte | BSL 1.1／ELv2（非開源） | OpenBao、OpenTofu、dlt |
 | Confluent Platform（Schema Registry、ksqlDB） | Confluent Community License | Apicurio、Flink SQL |
 | Apache SeaTunnel、Flink CDC、DolphinScheduler | 中國大陸起源（供應商評分表要求） | dlt、Debezium、Airflow |

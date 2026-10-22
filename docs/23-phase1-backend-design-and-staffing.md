@@ -45,7 +45,7 @@ MA／LINE／短鏈 ── POST /v1/events ─► dmp.raw_events ────┘ 
                                                             └─ dmp.user_tags（Bitmap）─ segments
 Airflow（LocalExecutor）：匯入 DAG（每 5／15 分鐘、每日）、dbt（標籤、觸點表、對帳、MV 補算）、OneID 改寫、推送
 FastAPI dmp-api：analytics / users / segments / tags / sql / migration / meta / iam / ops / events 直送
-PostgreSQL：控制面（定義、任務、審批、審計索引、分群定義、已存查詢）   Valkey：查詢快取、估數快取
+PostgreSQL：控制面（定義、任務、審批、審計索引、分群定義、已存查詢）   Redis：查詢快取、估數快取
 ```
 
 與 docs/02 的差異只有一處：計算層的 Flink 換成「ClickHouse SQL + dbt + Airflow 微批」；Kafka 降為選配（數據中台若提供 topic，第一階段仍以批次讀）。延遲口徑：GA 串流匯出 P95 < 15 分鐘（受 GA 限制，本來就不是秒級）、數據中台 < 20 分鐘、`/v1/events` 直送 < 5 分鐘（微批間隔）。這些都符合 docs/17 §3 的目標。
@@ -124,7 +124,7 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 ### 4.4 api（FastAPI）— 20 人日（已有骨架：`backend/api/`，auth + iam + semantic/compile + analytics/events／funnel／retention／path／attribution + users（列表）+ profiles（細查），自測與端到端通過）
 
 - 由 `openapi.yaml` 生成 schema；每個 router 只做：驗證 → Policy → 呼叫服務 → 審計。不在 router 寫 SQL。
-- 查詢結果快取 Valkey 5 分鐘（key = 編譯後 SQL hash + 身分）。
+- 查詢結果快取 Redis 5 分鐘（key = 編譯後 SQL hash + 身分）。
 - 契約測試 schemathesis；權限測試五角色 × 每個端點，期望值由 `rbac.yaml` 自動展開。
 
 ### 4.5 segments／tags — 26 人日（已有最小版：`backend/segments/`，規則 = UsersQuery → Bitmap → `segment_members` 版本表；審批、例行 tick、版本保留、回收站、血緣；自測與端到端通過）
