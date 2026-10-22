@@ -35,6 +35,22 @@ jobs:
         run: |
           python3 -c "import yaml,glob;[yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('backend/**/*.yaml',recursive=True)+glob.glob('deploy/**/*.yaml',recursive=True) if '/templates/' not in f]"
           python3 -m openapi_spec_validator backend/openapi.yaml
+      - name: 草案更新只收白名單欄位（負例）
+        # 技能庫／Agent 設定草案不能改工具、模型可見範圍、自動化界線（docs/39 D3／D4）；契約要能機器驗證地擋下
+        run: |
+          python3 - <<'PY'
+          import yaml, jsonschema
+          S = yaml.safe_load(open("backend/openapi.yaml", encoding="utf-8"))["components"]["schemas"]
+          bad = {"tools": ["profile.get"], "model_view": {"identifiers": "all"}, "automation": "publish"}
+          cases = [("SkillDraftUpdate", {"purpose": "p", "notes_md": "n"}, [bad, {"purpose": "p", "tools": ["x"]}]),
+                   ("AgentConfigDraftUpdate", {"skills": [{"name": "explore-data", "version": "1.0.0"}], "notes_md": "n"},
+                    [bad, {"skills": [{"name": "explore-data", "version": "latest"}]}, {"skills": [{"name": "a", "version": "1", "tools": ["x"]}]}, {"user_overridable": [{"skill": "a", "param": "k", "status": "confirmed"}]}])]
+          for name, ok, rejects in cases:
+              v = jsonschema.Draft202012Validator(S[name]); v.validate(ok)
+              for r in rejects:
+                  assert not v.is_valid(r), (name, r)
+              print(name, "ok: 正例通過、", len(rejects), "個負例被拒")
+          PY
       - name: 契約變更需要 contract 標籤
         # 讀 PR 目前的標籤而不是事件快照：開 PR 後才補標籤，重跑這個 job 就能過，不必再推一個 commit
         if: needs.changes.outputs.contract == 'true' && github.event_name == 'pull_request'
