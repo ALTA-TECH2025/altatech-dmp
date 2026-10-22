@@ -107,6 +107,8 @@ class Notifier:
         if due:
             text = self._format(due, t)
             for ch in ("email", "line"):
+                if f is not None and not f.verify():
+                    return out
                 if cfg[ch].get("enabled") and cfg["available"][ch]:
                     out.append(self._send(ch, "alert", text, [f"{a['key']}:{a.get('subject', '')}" for a in due], cfg))
         if resolved:

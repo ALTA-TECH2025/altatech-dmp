@@ -391,6 +391,9 @@ class ActivationService:
         return d
 
     def _attempt(self, dlv: dict[str, Any], d: dict[str, Any]) -> None:
+        if not _fenced(self):                                            # 送出前一刻已不是主控：不送，留成待重試給接手的 worker（payload 保留、不計失敗次數）
+            dlv["status"] = "retrying"; dlv["next_retry_at"] = self._ts(); dlv["updated_at"] = self._ts()
+            self.store.put_item("delivery", dlv); return
         try:
             dest = self._dest(d)
             req = webhook.deliver(dest, dlv["event"], dlv["payload"], delivery_id=dlv["id"])

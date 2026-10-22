@@ -510,6 +510,11 @@ def main(store: Any | None = None) -> None:
     r1 = r1.json(); assert r1 == {**r1, "version": 2, "added": 3, "removed": 0, "batches": 2, "ok": 2, "failed": 0} and r1["destinations"][crm["id"]] == "ok", r1
     assert [h["headers"]["X-DMP-Event"] for h in hooks[n0:]] == ["audience.full", "audience.complete"] and hooks[n0]["body"]["members"][0]["tags"] == {"tier_grade": "P1"} and hooks[n0]["body"]["members"][2]["tags"] == {"tier_grade": "P2"} and hooks[n0 + 1]["body"]["total"] == 3, hooks[n0:]
     assert c.post(f"/v1/segments/{sg['id']}/compute", json={"basetime": "2026-10-17"}).json()["version"] == 3
+    _act = app.state.activation; n1 = len(hooks)                                                                          # 送出前一刻已不是主控（ops/lease.py）→ 不呼叫 webhook，留成待重試給接手的 worker
+    dx = _act._new_delivery(None, sg["id"], crm["id"], 2, "full", "audience.full", {"index": 1, "total": 1, "size": 0}, {"members": []})
+    _act.fence = __import__("types").SimpleNamespace(verify=lambda: False); _act._attempt(dx, _act.destination(crm["id"])); _act.fence = None
+    assert len(hooks) == n1 and dx["status"] == "retrying" and dx["attempts"] == 0 and dx["next_retry_at"] and "payload" in dx, dx
+    store.delete_item("delivery", dx["id"])
     tk = app.state.activation.tick(Subject("system:scheduler", ["admin"])); assert tk["ran"][0]["push"] == ps["id"] and tk["ran"][0]["added"] == 1 and tk["ran"][0]["removed"] == 1, tk
     assert hooks[-1]["headers"]["X-DMP-Event"] == "audience.delta" and [(m["one_id"], m["action"]) for m in hooks[-1]["body"]["members"]] == [("u5", "add"), ("u2", "remove")], hooks[-1]["body"]
     pd = c.get(f"/v1/pushes/{ps['id']}").json(); assert pd["last_delivered_version"] == 3 and len(pd["deliveries"]) == 3 and all(d["status"] == "ok" and "payload" not in d for d in pd["deliveries"]), pd
@@ -594,6 +599,14 @@ def main(store: Any | None = None) -> None:
     from types import SimpleNamespace
     share_svc.fence = SimpleNamespace(claim=lambda k: claims.append(k) or False)
     assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 12, 8, 5, tzinfo=_ZI2("Asia/Taipei"))) == [] and claims == [f"dashboard_share:{sch['id']}:2026-10-12"], claims
+    sent_f: list[Any] = []; fin: list[str] = []; _rcp = share_svc.recipients                                          # 認領成功、但寄信前一刻已不是主控（begin 失敗）→ 不寄、不寫 last_run、不 finish
+    share_svc.mailer = lambda to, subj, html: sent_f.append(to); share_svc.recipients = lambda roles: ["mkt@corp.internal"]
+    share_svc.fence = SimpleNamespace(claim=lambda k: True, begin=lambda k: False, finish=lambda k: fin.append(k))
+    lr_before = next(x for x in store.items("dashboard_schedule") if x["id"] == sch["id"]).get("last_run")
+    r_f = share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 12, 8, 5, tzinfo=_ZI2("Asia/Taipei")))
+    assert [x["status"] for x in r_f] == ["fenced"] and sent_f == [] and fin == [], (r_f, sent_f, fin)
+    assert next(x for x in store.items("dashboard_schedule") if x["id"] == sch["id"]).get("last_run") == lr_before                  # 不寫 last_run：接手的 worker 同一時段仍會寄
+    share_svc.mailer = None; share_svc.recipients = _rcp
     share_svc.fence = None
     assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 12, 8, 5, tzinfo=_ZI2("Asia/Taipei")))[0]["status"] == "rendered_no_transport"   # 週一 08:05 到點
     assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 12, 8, 30, tzinfo=_ZI2("Asia/Taipei"))) == []                             # 同一天不重跑

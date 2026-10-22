@@ -433,6 +433,9 @@ class OutputService:
             if len(rows) > self.max_rows: raise Conflict(f"列數超過單次上限 {self.max_rows:,}")
             wm = hashlib.sha256(f"{t['id']}|{run['id']}|{t['owner']}|{self._ts()}".encode()).hexdigest()[:12]
             files = self._write(t, run, rows, wm, partition)
+            fence = getattr(self, "fence", None)
+            if files and fence is not None and not fence.verify():          # 上傳前一刻已不是主控：不上傳，本次 run 記失敗，接手的 worker 會補跑
+                raise Conflict("已不是背景作業主控，未上傳（由接手的 worker 補跑）")
             remote = self.uploader.upload(dest, [(Path(f["local"]), f["path"]) for f in files]) if files else []
             run.update({"status": "ok", "finished_at": self._ts(), "rows": len(rows), "bytes": sum(f["bytes"] for f in files), "files": [{k: v for k, v in f.items() if k != "local"} for f in files], "watermark": wm,
                         "remote": remote})
