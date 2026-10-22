@@ -11,9 +11,9 @@
 | 編號 | 日期 | 決策 | 誰定的 | 影響 | 狀態 |
 |---|---|---|---|---|---|
 | D-01 | 2026-10-22 | 第一階段機房正式環境用 **3 台 VM ＋ Docker Compose**，不上 Kubernetes；Helm 套件保留給 GCP 方案與第二階段，映像共用 | Windy 與研發、運維 | docs/44（#70）、docs/07 §1.3（#75→併入 #70）、deploy/compose（#76）、提案簡報第 37–39 張 | 有效 |
-| D-02 | 2026-10-22 | 快取沿用 **Redis 8**（三選一授權中選 AGPLv3），不改 Valkey；只內部使用、不修改、不對外提供，比照 Grafana 例外。法務不核可時換 Valkey 8（只改映像） | Windy 與研發、運維 | docs/44、docs/32、LICENSES.md、backend/docker-compose.yml | 有效；法務核可 → 見 P-04 |
-| D-03 | 2026-10-22 | 日誌用 **Loki**（AGPLv3，同 D-02 處理）；收集器用 **Alloy**（Apache-2.0；#70 定）。VictoriaLogs、OpenSearch 不用 | Windy 與研發、運維；收集器由 #70 | docs/44、docs/32、deploy/compose | 有效 |
-| D-04 | 2026-10-23 00:19 | **Flink、Kafka 留第二階段。** 第一階段所有路徑都是微批（每日／每 15 分鐘），沒有即時觸發；前端「手動更新」= on-demand 跑一次增量微批 | Windy | 推翻 D-F1～D-F3（見 §2）；#68、#69 關閉；#70 的拓樸拿掉 Flink、Kafka；CI flink-parity 改手動；docs/23、docs/17 §3 口徑 | 有效 |
+| D-02 | 2026-10-22 | 快取沿用 **Redis 8**（三選一授權中選 AGPLv3），不改 Valkey；只內部使用、不修改、不對外提供，比照 Grafana 例外。法務不核可時換 Valkey 8（只改映像） | Windy 與研發、運維 | docs/44、docs/32、LICENSES.md、backend/docker-compose.yml | 有效；Windy 10/23：**法務沒有說不行就照此規劃**（部署檔、文件都用 Redis 8），法務否決才換 → 見 P-04 |
+| D-03 | 2026-10-22 | 日誌用 **Loki**（AGPLv3，同 D-02 處理；法務未否決前照此規劃）；收集器用 **Alloy**（Apache-2.0；#70 定）。VictoriaLogs、OpenSearch 不用 | Windy 與研發、運維；收集器由 #70 | docs/44、docs/32、deploy/compose | 有效 |
+| D-04 | 2026-10-23 00:19 | **Flink、Kafka 第一階段不交付、不啟用，第二階段交付。** 第一階段所有路徑都是微批（每日／每 15 分鐘），沒有即時觸發；前端「手動更新」= on-demand 跑一次增量微批。**已寫的 Flink 程式與文件保留、持續可測**（#71 PyFlink 測試環境、docs/43、streams.yaml），之後以授權（license）或模組權限開放，不是放棄 | Windy（10/23 補充：程式不拋棄，這階段不交付，可用授權或模組權限限制） | 推翻 D-F1～D-F3（見 §2）；#68、#69 關閉；#70 的拓樸拿掉 Flink、Kafka；CI flink-parity 改為相關程式變動與合併進 main 時才跑、也可手動（#79），不擋無關 PR；docs/23、docs/17 §3 口徑 | 有效 |
 | D-05 | 2026-10-22 | 映像倉、作業系統：RHEL 9／Rocky 9；映像 UBI 9／distroless；第一階段啟用 web、core、batch、ingest 四個映像 | 研發、運維 | docs/07、docs/44 | 有效 |
 
 ### 1.2 資料模型與處理規則
@@ -36,7 +36,7 @@
 |---|---|---|---|---|---|
 | D-20 | 2026-10-20 | **Webhook 名單推送只推給偉康 CDP**；不直接發送 LINE／Email／簡訊，發送由偉康 MA 負責 | Windy | 提案簡報全份、docs/14 | 有效 |
 | D-21 | 2026-10-21 | AD 登入一律經 **Keycloak**，API 移除直連 LDAPS | 研發（jokieke） | #57、#58 | 有效（審查中） |
-| D-22 | 2026-10-22 | 登入 session 與 SSO 前狀態放 PostgreSQL，多個 API 實例共用；背景例行加主控租約，多份 worker 只有一份在跑 | 研發 | #72（已合併）、#73 | 有效 |
+| D-22 | 2026-10-22 | 登入 session 與 SSO 前狀態放 PostgreSQL，多個 API 實例共用；背景例行加主控租約，多份 worker 只有一份在跑 | 研發 | #72、#73（皆已合併） | 有效 |
 | D-23 | 2026-10-21 | AI 分析工作台：先開發已確認範圍（D1 MVP、D2 執行架構、D3 模型可見範圍、D4、D5 技能庫基礎），正式模型未啟用、**不列第一階段驗收** | Windy 授權 | #34、#36、#60–#65、docs/38–41 | 有效 |
 | D-24 | 2026-10-22 | 數據輸出（SFTP／S3／Webhook）只送永豐內部系統，走匯出審批、遮罩、浮水印 | 研發，依 docs/06 | docs/17 §5.1 | 有效 |
 
@@ -53,9 +53,9 @@
 
 | 編號 | 日期 | 原決策 | 被誰推翻 | 說明 |
 |---|---|---|---|---|
-| D-F1 | 2026-10-22 | Flink 改第一階段，只有即時路徑走 Kafka＋Flink（J1 標準化、J2 交易事件化、J3 即時歸戶、J4 即時觸發）；docs/43 | **D-04**（2026-10-23） | 當天稍早的指示，晚上討論微批後改回第二階段。docs/43、#68、#69 改為第二階段參考；#71 的 PyFlink 測試環境留在 repo，CI 改手動 |
+| D-F1 | 2026-10-22 | Flink 改第一階段，只有即時路徑走 Kafka＋Flink（J1 標準化、J2 交易事件化、J3 即時歸戶、J4 即時觸發）；docs/43 | **D-04**（2026-10-23）：延後到第二階段，不是放棄 | 當天稍早的指示，晚上討論微批後改為第二階段交付。docs/43、#68、#69 的內容保留為第二階段的設計；#71 的 PyFlink 測試環境留在 repo 並持續可測（見 D-04） |
 | D-F2 | 2026-10-22 | 即時延遲目標：觸發 P95 < 10 s、事件可查 < 1 分鐘 | D-04 | 第一階段沒有即時路徑；延遲以 docs/17 §3 的微批口徑為準 |
-| D-F3 | 2026-10-22 | Flink SQL ＋ PyFlink UDF 重用現有規則 | D-04 | 第二階段再用 |
+| D-F3 | 2026-10-22 | Flink SQL ＋ PyFlink UDF 重用現有規則 | D-04（延後） | 第二階段沿用；#71 的批流一致性測試已證明可行 |
 | — | 2026-10-16 | docs/19 v1.1：登入後 7 天匿名事件以 ALTER TABLE UPDATE 改寫 one_id | D-14 | one_id_uint 在排序鍵，ClickHouse 不允許更新；且違反 D-10 |
 | — | 2026-10-14 | 第一階段快取用 Valkey、日誌用 VictoriaLogs（docs/32 v1） | D-02、D-03 | 改用團隊熟悉的 Redis、Loki，授權走例外 |
 | — | 2026-10-14 | 機房部署 RKE2（Kubernetes）＋ Operators（docs/07 v0.2） | D-01 | 第一階段不上 K8s |
@@ -67,7 +67,7 @@
 | P-01 | 整合平台部署在永豐證 GCP 專案，或永豐機房；去識別化交易資料可否上雲 | 永豐 | 全部部署方案（A／B 案） | 10/29 提案 |
 | P-02 | 3 台 VM 的規格與配置（測試 16C/128G、正式 64C/256G） | 永豐資訊部門 | deploy/compose、硬體報價 | 10/29 後 |
 | P-03 | 接收區（SFTP）、ETL 排程、地端資料庫是否已具備 | 永豐 IT | 數據流 ②、deploy/compose 的 /landing | 10/29 後 |
-| P-04 | Redis 8、Grafana、Loki 的 AGPLv3 內部使用例外 | 法務 | D-02、D-03；不過就換 Valkey、VictoriaLogs | 提案前送件 |
+| P-04 | Redis 8、Grafana、Loki 的 AGPLv3 內部使用例外 | 法務 | D-02、D-03；**未否決前照 Redis 8／Loki 規劃**（Windy 10/23），否決才換 Valkey、VictoriaLogs | 提案前送件 |
 | P-05 | ⑦ 名單推送偉康 CDP 的欄位、介面、頻率；⑧ MA 發送紀錄回流的欄位與路徑 | 偉康（永豐確認） | 數據流頁、docs/14、activation | 10/29 後 |
 | P-06 | 數據中台交易資料以批次或 Kafka 提供 | 永豐 IT | 匯入器；Kafka 第一階段不部署（D-04），若只有 Kafka 要加消費端 | 10/29 後 |
 | P-07 | 容器間是否要 TLS（ClickHouse 9440、PostgreSQL ssl） | 永豐資安 | deploy/compose | 10/29 後 |
