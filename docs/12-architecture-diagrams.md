@@ -1,6 +1,6 @@
 # 架構圖集：系統架構、元件組成、數據流
 
-> 版本 v0.5（2026-10-23）。**第一階段定版三張圖**（2026-10-22 與研發、運維定案：3 台 VM Docker Compose、微批不上 Flink、事件表只增刪不改寫、OneID 回補查詢時換算；對照 PR #74／#75／#76）由 `docs/diagrams/build_phase1.py` 產生，PNG 由 `render_png.py`（Playwright／Chromium）產生。原四張圖是 GCP／第二階段的目標架構，保留在下方。
+> 版本 v0.5（2026-10-23）。**第一階段定版三張圖**（定案見 docs/45：D-01～D-04 部署與 Flink、D-10～D-14 資料規則；部署拓樸依 docs/44 §2；對照 PR #70／#74／#76）由 `docs/diagrams/build_phase1.py` 產生，PNG 由 `render_png.py`（Playwright／Chromium）產生。原四張圖是 GCP／第二階段的目標架構，保留在下方。
 >
 > | 圖 | 檔案 | 用途 |
 > |---|---|---|
