@@ -235,7 +235,69 @@ def main() -> None:
     assert not c.get("/v1/iam/me").json()["session"]["step_up_needed"]
     assert {x["event"] for x in audit} >= {"auth.login.failed", "auth.step_up.failed", "auth.step_up"}
     c.post("/auth/logout", headers={"X-CSRF-Token": c.cookies["dmp_csrf"]})
-    print(f"auth self-test ok: oidc(entra pkce/jwks/amr/overage) ldap(bind/nested/limits) local(scrypt/totp/step-up) session(idle/absolute/csrf/evict/step-up) api-token routes; audit events={len(audit)}")
+    shared = _shared_two_nodes(cfg, entra, idp, clock, asg)
+    print(f"auth self-test ok: oidc(entra pkce/jwks/amr/overage) ldap(bind/nested/limits) local(scrypt/totp/step-up) session(idle/absolute/csrf/evict/step-up) api-token routes; audit events={len(audit)}; {shared}")
+
+
+def _shared_two_nodes(cfg: dict[str, Any], entra: OIDCProvider, idp: FakeEntra, clock: Clock, asg: list[dict[str, Any]]) -> str:
+    """10. 兩個 API 實例共用 PostgreSQL（docs/44 §5a）：A 發起 SSO、B 收回呼；同一 cookie 兩台都認得；B 登出 A 也失效；
+    登入前狀態只能用一次；資料庫只存 sid 雜湊；超過同時 session 上限跨台也踢最舊的。沒設 DMP_PG_DSN 就略過。"""
+    import os
+    import uuid
+    if not os.environ.get("DMP_PG_DSN"):
+        return "shared-session(略過：未設 DMP_PG_DSN)"
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from ..api.store_pg import PostgresStore
+    from .api import AuthService, build_router
+    from .session_pg import PgLoginStates, PgSessionStore
+    schema = f"t_{uuid.uuid4().hex[:10]}"
+    pgs = [PostgresStore(os.environ["DMP_PG_DSN"], schema=schema) for _ in range(2)]       # 兩個連線池＝兩個 API 程序
+    try:
+        audit: list[dict[str, Any]] = []
+        nodes = []
+        for pg in pgs:
+            sm = SessionManager(CFG["session"], PgSessionStore(pg), lambda e, d: audit.append({"event": e, **d}), now=clock, admin_requires=CFG["role_mapping"]["admin_requires"])
+            svc = AuthService(cfg, {"entra": entra}, sm, None, lambda: asg, PgLoginStates(pg, now=clock))
+            app = FastAPI(); app.include_router(build_router(svc))
+            nodes.append((svc, TestClient(app, base_url="https://dmp.internal")))
+        (sa, ca), (sb, cb) = nodes
+        ck = CFG["session"]["cookie"]["name"]
+        r = ca.get("/auth/login", params={"provider": "entra", "return_to": "/funnel"}, follow_redirects=False)
+        state = r.headers["location"].split("state=")[1].split("&")[0]
+        idp.codes["c10"] = {"oid": "oid-ops2", "upn": "ops2@corp.internal", "name": "王小明", "groups": ["1c7b1c9a-0000-4000-8000-000000000004"], "nonce": sb.login_states[state].nonce}
+        cb.cookies.set("dmp_login", ca.cookies["dmp_login"], domain="dmp.internal", path="/auth")
+        r = cb.get("/auth/callback", params={"code": "c10", "state": state}, follow_redirects=False)
+        assert r.status_code == 302 and r.headers["location"] == "/funnel", (r.status_code, r.text)     # A 發起、B 收回呼
+        assert ca.cookies.get("dmp_login") == state
+        assert ca.get("/auth/callback", params={"code": "c10", "state": state}, follow_redirects=False).status_code == 400   # 登入前狀態只能用一次
+        sid, csrf = cb.cookies[ck], cb.cookies["dmp_csrf"]
+        for c in (ca,):
+            c.cookies.set(ck, sid, domain="dmp.internal"); c.cookies.set("dmp_csrf", csrf, domain="dmp.internal")
+        assert ca.get("/v1/iam/me").status_code == 200 and cb.get("/v1/iam/me").status_code == 200          # 同一 cookie 兩台都認得
+        mine = ca.get("/v1/iam/sessions").json(); assert len(mine) == 1 and mine[0]["current"], mine
+        raw = pgs[0]._loop.run(_fetch(pgs[0], f"SELECT sid_hash, doc::text AS doc FROM {schema}.iam_sessions"))
+        assert raw and all(sid not in (x["sid_hash"] + x["doc"]) for x in raw)                                     # 只存雜湊
+        assert cb.post("/auth/logout", headers={"X-CSRF-Token": csrf}).status_code == 200
+        assert ca.get("/v1/iam/me").status_code == 401                                                             # B 登出，A 也失效
+        n = int(CFG["session"]["concurrent_sessions"])
+        for i in range(n + 1):
+            (sa if i % 2 else sb).sessions.create(user_id="entra:oid-x", username="x", name="X", email="", provider="entra", roles=["marketing"], groups=[], amr=["mfa"], auth_time=int(clock()))
+        assert len(sa.sessions.store.list_user("entra:oid-x")) == n and any(a["event"] == "auth.session.evicted" for a in audit)   # 跨台也守同時 session 上限
+        url, st = entra.begin("/")
+        sa.login_states[st.state] = st; clock.t += 601
+        assert sb.login_states.pop(st.state, None) is None                                                         # 逾時的登入前狀態視同不存在
+        return "shared-session(2 nodes: callback/cookie/logout/one-time-state/hash/evict/ttl)"
+    finally:
+        pgs[0].drop_schema()
+        for pg in pgs:
+            pg.close()
+
+
+async def _fetch(pg: Any, sql: str) -> list[dict[str, Any]]:
+    async with pg.pool.acquire() as c:
+        return [dict(r) for r in await c.fetch(sql)]
 
 
 if __name__ == "__main__":

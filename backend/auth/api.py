@@ -16,8 +16,9 @@ from ..security.policy import Subject, authorize
 from .ldap import LdapError, LdapProvider
 from .local import LocalError, LocalProvider
 from .mapping import base_roles, map_roles, me_payload
-from .oidc import LoginState, OIDCError, OIDCProvider
+from .oidc import OIDCError, OIDCProvider
 from .session import ApiTokens, Session, SessionManager
+from .session_pg import sid_key
 
 LOGIN_COOKIE = "dmp_login"
 
@@ -29,7 +30,7 @@ class AuthService:
     sessions: SessionManager
     tokens: ApiTokens | None = None
     assignments: Callable[[], list[dict[str, Any]]] = lambda: []
-    login_states: dict[str, LoginState] = field(default_factory=dict)     # 登入前狀態（正式環境：Valkey，TTL 10 分鐘）
+    login_states: Any = field(default_factory=dict)     # 登入前狀態：單機用 dict；多個 API 實例用 session_pg.PgLoginStates（共用、TTL 10 分鐘、只能取用一次）
 
     @property
     def mode(self) -> str:
@@ -171,7 +172,7 @@ def build_router(svc: AuthService) -> APIRouter:
 
     def _row(x: Session, me: Session) -> dict[str, Any]:
         return {"sid": x.sid[:8], "user": x.user_id, "username": x.username, "name": x.name, "provider": x.provider, "roles": x.roles, "amr": x.amr, "created_at": x.created_at, "last_seen": x.last_seen,
-                "ip_masked": x.attrs.get("ip", "")[:7] + "…", "current": x.sid == me.sid}
+                "ip_masked": x.attrs.get("ip", "")[:7] + "…", "current": sid_key(x.sid) == sid_key(me.sid)}   # 共用儲存列出的 sid 是雜湊值
 
     @r.get("/v1/iam/sessions")
     def sessions(req: Request, scope: str = "me") -> list[dict[str, Any]]:
