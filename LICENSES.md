@@ -5,9 +5,9 @@
 | Apache Kafka | 3.8 | Apache-2.0 | 事件匯流排 | KRaft，不用 Confluent 元件 | ASF（美） |
 | Apicurio Registry | 2.x | Apache-2.0 | Schema Registry | 取代 Confluent Schema Registry | Red Hat（美） |
 | Debezium | 2.7 | Apache-2.0 | CDC | Flink CDC（阿里巴巴起源）已移除，見 docs/25 | Red Hat（美） |
-| Apache Flink + K8s Operator | 1.19 / 1.10 | Apache-2.0 | 串流 | — | ASF（美；起源德國 TU Berlin） |
+| Apache Flink | 1.19（docs/43 改 2.3，確認後更新並附 CVE 檢查） | Apache-2.0 | 串流 | 第一階段 standalone（Docker）部署，不用 K8s Operator（docs/44） | ASF（美；起源德國 TU Berlin） |
 | ClickHouse / Keeper | 25.8 LTS | Apache-2.0 | OLAP | — | ClickHouse Inc.（美；起源俄羅斯 Yandex） |
-| Altinity clickhouse-operator | 0.24 | Apache-2.0 | Operator | — | Altinity（美） |
+| Altinity clickhouse-operator | 0.24 | Apache-2.0 | Operator | 第一階段不使用（改 Docker，docs/44）；保留供日後 K8s 部署 | Altinity（美） |
 | Apache Spark / Iceberg / Trino | 3.5 / 1.6 / 460 | Apache-2.0 | 批次／湖／Ad-hoc | — | ASF／ASF／Trino SF（美） |
 | Apache Airflow | 2.10 | Apache-2.0 | 排程 | — | ASF（美） |
 | dlt | 1.x | Apache-2.0 | 批次整合 | 取代 Airbyte（ELv2）；SeaTunnel（大陸起源）已移除，見 docs/25 | dltHub（德） |
@@ -16,11 +16,15 @@
 | OpenMetadata / OpenLineage | 1.5 / 1.x | Apache-2.0 | 中繼資料／血緣 | — | Collate（美）／LF AI & Data |
 | PostgreSQL / pgvector / CloudNativePG | 16 / 0.7 / 1.24 | PostgreSQL / PostgreSQL / Apache-2.0 | 控制面 | — | PGDG／個人（美）／EDB（義） |
 | asyncpg | 0.29+ | Apache-2.0 | 控制面 PostgreSQL 驅動（`backend/api/store_pg.py`） | 純 Python + Cython，無 libpq；pip-audit 在 security.yml | MagicStack（加） |
-| Valkey | 8 | BSD-3 | 快取 | 取代 Redis（RSAL/SSPL/AGPL） | Linux Foundation |
+| Redis（含 Sentinel） | 8.x | AGPL-3.0（Redis 8 起 RSALv2／SSPLv1／AGPLv3 三選一，本案選 AGPLv3；**暫行例外（已送法務，Windy 2026-10-23：未否決前照此規劃）**：僅內部使用、不散布、不修改、不對外提供 Redis 服務） | 快取、登入狀態、輕量佇列 | 2026-10-22 研發／運維決議沿用 Redis（docs/44 §3）；客戶端只用與 Valkey 共通的指令，法務不核可時換 Valkey 8（BSD-3）只改映像 | Redis Ltd.（美） |
 | SeaweedFS | 3.x | Apache-2.0 | 機房物件儲存 | 取代 MinIO（AGPL）；GCP 用 GCS | SeaweedFS Inc.（美；作者大陸出生） |
 | OpenBao / OpenTofu | 2.x / 1.8 | MPL-2.0 | 密鑰／IaC | 取代 Vault / Terraform（BSL） | Linux Foundation |
 | Keycloak | 25 | Apache-2.0 | 身分 | — | CNCF／Red Hat（美） |
-| Prometheus / OpenTelemetry / OpenSearch | — | Apache-2.0 | 觀測 | — | CNCF／CNCF／LF（AWS） |
+| Prometheus / Alertmanager / node-exporter / cAdvisor | — | Apache-2.0 | 指標與告警 | — | CNCF／CNCF／CNCF／Google（美） |
+| Grafana Alloy | 1.x | Apache-2.0 | 容器日誌收集 → Loki | 不用 Promtail（AGPL、官方已停止維護） | Grafana Labs（美） |
+| Grafana Loki | 3.x | AGPL-3.0（暫行例外，已送法務；未否決前照此規劃：僅內部使用、不散布、不修改） | 日誌 | 2026-10-22 決議：日誌只用 Loki，不用 OpenSearch／VictoriaLogs／Cloud Logging（docs/44 §4） | Grafana Labs（美） |
+| pgBackRest | 2.x | MIT | PostgreSQL 備份與 WAL 歸檔 | 取代 CloudNativePG 內建備份（docs/44 §5） | Crunchy Data 等社群（美） |
+| Docker Engine（Moby）/ Docker Compose v2 | 27.x / 2.x | Apache-2.0 | 部署 | 第一階段部署方式（docs/44）；不用 Docker Desktop（商業授權） | Docker Inc.（美） |
 | Grafana OSS | 11.x | AGPL-3.0（例外：僅內部使用、不散布、不修改） | 看板與告警 | 法務核可之白名單例外；不得嵌入產品對外提供 | Grafana Labs（美） |
 | Apache Superset | 4.x | Apache-2.0 | 選配 BI | 取代 Metabase（AGPL） | ASF（美） |
 | FastAPI / Pydantic / SQLGlot / clickhouse-connect | — | MIT / MIT / MIT / Apache-2.0 | 後端 | — | 個人（德）／Pydantic（英）／TobikoData（美）／ClickHouse Inc.（美） |

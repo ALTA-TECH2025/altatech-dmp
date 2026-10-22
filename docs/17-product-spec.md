@@ -1,6 +1,8 @@
-# AltaTech DMP 產品規格書（v0.9.3，2026-10-22）
+# AltaTech DMP 產品規格書（v0.9.4，2026-10-22）
 
-> 版本：v0.9.3 — **10/19–10/22 進度回寫**：數據輸出的任務、審批、產檔與本機出件匣已實作（遠端 SFTP／S3 傳輸未實作）；事件分析行為篩選與對照組已實作；個資不入庫加強（舊平台匯入與隔離區都不留個資原值，docs/42 遷移校驗方法論）；事件 ID 改為內容雜湊、日彙總改為可重建且冪等（中斷、重送、併發、舊版升級都會補完）；AD 一律經 Keycloak 接入（已決定，實作審查中）；**AI 分析工作台**依 Windy 2026-10-21 授權先開發已確認範圍（D1 MVP、D2 執行架構、D3 模型可見範圍、D4、D5 技能庫基礎管理；RFC 草案 docs/38–41 見 PR #36），契約與後端基礎已合併，前端與正式模型未上線；§5a 狀態表與待確認清單同步更新。
+> 版本：v0.9.4 — **部署方式調整（研發／運維 2026-10-22 決議，docs/44）**：部署改用 Docker Compose、第一階段不用 Kubernetes；快取沿用 Redis（Redis 8 選 AGPLv3，已送法務、未否決前照此規劃）；日誌只用 Loki；新增 §1.2 Docker 部署架構圖（放在既有架構圖之後），§1.1 元件表與 §5a 同步更新。
+>
+> v0.9.3 — **10/19–10/22 進度回寫**：數據輸出的任務、審批、產檔與本機出件匣已實作（遠端 SFTP／S3 傳輸未實作）；事件分析行為篩選與對照組已實作；個資不入庫加強（舊平台匯入與隔離區都不留個資原值，docs/42 遷移校驗方法論）；事件 ID 改為內容雜湊、日彙總改為可重建且冪等（中斷、重送、併發、舊版升級都會補完）；AD 一律經 Keycloak 接入（已決定，實作審查中）；**AI 分析工作台**依 Windy 2026-10-21 授權先開發已確認範圍（D1 MVP、D2 執行架構、D3 模型可見範圍、D4、D5 技能庫基礎管理；RFC 草案 docs/38–41 見 PR #36），契約與後端基礎已合併，前端與正式模型未上線；§5a 狀態表與待確認清單同步更新。
 >
 > v0.9.2 — 新增 §1.1 機房部署示意圖與開源元件表（與提案簡報 14b–14d 同源，docs/37 §4）。
 >
@@ -24,7 +26,7 @@
 | 產品 | 可私有化部署的數位軌跡／客戶數據中台：承接 GA360 埋點事件（去識別化客戶代碼，docs/20）與數據中台／CDP 批次導入的證券交易／帳務事件，OneID 打通（含登入後 7 天匿名事件改寫，docs/19），提供事件／漏斗／留存／路徑／歸因／用戶列表六個分析模組 + 自定義 SQL、分群與標籤（對齊舊平台分群／標籤管理，docs/21）、即時觸發與受眾推送；AI 分析工作台（DMP 後端控制流程、模型只看彙總結果；已確認範圍開發中，正式模型未啟用，§5.13）；數據治理（元事件／用戶表／維度表／資料流／歷史資料遷移）與系統管理（權限中心／審計／平台設定）兩個大模組；五種角色（系統管理員、行銷、數據分析、數位經營、資訊管理）＋自訂角色、欄位隱碼、審批與審計 |
 | 對標 | 舊平台 v3.0（事件／漏斗／留存／路徑／歸因使用指南、分群、標籤管理、自定義查詢、用戶畫像）與同類商用 CDP／埋點分析產品（docs/01、04 §0b、05、21） |
 | 規模 | 3 年 220 億事件（含舊平台歷史 70 億，docs/13 v0.7 勘誤）、每日 500 個標籤、50 人同時上線、尖峰 7,000 事件/秒（docs/13） |
-| 部署 | 6 個自建映像 + Helm + OpenTofu；正式 GCP A 檔 6 台（或 D 檔 3 台大機型），測試 C-經濟 3 台；機房 RKE2 同一套件（docs/07、13） |
+| 部署 | 6 個自建映像 + **Docker Compose**（2026-10-22 決議，第一階段不用 Kubernetes，docs/44）；正式 GCP A 檔 6 台（或 D 檔 3 台大機型），測試 C-經濟 3 台；機房 RHEL／Rocky 9 同一套件（docs/13、44） |
 | 授權 | 全部 OSI 寬鬆授權（Grafana OSS 僅內部使用），金融業無需額外商業授權（docs/07、11、LICENSES.md） |
 | 人力 | AltaTech 七人：產品 1、研發 2（vibe coding，分「資料與查詢」「應用與前端」）、PM 1、數據分析師 2（A 遷移與口徑；B 教育訓練、儀表板重構、上線後交付調優）、運維工程師 1（PM、分析師 A、運維服務過本客戶舊平台）；全員 Claude Team 帳號，協同方式見 docs/31 §2b；外加 ClickHouse 顧問 20 天 |
 | 時程 | M1 盤點與橋接表第 3 週、M2 歷史資料進倉第 7 週、M3 GA360 接入與並行第 11 週、M4 交易結合與營運第 15 週、M5 內部驗收第 19 週；UAT 2027-06-30、正式上線 PD 2027-09-30（docs/22 §6）；AI 分析工作台不列入第一階段驗收，已確認範圍先行開發（§5.13） |
@@ -35,34 +37,47 @@
 
 ![系統架構圖](diagrams/system-architecture.png)
 
-分層：來源 → 接入（Collector／KafkaConnect）→ 串流（Kafka、Flink 事件化、OneID、session）→ 儲存（ClickHouse 熱層 + MV、Iceberg 冷層、PostgreSQL 控制面、Valkey）→ 語意層與 Policy Engine → 服務（六個分析模組、標籤／分群、觸發／推送、AI 工具閘道）→ 前端與 API；橫切：身分與權限、資料保護、審計與法遵、觀測、部署。詳見 docs/02、12。
+分層：來源 → 接入（Collector／KafkaConnect）→ 串流（Kafka、Flink 事件化、OneID、session）→ 儲存（ClickHouse 熱層 + MV、Iceberg 冷層、PostgreSQL 控制面、Redis）→ 語意層與 Policy Engine → 服務（六個分析模組、標籤／分群、觸發／推送、AI 工具閘道）→ 前端與 API；橫切：身分與權限、資料保護、審計與法遵、觀測、部署。詳見 docs/02、12。
 
 ### 1.1 系統部署示意圖與開源元件（機房；GCP 版見 docs/07 §1 與 diagrams/slides/slide-4）
 
+> 2026-10-22 起部署改用 Docker Compose（§1.2、docs/44）；下圖為原 Kubernetes 方案，保留作對照。下方元件表已更新為決議版。
+
 ![機房部署架構](diagrams/slides/slide-5-onprem-deployment.png)
 
-- 平台應用全為無狀態 Deployment（映像 6 個）；有狀態服務只有 5 個（ClickHouse ＋ Keeper、PostgreSQL、Valkey、Kafka、物件儲存），皆由 Operator 管理、本地 NVMe；平台層 Keycloak、OpenBao、Prometheus ＋ Grafana、VictoriaLogs、Harbor、Ingress ＋ MetalLB；每節點 node-exporter、OTel Collector、LocalPV。
-- 備份：ClickHouse `BACKUP TO S3`（日增量／週全量）、PostgreSQL WAL 歸檔；HA：ClickHouse 雙副本、PostgreSQL 主從、Kafka／Keeper 三節點（docs/13 §11.4）。
-- 版本為 2026-10 的 LTS，M1 開工時依當時 LTS 重釘；原則不變：上游版本、不改寫、OSI 授權、有 Operator 或託管版（docs/32 為完整清單與來源國別，docs/37 為與舊棧的逐項對照）。
+- 平台應用全為無狀態容器（映像 6 個）；有狀態服務第一階段 4 個（ClickHouse ＋ Keeper、PostgreSQL、Redis、物件儲存；Kafka 第二階段），本地 NVMe；平台層 Keycloak、OpenBao、Prometheus ＋ Grafana、Loki、Harbor；每台 node-exporter、cAdvisor、Alloy。決議版不用 Operator，改由服務本身的多副本與運維程序負責（§1.2）。
+- 備份：ClickHouse `BACKUP TO S3`（日增量／週全量）、PostgreSQL pgBackRest WAL 歸檔、Redis AOF；HA：ClickHouse 雙副本、PostgreSQL 主從（手動切換）、Redis 主從 ＋ Sentinel、Kafka／Keeper 三節點（docs/13 §11.4、docs/44 §5）。
+- 版本為 2026-10 的 LTS，M1 開工時依當時 LTS 重釘；原則不變：上游版本、不改寫、OSI 授權、有官方映像或託管版（docs/32 為完整清單與來源國別，docs/37 為與舊棧的逐項對照）。
 
 | 類別 | 元件 | 版本 | 授權 | 功能說明 |
 |---|---|---|---|---|
-| 容器平台 | Kubernetes（RKE2）／GKE | 1.30+ | Apache-2.0 | 容器編排；3 個 control-plane 與 worker 共存 |
-| 容器平台 | Helm、OpenTofu | 3／1.8 | Apache-2.0／MPL-2.0 | 一套 umbrella chart 部署；IaC |
+| 容器平台 | Docker Engine（Moby）＋ Docker Compose v2 | 27.x／2.x | Apache-2.0 | 每台主機一份 compose；第一階段不用 Kubernetes（2026-10 改，docs/44） |
+| 容器平台 | OpenTofu | 1.8 | MPL-2.0 | GCP 資源 IaC（VM、網路、託管服務）；Helm chart 保留但第一階段不使用 |
 | 容器平台 | Harbor | 2.x | Apache-2.0 | 離線映像倉；Trivy 弱掃 |
-| 線上存儲 | PostgreSQL ＋ pgvector（CloudNativePG） | 16 | PostgreSQL License | 控制面：看板、分群定義、審批、審計索引、洞察向量 |
-| 線上存儲 | Valkey | 8 | BSD-3 | 快取、工作佇列、即時標籤（第二階段） |
-| 分析存儲 | ClickHouse ＋ Keeper（Altinity operator） | 25.8 LTS | Apache-2.0 | 行為事件倉、MV 聚合層、分群／標籤 Bitmap、用戶檔案字典 |
+| 線上存儲 | PostgreSQL ＋ pgvector；pgBackRest | 16；2.x | PostgreSQL License；MIT | 控制面：看板、分群定義、審批、審計索引、洞察向量；主從串流複寫、WAL 歸檔 |
+| 線上存儲 | Redis（含 Sentinel） | 8.x | AGPL-3.0（三授權擇一；僅內部使用，暫行例外已送法務） | 登入狀態、快取、輕量佇列；主從 ＋ Sentinel（2026-10 改回 Redis，docs/44 §3） |
+| 分析存儲 | ClickHouse ＋ Keeper（官方映像） | 25.8 LTS | Apache-2.0 | 行為事件倉、MV 聚合層、分群／標籤 Bitmap、用戶檔案字典 |
 | 分析存儲 | SeaweedFS（機房）／GCS | 3.x | Apache-2.0 | S3 API：Iceberg 冷層、原始事件、備份、同步輸出 |
-| 訊息 | Apache Kafka（KRaft，Strimzi） | 3.8 | Apache-2.0 | 推送更新、原始事件落地；第二階段即時觸發輸入 |
+| 訊息 | Apache Kafka（KRaft，官方映像） | 3.8 | Apache-2.0 | 推送更新、原始事件落地；第二階段即時觸發輸入 |
 | 計算 | Apache Airflow ＋ dbt-core | 2.10 | Apache-2.0 | 日批排程與 SQL 轉換（第一階段由 API 內建排程器執行） |
-| 計算 | Apache Flink ＋ K8s Operator | 1.20 | Apache-2.0 | 第二階段：即時觸發 CEP（套件含、未啟用） |
+| 計算 | Apache Flink（standalone）— 第二階段 | 1.20 | Apache-2.0 | 即時路徑 J1–J4（docs/43，第二階段參考；2026-10-23 D-04 定第一階段不上）；第一階段處理全在 ClickHouse SQL＋dbt 微批 |
 | 計算 | Apache Spark／Trino／Iceberg | 3.5／4xx／1.6 | Apache-2.0 | 第二階段：70 億歷史重算、冷層查詢 |
 | 身分與密鑰 | Keycloak；OpenBao ＋ HSM（機房）／Secret Manager ＋ KMS（GCP） | 25；2.x | Apache-2.0；MPL-2.0 | SSO／OIDC；密鑰只存參照 |
 | 觀測 | Prometheus ＋ OTel Collector ＋ node-exporter；Grafana OSS | 2.x／0.1x；11.x | Apache-2.0；AGPL-3.0（內部使用） | 指標與告警；平台「系統監控」頁同源 |
-| 觀測 | VictoriaLogs（或 OpenSearch；docs/37 §5.2） | 1.x／2.x | Apache-2.0 | 日誌 |
+| 觀測 | Loki ＋ Alloy；cAdvisor | 3.x ＋ 1.x；0.5x | AGPL-3.0（內部使用，暫行例外已送法務）＋ Apache-2.0；Apache-2.0 | 日誌（只用 Loki，2026-10 改，docs/44 §4）；容器指標 |
 | 執行環境 | Python、Go、Node、Temurin JDK | 3.12、1.23、22 LTS、17 | PSF／BSD／MIT／GPLv2+CE | core／ingest／web／Flink |
 | 作業系統 | RHEL 9／Rocky Linux 9；UBI 9 minimal 映像基底 | 9.4+ | — | SELinux enforcing；容器無 root、唯讀檔案系統 |
+
+### 1.2 部署架構（2026-10-22 研發／運維決議：Docker Compose、Redis、Loki）
+
+![Docker 部署架構](diagrams/slides/slide-6-docker-deployment.png)
+
+- 決議：① 部署用 Docker Compose，第一階段不用 Kubernetes（運維不熟 K8s）；② 快取沿用 Redis（團隊熟悉）；③ 日誌只用 Loki，其他日誌元件不用。應用程式與 6 個映像不變。
+- Redis 授權：Redis 8 起為 RSALv2／SSPLv1／AGPLv3 三選一，本案**選 AGPLv3**，官方映像、不修改、只在中台內部使用、不對外提供 Redis 服務，比照既有 Grafana OSS 例外；Loki（AGPLv3）同樣處理。兩項例外已送法務，**Windy 2026-10-23：法務沒有說不行就照此規劃**；法務否決時換 Valkey 8（BSD-3，指令相容）只改映像、日誌換 VictoriaLogs（docs/44 §3–4）。
+- 拿掉 Kubernetes 的代價與處置：程序掛掉靠 `restart` ＋ `healthcheck`；主機故障靠服務自身多副本（ClickHouse 雙副本、Keeper 三節點、Redis Sentinel），PostgreSQL 改手動 promote（RTO 30 分鐘）；換版逐台、無自動擴縮（docs/44 §5）。
+- API 先採主備、不雙活：目前登入 session 與 SSO 登入前狀態都在 API 程序記憶體、背景作業沒有跨程序租約，所以只有主機 1 的 API 接流量、只有主機 1 的 worker 跑背景作業；主機 1 故障時改送主機 2（使用者需重新登入）。雙活前置工作（共用 session、作業租約）列為後續 backend PR（docs/44 §5a）。
+- 主備也要先做到的三件事（docs/44 §2、§5.1、§5a）：① API 與 worker 拆成兩個容器時，同步排程狀態與產物目錄要共用（暫行：同一台、同一個持久目錄，每 15 分鐘同步到主機 2；正式：排程器改 PostgreSQL、產物放物件儲存）；② 手動接管前先隔離舊主機，舊主庫恢復後以 pg_rewind 改當從庫、不得自行回到主角色；③ SeaweedFS 三台都放、每個檔案 2 份，備份每日再複製到叢集外。
+- 一併檢查出的架構問題：Flink 已改第一階段但舊圖仍標第二階段；Keycloak、OpenBao、監控集中在主機 3 是單點；Helm 改為保留不使用、部署套件改 `deploy/compose/`；RHEL 預設 Podman；docs/07、12、13、32、37 與簡報第 4、5 頁待改（docs/44 §6）。
 
 ## 2. 元件模組圖
 
@@ -146,14 +161,14 @@
 | 5.13b 自定義 SQL | 🟢 已實作 | 唯讀沙盒、權限表目錄、脫敏預校驗、動態參數、預覽／下載／已存查詢／記錄／中間表、存書籤進看板 | 格式化、EXPLAIN 視覺化 | 下載上限依角色 |
 | 5.14 權限中心 | 🟢 已實作 | 五角色＋自訂、指派與範圍、模組矩陣、行級模擬、成員目錄、本機帳號＋TOTP、session 強制登出、雙人複核、臨時提權；每個請求重算有效授權（到期帳號、角色異動即時生效） | **AD 一律經 Keycloak（OIDC + PKCE）接入、API 不直連 AD**（已決定 2026-10-21，PR #57／#58 審查中）；真實 Keycloak／Entra ID 對接驗證（只接過假 IdP） | Keycloak 的 MFA 流程與 token 是否帶 mfa 標記；群組→角色對照 |
 | 5.15 日誌統計／審計 | 🟢 已實作 | 全操作審計、看板（指標卡、趨勢、模組／角色、敏感存取、告警規則）、CSV 匯出含浮水印 | 審計 WORM（GCS 物件鎖）、DSAR 流程 | 審計保存年限 |
-| 5.16 資料流與效能 | 🟡 部分實作 | 資料流四段（來源同步 → ClickHouse 進倉 → API 與查詢 → 推送交付）與資料品質、各模組查詢 P50/P95/P99 對 SLA（`ops/sla.yaml`）、批次作業（同步任務可重跑、背景例行）與儲存用量、告警（`ops/alerts.yaml` 11 條規則）；API 輸出 Prometheus 指標 `/metrics`；Helm 的 ServiceMonitor／PrometheusRule（同一組規則）／Grafana 看板；**系統管理 › 系統監控頁**（系統管理員、資訊管理）：Grafana 同一組 17 個面板在平台內看（`ops/panels.yaml` 一份兩用、每面板附 PromQL、API 每分鐘快照保留 24 小時、設 `DMP_GRAFANA_URL` 可跳到 Grafana 同一面板）；**告警通知**：Email（SMTP，依角色取收件人＋額外信箱）與 LINE 官方帳號（Messaging API push／multicast，token 只存 secret_ref），政策（最低嚴重度、冷卻、恢復通知、靜音時段只送緊急），線上設定與測試送出、通知紀錄；叢集內 Alertmanager 經 webhook 走同一組管道 | OTel 追蹤、OpenSearch／Cloud Logging 日誌、告警通知管道（Email／LINE）與值班分工、query_log 物化、Airflow 作業接入 | SLA 實測：行為事件 15 分鐘可查、30 天漏斗 10 秒、標籤日批 60 分鐘（M2 效能基準回填） |
+| 5.16 資料流與效能 | 🟡 部分實作 | 資料流四段（來源同步 → ClickHouse 進倉 → API 與查詢 → 推送交付）與資料品質、各模組查詢 P50/P95/P99 對 SLA（`ops/sla.yaml`）、批次作業（同步任務可重跑、背景例行）與儲存用量、告警（`ops/alerts.yaml` 11 條規則）；API 輸出 Prometheus 指標 `/metrics`；Helm 的 ServiceMonitor／PrometheusRule（同一組規則）／Grafana 看板；**系統管理 › 系統監控頁**（系統管理員、資訊管理）：Grafana 同一組 17 個面板在平台內看（`ops/panels.yaml` 一份兩用、每面板附 PromQL、API 每分鐘快照保留 24 小時、設 `DMP_GRAFANA_URL` 可跳到 Grafana 同一面板）；**告警通知**：Email（SMTP，依角色取收件人＋額外信箱）與 LINE 官方帳號（Messaging API push／multicast，token 只存 secret_ref），政策（最低嚴重度、冷卻、恢復通知、靜音時段只送緊急），線上設定與測試送出、通知紀錄；叢集內 Alertmanager 經 webhook 走同一組管道 | OTel 追蹤、Loki 日誌（Alloy 收集，docs/44）、告警通知管道（Email／LINE）與值班分工、query_log 物化、Airflow 作業接入 | SLA 實測：行為事件 15 分鐘可查、30 天漏斗 10 秒、標籤日批 60 分鐘（M2 效能基準回填） |
 | 5.17 歷史資料遷移 | 🟢 已實作（工具） | 盤點、橋接表、導出任務狀態機、三方對帳 T2／T5／T6、並行期樣本；屬性分級（事件屬性 681、用戶屬性 3,642 含規格表待確認 36 欄）；依規格合成的 100 萬人模擬資料（`backend/tools/synth_legacy.py`）；**遷移資料校驗方法論與用例**（docs/42：新規則清洗後入庫，逐層核對 key、條數與非個資欄位；舊平台個資一律轉為客戶 IT 提供的去識別化 ID） | 真資料尚未跑；規格表待確認欄與 17 個已停用事件需客戶確認 | 舊平台 70 億筆的導出方式（Impala／HDFS／API）與並行期長度 |
 | 總覽／儀表板 | 🟢 已實作 | 書籤→看板、拖曳排版、解讀（規則）、單檔 HTML、定時寄送、AI 生成卡片、四個需求表情境範例看板、手機版 | 模型解讀需 LLM 金鑰 | — |
-| 部署與營運 | 🟡 部分實作 | Helm、values（機房／GCP 檔位）、ClickHouse Keeper、CI 弱掃（Trivy／hadolint／gitleaks）、PostgreSQL 控制面、監控最小版（ServiceMonitor、PrometheusRule、Grafana 看板） | OpenTofu GCP、Operators、Valkey、物件儲存冷層、告警通知管道、備份／DR 演練；**後端測試環境尚未部署**（目前只有 Vercel 前端示範站；單機測試環境建議 1 台 4 vCPU／16 GB，待選定 GCP 承諾額度內的機型） | GCP 或機房；A 檔 6 台 vs D 檔 3 台；客戶原始匯入檔的存放位置與保留期限（維運規範） |
+| 部署與營運 | 🟡 部分實作 | Helm、values（機房／GCP 檔位）、ClickHouse Keeper、CI 弱掃（Trivy／hadolint／gitleaks）、PostgreSQL 控制面、監控最小版（ServiceMonitor、PrometheusRule、Grafana 看板） | Docker Compose 部署套件（`deploy/compose/`，2026-10-22 決議取代 Helm，docs/44）、Redis ＋ Sentinel、Loki、OpenTofu GCP、物件儲存冷層、備份／DR 演練；**後端測試環境尚未部署**（目前只有 Vercel 前端示範站；單機測試環境建議 1 台 4 vCPU／16 GB，待選定 GCP 承諾額度內的機型） | GCP 或機房；A 檔 6 台 vs D 檔 3 台；客戶原始匯入檔的存放位置與保留期限（維運規範）；Redis 8／Loki 的 AGPLv3 內部使用例外（法務） |
 
 ### 待確認清單（需客戶／PO 決定）
 
-1. 部署環境：GCP（asia-east1）或機房 RKE2；機器檔位 A 6 台 vs D 3 台（docs/13）。
+1. 部署環境：GCP（asia-east1，Compute Engine VM）或機房（RHEL／Rocky 9），皆以 Docker Compose 部署（2026-10-22 已決定，docs/44）；機器檔位 A 6 台 vs D 3 台（docs/13）；Redis 8 與 Loki 的 AGPLv3 內部使用例外已送法務，未否決前照此規劃（docs/44 §3–4、docs/45 P-04）。
 2. 數據中台交易資料的提供方式：Trino／Hive／Iceberg 批次，或 Kafka topic；第一階段仍以批次讀（docs/23）。
 3. 身分：AD 已決定一律經 Keycloak 接入（2026-10-21）；待定 Keycloak 的 MFA 流程（OTP）與 token 是否標記 mfa、群組→角色對照表、本機帳號是否保留。
 4. 舊平台歷史導出方式（Impala／HDFS Parquet 或查詢 API）與 API Secret；並行期長度與舊平台到期日（2027-10-31）。
@@ -175,7 +190,7 @@
 | 可用性 | A 檔：任一台故障不中斷；ClickHouse 2 副本、Kafka／Keeper quorum；RPO 15 分鐘（checkpoint）、RTO 30 分鐘；DR 站為 v2.0 |
 | 安全 | 私有網路、TLS 強制、CMEK／KMS、密鑰只存參照、最小權限、Pod Security restricted、SBOM／Trivy／Grype／Semgrep／gitleaks、授權白名單（docs/07、10、11、06 §6） |
 | 法遵 | L4 不入倉、代碼化、K 匿名、揭露審批、審計 WORM、DSAR 30 天（docs/01 §法遵、10） |
-| 可維護性 | SQL-first（Flink SQL／dbt／MV）、6 個映像、Operators、Renovate、AGENTS.md／CLAUDE.md（docs/11、16） |
+| 可維護性 | SQL-first（Flink SQL／dbt／MV）、6 個映像、Docker Compose（不用 K8s Operators，docs/44）、Renovate、AGENTS.md／CLAUDE.md（docs/11、16） |
 | 可觀測 | Prometheus + OTel + Grafana OSS；API 程序內指標 `/metrics`（HTTP、查詢依模組、例行作業、來源延遲、交付、表用量）；資料流與效能頁（`/v1/ops/*`）與 Grafana 看板看同一組指標；告警規則一份（`backend/ops/alerts.yaml` ↔ PrometheusRule）；OTel 追蹤與日誌第二階段 |
 | 相容 | 舊平台埋點協議（track／profile_*／item_*）超集、GA4 匯出 schema、OpenAPI 3.1、MCP 工具；OS：RHEL 9／Rocky 9／Ubuntu 24.04 節點（docs/07 §OS） |
 
@@ -236,4 +251,5 @@
 | docs/35 | 前端設計系統 |
 | docs/38–41 | AI 分析工作台 RFC：架構、工具與技能契約、驗收矩陣、使用者確認頁 D1–D5（草案，PR #36；已確認範圍依授權開發中） |
 | docs/42 | 遷移資料校驗方法論與用例：新規則清洗後入庫，逐層核對 key、條數與非個資欄位 |
+| docs/44 | 部署方式調整（2026-10-22 研發／運維決議）：Docker Compose、Redis（授權處理）、Loki；拿掉 Kubernetes 的缺口與處置、其他架構問題 |
 | docs/37 | 架構對照審查：同類商用 CDP／埋點分析／MA 產品與 2025/07 提案舊棧 vs 目前方案；簡報可用的機房部署圖與元件表；6 項待補 |
