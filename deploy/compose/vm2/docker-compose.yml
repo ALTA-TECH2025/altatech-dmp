@@ -1,0 +1,178 @@
+# VM-2：dmp-core worker、dmp-batch、dmp-web/API 第二份、ClickHouse 副本 2、Keeper 2、PostgreSQL 備援、Redis 從、SeaweedFS、node-exporter、Promtail（docs/07 §1.3）
+# 啟動：cd deploy/compose && ./dmp.sh vm2 up    （.env 的 VM_HOST=VM2、KEEPER_ID=2、CH_REPLICA=r2）
+name: dmp-vm2
+
+x-logging: &logging
+  logging: { driver: json-file, options: { max-size: "100m", max-file: "5" } }
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  keeper:
+    <<: [*logging, *restart]
+    image: ${KEEPER_IMAGE}
+    network_mode: host
+    environment: { KEEPER_ID: "${KEEPER_ID}", VM1_HOST: "${VM1_HOST}", VM2_HOST: "${VM2_HOST}", VM3_HOST: "${VM3_HOST}" }
+    volumes:
+      - ../common/keeper/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+      - ${DATA_ROOT}/keeper:/var/lib/clickhouse-keeper
+    ulimits: { nofile: { soft: 262144, hard: 262144 } }
+
+  clickhouse:
+    <<: [*logging, *restart]
+    image: ${CLICKHOUSE_IMAGE}
+    network_mode: host
+    depends_on: [keeper]
+    environment:
+      VM_HOST: "${VM_HOST}"
+      VM1_HOST: "${VM1_HOST}"
+      VM2_HOST: "${VM2_HOST}"
+      VM3_HOST: "${VM3_HOST}"
+      CH_REPLICA: "${CH_REPLICA}"
+      CH_USER: "${CH_USER}"
+      CH_PASSWORD: "${CH_PASSWORD}"
+      S3_BACKUP_ENDPOINT: "http://${VM2_HOST}:8333/dmp-backup/clickhouse/"
+      S3_ACCESS_KEY: "${S3_ACCESS_KEY}"
+      S3_SECRET_KEY: "${S3_SECRET_KEY}"
+    volumes:
+      - ../common/clickhouse/config.xml:/etc/clickhouse-server/config.d/dmp.xml:ro
+      - ../common/clickhouse/users.xml:/etc/clickhouse-server/users.d/dmp.xml:ro
+      - ../../../backend/clickhouse/schema.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+      - ${DATA_ROOT}/clickhouse:/var/lib/clickhouse
+    ulimits: { nofile: { soft: 262144, hard: 262144 } }
+    cap_add: [SYS_NICE, NET_ADMIN, IPC_LOCK]
+    healthcheck: { test: ["CMD", "clickhouse-client", "--user", "${CH_USER}", "--password", "${CH_PASSWORD}", "-q", "SELECT 1"], interval: 30s, timeout: 5s, retries: 5, start_period: 60s }
+
+  postgres:
+    <<: [*logging, *restart]
+    image: ${POSTGRES_IMAGE}
+    network_mode: host
+    entrypoint: ["/init-replica.sh"]
+    environment:
+      POSTGRES_USER: "${PG_USER}"
+      POSTGRES_PASSWORD: "${PG_PASSWORD}"
+      PRIMARY_HOST: "${VM1_HOST}"
+      PG_REPL_PASSWORD: "${PG_REPL_PASSWORD}"
+    volumes:
+      - ../common/postgres/init-replica.sh:/init-replica.sh:ro
+      - ${DATA_ROOT}/postgres:/var/lib/postgresql/data
+    shm_size: 1g
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U ${PG_USER}"], interval: 30s, timeout: 5s, retries: 5, start_period: 120s }
+
+  redis:
+    <<: [*logging, *restart]
+    image: ${REDIS_IMAGE}
+    network_mode: host
+    command: ["redis-server", "/etc/redis/redis.conf", "--requirepass", "${REDIS_PASSWORD}", "--masterauth", "${REDIS_PASSWORD}", "--replicaof", "${VM1_HOST}", "6379"]
+    volumes:
+      - ../common/redis/redis.conf:/etc/redis/redis.conf:ro
+      - ${DATA_ROOT}/redis:/data
+
+  seaweedfs:
+    <<: [*logging, *restart]
+    image: ${SEAWEEDFS_IMAGE}
+    network_mode: host
+    command: ["server", "-s3", "-s3.port=8333", "-master.port=9333", "-volume.port=8080", "-filer.port=8888", "-dir=/data", "-volume.max=0", "-ip=${VM2_HOST}", "-s3.config=/etc/seaweedfs/s3.json"]
+    environment: { S3_ACCESS_KEY: "${S3_ACCESS_KEY}", S3_SECRET_KEY: "${S3_SECRET_KEY}" }
+    volumes:
+      - ${DATA_ROOT}/seaweedfs:/data
+      - ./rendered/s3.json:/etc/seaweedfs/s3.json:ro
+
+  worker:
+    <<: [*logging, *restart]
+    image: ${REGISTRY}/dmp-core:${DMP_TAG}
+    depends_on: { clickhouse: { condition: service_healthy }, redis: { condition: service_started } }
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    environment:
+      DMP_ROLE: worker
+      DMP_TICK: "1"                      # 唯一一份背景排程：同步任務、分群例行、對照寫入、推送
+      CLICKHOUSE_URL: "http://host.docker.internal:8123"
+      CLICKHOUSE_USER: "${CH_USER}"
+      CLICKHOUSE_PASSWORD: "${CH_PASSWORD}"
+      DMP_PG_DSN: "postgresql://${PG_USER}:${PG_PASSWORD}@${VM1_HOST}:5432/dmp"
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@${VM1_HOST}:6379/0"
+      DMP_SECRETS_JSON: /run/secrets/dmp-secrets.json
+      S3_ENDPOINT: "http://host.docker.internal:8333"
+      S3_ACCESS_KEY: "${S3_ACCESS_KEY}"
+      S3_SECRET_KEY: "${S3_SECRET_KEY}"
+    volumes:
+      - /run/secrets/dmp-secrets.json:/run/secrets/dmp-secrets.json:ro
+      - ${DATA_ROOT}/landing:/landing          # 接收區（永豐 IT SFTP 落檔目錄）唯讀掛給匯入器
+    read_only: true
+    tmpfs: ["/tmp"]
+    deploy: { resources: { limits: { cpus: "6", memory: 12g } } }
+
+  batch:
+    <<: [*logging, *restart]
+    image: ${REGISTRY}/dmp-batch:${DMP_TAG}
+    depends_on: [worker]
+    command: standalone
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["8082:8080"]                 # Airflow UI，只開給內網維運
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://${PG_USER}:${PG_PASSWORD}@${VM1_HOST}:5432/dmp"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "False"
+      CLICKHOUSE_URL: "http://host.docker.internal:8123"
+      CLICKHOUSE_USER: "${CH_USER}"
+      CLICKHOUSE_PASSWORD: "${CH_PASSWORD}"
+      DMP_SECRETS_JSON: /run/secrets/dmp-secrets.json
+    volumes:
+      - /run/secrets/dmp-secrets.json:/run/secrets/dmp-secrets.json:ro
+      - ${DATA_ROOT}/landing:/landing:ro
+      - ${DATA_ROOT}/airflow-logs:/opt/airflow/logs
+    deploy: { resources: { limits: { cpus: "4", memory: 8g } } }
+
+  api:
+    <<: [*logging, *restart]
+    image: ${REGISTRY}/dmp-core:${DMP_TAG}
+    depends_on: { clickhouse: { condition: service_healthy } }
+    ports: ["8080:8080"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    environment:
+      DMP_ROLE: api
+      DMP_PORT: "8080"
+      DMP_TICK: "0"
+      CLICKHOUSE_URL: "http://host.docker.internal:8123"
+      CLICKHOUSE_USER: "${CH_USER}"
+      CLICKHOUSE_PASSWORD: "${CH_PASSWORD}"
+      DMP_PG_DSN: "postgresql://${PG_USER}:${PG_PASSWORD}@${VM1_HOST}:5432/dmp"
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@${VM1_HOST}:6379/0"
+      DMP_IDP_MODE: "${DMP_IDP_MODE}"
+      DMP_OIDC_ISSUER: "http://${VM3_HOST}:8180/realms/dmp"
+      DMP_PUBLIC_URL: "${DMP_PUBLIC_URL}"
+      DMP_SECRETS_JSON: /run/secrets/dmp-secrets.json
+      DMP_METRICS_TOKEN: "${DMP_METRICS_TOKEN}"
+      DMP_WEB_DIST: ""
+    volumes: ["/run/secrets/dmp-secrets.json:/run/secrets/dmp-secrets.json:ro"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    deploy: { resources: { limits: { cpus: "4", memory: 8g } } }
+
+  web:
+    <<: [*logging, *restart]
+    image: ${REGISTRY}/dmp-web:${DMP_TAG}
+    depends_on: [api]
+    ports: ["80:8080"]
+    environment: { API_UPSTREAM: "http://api:8080" }
+    read_only: true
+    tmpfs: ["/tmp", "/var/cache/nginx", "/var/run"]
+
+  node-exporter:
+    <<: [*logging, *restart]
+    image: ${NODE_EXPORTER_IMAGE}
+    network_mode: host
+    pid: host
+    command: ["--path.rootfs=/host", "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"]
+    volumes: ["/:/host:ro,rslave"]
+
+  promtail:
+    <<: [*logging, *restart]
+    image: ${PROMTAIL_IMAGE}
+    network_mode: host
+    command: ["-config.file=/etc/promtail/promtail.yml", "-config.expand-env=true"]
+    environment: { VM_HOST: "${VM_HOST}", VM3_HOST: "${VM3_HOST}" }
+    volumes:
+      - ../common/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro

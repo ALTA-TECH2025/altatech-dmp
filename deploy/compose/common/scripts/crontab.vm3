@@ -1,0 +1,6 @@
+# VM3 主機 crontab（root）：sudo crontab -u root common/scripts/crontab.vm3 ；路徑依實際 checkout 位置調整
+CD=/opt/altatech-dmp/deploy/compose
+0 2 * * *   cd $CD && ./dmp.sh vm3 run backup /scripts/backup_clickhouse.sh daily   >> /var/log/dmp-backup.log 2>&1
+0 3 * * 0   cd $CD && ./dmp.sh vm3 run backup /scripts/backup_clickhouse.sh weekly  >> /var/log/dmp-backup.log 2>&1
+30 1 * * *  cd $CD && ./dmp.sh vm3 run backup /scripts/backup_postgres.sh           >> /var/log/dmp-backup.log 2>&1
+0 5 * * *   cd $CD && ./dmp.sh vm3 run rclone sync sw:dmp-backup /nas/seaweedfs --fast-list >> /var/log/dmp-backup.log 2>&1

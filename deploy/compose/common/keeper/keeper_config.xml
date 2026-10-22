@@ -1,0 +1,22 @@
+<!-- ClickHouse Keeper：三台各一個，server_id 由 KEEPER_ID 帶入 -->
+<clickhouse>
+    <logger><level>information</level><console>1</console></logger>
+    <listen_host>0.0.0.0</listen_host>
+    <keeper_server>
+        <tcp_port>9181</tcp_port>
+        <server_id from_env="KEEPER_ID"/>
+        <log_storage_path>/var/lib/clickhouse-keeper/coordination/log</log_storage_path>
+        <snapshot_storage_path>/var/lib/clickhouse-keeper/coordination/snapshots</snapshot_storage_path>
+        <coordination_settings>
+            <operation_timeout_ms>10000</operation_timeout_ms>
+            <session_timeout_ms>30000</session_timeout_ms>
+            <raft_logs_level>warning</raft_logs_level>
+        </coordination_settings>
+        <raft_configuration>
+            <server><id>1</id><hostname from_env="VM1_HOST"/><port>9234</port></server>
+            <server><id>2</id><hostname from_env="VM2_HOST"/><port>9234</port></server>
+            <server><id>3</id><hostname from_env="VM3_HOST"/><port>9234</port></server>
+        </raft_configuration>
+    </keeper_server>
+    <prometheus><endpoint>/metrics</endpoint><port>9364</port><metrics>true</metrics><events>true</events><asynchronous_metrics>true</asynchronous_metrics></prometheus>
+</clickhouse>
