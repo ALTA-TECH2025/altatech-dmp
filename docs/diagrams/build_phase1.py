@@ -11,7 +11,7 @@ build.STATUS[:0] = [
     ("Docker Compose", "planned"), ("3 台 VM", "planned"), ("Redis", "planned"), ("Loki", "planned"), ("Alloy", "planned"), ("cAdvisor", "planned"), ("Sentinel", "planned"), ("Keeper", "partial"),
     ("F5", "confirm"), ("SFTP", "confirm"), ("永豐 AD", "confirm"), ("永豐 NAS", "confirm"), ("偉康 CDP", "confirm"),
     ("微批處理", "partial"), ("去重", "partial"), ("先刪再寫", "planned"), ("OneID 歸戶", "done"), ("回補對照", "planned"), ("one_id_eff", "planned"),
-    ("dmp-core worker", "partial"), ("dmp-core api", "done"), ("dmp-batch（Airflow）", "partial"), ("SeaweedFS", "planned"), ("PostgreSQL 主", "partial"), ("PostgreSQL 備援", "planned"),
+    ("dmp-core worker", "partial"), ("dmp-core api", "done"), ("dmp-batch（Airflow）", "partial"), ("SeaweedFS", "planned"), ("PostgreSQL 主", "partial"), ("PostgreSQL 備援", "planned"), ("takeover", "planned"),
     ("ClickHouse 副本", "partial"), ("備份作業", "planned"), ("Prometheus + Grafana", "partial"), ("語意層", "done"), ("分析 API", "done"), ("分群與標籤", "partial"), ("名單推送", "partial"),
     ("日彙總重建", "partial"), ("Webhook 推送", "partial"), ("業務單位", "done"), ("個資守門", "done"), ("標準化", "partial"), ("入倉", "partial"), ("接收區", "confirm"),
     ("GA360 日批匯出檔", "done"), ("數據中台", "confirm"), ("舊平台歷史", "done"), ("MA 發送紀錄", "confirm"),
@@ -31,14 +31,14 @@ def system_architecture():
     s.group(L, 80, W, 100, "體驗層  Experience")
     for i, (t, ls) in enumerate([("DMP Web（React）", ["總覽／事件／漏斗／留存／路徑／歸因／用戶列表", "分群標籤／數據整合／權限中心／系統監控"]), ("業務單位（瀏覽器）", ["永豐 AD／SSO 登入", "儀表板、書籤、自助分析"]), ("偉康 CDP／MA", ["名單・標籤 Webhook 推送（T+1）", "MA 發送紀錄每日回流（待討論）"]), ("AI 工作台", ["技能庫、問數", "第二階段，部署套件保留"])]):
         s.box(L + 14 + i * 300, 110, 285, 60, t, ls, "purple" if i == 3 else "brand")
-    s.group(L, 195, W, 110, "語意與服務層  Semantic & Service（dmp-core api ×2，Python / FastAPI）")
+    s.group(L, 195, W, 110, "語意與服務層  Semantic & Service（dmp-core api：VM1 主、VM2 備援；Python / FastAPI）")
     for i, (t, ls) in enumerate([("語意層 + 查詢編譯器", ["YAML 語意定義 → ClickHouse SQL", "用戶口徑一律用 one_id_eff（回補換算）"]), ("分析 API", ["事件、漏斗、留存、路徑、歸因、用戶列表", "自定義 SQL 沙箱（sql_user profile）"]), ("分群與標籤 / OneID API", ["規則 → Bitmap；標籤 10 種；審批", "ID 綁定、人工合併（寫對照）、DSAR"]), ("Policy Engine", ["模組權限 → 行級 → 欄位隱碼 L0–L4 → 審批", "UI 與 REST 共用；每次授權寫審計"])]):
         s.box(L + 14 + i * 300, 225, 285, 70, t, ls, "brand")
     s.group(L, 320, W, 120, "處理層  微批處理（dmp-core worker ×1 ＋ dmp-batch Airflow＋dbt；ClickHouse SQL；第一階段不上 Flink）")
     for i, (t, ls) in enumerate([("匯入 + 個資守門", ["接收區檔案／Trino 增量 → 暫存表", "L4 欄位不進倉；個資樣式命中整列隔離"]), ("標準化 + 去重", ["橋接轉名、時間轉 UTC、HMAC 代碼化", "行為：time（毫秒）＋event_id；線下不去重"]), ("OneID 歸戶 + 回補對照", ["dictGet(id_map) 寫入時歸戶，事件不改寫", "登入 → 寫對照；查詢時換算"]), ("入倉 + 日彙總重建", ["ReplacingMergeTree，只新增／刪除", "L1 按日重建（近 8 天每日）；分群例行"])]):
         s.box(L + 14 + i * 300, 350, 285, 78, t, ls, "teal")
     s.group(L, 455, W, 110, "儲存層  Storage（四個有狀態服務，全部在永豐機房）")
-    for i, (t, ls, c) in enumerate([("ClickHouse ×2 + Keeper ×3", ["events（L0）、日彙總（L1）、Bitmap", "users／dim_*／id_map、回補對照字典"], "yellow"), ("PostgreSQL 主備 + pgvector", ["控制面：角色、審批、審計索引、分群定義", "Airflow 中繼資料、Keycloak"], "yellow"), ("Redis 主從 + Sentinel", ["查詢快取、估數快取、登入前狀態", "AGPLv3 內部使用例外（待法務）"], "yellow"), ("SeaweedFS（三台，S3）", ["master ×3、複本 001；備份桶、冷層", "→ rclone 同步到永豐 NAS"], "yellow")]):
+    for i, (t, ls, c) in enumerate([("ClickHouse ×2 + Keeper ×3", ["events（L0）、日彙總（L1）、Bitmap", "users／dim_*／id_map、回補對照字典"], "yellow"), ("PostgreSQL 主備 + pgvector", ["控制面：角色、審批、審計、登入 session", "Airflow 中繼資料、Keycloak；連 pg-primary"], "yellow"), ("Redis 主從 + Sentinel", ["查詢快取、估數快取", "AGPLv3 暫行例外（法務未否決照此規劃）"], "yellow"), ("SeaweedFS（三台，S3）", ["master ×3、複本 001；備份桶、冷層", "→ rclone 同步到永豐 NAS"], "yellow")]):
         s.box(L + 14 + i * 300, 485, 285, 68, t, ls, c)
     s.group(L, 580, W, 110, "接入層  Ingestion（檔案／表 → 暫存表，每日或每 15 分鐘）")
     for i, (t, ls) in enumerate([("GA360 日批匯出檔", ["BigQuery → CSV／Parquet（Merkle 送出）", "每日產檔 T+1，資料新鮮度 T-2"]), ("接收區（SFTP，永豐 IT）", ["GA 匯出檔、MA 發送紀錄落檔", "worker 唯讀掛載 /landing"]), ("數據中台（Trino／批次）", ["交易・帳務・客戶：每日或 15 分鐘增量", "方式待討論；Kafka 第一階段不用"]), ("舊平台歷史（一次性）", ["Impala／HDFS／查詢 API → 2024-01 起", "走同一套標準化與歸戶"])]):
@@ -59,13 +59,13 @@ def system_architecture():
     s.box(X + 12, 238, GW - 24, 56, "審計與法遵", ["audit_log append-only → NAS", "匯出浮水印、揭露申請、DSAR"], "red")
     s.group(X, 320, GW, 160, "觀測  Observability（VM3）")
     s.box(X + 12, 350, GW - 24, 56, "Prometheus + Grafana", ["node、ClickHouse、Keeper、API /metrics", "告警 → Email／LINE（/v1/ops/notify）"], "gray")
-    s.box(X + 12, 414, GW - 24, 56, "Loki + Alloy", ["三台容器 stdout（Alloy 收），保留 30 天", "Loki AGPLv3 內部使用例外（待法務）"], "gray")
-    s.group(X, 495, GW, 232, "部署  Delivery（docs/07 §1.3、deploy/compose）")
-    s.box(X + 12, 525, GW - 24, 72, "3 台 VM Docker Compose", ["VM1 web/api/CH r1/PG 主/Redis 主", "VM2 worker/batch/CH r2/PG 備", "VM3 Keeper 3/Keycloak/監控/備份；docs/44"], "gray")
+    s.box(X + 12, 414, GW - 24, 56, "Loki + Alloy", ["三台容器 stdout（Alloy 收），保留 30 天", "Loki AGPLv3 暫行例外（法務未否決照此規劃）"], "gray")
+    s.group(X, 495, GW, 232, "部署  Delivery（docs/44、deploy/compose）")
+    s.box(X + 12, 525, GW - 24, 72, "3 台 VM Docker Compose", ["VM1 主：web/api/worker/batch/CH r1/PG 主", "VM2 備援：web/api 待命/CH r2/PG 備", "VM3 Keeper 3/Keycloak/監控/備份；docs/44"], "gray")
     s.box(X + 12, 603, GW - 24, 52, "入口：F5／HAProxy + TLS", ["內部 CA；/auth → Keycloak", "容器間內網；加密待討論"], "gray")
     s.box(X + 12, 661, GW - 24, 56, "備份作業 → 永豐 NAS", ["ClickHouse 日增量／週全量（S3）", "PostgreSQL WAL 歸檔＋日 dump"], "gray")
     s.group(X, 740, GW, 120, "供應鏈與授權（docs/32）")
-    s.box(X + 12, 770, GW - 24, 78, "映像 4 個（web/core/batch/ingest）", ["UBI 9／distroless、SBOM、Trivy", "全部 OSI；AGPLv3 例外：Redis、Grafana、Loki", "待法務核可；退路 Valkey／VictoriaLogs"], "gray")
+    s.box(X + 12, 770, GW - 24, 78, "映像 4 個（web/core/batch/ingest）", ["UBI 9／distroless、SBOM、Trivy", "全部 OSI；Grafana 法務已核可", "Redis、Loki 暫行例外；退路 Valkey／VictoriaLogs"], "gray")
     s.legend(L + 14, 988, [("brand", "體驗／服務"), ("teal", "微批處理"), ("yellow", "儲存"), ("green", "接入"), ("purple", "第二階段"), ("red", "安全"), ("gray", "來源／支撐")])
     s.save("phase1-system-architecture.svg")
 
@@ -74,35 +74,35 @@ def system_architecture():
 def component_deployment():
     s = SVG(1600, 980, "元件組成圖：第一階段機房部署（3 台 VM · Docker Compose · docs/44）"); stamp(s)
     s.group(28, 80, 250, 560, "機房外部／既有系統")
-    for i, (t, ls) in enumerate([("GA360（BigQuery 匯出檔）", ["Merkle 每日產檔 → SFTP"]), ("接收區 SFTP（永豐 IT）", ["落檔到 VM2 /data/dmp/landing"]), ("數據中台（Trino／批次）", ["交易・帳務・客戶增量"]), ("現行數軌（歷史一次性）", ["Impala／HDFS／查詢 API"]), ("永豐 AD（LDAP）", ["Keycloak broker"]), ("永豐 NAS", ["備份、WAL 歸檔、審計 WORM"]), ("密鑰庫（OpenBao／HSM）", ["/run/secrets/dmp-secrets.json"])]):
+    for i, (t, ls) in enumerate([("GA360（BigQuery 匯出檔）", ["Merkle 每日產檔 → SFTP"]), ("接收區 SFTP（永豐 IT）", ["落檔到 VM1 /data/dmp/landing"]), ("數據中台（Trino／批次）", ["交易・帳務・客戶增量"]), ("現行數軌（歷史一次性）", ["Impala／HDFS／查詢 API"]), ("永豐 AD（LDAP）", ["Keycloak broker"]), ("永豐 NAS", ["備份、WAL 歸檔、審計 WORM"]), ("密鑰庫（OpenBao／HSM）", ["/run/secrets/dmp-secrets.json"])]):
         s.box(42, 110 + i * 74, 222, 60, t, ls, "gray", small=True)
     s.group(300, 80, 960, 800, "永豐機房  三台 VM（RHEL 9／Rocky 9，Docker Engine 27 + Compose v2；資料服務 host 網路，應用容器 bridge）", fill="#FBFCFE")
     vms = [
-        ("VM-1（測試 16C/128G · 正式 64C/256G）", [("dmp-web ×1  :80", "nginx，F5 指到 VM1／VM2 的 80", "brand"), ("dmp-core api ×1  :8080", "DMP_TICK=0；/healthz、/metrics", "brand"), ("ClickHouse 副本 r1  :8123/9000/9009", "config.d 三台同一份，副本名 from_env", "yellow"), ("Keeper 1  :9181/9234", "", "yellow"), ("PostgreSQL 主  :5432", "串流複寫 → VM2；WAL → NAS", "yellow"), ("Redis 主 + Sentinel  :6379/26379", "AOF；只放快取；三票自動切換", "yellow"), ("SeaweedFS + S3 閘道 :8333", "master/volume/filer；三台 Raft、複本 001", "yellow")]),
-        ("VM-2", [("dmp-core worker ×1", "DMP_TICK=1：唯一背景排程（同步、分群、對照、推送）", "brand"), ("dmp-batch（Airflow + dbt）  :8082", "LocalExecutor；匯入 DAG、dbt 日批、日彙總重建", "brand"), ("dmp-web / dmp-core api 第二份", ":80／:8080；F5 輪詢", "brand"), ("ClickHouse 副本 r2", "", "yellow"), ("Keeper 2", "", "yellow"), ("PostgreSQL 備援（hot standby）", "首次啟動 pg_basebackup；手動 promote", "yellow"), ("Redis 從 + Sentinel · SeaweedFS", "master/volume；/landing 掛給 worker", "yellow")]),
-        ("VM-3", [("Keeper 3 · Sentinel 3 · SeaweedFS", "三台法定人數；S3 閘道第二份 :8333", "yellow"), ("Keycloak  :8180", "/auth；broker → 永豐 AD；DB 在 VM1 PG", "red"), ("Prometheus  :9090", "抓三台 node、CH、Keeper、api", "gray"), ("Grafana  :3000", "看板；AGPLv3 內部使用", "gray"), ("Loki  :3100", "三台 Alloy 送來；保留 30 天", "gray"), ("備份作業（主機 cron）", "ClickHouse、PostgreSQL、rclone → NAS", "gray"), ("dmp-ingest（選配）  :8081", "MA／LINE 直送才啟用；Kafka/Flink 第二階段（D-04）", "green")]),
+        ("VM-1 主（測試 16C/128G · 正式 64C/256G）", [("dmp-web + dmp-core api  :80／:8080", "F5 平常只送 VM1；/healthz、/metrics", "brand"), ("dmp-core worker · batch :8082", "唯一背景排程；與 api 共用 APP_DATA", "brand"), ("ClickHouse 副本 r1  :8123/9000/9009", "config.d 三台同一份，副本名 from_env", "yellow"), ("Keeper 1  :9181/9234", "", "yellow"), ("PostgreSQL 主  :5432", "restart: no；串流複寫 → VM2；WAL → NAS", "yellow"), ("Redis 主 + Sentinel  :6379/26379", "AOF；只放快取；三票自動切換", "yellow"), ("SeaweedFS + S3 閘道 :8333", "master/volume/filer；三台 Raft、複本 001", "yellow")]),
+        ("VM-2 備援", [("dmp-web / dmp-core api 待命", ":80／:8080；F5 backup 成員，VM1 失效才送", "brand"), ("worker · batch（takeover profile）", "接管才起；APP_DATA 由 VM1 每 15 分鐘同步", "brand"), ("ClickHouse 副本 r2", "", "yellow"), ("Keeper 2", "", "yellow"), ("PostgreSQL 備援（hot standby）", "首次啟動 pg_basebackup；手動 promote", "yellow"), ("Redis 從 + Sentinel · SeaweedFS", "master/volume", "yellow")]),
+        ("VM-3", [("Keeper 3 · Sentinel 3 · SeaweedFS", "三台法定人數；S3 閘道第二份 :8333", "yellow"), ("Keycloak  :8180", "/auth；broker → 永豐 AD；DB 連 pg-primary", "red"), ("Prometheus  :9090", "抓三台 node、CH、Keeper、api", "gray"), ("Grafana  :3000", "看板；法務已核可", "gray"), ("Loki  :3100", "三台 Alloy 送來；30 天；AGPLv3 暫行例外", "gray"), ("備份作業（主機 cron）", "ClickHouse、PostgreSQL、rclone → NAS", "gray"), ("dmp-ingest（選配）  :8081", "MA／LINE 直送才啟用；Kafka/Flink 第二階段（D-04）", "green")]),
     ]
     for i, (name, items) in enumerate(vms):
         x = 316 + i * 316; y = 110
         s.group(x, y, 300, 560, name, fill="#FFFFFF", dash=True)
         for j, (t, sub, col) in enumerate(items):
             s.box(x + 10, y + 34 + j * 74, 280, 66, t, [sub] if sub else [], col, small=True)
-    s.box(316, 690, 930, 46, "入口：F5／HAProxy（永豐既有）+ TLS（內部 CA）→ VM1／VM2 :80（web → api）；/auth → VM3 :8180；健康檢查 /healthz", [], "brand", small=True)
+    s.box(316, 690, 930, 46, "入口：F5／HAProxy（永豐既有）+ TLS（內部 CA）→ VM1 :80（VM2 為 backup）；/auth → VM3 :8180；健康檢查 /healthz", [], "brand", small=True)
     s.box(316, 746, 930, 46, "每台：node-exporter :9100、cAdvisor :9101、Alloy（容器日誌 → VM3 Loki）；安全：容器非 root、唯讀、密鑰只進 /run/secrets；防火牆只開 10.10.0.0/24", [], "red", small=True)
-    s.box(316, 802, 930, 46, "映像 4 個（web／core／batch／ingest）與 Helm 方案共用；Flink、Kafka、agent 映像第一階段不啟動；升級：pull → 逐台 up -d（VM2 → VM1 → VM3）", [], "gray", small=True)
-    s.note(316, 866, "故障：VM1 掛 → F5 導到 VM2，PG 手動 promote、Redis 由 Sentinel 自動切換；VM2 掛 → 查詢不中斷、排程暫停；VM3 掛 → Keeper 仍有法定人數、先救 Keycloak（deploy/compose/README §4）。")
+    s.box(316, 802, 930, 46, "映像 4 個（web／core／batch／ingest）與 Helm 方案共用；Flink、Kafka、agent 映像第一階段不啟動；升級：pull → 逐台重啟（VM2 → VM1 → VM3）", [], "gray", small=True)
+    s.note(316, 866, "接管（docs/44 §5.1）：先隔離 VM1 → VM2 PG promote → PG_PRIMARY_HOST 改指 VM2 → 確認 VM1 worker 停了再起 VM2 worker；VM1 復電不自行回主。VM2 掛不影響排程；VM3 掛先救 Keycloak。")
     s.group(1280, 80, 292, 300, "使用者與下游")
     for i, (t, ls) in enumerate([("業務單位（瀏覽器）", ["https://dmp.… 經 F5", "AD／SSO 登入"]), ("偉康 CDP／MA", ["Webhook 推送名單・標籤（T+1）", "簽章、重試、交付紀錄"]), ("數據輸出（內部系統）", ["SFTP／S3／Webhook，走匯出審批", "只送永豐內部"])]):
         s.box(1294, 110 + i * 86, 264, 72, t, ls, "brand", small=True)
     s.group(1280, 400, 292, 300, "待討論／待確認")
-    for i, (t, ls) in enumerate([("VM 規格與配置", ["永豐資訊部門"]), ("接收區與 SFTP", ["永豐 IT"]), ("容器間加密", ["資安要求再加 9440／ssl"]), ("AGPLv3 例外", ["Redis、Grafana、Loki；法務"])]):
+    for i, (t, ls) in enumerate([("VM 規格與配置", ["永豐資訊部門"]), ("接收區與 SFTP", ["永豐 IT"]), ("容器間加密", ["資安要求再加 9440／ssl"]), ("AGPLv3 暫行例外", ["Redis、Loki；法務未否決照此規劃"])]):
         s.box(1294, 430 + i * 66, 264, 56, t, ls, "red", small=True)
     s.arrow(264, 214, 316, 214); s.note(268, 206, "檔案")
     s.arrow(264, 436, 316, 436); s.note(268, 428, "LDAP")
     s.arrow(1246, 160, 1294, 160); s.note(1250, 152, "HTTPS")
     s.arrow(1246, 246, 1294, 246); s.note(1250, 238, "Webhook")
-    s.note(28, 920, "有狀態服務 4 個：ClickHouse（2 副本＋Keeper 3）、PostgreSQL（主備，手動 promote）、Redis（Sentinel 自動切換）、SeaweedFS（三台 master）；其餘無狀態。Kafka、Flink 第一階段不部署（D-04）。")
-    s.note(28, 940, "三台 .env 只差 VM_HOST、KEEPER_ID、CH_REPLICA；./dmp.sh vmN check 驗證設定；主機 cron 跑備份（common/scripts/crontab.vm3）。")
+    s.note(28, 920, "有狀態服務 4 個：ClickHouse（2 副本＋Keeper 3）、PostgreSQL（主備，手動 promote、應用連 pg-primary）、Redis（Sentinel 自動切換）、SeaweedFS（三台 master）；其餘無狀態。Kafka、Flink 第一階段不部署（D-04）。")
+    s.note(28, 940, "三台 .env 只差 VM_HOST、KEEPER_ID、CH_REPLICA；./dmp.sh vmN check 驗證設定；主機 cron：VM3 備份（crontab.vm3）、VM1→VM2 同步 APP_DATA（crontab.vm1）。")
     s.legend(28, 968, [("brand", "應用"), ("yellow", "資料服務"), ("gray", "維運／外部"), ("red", "安全／待確認"), ("green", "選配")])
     s.save("phase1-component-deployment.svg")
 
