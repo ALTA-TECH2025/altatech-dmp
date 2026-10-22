@@ -41,34 +41,47 @@ class Skill:
     meta: dict[str, Any] = field(default_factory=dict)
 
 
+def _yaml_text(text: str) -> Any:
+    """純量一律保留原字串（BaseLoader）：版本寫成未加引號的 1.10 時，safe_load 會變成浮點 1.1。"""
+    return yaml.load(text, Loader=yaml.BaseLoader)   # BaseLoader 不建構任何物件
+
+
 def contract_versions() -> dict[str, str]:
     """現行契約版本；run 紀錄的 contracts 欄位也存這份。"""
-    y = lambda p: yaml.safe_load((BACKEND / p).read_text(encoding="utf-8"))
+    y = lambda p: _yaml_text((BACKEND / p).read_text(encoding="utf-8"))
     return {"semantic": str(y("semantic/events.yaml")["version"]), "tools": str(y("mcp/tools.yaml")["contract_version"]), "oneid_rules": str(y("semantic/oneid_rules.yaml")["version"])}
+
+
+def _ver(v: str) -> tuple[int, ...] | None:
+    """'v1'、'4'、'1.10.2' → 各段整數；不是這種格式就 None（不相容）。不轉浮點：1.2 與 1.10 要能分開。"""
+    m = re.fullmatch(r"v?(\d+(?:\.\d+)*)", str(v).strip())
+    return tuple(int(x) for x in m.group(1).split(".")) if m else None
 
 
 def _ok(req: str, cur: str) -> bool:
     req = str(req).strip()
-    for op in (">=", "<=", "==", ">", "<"):
-        if req.startswith(op):
-            try:
-                a, b = float(cur), float(req[len(op):])
-            except ValueError:
-                return False
-            return {">=": a >= b, "<=": a <= b, "==": a == b, ">": a > b, "<": a < b}[op]
-    return req == cur                          # 例："v1"
+    op = next((o for o in (">=", "<=", "==", ">", "<") if req.startswith(o)), "==")
+    a, b = _ver(cur), _ver(req[len(op):] if req.startswith(op) else req)
+    if a is None or b is None:
+        return False
+    n = max(len(a), len(b)); a, b = a + (0,) * (n - len(a)), b + (0,) * (n - len(b))
+    return {">=": a >= b, "<=": a <= b, "==": a == b, ">": a > b, "<": a < b}[op]
 
 
 def _split(text: str) -> tuple[dict[str, Any], str]:
     m = re.match(r"^---\n(.*?)\n---\n(.*)$", text, re.S)
     if not m:
         raise SkillError("INVALID_ARGUMENT", "SKILL.md 缺少 frontmatter")
-    return yaml.safe_load(m.group(1)) or {}, m.group(2).strip()
+    meta = _yaml_text(m.group(1)) or {}           # 和契約檔同一套：版本要求寫成未加引號的 1.10 也保留原字串
+    if not isinstance(meta, dict):
+        raise SkillError("INVALID_ARGUMENT", "SKILL.md frontmatter 必須是對應表")
+    return meta, m.group(2).strip()
 
 
 def _event_names() -> set[str]:
     ev = yaml.safe_load((BACKEND / "semantic" / "events.yaml").read_text(encoding="utf-8"))["events"]
-    return {str(e["name"]) for e in ev if len(str(e["name"])) >= 4}
+    names = {str(e["name"]) for e in ev} | {str(x) for e in ev for x in (e.get("aliases") or [])}   # 別名也是語意層事件識別字
+    return {n for n in names if len(n) >= 4}
 
 
 def _mvp_tools() -> dict[str, dict[str, Any]]:
@@ -121,6 +134,13 @@ def selftest() -> None:
             return e.code
     assert code(good.replace('semantic: ">=4"', 'semantic: ">=5"')) == "CONTRACT_MISMATCH"                     # A17
     assert code(good.replace('tools: "v1"', 'tools: "v2"')) == "CONTRACT_MISMATCH"
+    assert _yaml_text("version: 1.10")["version"] == "1.10" and _ok(">=1.10", _yaml_text("version: 1.10")["version"])        # 未加引號的 1.10 不被轉成 1.1
+    for req, cur, want in [("1.10", "1.10", "ok"), ("1.10", "1.1", "CONTRACT_MISMATCH"), ('"1.10"', "1.10", "ok"), ('"1.10"', "1.1", "CONTRACT_MISMATCH")]:   # frontmatter 端：加不加引號都照原字串比
+        got = code(good.replace('semantic: ">=4"', "semantic: " + req), versions={"semantic": cur, "tools": "v1", "oneid_rules": "1"})
+        assert got == want, (req, cur, got)
+    assert code("---\n- a\n---\n本文") == "INVALID_ARGUMENT"
+    assert _ok(">=1.10", "1.10.0") and not _ok(">=1.10", "1.2") and _ok("==v1", "v1") and _ok("v1", "v1") and not _ok(">=4", "x4")   # 版本逐段比，不轉浮點
+    assert code(good.replace("## 口徑\n", "## 口徑\n用 fund_subscribe 計算。\n")) == "INVALID_ARGUMENT"                          # 事件別名也算事件名
     assert code(good.replace("tools: [semantic.describe, data.readiness]", "tools: [semantic.describe, profile.get]")) == "INVALID_ARGUMENT"   # 不給模型的工具
     assert code(good.replace("tools: [semantic.describe, data.readiness]", "tools: [metric.query]")) == "INVALID_ARGUMENT"                    # 非 MVP
     assert code(good.replace("## 歧義處理", "## 其他")) == "INVALID_ARGUMENT"
