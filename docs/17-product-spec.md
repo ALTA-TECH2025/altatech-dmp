@@ -1,6 +1,6 @@
 # AltaTech DMP 產品規格書（v0.9.4，2026-10-22）
 
-> 版本：v0.9.4 — **部署方式調整（研發／運維 2026-10-22 決議，docs/44）**：部署改用 Docker Compose、第一階段不用 Kubernetes；快取沿用 Redis（Redis 8 選 AGPLv3，例外待法務核可）；日誌只用 Loki；新增 §1.2 Docker 部署架構圖（放在既有架構圖之後），§1.1 元件表與 §5a 同步更新。
+> 版本：v0.9.4 — **部署方式調整（研發／運維 2026-10-22 決議，docs/44）**：部署改用 Docker Compose、第一階段不用 Kubernetes；快取沿用 Redis（Redis 8 選 AGPLv3，已送法務、未否決前照此規劃）；日誌只用 Loki；新增 §1.2 Docker 部署架構圖（放在既有架構圖之後），§1.1 元件表與 §5a 同步更新。
 >
 > v0.9.3 — **10/19–10/22 進度回寫**：數據輸出的任務、審批、產檔與本機出件匣已實作（遠端 SFTP／S3 傳輸未實作）；事件分析行為篩選與對照組已實作；個資不入庫加強（舊平台匯入與隔離區都不留個資原值，docs/42 遷移校驗方法論）；事件 ID 改為內容雜湊、日彙總改為可重建且冪等（中斷、重送、併發、舊版升級都會補完）；AD 一律經 Keycloak 接入（已決定，實作審查中）；**AI 分析工作台**依 Windy 2026-10-21 授權先開發已確認範圍（D1 MVP、D2 執行架構、D3 模型可見範圍、D4、D5 技能庫基礎管理；RFC 草案 docs/38–41 見 PR #36），契約與後端基礎已合併，前端與正式模型未上線；§5a 狀態表與待確認清單同步更新。
 >
@@ -55,7 +55,7 @@
 | 容器平台 | OpenTofu | 1.8 | MPL-2.0 | GCP 資源 IaC（VM、網路、託管服務）；Helm chart 保留但第一階段不使用 |
 | 容器平台 | Harbor | 2.x | Apache-2.0 | 離線映像倉；Trivy 弱掃 |
 | 線上存儲 | PostgreSQL ＋ pgvector；pgBackRest | 16；2.x | PostgreSQL License；MIT | 控制面：看板、分群定義、審批、審計索引、洞察向量；主從串流複寫、WAL 歸檔 |
-| 線上存儲 | Redis（含 Sentinel） | 8.x | AGPL-3.0（三授權擇一；僅內部使用例外待法務核可） | 登入狀態、快取、輕量佇列；主從 ＋ Sentinel（2026-10 改回 Redis，docs/44 §3） |
+| 線上存儲 | Redis（含 Sentinel） | 8.x | AGPL-3.0（三授權擇一；僅內部使用，暫行例外已送法務） | 登入狀態、快取、輕量佇列；主從 ＋ Sentinel（2026-10 改回 Redis，docs/44 §3） |
 | 分析存儲 | ClickHouse ＋ Keeper（官方映像） | 25.8 LTS | Apache-2.0 | 行為事件倉、MV 聚合層、分群／標籤 Bitmap、用戶檔案字典 |
 | 分析存儲 | SeaweedFS（機房）／GCS | 3.x | Apache-2.0 | S3 API：Iceberg 冷層、原始事件、備份、同步輸出 |
 | 訊息 | Apache Kafka（KRaft，官方映像） | 3.8 | Apache-2.0 | 推送更新、原始事件落地；第二階段即時觸發輸入 |
@@ -64,7 +64,7 @@
 | 計算 | Apache Spark／Trino／Iceberg | 3.5／4xx／1.6 | Apache-2.0 | 第二階段：70 億歷史重算、冷層查詢 |
 | 身分與密鑰 | Keycloak；OpenBao ＋ HSM（機房）／Secret Manager ＋ KMS（GCP） | 25；2.x | Apache-2.0；MPL-2.0 | SSO／OIDC；密鑰只存參照 |
 | 觀測 | Prometheus ＋ OTel Collector ＋ node-exporter；Grafana OSS | 2.x／0.1x；11.x | Apache-2.0；AGPL-3.0（內部使用） | 指標與告警；平台「系統監控」頁同源 |
-| 觀測 | Loki ＋ Alloy；cAdvisor | 3.x ＋ 1.x；0.5x | AGPL-3.0（內部使用，例外待法務核可）＋ Apache-2.0；Apache-2.0 | 日誌（只用 Loki，2026-10 改，docs/44 §4）；容器指標 |
+| 觀測 | Loki ＋ Alloy；cAdvisor | 3.x ＋ 1.x；0.5x | AGPL-3.0（內部使用，暫行例外已送法務）＋ Apache-2.0；Apache-2.0 | 日誌（只用 Loki，2026-10 改，docs/44 §4）；容器指標 |
 | 執行環境 | Python、Go、Node、Temurin JDK | 3.12、1.23、22 LTS、17 | PSF／BSD／MIT／GPLv2+CE | core／ingest／web／Flink |
 | 作業系統 | RHEL 9／Rocky Linux 9；UBI 9 minimal 映像基底 | 9.4+ | — | SELinux enforcing；容器無 root、唯讀檔案系統 |
 
@@ -73,7 +73,7 @@
 ![Docker 部署架構](diagrams/slides/slide-6-docker-deployment.png)
 
 - 決議：① 部署用 Docker Compose，第一階段不用 Kubernetes（運維不熟 K8s）；② 快取沿用 Redis（團隊熟悉）；③ 日誌只用 Loki，其他日誌元件不用。應用程式與 6 個映像不變。
-- Redis 授權：Redis 8 起為 RSALv2／SSPLv1／AGPLv3 三選一，本案**選 AGPLv3**，官方映像、不修改、只在中台內部使用、不對外提供 Redis 服務，比照既有 Grafana OSS 例外；Loki（AGPLv3）同樣處理。兩項例外**待法務核可**；不核可時換 Valkey 8（BSD-3，指令相容）只改映像（docs/44 §3–4）。
+- Redis 授權：Redis 8 起為 RSALv2／SSPLv1／AGPLv3 三選一，本案**選 AGPLv3**，官方映像、不修改、只在中台內部使用、不對外提供 Redis 服務，比照既有 Grafana OSS 例外；Loki（AGPLv3）同樣處理。兩項例外已送法務，**Windy 2026-10-23：法務沒有說不行就照此規劃**；法務否決時換 Valkey 8（BSD-3，指令相容）只改映像、日誌換 VictoriaLogs（docs/44 §3–4）。
 - 拿掉 Kubernetes 的代價與處置：程序掛掉靠 `restart` ＋ `healthcheck`；主機故障靠服務自身多副本（ClickHouse 雙副本、Keeper 三節點、Redis Sentinel），PostgreSQL 改手動 promote（RTO 30 分鐘）；換版逐台、無自動擴縮（docs/44 §5）。
 - API 先採主備、不雙活：目前登入 session 與 SSO 登入前狀態都在 API 程序記憶體、背景作業沒有跨程序租約，所以只有主機 1 的 API 接流量、只有主機 1 的 worker 跑背景作業；主機 1 故障時改送主機 2（使用者需重新登入）。雙活前置工作（共用 session、作業租約）列為後續 backend PR（docs/44 §5a）。
 - 主備也要先做到的三件事（docs/44 §2、§5.1、§5a）：① API 與 worker 拆成兩個容器時，同步排程狀態與產物目錄要共用（暫行：同一台、同一個持久目錄，每 15 分鐘同步到主機 2；正式：排程器改 PostgreSQL、產物放物件儲存）；② 手動接管前先隔離舊主機，舊主庫恢復後以 pg_rewind 改當從庫、不得自行回到主角色；③ SeaweedFS 三台都放、每個檔案 2 份，備份每日再複製到叢集外。
@@ -168,7 +168,7 @@
 
 ### 待確認清單（需客戶／PO 決定）
 
-1. 部署環境：GCP（asia-east1，Compute Engine VM）或機房（RHEL／Rocky 9），皆以 Docker Compose 部署（2026-10-22 已決定，docs/44）；機器檔位 A 6 台 vs D 3 台（docs/13）；Redis 8 與 Loki 的 AGPLv3 內部使用例外需法務核可（docs/44 §3–4）。
+1. 部署環境：GCP（asia-east1，Compute Engine VM）或機房（RHEL／Rocky 9），皆以 Docker Compose 部署（2026-10-22 已決定，docs/44）；機器檔位 A 6 台 vs D 3 台（docs/13）；Redis 8 與 Loki 的 AGPLv3 內部使用例外已送法務，未否決前照此規劃（docs/44 §3–4、docs/45 P-04）。
 2. 數據中台交易資料的提供方式：Trino／Hive／Iceberg 批次，或 Kafka topic；第一階段仍以批次讀（docs/23）。
 3. 身分：AD 已決定一律經 Keycloak 接入（2026-10-21）；待定 Keycloak 的 MFA 流程（OTP）與 token 是否標記 mfa、群組→角色對照表、本機帳號是否保留。
 4. 舊平台歷史導出方式（Impala／HDFS Parquet 或查詢 API）與 API Secret；並行期長度與舊平台到期日（2027-10-31）。

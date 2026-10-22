@@ -64,7 +64,12 @@ def build() -> Any:
         store: Any = PostgresStore(resolver(os.environ["DMP_PG_DSN_REF"]) if os.environ.get("DMP_PG_DSN_REF") else os.environ["DMP_PG_DSN"])
     else:
         store = MemoryStore(Path(os.environ["DMP_STORE_PATH"]) if os.environ.get("DMP_STORE_PATH") else None)
-    sessions = SessionManager(cfg["session"], SessionMemory(), lambda e, d: store.audit(e, d), now=time.time, admin_requires=cfg["role_mapping"].get("admin_requires"))
+    session_store: Any = SessionMemory()
+    login_states: Any = {}
+    if hasattr(store, "pool"):                               # PostgreSQL 控制面 → session 與登入前狀態也放這裡，多個 API 實例共用（docs/44 §5a）
+        from ..auth.session_pg import PgLoginStates, PgSessionStore
+        session_store, login_states = PgSessionStore(store), PgLoginStates(store)
+    sessions = SessionManager(cfg["session"], session_store, lambda e, d: store.audit(e, d), now=time.time, admin_requires=cfg["role_mapping"].get("admin_requires"))
     providers: dict[str, Any] = {}
     for key, p in cfg["providers"].items():
         try:
@@ -86,7 +91,7 @@ def build() -> Any:
     if os.environ.get("DMP_API_KEY_PEM"):
         tokens = ApiTokens(cfg["session"]["api_token"], Path(os.environ["DMP_API_KEY_PEM"]).read_text(), Path(os.environ["DMP_API_PUB_PEM"]).read_text())
     ch = ClickHouseHTTP(os.environ["CLICKHOUSE_URL"], user=os.environ.get("CLICKHOUSE_USER", "default"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), timeout=120) if os.environ.get("CLICKHOUSE_URL") else None
-    auth = AuthService(cfg, providers, sessions, tokens, store.assignments)
+    auth = AuthService(cfg, providers, sessions, tokens, store.assignments, login_states)
     sched = None
     if os.environ.get("DMP_SCHED_DB"):                      # 排程狀態（SQLite）；執行器直接寫 ClickHouse
         from ..integration.runner import LocalRunner
@@ -119,8 +124,9 @@ def build() -> Any:
     return app
 
 
-def start_ticker(app: Any, store: Any, ch: Any) -> None:
-    """單機環境的背景例行：每分鐘 scheduler.tick()（到點的同步任務）與看板定時寄送、每 10 分鐘分群／標籤例行計算＋到期清理；每分鐘推送重試與日批後增量推送。錯誤只記錄不中斷。"""
+def start_ticker(app: Any, store: Any, ch: Any) -> Any:
+    """背景例行：每分鐘 scheduler.tick()（到點的同步任務）與看板定時寄送、每 10 分鐘分群／標籤例行計算＋到期清理；每分鐘推送重試與日批後增量推送。錯誤只記錄不中斷。
+    控制面是 PostgreSQL 時先取得主控租約（ops/lease.py）：多份 worker 同時開著也只有一份在跑，掛掉後 90 秒內由別份接手（docs/44 §5a）。"""
     import threading
 
     from ..ops.metrics import routine
@@ -129,49 +135,88 @@ def start_ticker(app: Any, store: Any, ch: Any) -> None:
     sched = getattr(app.state, "scheduler", None)
     seg = SegmentService(store, ch) if ch is not None else None
     system = Subject("system:scheduler", ["admin"])
+    lease = None
+    if hasattr(store, "pool"):
+        from ..ops.lease import PgLease
+        lease = PgLease(store, "dmp-tick", ttl_s=float(os.environ.get("DMP_TICK_LEASE_S", "90")), on_change=store.audit)
+        lease.start_heartbeat()
+        for name in ("dashboard_share", "activation", "output", "notifier"):     # 對外副作用前到資料庫確認仍是主控（fencing）
+            svc = getattr(app.state, name, None)
+            if svc is not None:
+                svc.fence = lease
+    app.state.tick_lease = lease
+
+    class LeaseLost(Exception):
+        pass
+
+    def guard() -> None:
+        """每段例行開始前：本機判定租約仍有效（心跳失敗或逾本機期限即無效），否則中止本輪剩下的作業。"""
+        if lease is not None and not lease.valid():
+            raise LeaseLost()
+
+    stop = threading.Event()
 
     def loop() -> None:
         n = 0
-        while True:
-            time.sleep(60); n += 1
+        while not stop.is_set():
+            time.sleep(60)
+            if stop.is_set():
+                break
+            if lease is not None and not lease.ensure():
+                continue                                                     # 別份 worker 是主控：這一輪不跑，也不累計 n（接手後節奏從頭算）
+            n += 1
             try:                                                             # 每段各自計耗時與成敗（dmp_routine_*），供資料流與效能頁與告警
                 if sched is not None:
+                    guard()
                     with routine("scheduler"):
                         sched.tick()
                 share = getattr(app.state, "dashboard_share", None)
                 if share is not None and ch is not None:
                     from ..security.policy import RBAC as _R
                     from .dashboards import apply_time as _at
+                    guard()
                     with routine("dashboard_share"):
                         share.tick(_at, int(_R["k_anonymity"]["min_group_size"]))
                 if seg is not None and n % 10 == 0:
+                    guard()
                     with routine("segments"):
                         seg.tick(system, lambda s: authorize(Subject(s["owner"], ["data_analyst"]), "use", "users"))
                         seg.purge_expired(system)
                     tg = getattr(app.state, "tags", None)
                     if tg is not None and ch is not None:
+                        guard()
                         with routine("tags"):
                             tg.tick(system, lambda t: authorize(Subject(t["owner"], ["data_analyst"]), "use", "users"))
                 act = getattr(app.state, "activation", None)
                 if act is not None and ch is not None:
+                    guard()
                     with routine("activation"):
                         act.tick(system)                                     # 到期重試、日批後增量推送
                 outp = getattr(app.state, "output", None)
                 if outp is not None and ch is not None:
+                    guard()
                     with routine("output"):
                         outp.tick(system)                                    # 資料輸出：到點跑前一天分區
+                ops = getattr(app.state, "ops", None)
+                if ops is not None:
+                    guard()
+                    try:
+                        ops.snapshot()                                       # 系統監控頁的每分鐘快照（失敗不影響其他例行）
+                        nf = getattr(app.state, "notifier", None)
+                        if nf is not None:
+                            nf.dispatch(ops.alerts()["firing"])              # 告警通知：Email／LINE（冷卻、最低嚴重度、恢復）
+                    except LeaseLost:
+                        raise
+                    except Exception as e:
+                        store.audit("ops.snapshot.failed", {"error": str(e)[:300]})
+            except LeaseLost:
+                store.audit("ops.lease.round_aborted", {"lease": "dmp-tick", "owner": lease.owner if lease else ""})
             except Exception as e:
                 store.audit("scheduler.tick.failed", {"error": str(e)[:300]})
-            ops = getattr(app.state, "ops", None)
-            if ops is not None:
-                try:
-                    ops.snapshot()                                           # 系統監控頁的每分鐘快照（獨立於上面的例行，失敗不影響）
-                    nf = getattr(app.state, "notifier", None)
-                    if nf is not None:
-                        nf.dispatch(ops.alerts()["firing"])                  # 告警通知：Email／LINE（冷卻、最低嚴重度、恢復）
-                except Exception as e:
-                    store.audit("ops.snapshot.failed", {"error": str(e)[:300]})
+        if lease is not None:
+            lease.stop()                                                     # 正常停止就釋放租約，別份 worker 不必等過期
     threading.Thread(target=loop, name="dmp-tick", daemon=True).start()
+    return stop                                                              # 測試用：set() 後下一輪結束迴圈
 
 
 app = build() if os.environ.get("DMP_BUILD_APP", "1") == "1" and __name__ != "__main__" else None
