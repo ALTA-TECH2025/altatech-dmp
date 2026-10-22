@@ -210,13 +210,13 @@ def s6():
     hosts = [
         ("主機 1", [("dmp-web（nginx）", "前端靜態檔＋反向代理", "brand"), ("dmp-core API ＋ worker", "唯一接流量；背景作業只在這台執行", "brand"),
                    ("ClickHouse 副本 1", "行為事件倉、MV、Bitmap", "yellow"), ("ClickHouse Keeper 1", "副本協調", "yellow"),
-                   ("Kafka broker 1（KRaft）", "原始事件、推送、即時路徑", "teal"), ("PostgreSQL 16 主庫", "控制面；pgBackRest WAL 歸檔", "yellow"),
+                   ("PostgreSQL 16 主庫", "控制面；pgBackRest WAL 歸檔", "yellow"),
                    ("Redis 主 ＋ Sentinel", "登入狀態、快取、佇列；AOF", "yellow")]),
         ("主機 2", [("dmp-web（nginx）", "備援；平時不接流量", "brand"), ("dmp-core API（備援）", "不開背景作業；切換時使用者需重新登入", "brand"),
                    ("ClickHouse 副本 2", "任一台故障另一副本續服", "yellow"), ("ClickHouse Keeper 2", "副本協調", "yellow"),
-                   ("Kafka broker 2（KRaft）", "三節點、replication 3", "teal"), ("PostgreSQL 16 從庫", "串流複寫；切換走手動程序", "yellow"),
+                   ("PostgreSQL 16 從庫", "串流複寫；切換走手動程序", "yellow"),
                    ("Redis 從 ＋ Sentinel", "主庫故障由 Sentinel 自動切換", "yellow")]),
-        ("主機 3", [("dmp-ingest ＋ Flink", "JobManager ＋ TaskManager：J1–J4", "teal"), ("Kafka broker 3 ＋ Keeper 3", "三節點多數決", "teal"),
+        ("主機 3", [("dmp-ingest（選配）", "MA／LINE 直送才啟用；Kafka、Flink 第二階段", "teal"), ("ClickHouse Keeper 3", "三節點多數決", "yellow"),
                    ("Redis Sentinel 3", "第三票", "yellow"), ("Keycloak ＋ OpenBao", "SSO／OIDC；密鑰落檔掛載", "purple"),
                    ("Prometheus ＋ Alertmanager", "指標、告警 → Email／LINE", "purple"), ("Grafana ＋ Loki", "看板與日誌查詢（Loki 取代其他日誌元件）", "purple"),
                    ("SeaweedFS（三台都有）", "master＋volume 2 副本；備份另複製到叢集外", "yellow")]),
@@ -235,8 +235,8 @@ def s6():
     s.rect(1328, 312, 496, 548, C["redsoft"], C["red"], 16)
     s.text(1352, 346, "拿掉 Kubernetes 後由誰補位", 22, 800, C["red"])
     tips = [("程序掛掉", ["restart: unless-stopped ＋ healthcheck"]),
-            ("主機掛掉", ["ClickHouse／Kafka／Keeper 三節點自身容錯；Redis Sentinel", "PostgreSQL 手動 promote（RTO 30 分鐘）", "主機 1 掛：改送主機 2 API、手動起 worker"]),
-            ("Flink 中斷", ["單一 JobManager；checkpoint 存物件儲存", "重啟從最近一次續跑，寫入冪等不重算"]),
+            ("主機掛掉", ["ClickHouse 雙副本、Keeper 三節點自身容錯；Redis Sentinel", "PostgreSQL 手動 promote（RTO 30 分鐘）", "主機 1 掛：改送主機 2 API、手動起 worker"]),
+            ("第二階段才有", ["Kafka 三節點、Flink standalone（docs/43）", "啟用時 Kafka 各放一台、Flink 放主機 3"]),
             ("換版與容量", ["逐台 pull ＋ up，維護窗口內", "沒有自動擴縮，容量按檔位預留"]),
             ("隔離", ["每台 Docker 網路＋主機防火牆", "容器非 root、唯讀、cap_drop ALL"]),
             ("密鑰與憑證", ["設定只存 secret_ref；客戶內部 CA 簽發", "憑證到期前告警"])]
@@ -248,7 +248,7 @@ def s6():
         yy += 31
     # 每台共通 ＋ 授權
     s.rect(96, 876, 1728, 52, C["graysoft"], C["gray"], 12)
-    s.text(120, 909, "每台共通：Alloy（容器日誌 → Loki）· node-exporter · cAdvisor · RHEL／Rocky 9（SELinux enforcing）　｜　備份：ClickHouse BACKUP TO S3、pgBackRest、Redis AOF、Flink checkpoint", 17, 600)
+    s.text(120, 909, "每台共通：Alloy（容器日誌 → Loki）· node-exporter · cAdvisor · RHEL／Rocky 9（SELinux enforcing）　｜　備份：ClickHouse BACKUP TO S3、pgBackRest、Redis AOF", 17, 600)
     s.rect(96, 938, 1728, 52, C["yellowsoft"], C["yellow"], 12)
     s.text(120, 971, "授權：Redis 8 選 AGPLv3；Loki、Grafana 為 AGPLv3 — 皆用官方映像、不修改、僅內部使用、不對外提供服務（同既有 Grafana 例外，待法務確認）；其餘 Apache-2.0／BSD／MIT", 17, 600)
     s.save("slide-6-docker-deployment.svg")

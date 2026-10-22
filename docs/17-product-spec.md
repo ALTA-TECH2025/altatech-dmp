@@ -45,8 +45,8 @@
 
 ![機房部署架構](diagrams/slides/slide-5-onprem-deployment.png)
 
-- 平台應用全為無狀態容器（映像 6 個）；有狀態服務只有 5 個（ClickHouse ＋ Keeper、PostgreSQL、Redis、Kafka、物件儲存），本地 NVMe；平台層 Keycloak、OpenBao、Prometheus ＋ Grafana、Loki、Harbor；每台 node-exporter、cAdvisor、Alloy。決議版不用 Operator，改由服務本身的多副本與運維程序負責（§1.2）。
-- 備份：ClickHouse `BACKUP TO S3`（日增量／週全量）、PostgreSQL pgBackRest WAL 歸檔、Redis AOF、Flink checkpoint；HA：ClickHouse 雙副本、PostgreSQL 主從（手動切換）、Redis 主從 ＋ Sentinel、Kafka／Keeper 三節點（docs/13 §11.4、docs/44 §5）。
+- 平台應用全為無狀態容器（映像 6 個）；有狀態服務第一階段 4 個（ClickHouse ＋ Keeper、PostgreSQL、Redis、物件儲存；Kafka 第二階段），本地 NVMe；平台層 Keycloak、OpenBao、Prometheus ＋ Grafana、Loki、Harbor；每台 node-exporter、cAdvisor、Alloy。決議版不用 Operator，改由服務本身的多副本與運維程序負責（§1.2）。
+- 備份：ClickHouse `BACKUP TO S3`（日增量／週全量）、PostgreSQL pgBackRest WAL 歸檔、Redis AOF；HA：ClickHouse 雙副本、PostgreSQL 主從（手動切換）、Redis 主從 ＋ Sentinel、Kafka／Keeper 三節點（docs/13 §11.4、docs/44 §5）。
 - 版本為 2026-10 的 LTS，M1 開工時依當時 LTS 重釘；原則不變：上游版本、不改寫、OSI 授權、有官方映像或託管版（docs/32 為完整清單與來源國別，docs/37 為與舊棧的逐項對照）。
 
 | 類別 | 元件 | 版本 | 授權 | 功能說明 |
@@ -60,7 +60,7 @@
 | 分析存儲 | SeaweedFS（機房）／GCS | 3.x | Apache-2.0 | S3 API：Iceberg 冷層、原始事件、備份、同步輸出 |
 | 訊息 | Apache Kafka（KRaft，官方映像） | 3.8 | Apache-2.0 | 推送更新、原始事件落地；第二階段即時觸發輸入 |
 | 計算 | Apache Airflow ＋ dbt-core | 2.10 | Apache-2.0 | 日批排程與 SQL 轉換（第一階段由 API 內建排程器執行） |
-| 計算 | Apache Flink（standalone） | 1.20（docs/43 規劃 2.3） | Apache-2.0 | 即時路徑 J1–J4（docs/43 規劃改第一階段）；JobManager ＋ TaskManager 容器，checkpoint 存物件儲存 |
+| 計算 | Apache Flink（standalone）— 第二階段 | 1.20 | Apache-2.0 | 即時路徑 J1–J4（docs/43，第二階段參考；2026-10-23 D-04 定第一階段不上）；第一階段處理全在 ClickHouse SQL＋dbt 微批 |
 | 計算 | Apache Spark／Trino／Iceberg | 3.5／4xx／1.6 | Apache-2.0 | 第二階段：70 億歷史重算、冷層查詢 |
 | 身分與密鑰 | Keycloak；OpenBao ＋ HSM（機房）／Secret Manager ＋ KMS（GCP） | 25；2.x | Apache-2.0；MPL-2.0 | SSO／OIDC；密鑰只存參照 |
 | 觀測 | Prometheus ＋ OTel Collector ＋ node-exporter；Grafana OSS | 2.x／0.1x；11.x | Apache-2.0；AGPL-3.0（內部使用） | 指標與告警；平台「系統監控」頁同源 |
@@ -74,7 +74,7 @@
 
 - 決議：① 部署用 Docker Compose，第一階段不用 Kubernetes（運維不熟 K8s）；② 快取沿用 Redis（團隊熟悉）；③ 日誌只用 Loki，其他日誌元件不用。應用程式與 6 個映像不變。
 - Redis 授權：Redis 8 起為 RSALv2／SSPLv1／AGPLv3 三選一，本案**選 AGPLv3**，官方映像、不修改、只在中台內部使用、不對外提供 Redis 服務，比照既有 Grafana OSS 例外；Loki（AGPLv3）同樣處理。兩項例外**待法務核可**；不核可時換 Valkey 8（BSD-3，指令相容）只改映像（docs/44 §3–4）。
-- 拿掉 Kubernetes 的代價與處置：程序掛掉靠 `restart` ＋ `healthcheck`；主機故障靠服務自身多副本（ClickHouse 雙副本、Kafka／Keeper 三節點、Redis Sentinel），PostgreSQL 改手動 promote（RTO 30 分鐘）；Flink 單一 JobManager、從最近 checkpoint 續跑；換版逐台、無自動擴縮（docs/44 §5）。
+- 拿掉 Kubernetes 的代價與處置：程序掛掉靠 `restart` ＋ `healthcheck`；主機故障靠服務自身多副本（ClickHouse 雙副本、Keeper 三節點、Redis Sentinel），PostgreSQL 改手動 promote（RTO 30 分鐘）；換版逐台、無自動擴縮（docs/44 §5）。
 - API 先採主備、不雙活：目前登入 session 與 SSO 登入前狀態都在 API 程序記憶體、背景作業沒有跨程序租約，所以只有主機 1 的 API 接流量、只有主機 1 的 worker 跑背景作業；主機 1 故障時改送主機 2（使用者需重新登入）。雙活前置工作（共用 session、作業租約）列為後續 backend PR（docs/44 §5a）。
 - 主備也要先做到的三件事（docs/44 §2、§5.1、§5a）：① API 與 worker 拆成兩個容器時，同步排程狀態與產物目錄要共用（暫行：同一台、同一個持久目錄，每 15 分鐘同步到主機 2；正式：排程器改 PostgreSQL、產物放物件儲存）；② 手動接管前先隔離舊主機，舊主庫恢復後以 pg_rewind 改當從庫、不得自行回到主角色；③ SeaweedFS 三台都放、每個檔案 2 份，備份每日再複製到叢集外。
 - 一併檢查出的架構問題：Flink 已改第一階段但舊圖仍標第二階段；Keycloak、OpenBao、監控集中在主機 3 是單點；Helm 改為保留不使用、部署套件改 `deploy/compose/`；RHEL 預設 Podman；docs/07、12、13、32、37 與簡報第 4、5 頁待改（docs/44 §6）。

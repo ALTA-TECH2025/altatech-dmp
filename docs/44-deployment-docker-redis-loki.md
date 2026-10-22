@@ -11,15 +11,17 @@
 | D-2 | 快取、佇列、登入狀態用 **Redis**（不換 Valkey） | Valkey 8 | 團隊熟 Redis；授權處理見 §3 |
 | D-3 | 日誌用 **Loki**（＋ Grafana 查詢），不用 OpenSearch／VictoriaLogs／Cloud Logging | VictoriaLogs（或 OpenSearch） | 團隊熟 Loki；與既有 Grafana 同一介面 |
 
-不變：6 個自建映像（core／ingest／batch／agent／flink-jobs／web）、ClickHouse、Kafka（KRaft）、PostgreSQL 16、Keycloak、OpenBao、Prometheus ＋ Grafana、Harbor、物件儲存（機房 SeaweedFS／GCP GCS）、機器檔位（docs/13）。映像本來就是 Docker 映像；**單一 API 實例**部署不用改程式。兩個 API 同時接流量（雙活）與背景作業多份執行都**需要先改程式**，見 §5a；完成前採主備。
+不變：6 個自建映像（core／ingest／batch／agent／flink-jobs／web；**第一階段只啟用 web、core、batch、ingest**）、ClickHouse、PostgreSQL 16、Keycloak、OpenBao、Prometheus ＋ Grafana、Harbor、物件儲存（機房 SeaweedFS／GCP GCS）、機器檔位（docs/13）。映像本來就是 Docker 映像；**單一 API 實例**部署不用改程式。兩個 API 同時接流量（雙活）與背景作業多份執行都**需要先改程式**，見 §5a；完成前採主備。
 
 ## 2. 部署拓樸（3 台版，D 檔正式／C 檔測試）
 
 | 主機 | 容器 |
 |---|---|
-| 1 | dmp-web（nginx，TLS）、dmp-core API（唯一接流量）＋ dmp-core worker（唯一開背景作業）、ClickHouse 副本 1、Keeper 1、Kafka 1、PostgreSQL 主庫、Redis 主 ＋ Sentinel |
-| 2 | dmp-web、dmp-core API 備援（平時不接流量、不開背景作業）、ClickHouse 副本 2、Keeper 2、Kafka 2、PostgreSQL 從庫、Redis 從 ＋ Sentinel |
-| 3 | dmp-ingest、Flink（JobManager ＋ TaskManager，跑 docs/43 的 J1–J4）、Kafka 3、Keeper 3、Redis Sentinel、Keycloak、OpenBao、Prometheus ＋ Alertmanager、Grafana ＋ Loki |
+| 1 | dmp-web（nginx，TLS）、dmp-core API（唯一接流量）＋ dmp-core worker（唯一開背景作業）、ClickHouse 副本 1、Keeper 1、PostgreSQL 主庫、Redis 主 ＋ Sentinel |
+| 2 | dmp-web、dmp-core API 備援（平時不接流量、不開背景作業）、ClickHouse 副本 2、Keeper 2、PostgreSQL 從庫、Redis 從 ＋ Sentinel |
+| 3 | dmp-ingest（選配）、Keeper 3、Redis Sentinel、Keycloak、OpenBao、Prometheus ＋ Alertmanager、Grafana ＋ Loki、備份作業 |
+
+> **2026-10-23 定案 D-04（docs/45）：Flink、Kafka 留第二階段，第一階段全部微批。** 本表已移除 Kafka 三節點與 Flink；第二階段啟用時 Kafka 1–3 各放一台、Flink 放主機 3，映像與啟動腳本見 docs/43（第二階段參考）。
 | 每台 | SeaweedFS master ＋ volume（機房物件儲存，見下）、Alloy（容器日誌 → Loki）、node-exporter、cAdvisor；RHEL／Rocky 9，SELinux enforcing |
 
 - A 檔 6 台：ClickHouse 兩副本移到兩台專用機（olap），其餘同上分散到 4 台。
@@ -28,7 +30,7 @@
 - 入口：客戶既有負載平衡（機房 F5 等，GCP 內部 LB）→ 主機 1 的 nginx，主機 2 設為備援（backup）；不新增 keepalived 等元件。雙活要等 §5a 完成。
 - **SeaweedFS（機房物件儲存）三台都放**，不是只在主機 3：master ×3（Raft，任兩台在就能寫）、每台一個 volume server 用本機 HDD、複本設定 `001`（每個檔案 2 份、落在不同主機）、filer ×2（主機 1、3；中繼資料存 PostgreSQL 控制面，filer 本身無狀態）。
   - 可用容量 ≈ 原始 HDD ÷ 2，再保留約 15% 空間：D 檔 3 台 × 2 × 8 TB = 48 TB 原始 → 約 20 TB 可用。docs/13 寫的「約 16–24 TB」是按 K8s 版估的，M1 依實機與實際複本設定重算，不直接沿用。
-  - 任一台損毀：另一份複本仍在、master 剩 2 票可寫；損毀主機上的 Flink 由其他主機以同一映像啟動，從物件儲存上最近一次 checkpoint 續跑（docs/43 §5）。
+  - 任一台損毀：另一份複本仍在、master 剩 2 票可寫。（第二階段有 Flink 時：損毀主機上的 Flink 由其他主機以同一映像啟動，從最近一次 checkpoint 續跑，docs/43 §5。）
   - **備份要有叢集外的第二份**：ClickHouse、PostgreSQL 備份先寫 SeaweedFS，再每日複製到獨立目的地（客戶既有備份系統／NAS／異地；GCP 為另一個區域的 GCS bucket）。同一個 SeaweedFS 叢集內的備份不算數，因為叢集整個損毀時會一起不見。
 
 ## 3. Redis 授權怎麼處理（需法務確認）
@@ -57,11 +59,11 @@ Loki 3.x 為 AGPLv3，與 Grafana OSS 同一家、同一種處理：官方映像
 | 原本由 K8s／Operator 做的事 | Docker 版做法 | 代價 |
 |---|---|---|
 | 程序掛掉自動重啟 | `restart: unless-stopped` ＋ `healthcheck` | 無 |
-| 主機故障時把服務搬到別台 | 不搬；靠服務本身的多副本：ClickHouse 雙副本、Kafka／Keeper 三節點、Redis Sentinel 自動切換；PostgreSQL 從庫手動 promote（運維手冊，RTO 30 分鐘） | PostgreSQL 切換變手動；主機 1 故障時負載平衡改送主機 2 的備援 API（使用者需重新登入、進行中的 SSO 登入要重來），運維手動啟動主機 2 的 worker（§5a） |
-| Flink Operator（HA、升級） | Flink standalone：單一 JobManager ＋ TaskManager；checkpoint／savepoint 存物件儲存；JobManager 重啟後由啟動腳本從最近一次 checkpoint 續跑 | 中斷期間（分鐘級）即時路徑延遲上升；stream_writer 寫入冪等（docs/43 §3），不重算不重複；日批照常是權威 |
+| 主機故障時把服務搬到別台 | 不搬；靠服務本身的多副本：ClickHouse 雙副本、Keeper 三節點、Redis Sentinel 自動切換；PostgreSQL 從庫手動 promote（運維手冊，RTO 30 分鐘） | PostgreSQL 切換變手動；主機 1 故障時負載平衡改送主機 2 的備援 API（使用者需重新登入、進行中的 SSO 登入要重來），運維手動啟動主機 2 的 worker（§5a） |
+| Flink Operator（HA、升級）— **第二階段** | Flink standalone：單一 JobManager ＋ TaskManager；checkpoint／savepoint 存物件儲存；JobManager 重啟後由啟動腳本從最近一次 checkpoint 續跑 | 第一階段不部署（D-04）；第二階段中斷期間（分鐘級）即時路徑延遲上升；stream_writer 寫入冪等（docs/43 §3），不重算不重複；日批照常是權威 |
 | CloudNativePG（備份、切換） | PostgreSQL 官方映像 ＋ 串流複寫 ＋ pgBackRest（WAL 歸檔、日備份到物件儲存） | 切換手動 |
 | Altinity operator | ClickHouse 官方映像 ＋ 設定檔；備份用內建 `BACKUP TO S3`（日增量／週全量） | 擴 shard 要手動改設定 |
-| Strimzi | Kafka 官方映像（KRaft，3 節點，replication 3） | 滾動升級手動逐台 |
+| Strimzi — **第二階段** | Kafka 官方映像（KRaft，3 節點，replication 3） | 第一階段不部署（D-04）；滾動升級手動逐台 |
 | 滾動更新、自動擴縮 | 逐台 `compose pull && up -d`，維護窗口內；容量按 docs/13 檔位預留 | 沒有自動擴縮（本案負載可預估，影響小） |
 | NetworkPolicy、Pod 安全 | 每台 Docker 網路只開必要埠＋主機防火牆（firewalld）；容器 `user` 非 root、`read_only`、`cap_drop: [ALL]`、`no-new-privileges`、SELinux 標籤 | 規則分散在每台，需納入部署檢查 |
 | Secret 掛載 | OpenBao Agent 把密鑰寫成檔案掛進容器；設定只存 secret_ref（不變） | 無 |
@@ -70,7 +72,7 @@ Loki 3.x 為 AGPLv3，與 Grafana OSS 同一家、同一種處理：官方映像
 
 ### 5.1 手動接管時的隔離規則（避免兩個 worker 或兩個可寫主庫）
 
-1. **接管前先隔離舊主機**：確認主機 1 已關機，或已停掉它的 Docker 服務，或已在防火牆切斷它對 PostgreSQL（5432）、Kafka、ClickHouse 的連線。無法確認時不接管（網路分區時，主機 1 可能還活著）。
+1. **接管前先隔離舊主機**：確認主機 1 已關機，或已停掉它的 Docker 服務，或已在防火牆切斷它對 PostgreSQL（5432）、ClickHouse 的連線。無法確認時不接管（網路分區時，主機 1 可能還活著）。
 2. **應用連 PostgreSQL 一律用名稱 `pg-primary`**（各主機 hosts／內部 DNS），不寫主機 IP；接管時把 `pg-primary` 改指主機 2，從庫 promote。
 3. **舊主庫恢復後不得自行回到主角色**：PostgreSQL 主庫容器用 `restart: "no"`，程序崩潰由告警通知運維依手冊重啟（RTO 30 分鐘內）。主機 1 復電後，主庫先以 `pg_rewind` 對齊新主庫、改當從庫，之後才可在維護窗口做計畫性回切。
 4. **舊 worker 不得自行恢復**：主機 1 的 worker 在接管後要停用（`docker compose stop` 並取消開機啟動），直到回切。#73（主控租約）合併後，即使兩份 worker 同時起來也只有一份會跑，但仍維持此規則。
@@ -90,7 +92,7 @@ Loki 3.x 為 AGPLv3，與 Grafana OSS 同一家、同一種處理：官方映像
 
 ## 6. 其他架構問題（這次一併檢查）
 
-1. **Flink 已改第一階段（docs/43，D-F1 = A）**：舊圖仍標第二階段；docs/43 的部署段落（Strimzi、Flink K8s Operator、Helm 啟用）要改成本文件的 standalone 做法，F8 工作量不變。
+1. **Flink 回到第二階段（2026-10-23 D-04，推翻同日稍早的 D-F1）**：第一階段全部微批，沒有即時路徑；docs/43 改列第二階段參考，#68、#69 關閉，#71 的 PyFlink 測試環境留在 repo、CI 批流一致性改手動。舊圖標第二階段是對的。
 2. **Redis 用途要定清楚**：目前程式只有登入前狀態（TTL 10 分鐘）規劃用 Redis，其餘都在 PostgreSQL；第一階段 Redis 只當登入狀態、快取、輕量佇列，不放任何不能遺失的資料（AOF 每秒落盤）。
 3. **單一 Keycloak、OpenBao**：3 台版放在主機 3 單一份；主機 3 故障時已登入的 session 不受影響，但新登入失敗。正式環境建議 Keycloak 主機 1、3 各一份（共用 PostgreSQL），OpenBao 用內建 Raft 三節點；列入待確認。
 4. **監控也在主機 3**：主機 3 故障時告警跟著失效；Alertmanager 另在主機 1 放一份，或由客戶既有監控探測 nginx 健康檢查。
@@ -103,7 +105,7 @@ Loki 3.x 為 AGPLv3，與 Grafana OSS 同一家、同一種處理：官方映像
 | PR | 內容 |
 |---|---|
 | backend | 雙活前置（§5a）：共用 session／login-state（#72）、背景作業主控租約（#73）、排程器改 PostgreSQL 與產物目錄可設定（待開），含跨節點驗收 |
-| infra | `deploy/compose/`：主機角色 compose、.env 範本、啟動腳本（含 Flink 從最近 checkpoint 續跑）、CI `docker compose config` 驗證；backend/docker-compose.yml 的 valkey 映像換 redis:8（附 CVE 掃描結果） |
+| infra | `deploy/compose/`：主機角色 compose、.env 範本、啟動腳本、CI `docker compose config` 驗證；backend/docker-compose.yml 的 valkey 映像換 redis:8（附 CVE 掃描結果）→ **PR #76**（Flink 續跑腳本留第二階段） |
 | infra | 監控：Loki ＋ Alloy ＋ cAdvisor 設定、Grafana 資料源、Prometheus file_sd |
 | docs | docs/07、12、13、32、37 與簡報第 4、5 頁改為 Docker 版；Helm 標示不使用 |
 | 法務 | Redis 8（AGPLv3）與 Loki（AGPLv3）列入白名單例外；核可後更新 AGENTS.md「禁止」的例外條文，再換部署映像 |
