@@ -106,6 +106,7 @@ services:
   ingest:
     <<: [*logging, *restart]
     image: ${REGISTRY}/dmp-ingest:${DMP_TAG}
+    group_add: ["${DMP_SECRETS_GID}"]   # 讀密鑰檔用（主機上檔案 root:DMP_SECRETS_GID 0440；映像 UID 不同也讀得到，其他人讀不到）
     profiles: [ingest]                   # 選配：MA／LINE 直送 /v1/events 時才啟用（COMPOSE_PROFILES=ingest ./dmp.sh vm3 up ingest）
     ports: ["8081:8081"]
     # CORE_URL 指平常接流量的 VM1；切到 VM2 時改這裡或改指 F5 內部位址

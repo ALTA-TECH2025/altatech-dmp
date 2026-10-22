@@ -17,7 +17,7 @@ SeaweedFS 三台都放（master ×3 Raft、每台一個 volume、複本 `001` �
 - OS：RHEL 9.x 或 Rocky 9.x；`dnf install docker-ce docker-compose-plugin`（Docker Engine 27、Compose v2）；Docker Desktop 不裝。
 - 核心參數（Ansible 角色或手動）：`vm.max_map_count=262144`、`fs.file-max=2097152`、`net.core.somaxconn=4096`；關 swap 或 `vm.swappiness=1`。
 - 目錄：資料碟掛 `/data`（SSD），`mkdir -p /data/dmp`；NAS 掛 `/mnt/nas/dmp-backup`（VM1 的 WAL 歸檔與 VM3 的備份都寫這裡）。VM1、VM2 都建 `/data/dmp/landing`（接收區：永豐 IT SFTP 平常落檔到 VM1，接管後改指 VM2；設唯讀給容器）與 `/data/dmp/app`（`APP_DATA`）。
-- 密鑰：密鑰庫（OpenBao／HSM）在開機時把 secret_ref 對照檔掛到 `/run/secrets/dmp-secrets.json`（0400，root），程式只在執行節點看得到明文（docs/06 §4）。
+- 密鑰：密鑰庫（OpenBao／HSM）在開機時把 secret_ref 對照檔掛到 `/run/secrets/dmp-secrets.json`，程式只在執行節點看得到明文（docs/06 §4）。映像以非 root 執行（core UID 10001、Airflow UID 50000），所以檔案權限用群組給：`groupadd -g 10500 dmp-secrets`（GID 與 `.env` 的 `DMP_SECRETS_GID` 一致）→ `chown root:dmp-secrets` → `chmod 0440` → SELinux `chcon -t container_file_t`。只有 compose 裡帶 `group_add` 的容器（api、worker、batch、ingest）讀得到，不要改成所有人可讀。起機後驗收：`./dmp.sh vm1 exec api python3 -c "import json,os;json.load(open(os.environ['DMP_SECRETS_JSON']));print('ok')"`。
 - 防火牆（只開內網 10.10.0.0/24）：8123／9000／9009（ClickHouse）、9181／9234（Keeper）、5432、6379／26379（Redis／Sentinel）、8333／8380／8888／9333（SeaweedFS）、9100／9101／9363／9364（exporter、cAdvisor）、3100（Loki）、12345（Alloy）、9090／3000（Prometheus／Grafana，維運網段）、8080／80／8180／8082（LB 與維運）。
 - `git clone` 到 `/opt/altatech-dmp`，`cd deploy/compose && cp .env.example .env`，填值；**每台的 `VM_HOST`、`KEEPER_ID`、`CH_REPLICA` 不同**（VM1=1/r1、VM2=2/r2、VM3=3/—）。`.env` 已 gitignore。
 
@@ -77,6 +77,6 @@ curl -s http://10.10.0.11:9333/cluster/status | head                            
 
 - 三台 VM 的規格（測試 16 核／128 GB、正式 64 核／256 GB）與 VM 配置待永豐資訊部門確認。
 - 容器間未加密；Keycloak 對 AD 的 broker 設定、F5 健康檢查路徑（`/healthz`）、SFTP 接收區由永豐 IT 提供。
-- `dmp-core` 的環境變數以 `backend/api/README.md` 為準，`DMP_OIDC_ISSUER`、`DMP_PUBLIC_URL`、`S3_*` 若程式尚未讀取，請研發對齊後再上正式。
+- `dmp-core` 的環境變數以 `backend/api/main.py` 檔頭為準：`DMP_OIDC_ISSUER`、`DMP_PUBLIC_URL` 由 #80 開始讀取（#80 合併前 SSO 網址仍是 idp.yaml 的範例值）；`S3_*` 程式尚未讀取，請研發對齊後再上正式。起機驗收要從 F5 網址走一次 Keycloak 登入到回呼。
 - 模型設定目錄（`MODELS_DIR`，`backend/api/integration.py`）目前寫死在映像內、不能指到 `APP_DATA`，在畫面上新建的模型接管後要重建；排程狀態也還是 SQLite 加 15 分鐘同步。兩者改 PostgreSQL／可設定後才能做雙活（排在後續 PR）。
 - Grafana OSS 法務已核可；Redis 8、Loki 為 AGPLv3 內部使用暫行例外，法務沒有說不行就照此規劃，若法務否決改 Valkey 8／VictoriaLogs（docs/44 §3、LICENSES.md）。
