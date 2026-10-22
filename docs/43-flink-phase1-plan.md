@@ -10,7 +10,7 @@
 
 | | 範圍 | 差異 |
 |---|---|---|
-| **建議 A：即時路徑上 Flink** | Kafka 成為即時資料的主幹；四個 Flink 作業：J1 行為事件標準化、J2 交易事件化（狀態機）、J3 OneID 即時歸戶、J4 即時觸發（CEP）。**舊平台 70 億歷史一次性載入、GA360 日批（權威覆蓋）、對帳維持現有批次** | 需求表 C11（資料即時性）、E2（行為觸發）由「落差」改為可符合；歷史載入與日批不用重寫，已驗證的去重、個資守門、日彙總協定照用 |
+| **建議 A：即時路徑上 Flink** | Kafka 成為即時資料的主幹；四個 Flink 作業：J1 行為事件標準化、J2 交易事件化（狀態機）、J3 OneID 即時歸戶、J4 即時觸發（CEP）。**舊平台 70 億歷史一次性載入、GA360 日批（補串流漏掉的事件）、72 小時重寫重載、對帳維持現有批次** | 需求表 C11（資料即時性）、E2（行為觸發）由「落差」改為可符合；歷史載入與日批不用重寫，已驗證的去重、個資守門、日彙總協定照用 |
 | 替代 B：全部改走 Flink | 歷史載入、日批也進 Kafka／Flink | 一套路徑；但 70 億歷史用串流載入比批次慢、checkpoint 狀態大，已驗證的批次路徑要重驗一次 |
 | 替代 C：只上即時觸發 | 只做 J4（CEP），其餘維持微批 | 工作量最小；行為事件仍 5–15 分鐘可查，C11 仍是落差 |
 
@@ -55,7 +55,7 @@ MA／LINE／短鏈 ─ POST /v1/events ──► dmp.raw.api ──────�
                                                     J3 OneID 即時歸戶（讀 dmp.events 登入／綁定）─► dmp.identity ─► id_map／覆蓋表 ┘
                                                     J4 即時觸發 CEP（讀 dmp.events）─► dmp.triggers ─► 推送服務 ─► MA／Webhook
 
-維持批次（不經 Flink）：舊平台歷史一次性載入 → 暫存 Parquet → ClickHouse SQL；GA360 日批 events_（權威，覆蓋串流）；數據中台批次表；三方對帳；分群／標籤例行計算
+維持批次（不經 Flink）：舊平台歷史一次性載入 → 暫存 Parquet → ClickHouse SQL；GA360 日批 events_（倉裡已有的事件保留串流那一筆，只補漏掉的）與 ga360_restate（GA 72 小時重寫時整天重載）；數據中台批次表；三方對帳；分群／標籤例行計算
 ```
 
 | Topic | 內容 | 保存 | 分區鍵 |
@@ -107,7 +107,7 @@ Flink 不直接寫 ClickHouse。`dmp.events` 由一個**串流寫入器**（Pyth
 
 - **批流一致性測試**：同一組合成輸入同時走批次（`modeling.apply`）與 J1（PyFlink MiniCluster），逐列比對 event、event_id、隔離與原因碼，必須完全相同。
 - 端到端：合成事件 → Kafka（測試用單 broker）→ J1 → 寫入器 → ClickHouse，驗筆數、去重、日彙總 = 明細。
-- GA360 日批覆蓋串流：同一天先串流再日批，結果與只跑日批相同。
+- 串流與日批並存：同一天先串流再跑日批，同一事件只留一筆（保留串流那筆，日批補的欄位不覆蓋）、日批只追加串流漏掉的事件，事件筆數與只跑日批相同（與現行 `ga4_source.py` 的 ga360_daily 規則一致）。
 
 ## 4. 驗證與技術選型
 
@@ -141,7 +141,7 @@ Flink 不直接寫 ClickHouse。`dmp.events` 由一個**串流寫入器**（Pyth
 
 - Helm：啟用 `kafka.operator`、`flink.operator`（values 已有，第一階段原本關閉）；一個 FlinkDeployment（session 模式）跑 J1–J4。
 - 監控：Flink 指標（checkpoint 時長與失敗、反壓、延遲）與 Kafka consumer lag 接 Prometheus；告警規則加進 `backend/ops/alerts.yaml`；資料流與效能頁加「Kafka 延遲／Flink 作業狀態」。
-- 故障時的降級：Flink 停擺時，GA360 日批與數據中台批次照常（權威資料不受影響），只有即時性下降；觸發規則暫停並告警。
+- 故障時的降級：Flink 停擺時，GA360 日批與數據中台批次照常，串流漏掉的事件會由日批補上，只有即時性下降；觸發規則暫停並告警。
 
 ## 6. 拆 PR 與時程
 
