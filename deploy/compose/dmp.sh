@@ -14,7 +14,7 @@ subst() {   # $1 樣板 → $2 輸出；優先用 envsubst（gettext），沒有
 render() {
   mkdir -p "$HERE/$VM/rendered"
   [ "$VM" = vm3 ] && subst "$HERE/common/prometheus/prometheus.yml.tmpl" "$HERE/$VM/rendered/prometheus.yml"
-  [ "$VM" = vm2 ] && subst "$HERE/common/seaweedfs/s3.json.tmpl" "$HERE/$VM/rendered/s3.json"
+  [ "$VM" != vm2 ] && subst "$HERE/common/seaweedfs/s3.json.tmpl" "$HERE/$VM/rendered/s3.json"
   return 0
 }
 DC="docker compose --env-file $HERE/.env -f $HERE/$VM/docker-compose.yml"

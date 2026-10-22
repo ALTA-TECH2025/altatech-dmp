@@ -1,0 +1,9 @@
+# Redis Sentinel（docs/44 §2）：三台各一個，監看 VM1 的主；兩票同意即切換。__MASTER__／__PASS__ 由 compose 啟動時代入。
+port 26379
+bind 0.0.0.0
+dir /data
+sentinel monitor dmp __MASTER__ 6379 2
+sentinel auth-pass dmp __PASS__
+sentinel down-after-milliseconds dmp 10000
+sentinel failover-timeout dmp 60000
+sentinel parallel-syncs dmp 1

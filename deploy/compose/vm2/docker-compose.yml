@@ -1,4 +1,4 @@
-# VM-2：dmp-core worker、dmp-batch、dmp-web/API 第二份、ClickHouse 副本 2、Keeper 2、PostgreSQL 備援、Redis 從、SeaweedFS、node-exporter、Promtail（docs/07 §1.3）
+# VM-2：dmp-core worker、dmp-batch、dmp-web/API 第二份、ClickHouse 副本 2、Keeper 2、PostgreSQL 備援、Redis 從＋Sentinel、SeaweedFS master/volume、node-exporter、cAdvisor、Alloy（docs/44 §2）
 # 啟動：cd deploy/compose && ./dmp.sh vm2 up    （.env 的 VM_HOST=VM2、KEEPER_ID=2、CH_REPLICA=r2）
 name: dmp-vm2
 
@@ -31,7 +31,7 @@ services:
       CH_REPLICA: "${CH_REPLICA}"
       CH_USER: "${CH_USER}"
       CH_PASSWORD: "${CH_PASSWORD}"
-      S3_BACKUP_ENDPOINT: "http://${VM2_HOST}:8333/dmp-backup/clickhouse/"
+      S3_BACKUP_ENDPOINT: "http://${VM1_HOST}:8333/dmp-backup/clickhouse/"
       S3_ACCESS_KEY: "${S3_ACCESS_KEY}"
       S3_SECRET_KEY: "${S3_SECRET_KEY}"
     volumes:
@@ -68,15 +68,29 @@ services:
       - ../common/redis/redis.conf:/etc/redis/redis.conf:ro
       - ${DATA_ROOT}/redis:/data
 
-  seaweedfs:
+  sentinel:
+    <<: [*logging, *restart]
+    image: ${REDIS_IMAGE}
+    network_mode: host
+    command: ["sh", "-c", "cp /etc/redis/sentinel.conf.tmpl /data/sentinel.conf && sed -i \"s/__MASTER__/${VM1_HOST}/; s/__PASS__/${REDIS_PASSWORD}/\" /data/sentinel.conf && redis-sentinel /data/sentinel.conf"]
+    volumes:
+      - ../common/redis/sentinel.conf.tmpl:/etc/redis/sentinel.conf.tmpl:ro
+      - ${DATA_ROOT}/sentinel:/data
+
+  seaweedfs-master:
     <<: [*logging, *restart]
     image: ${SEAWEEDFS_IMAGE}
     network_mode: host
-    command: ["server", "-s3", "-s3.port=8333", "-master.port=9333", "-volume.port=8080", "-filer.port=8888", "-dir=/data", "-volume.max=0", "-ip=${VM2_HOST}", "-s3.config=/etc/seaweedfs/s3.json"]
-    environment: { S3_ACCESS_KEY: "${S3_ACCESS_KEY}", S3_SECRET_KEY: "${S3_SECRET_KEY}" }
-    volumes:
-      - ${DATA_ROOT}/seaweedfs:/data
-      - ./rendered/s3.json:/etc/seaweedfs/s3.json:ro
+    command: ["master", "-ip=${VM_HOST}", "-port=9333", "-peers=${VM1_HOST}:9333,${VM2_HOST}:9333,${VM3_HOST}:9333", "-mdir=/data/master", "-defaultReplication=001"]
+    volumes: ["${DATA_ROOT}/seaweedfs:/data"]
+
+  seaweedfs-volume:
+    <<: [*logging, *restart]
+    image: ${SEAWEEDFS_IMAGE}
+    network_mode: host
+    depends_on: [seaweedfs-master]
+    command: ["volume", "-ip=${VM_HOST}", "-port=8380", "-mserver=${VM1_HOST}:9333,${VM2_HOST}:9333,${VM3_HOST}:9333", "-dir=/data/volume", "-max=0", "-dataCenter=sinopac", "-rack=${VM_HOST}"]
+    volumes: ["${DATA_ROOT}/seaweedfs:/data"]
 
   worker:
     <<: [*logging, *restart]
@@ -92,7 +106,7 @@ services:
       DMP_PG_DSN: "postgresql://${PG_USER}:${PG_PASSWORD}@${VM1_HOST}:5432/dmp"
       REDIS_URL: "redis://:${REDIS_PASSWORD}@${VM1_HOST}:6379/0"
       DMP_SECRETS_JSON: /run/secrets/dmp-secrets.json
-      S3_ENDPOINT: "http://host.docker.internal:8333"
+      S3_ENDPOINT: "http://${VM1_HOST}:8333"
       S3_ACCESS_KEY: "${S3_ACCESS_KEY}"
       S3_SECRET_KEY: "${S3_SECRET_KEY}"
     volumes:
@@ -166,13 +180,25 @@ services:
     command: ["--path.rootfs=/host", "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"]
     volumes: ["/:/host:ro,rslave"]
 
-  promtail:
+  alloy:
     <<: [*logging, *restart]
-    image: ${PROMTAIL_IMAGE}
+    image: ${ALLOY_IMAGE}
     network_mode: host
-    command: ["-config.file=/etc/promtail/promtail.yml", "-config.expand-env=true"]
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
     environment: { VM_HOST: "${VM_HOST}", VM3_HOST: "${VM3_HOST}" }
     volumes:
-      - ../common/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - ../common/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ${DATA_ROOT}/alloy:/var/lib/alloy/data
+
+  cadvisor:
+    <<: [*logging, *restart]
+    image: ${CADVISOR_IMAGE}
+    network_mode: host
+    command: ["--port=9101", "--docker_only=true", "--housekeeping_interval=30s"]
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
