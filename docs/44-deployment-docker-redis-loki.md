@@ -75,10 +75,12 @@ Loki 3.x 為 AGPLv3，與 Grafana OSS 同一家、同一種處理：官方映像
 1. **接管前先隔離舊主機**：確認主機 1 已關機，或已停掉它的 Docker 服務，或已在防火牆切斷它對 PostgreSQL（5432）、ClickHouse 的連線。無法確認時不接管（網路分區時，主機 1 可能還活著）。
 2. **應用連 PostgreSQL 一律用名稱 `pg-primary`**（各主機 hosts／內部 DNS），不寫主機 IP；接管時把 `pg-primary` 改指主機 2，從庫 promote。
 3. **舊主庫恢復後不得自行回到主角色**：PostgreSQL 主庫容器用 `restart: "no"`，程序崩潰由告警通知運維依手冊重啟（RTO 30 分鐘內）。主機 1 復電後，主庫先以 `pg_rewind` 對齊新主庫、改當從庫，之後才可在維護窗口做計畫性回切。
-4. **舊 worker 不得自行恢復**：主機 1 的 worker 在接管後要停用（`docker compose stop` 並取消開機啟動），直到回切。#73（主控租約）合併後，即使兩份 worker 同時起來也只有一份會跑，但仍維持此規則。
+4. **舊 worker 不得自行恢復**：主機 1 的 worker 在接管後要停用（`docker compose stop` 並取消開機啟動），直到回切。#73（主控租約）已合併，即使兩份 worker 同時起來也只有一份會跑，但仍維持此規則。
 5. 驗收情境（部署驗收必做）：主機 1 網路分區但仍存活、主機 1 斷電後復電、計畫性回切；每個情境都要確認同一時間只有一個可寫主庫、一個在跑的 worker。
 
-## 5a. 雙活前置工作（目前程式不支援，審查已重現）
+## 5a. 雙活前置工作（審查已重現的缺口與進度）
+
+> 進度（2026-10-23）：前兩列已合併（#72 共用 session／登入前狀態、#73 背景作業主控租約）；第三列待開 PR，完成前照下方暫行規則走主備。
 
 | 缺口 | 現況 | 要做的 | 驗收 |
 |---|---|---|---|
@@ -86,7 +88,7 @@ Loki 3.x 為 AGPLv3，與 Grafana OSS 同一家、同一種處理：官方映像
 | 背景作業單一執行 | `start_ticker` 直接呼叫各服務 tick（例：看板定時寄送先讀 last_run、寄完才更新），沒有跨程序 claim／租約；兩份 worker 同時跑會重複寄送 | 每類例行作業加分散式 claim／租約（PostgreSQL 列鎖或租約表） | 兩份 worker 併發同一排程只執行一次；持有者中斷後租約到期由另一份接手 |
 | 同步排程狀態與產物（**單一 API ＋ worker 拆成兩個容器就需要**） | 同步任務排程存在 SQLite（`DMP_SCHED_DB`，未設時預設各容器的 `/tmp/dmp-sched.db`，`backend/api/app.py`）；API 建的任務寫進 API 那份，worker 只輪詢自己那份，排程會靜默不執行。建模產物寫在映像內的 `backend/integration/models.generated`（`MODELS_DIR` 固定），看板寄送與資料輸出產物寫本機 `DMP_EXPORT_DIR` | 排程器改用 PostgreSQL（與控制面同庫）；`MODELS_DIR`、`DMP_EXPORT_DIR` 改成可設定，並放到物件儲存或共享持久目錄 | API 建立任務 → worker 執行 → API 可下載產物；接管到主機 2 後，同步水位與已產生的檔案仍可用 |
 
-完成前的暫行規則（單一主備也適用）：API 與 worker 放同一台、掛同一個持久目錄（例 `/data/dmp`），`DMP_SCHED_DB=/data/dmp/sched.db`、`DMP_EXPORT_DIR=/data/dmp/exports`，建模產物目錄也指到這裡；這個目錄每 15 分鐘同步到主機 2（接管時最多遺失 15 分鐘內新建的任務與產物，需在驗收時確認可接受）。
+完成前的暫行規則（單一主備也適用）：API 與 worker 放同一台、掛同一個持久目錄（`APP_DATA`，例 `/data/dmp/app`），`DMP_SCHED_DB`、`DMP_EXPORT_DIR` 指到這裡（`deploy/compose`，#76）；建模產物目錄（`MODELS_DIR`）目前寫死在映像內、還不能指過來，接管後畫面上新建的模型要重建，改可設定排在第三列的 PR；這個目錄每 15 分鐘同步到主機 2（接管時最多遺失 15 分鐘內新建的任務與產物，需在驗收時確認可接受）。
 
 完成前的部署規則：負載平衡只送主機 1 的 API；只有主機 1 的 `DMP_ROLE=worker` 開背景作業，兩個 API 都不開 `DMP_TICK`；主機 1 故障時改送主機 2 的 API（使用者重新登入）、運維手動啟動主機 2 的 worker。
 
@@ -104,7 +106,7 @@ Loki 3.x 為 AGPLv3，與 Grafana OSS 同一家、同一種處理：官方映像
 
 | PR | 內容 |
 |---|---|
-| backend | 雙活前置（§5a）：共用 session／login-state（#72）、背景作業主控租約（#73）、排程器改 PostgreSQL 與產物目錄可設定（待開），含跨節點驗收 |
+| backend | 雙活前置（§5a）：共用 session／login-state（#72，已合併）、背景作業主控租約（#73，已合併）、排程器改 PostgreSQL 與產物目錄可設定（待開），含跨節點驗收 |
 | infra | `deploy/compose/`：主機角色 compose、.env 範本、啟動腳本、CI `docker compose config` 驗證；backend/docker-compose.yml 的 valkey 映像換 redis:8（附 CVE 掃描結果）→ **PR #76**（Flink 續跑腳本留第二階段） |
 | infra | 監控：Loki ＋ Alloy ＋ cAdvisor 設定、Grafana 資料源、Prometheus file_sd |
 | docs | docs/07、12、13、32、37 與簡報第 4、5 頁改為 Docker 版；Helm 標示不使用 |
