@@ -1,6 +1,6 @@
 # 44 — 部署方式調整：Docker Compose、Redis、Loki（2026-10-22 研發／運維決議）
 
-> 狀態：**決議已定（研發＋運維，2026-10-22）**；授權處理（§3）待法務確認。
+> 狀態：**決議已定（研發＋運維，2026-10-22）**；授權處理（§3）已送法務，**Windy 2026-10-23：法務沒有說不行就照此規劃**（docs/45 D-02、D-03、P-04）。
 > 架構圖：`docs/diagrams/slides/slide-6-docker-deployment.png`（提案簡報與規格書 §1.2 同一張，放在既有架構圖之後）。
 
 ## 1. 決議
@@ -46,7 +46,7 @@ Redis 的授權歷史：7.2 以前 BSD-3；7.4 起 RSALv2／SSPLv1 雙授權（�
 
 另：RSALv2 其實也允許「內部使用」，只禁止把 Redis 當託管服務賣給第三方；但它不是 OSI 授權，會破壞「全部 OSI 授權」的對外說法，所以選 AGPLv3 而不是 RSALv2。
 
-**與 repo 規則的衝突**：`AGENTS.md`「禁止」寫明不得引入 AGPL／SSPL／BSL／ELv2 授權的執行期元件，目前唯一例外是 Grafana OSS（LICENSES.md）。Redis 8 與 Loki 都是執行期元件，所以**法務核可前，部署檔與 CI 不得改用 Redis 8 映像**（現有 `backend/docker-compose.yml` 的 Valkey 維持不動；Valkey 與 Redis 協定相容，運維操作方式相同）。核可後同一個 PR 更新：AGENTS.md 例外條文、LICENSES.md 備註、compose 映像。
+**與 repo 規則的衝突**：`AGENTS.md`「禁止」寫明不得引入 AGPL／SSPL／BSL／ELv2 授權的執行期元件，目前唯一例外是 Grafana OSS（LICENSES.md）。Redis 8 與 Loki 都是執行期元件，所以這兩項需要明列例外。**Windy 2026-10-23 決定：法務沒有說不行就照此規劃**——AGENTS.md「禁止」已加上 Redis 8、Loki 的暫行例外（同 Grafana 條件，法務否決即撤銷），部署檔（deploy/compose，#76）與開發用 compose 直接用 Redis 8。法務若否決：Redis 換 Valkey 8（協定相容，只改映像），Loki 換 VictoriaLogs，並移除 AGENTS.md 例外。
 
 落實：客戶端只用 redis-py（MIT）、只用 Redis 與 Valkey 共通的指令（不用 Redis 8 專有模組功能），連線設定 `REDIS_URL`；萬一法務不核可，換 Valkey 只改映像，不改程式。
 
@@ -92,7 +92,7 @@ Loki 3.x 為 AGPLv3，與 Grafana OSS 同一家、同一種處理：官方映像
 
 ## 6. 其他架構問題（這次一併檢查）
 
-1. **Flink 回到第二階段（2026-10-23 D-04，推翻同日稍早的 D-F1）**：第一階段全部微批，沒有即時路徑；docs/43 改列第二階段參考，#68、#69 關閉，#71 的 PyFlink 測試環境留在 repo、CI 批流一致性改手動。舊圖標第二階段是對的。
+1. **Flink 第一階段不交付、程式保留（2026-10-23 D-04）**：第一階段全部微批，沒有即時路徑；已寫的 Flink 程式與設計不拋棄——docs/43、streams.yaml 為第二階段設計，#71 的 PyFlink 測試環境留在 repo，CI 批流一致性在相關規則變動與合併進 main 時跑（#79），之後以授權或模組權限開放。第一階段部署檔不含 Kafka、Flink 容器。
 2. **Redis 用途要定清楚**：目前程式只有登入前狀態（TTL 10 分鐘）規劃用 Redis，其餘都在 PostgreSQL；第一階段 Redis 只當登入狀態、快取、輕量佇列，不放任何不能遺失的資料（AOF 每秒落盤）。
 3. **單一 Keycloak、OpenBao**：3 台版放在主機 3 單一份；主機 3 故障時已登入的 session 不受影響，但新登入失敗。正式環境建議 Keycloak 主機 1、3 各一份（共用 PostgreSQL），OpenBao 用內建 Raft 三節點；列入待確認。
 4. **監控也在主機 3**：主機 3 故障時告警跟著失效；Alertmanager 另在主機 1 放一份，或由客戶既有監控探測 nginx 健康檢查。
@@ -108,4 +108,4 @@ Loki 3.x 為 AGPLv3，與 Grafana OSS 同一家、同一種處理：官方映像
 | infra | `deploy/compose/`：主機角色 compose、.env 範本、啟動腳本、CI `docker compose config` 驗證；backend/docker-compose.yml 的 valkey 映像換 redis:8（附 CVE 掃描結果）→ **PR #76**（Flink 續跑腳本留第二階段） |
 | infra | 監控：Loki ＋ Alloy ＋ cAdvisor 設定、Grafana 資料源、Prometheus file_sd |
 | docs | docs/07、12、13、32、37 與簡報第 4、5 頁改為 Docker 版；Helm 標示不使用 |
-| 法務 | Redis 8（AGPLv3）與 Loki（AGPLv3）列入白名單例外；核可後更新 AGENTS.md「禁止」的例外條文，再換部署映像 |
+| 法務 | Redis 8（AGPLv3）與 Loki（AGPLv3）白名單例外（已送件；未否決前照此規劃，AGENTS.md 已列暫行例外） |

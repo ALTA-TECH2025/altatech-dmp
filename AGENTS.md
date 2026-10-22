@@ -51,4 +51,4 @@ cd prototype && python3 -m http.server 8080   # 手動或 Playwright 檢視
 - 把真實客戶資料放進 repo 或原型模擬資料。
 - 在前端或 agent 繞過 Policy Engine。
 - fork 修改開源元件；需要客製走 plugin / UDF / 設定。
-- 引入 AGPL / SSPL / BSL / ELv2 授權的執行期元件。
+- 引入 AGPL / SSPL / BSL / ELv2 授權的執行期元件。例外（只限官方映像、不修改、僅內部使用、不對外提供服務）：Grafana OSS（法務核可）；Redis 8（選 AGPLv3）、Loki——Windy 2026-10-23 決定法務未否決前照此規劃，否決即撤銷並換 Valkey 8／VictoriaLogs（docs/44 §3、docs/45 D-02、D-03）。
