@@ -25,7 +25,7 @@ topics:
     message: raw_row
     partition_key: distinct_id
     retention_days: 7
-    note: GA360 日批（events_）仍走批次並覆蓋串流結果，不進此 topic
+    note: GA360 日批（events_）仍走批次、不進此 topic；倉裡已有的事件保留串流那一筆，日批只補串流漏掉的；GA 72 小時內的重寫由 ga360_restate 整天重載（同 ga4_source.py）
   - name: dmp.raw.api
     cn: 直送事件（MA、LINE、短鏈；POST /v1/events）
     producer: api_events

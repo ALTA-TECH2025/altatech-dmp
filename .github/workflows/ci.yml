@@ -51,6 +51,28 @@ jobs:
                   assert not v.is_valid(r), (name, r)
               print(name, "ok: 正例通過、", len(rejects), "個負例被拒")
           PY
+      - name: 資料流即時路徑欄位與 Kafka 訊息契約（正負例）
+        # OpenAPI 3.1 的可為 null 要寫成型別聯集；未部署時 streaming 回 null（docs/43）；streams.yaml 的 event_record 必須與 dmp.events 欄位一致
+        run: |
+          python3 - <<'PY'
+          import re, yaml, jsonschema
+          S = yaml.safe_load(open("backend/openapi.yaml", encoding="utf-8"))["components"]["schemas"]
+          v = jsonschema.Draft202012Validator(S["OpsPipeline"]["properties"]["streaming"])
+          job = {"name": "j1_normalize", "state": "running", "last_checkpoint_at": "2026-10-22T00:00:00Z", "checkpoint_failures_1h": 0, "backpressured": False, "status": "ok"}
+          oks = [None, {"topics": [], "jobs": []}, {"topics": [{"topic": "dmp.events", "consumer": "stream_writer", "lag": 3, "lag_seconds": 1.5, "status": "ok"}], "jobs": [job]},
+                 {"topics": [{"topic": "dmp.events", "lag": None}]}, {"topics": [{"topic": "dmp.events", "lag_seconds": None}]},
+                 {"jobs": [dict(job, last_checkpoint_at=None)]}, {"jobs": [dict(job, checkpoint_failures_1h=None)]}, {"jobs": [dict(job, backpressured=None)]}]
+          bads = [{"jobs": [dict(job, state="unknown_state")]}, {"topics": [{"topic": "dmp.events", "lag": "3"}]}, "not-an-object"]
+          for o in oks: v.validate(o)
+          for b in bads: assert not v.is_valid(b), b
+          d = yaml.safe_load(open("backend/semantic/streams.yaml", encoding="utf-8"))
+          blk = re.search(r"CREATE TABLE IF NOT EXISTS dmp\.events\s*\((.*?)\)\s*ENGINE", open("backend/clickhouse/schema.sql", encoding="utf-8").read(), re.S).group(1)
+          cols = {l.split()[0] for l in blk.splitlines() if l.strip() and not l.strip().startswith("--")} - {"event_date", "one_id_uint", "late"}
+          assert set(d["messages"]["event_record"]["fields"]) == cols, (set(d["messages"]["event_record"]["fields"]) ^ cols)
+          for t in d["topics"]: assert t["message"] in d["messages"], t["name"]
+          for m, x in d["messages"].items(): assert set(x["required"]) <= set(x["fields"]), m
+          print("streaming ok:", len(oks), "個正例通過（含 6 個 null）、", len(bads), "個負例被拒；streams.yaml 與 dmp.events 欄位一致")
+          PY
       - name: 契約變更需要 contract 標籤
         # 讀 PR 目前的標籤而不是事件快照：開 PR 後才補標籤，重跑這個 job 就能過，不必再推一個 commit
         if: needs.changes.outputs.contract == 'true' && github.event_name == 'pull_request'
