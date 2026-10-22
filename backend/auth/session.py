@@ -39,7 +39,8 @@ class Session:
 
 class SessionStore(Protocol):
     def get(self, sid: str) -> Session | None: ...
-    def put(self, s: Session) -> None: ...
+    def add(self, s: Session) -> None: ...          # 新建（登入）
+    def put(self, s: Session) -> None: ...          # 更新既有的；已刪除（登出／撤銷）的不得被寫回來
     def delete(self, sid: str) -> None: ...
     def list_user(self, user_id: str) -> list[Session]: ...
 
@@ -51,8 +52,12 @@ class MemoryStore:
     def get(self, sid: str) -> Session | None:
         return self.d.get(sid)
 
-    def put(self, s: Session) -> None:
+    def add(self, s: Session) -> None:
         self.d[s.sid] = s
+
+    def put(self, s: Session) -> None:
+        if s.sid in self.d:
+            self.d[s.sid] = s
 
     def delete(self, sid: str) -> None:
         self.d.pop(sid, None)
@@ -83,7 +88,7 @@ class SessionManager:
         olds = self.store.list_user(user_id)
         for old in olds[: max(0, len(olds) + 1 - int(self.cfg.get("concurrent_sessions", 3)))]:     # 超過同時 session 上限 → 踢最舊的
             self.store.delete(old.sid); self.audit("auth.session.evicted", {"user": user_id, "sid": old.sid[:8]})
-        self.store.put(s)
+        self.store.add(s)
         self.audit("auth.login.success" if roles else "auth.login.no_role", {"user": user_id, "provider": provider, "roles": roles, "amr": amr, "ip_masked": _mask_ip(ip),
                                                                            **({"base_roles": list(base_roles)} if base_roles is not None else {})})   # 基底角色（不含指派）：背景排程重算身分用
         return s
@@ -102,9 +107,14 @@ class SessionManager:
         return s
 
     def logout(self, sid: str) -> None:
+        """以 cookie 的原始 sid 登出。"""
         s = self.store.get(sid)
         if s:
             self.store.delete(sid); self.audit("auth.logout", {"user": s.user_id})
+
+    def revoke(self, s: Session) -> None:
+        """以列表取得的 Session 強制登出（共用儲存列出的 sid 是雜湊，不能再走 cookie 查詢）。"""
+        self.store.delete(s.sid); self.audit("auth.logout", {"user": s.user_id})
 
     def check_csrf(self, s: Session, header_value: str | None) -> bool:
         return bool(header_value) and hmac.compare_digest(s.csrf, header_value or "")
