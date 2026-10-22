@@ -11,8 +11,8 @@ status: draft
 encoding: json
 delivery: at_least_once
 
-latency_targets:                     # docs/43 D-F2，待 Windy 確認；未確認前不得當成 SLA
-  status: proposed
+latency_targets:                     # docs/43 D-F2，Windy 2026-10-22 確認照建議；為設計目標，對客戶的 SLA 仍以 ops/sla.yaml 與 M2 效能基準為準
+  status: confirmed
   trigger_p95_seconds: 10            # 事件進 Kafka → dmp.triggers
   events_queryable_p95_seconds: 60   # 事件進 Kafka → ClickHouse 可查（GA360 串流匯出本身的延遲不計）
   trade_p95_seconds: 60              # 只在數據中台提供 Kafka topic 時適用；否則維持 15 分鐘批次
