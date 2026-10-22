@@ -77,6 +77,6 @@ curl -s http://10.10.0.11:9333/cluster/status | head                            
 
 - 三台 VM 的規格（測試 16 核／128 GB、正式 64 核／256 GB）與 VM 配置待永豐資訊部門確認。
 - 容器間未加密；Keycloak 對 AD 的 broker 設定、F5 健康檢查路徑（`/healthz`）、SFTP 接收區由永豐 IT 提供。
-- `dmp-core` 的環境變數以 `backend/api/main.py` 檔頭為準：`DMP_OIDC_ISSUER`、`DMP_PUBLIC_URL` 由 #80 開始讀取（#80 合併前 SSO 網址仍是 idp.yaml 的範例值）；`S3_*` 程式尚未讀取，請研發對齊後再上正式。起機驗收要從 F5 網址走一次 Keycloak 登入到回呼。
+- `dmp-core` 的環境變數以 `backend/api/main.py` 檔頭為準：`DMP_OIDC_ISSUER`、`DMP_PUBLIC_URL` 由程式讀取（#80 已合併）；`S3_*` 程式尚未讀取，請研發對齊後再上正式。起機驗收要從 F5 網址走一次 Keycloak 登入到回呼。
 - 模型設定目錄（`MODELS_DIR`，`backend/api/integration.py`）目前寫死在映像內、不能指到 `APP_DATA`，在畫面上新建的模型接管後要重建；排程狀態也還是 SQLite 加 15 分鐘同步。兩者改 PostgreSQL／可設定後才能做雙活（排在後續 PR）。
 - Grafana OSS 法務已核可；Redis 8、Loki 為 AGPLv3 內部使用暫行例外，法務沒有說不行就照此規劃，若法務否決改 Valkey 8／VictoriaLogs（docs/44 §3、LICENSES.md）。

@@ -129,7 +129,7 @@ services:
       DMP_PG_DSN: "postgresql://${PG_USER}:${PG_PASSWORD}@pg-primary:5432/dmp"
       REDIS_URL: "redis://:${REDIS_PASSWORD}@host.docker.internal:6379/0"
       DMP_IDP_MODE: "${DMP_IDP_MODE}"
-      DMP_OIDC_ISSUER: "${DMP_PUBLIC_URL}/auth/realms/dmp"   # Keycloak 以 --hostname=<對外網址>/auth 啟動，token 的 iss 就是這個（#80 起程式讀取）
+      DMP_OIDC_ISSUER: "${DMP_PUBLIC_URL}/auth/realms/dmp"   # Keycloak 以 --hostname=<對外網址>/auth 啟動，token 的 iss 就是這個（程式讀取見 #80）
       DMP_PUBLIC_URL: "${DMP_PUBLIC_URL}"
       DMP_BASE_URL: "${DMP_PUBLIC_URL}"  # 看板分享連結前綴
       DMP_SECRETS_JSON: /run/secrets/dmp-secrets.json
