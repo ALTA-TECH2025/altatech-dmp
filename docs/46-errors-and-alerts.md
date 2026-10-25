@@ -1,7 +1,7 @@
 # 46 — 錯誤碼與報警設計
 
 > 狀態：**錯誤碼為契約（本 PR 定案）**；報警分級（§5）是設計標準，分級對應的通知管道與回應時限是**建議值，待運維確認**。
-> 契約檔：`backend/api/errors.yaml`（錯誤碼目錄）、`backend/openapi.yaml` 的 `components.schemas.Error`、`components.headers.XRequestId`。CI contract job 會檢查三處一致。
+> 契約檔：`backend/api/errors.yaml`（錯誤碼目錄）、`backend/openapi.yaml` 的 `components.schemas.Error`、`components.responses.Error`、`components.headers.XRequestId`。CI contract job 會檢查三處一致，並檢查每個端點都接上 Error。
 
 ## 1. 為什麼要做（2026-10-25 盤點）
 
@@ -15,7 +15,7 @@
 
 ## 2. 錯誤回應格式
 
-所有非 2xx 回應（202 送審除外）一律是：
+所有 **4xx／5xx** 回應一律是下面的格式。OpenAPI 每個端點都以 `4XX`／`5XX` 引用 `components.responses.Error`；另外列出的錯誤狀態碼（例如 `409`）也引用它。
 
 ```json
 {
@@ -35,20 +35,28 @@
 - `params`：組訊息用的值（上限、權限名、被誰引用的前 5 筆）。不得含個資或密鑰。
 - `errors`：欄位層級錯誤，用在參數驗證和規則檢查。
 
+**不是錯誤、不套用這個格式：**
+- 正常的 3xx 重新導向。例如 `/auth/login`、`/auth/callback` 的 302，要保留 `Location` 與 `Set-Cookie`，否則 SSO 登入會斷。
+- 202 送審（`pending_review`）。
+
 ## 3. 錯誤碼目錄
 
 完整內容（HTTP 狀態、預設訊息、建議下一步、日誌等級）在 `backend/api/errors.yaml`。
 
 | 類別 | 代碼 |
 |---|---|
-| 呼叫端可修正 | `INVALID_ARGUMENT`、`RULE_VIOLATION`、`PII_REJECTED`、`PAYLOAD_TOO_LARGE`；工具專用 `AMBIGUOUS`、`CONTRACT_MISMATCH` |
+| 呼叫端可修正 | `INVALID_ARGUMENT`、`RULE_VIOLATION`、`PII_REJECTED`、`PAYLOAD_TOO_LARGE`、`CONTRACT_MISMATCH`；工具專用 `AMBIGUOUS` |
 | 身分 | `UNAUTHENTICATED`、`TOKEN_INVALID`、`OTP_INVALID`、`ACCOUNT_LOCKED`、`CSRF_INVALID`、`STEP_UP_REQUIRED`、`AUTHZ_DENIED` |
 | 資源狀態 | `NOT_FOUND`、`GONE`、`CONFLICT`、`IN_USE`、`NOT_APPROVED`、`FOUR_EYES_REQUIRED` |
 | 容量 | `RATE_LIMITED`、`BUDGET_EXCEEDED`、`DATA_NOT_READY` |
-| 下游 | `TIMEOUT`、`NOT_CONFIGURED`、`DEPENDENCY_UNAVAILABLE`、`UPSTREAM_FAILED`；工具專用 `MODEL_ENDPOINT_NOT_CONFIGURED` |
+| 下游 | `TIMEOUT`、`NOT_CONFIGURED`、`MODEL_ENDPOINT_NOT_CONFIGURED`、`DEPENDENCY_UNAVAILABLE`、`UPSTREAM_FAILED` |
 | 平台 | `INTERNAL` |
 
-REST 用 25 個，AI 工具用 12 個（`tools.yaml` 原有的全部保留，代碼與可否重試不變），兩者共用 9 個代碼。
+REST 用 27 個，AI 工具用 12 個（`tools.yaml` 原有的全部保留，代碼與可否重試不變），兩者共用 11 個代碼。
+
+`CONTRACT_MISMATCH`（409）與 `MODEL_ENDPOINT_NOT_CONFIGURED`（503）在既有的 `POST /v1/agents/runs` 契約已經是 REST 回應，所以兩邊共用，HTTP 狀態沿用該契約。
+
+OpenAPI 個別狀態碼的說明若以代碼開頭（例如 `'503': MODEL_ENDPOINT_NOT_CONFIGURED`），CI 會檢查該狀態碼與目錄的 HTTP 狀態相同。
 
 ## 4. 規則
 
@@ -120,6 +128,6 @@ REST 用 25 個，AI 工具用 12 個（`tools.yaml` 原有的全部保留，代
 
 | PR | 範圍 | 驗收 |
 |---|---|---|
-| 2 後端 | `X-Request-Id` 中介層；`ApiError` 與例外處理統一輸出 Error；下游失敗不回原始例外；常用模組先換代碼，其餘保留 `detail`、統一補 `code`（依 HTTP 狀態對應通用碼） | 自測：每種代碼的回應符合 Error 結構；502／500 回應不含例外原文；日誌查得到 `request_id` |
+| 2 後端 | `X-Request-Id` 中介層；`ApiError` 與例外處理統一輸出 Error（只處理 4xx／5xx）；下游失敗不回原始例外；常用模組先換代碼，其餘保留 `detail`、統一補 `code`（依 HTTP 狀態對應通用碼） | 自測：每種代碼的回應符合 Error 結構；502／500 回應不含例外原文；日誌查得到 `request_id`；`/auth/login`、`/auth/callback` 的 302 照舊帶 `Location` 與 `Set-Cookie`，不被改成 Error |
 | 3 前端 | API 客戶端讀 `code`，依 §4.6 處理；錯誤畫面顯示回報代碼 | vitest：各代碼的行為；Playwright：登入逾時導回登入 |
 | 4 報警 | 四級統一；補 §5.3；每條附處置步驟；分級通知依運維確認結果設定 | Prometheus 規則載入驗證；`/v1/ops/alerts` 自測 |

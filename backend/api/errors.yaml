@@ -21,7 +21,7 @@ codes:
   - { code: PII_REJECTED,       http: 422, category: client,     retryable: false, scope: [api],       log: warn,  message: 含有不可進入平台的個資欄位（L4）,     hint: 移除該欄位；L4 欄位一律不入倉、不可用於維度或匯出 }
   - { code: PAYLOAD_TOO_LARGE,  http: 413, category: client,     retryable: false, scope: [api],       log: info,  message: "內容超過大小上限（{limit}）",          hint: 縮小範圍或減少項目後再試 }
   - { code: AMBIGUOUS,          http: 400, category: client,     retryable: false, scope: [tool],      log: info,  message: 問題的口徑不明確，需要使用者選擇,     hint: 依提示選擇口徑（run 轉 waiting_input） }
-  - { code: CONTRACT_MISMATCH,  http: 409, category: client,     retryable: false, scope: [tool],      log: warn,  message: 工具或語意層版本與執行時不一致,       hint: 重新開始這次分析 }
+  - { code: CONTRACT_MISMATCH,  http: 409, category: client,     retryable: false, scope: [api, tool], log: warn,  message: 工具或語意層版本與執行時不一致,       hint: 重新開始這次分析 }
   # ---- auth ----
   - { code: UNAUTHENTICATED,    http: 401, category: auth,       retryable: false, scope: [api],       log: info,  message: 尚未登入或登入已逾時,                 hint: 重新登入 }
   - { code: TOKEN_INVALID,      http: 401, category: auth,       retryable: false, scope: [api],       log: info,  message: API token 無效或已過期,                hint: 重新換發 token }
@@ -44,7 +44,7 @@ codes:
   # ---- dependency ----
   - { code: TIMEOUT,            http: 504, category: dependency, retryable: true,  scope: [api, tool], log: warn,  message: 處理逾時,                             hint: 稍後再試，或縮小查詢範圍 }
   - { code: NOT_CONFIGURED,     http: 501, category: dependency, retryable: false, scope: [api],       log: info,  message: 此環境未啟用這項功能,                 hint: 請資訊管理人員確認部署設定 }
-  - { code: MODEL_ENDPOINT_NOT_CONFIGURED, http: 501, category: dependency, retryable: false, scope: [tool], log: info, message: 模型端點或模型可見範圍參數尚未設定, hint: 正式模型核定前不啟用（docs/41 D2、D3） }
+  - { code: MODEL_ENDPOINT_NOT_CONFIGURED, http: 503, category: dependency, retryable: false, scope: [api, tool], log: info, message: 模型端點或模型可見範圍參數尚未設定, hint: 正式模型核定前不啟用（docs/41 D2、D3） }
   - { code: DEPENDENCY_UNAVAILABLE, http: 503, category: dependency, retryable: true, scope: [api],    log: error, message: 後端服務暫時無法使用,                 hint: 稍後再試；持續發生請回報 request_id }
   - { code: UPSTREAM_FAILED,    http: 502, category: dependency, retryable: true,  scope: [api],       log: error, message: 後端服務執行失敗,                     hint: 稍後再試；持續發生請回報 request_id }
   # ---- server ----

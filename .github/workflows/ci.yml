@@ -83,7 +83,25 @@ jobs:
           v.validate(ok)
           for bad in [{**ok, "code": "NOPE"}, {k: ok[k] for k in ok if k != "request_id"}, {**ok, "sql": "SELECT 1"}, {**ok, "request_id": "a b"}]:
               assert not v.is_valid(bad), bad
-          print(f"errors.yaml ok：{len(codes)} 個代碼（API {len(api_codes)}、工具 {len(tool_cat)}），Error 結構正例通過、4 個負例被拒")
+          # 每個 operation 都要以 4XX／5XX 引用共用 Error；另列的 4xx／5xx 也要引用 Error；1xx–3xx（例 SSO 302）不得套用 Error
+          ERR, http_of, ops = {"$ref": "#/components/responses/Error"}, {c["code"]: c["http"] for c in codes if "api" in c["scope"]}, 0
+          assert api["components"]["responses"]["Error"]["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/Error"}
+          for path, item in api["paths"].items():
+              for m, op in item.items():
+                  if m not in {"get", "put", "post", "delete", "patch", "options", "head", "trace"}:
+                      continue
+                  ops += 1; r, where = op["responses"], f"{m.upper()} {path}"
+                  assert r.get("4XX") == ERR and r.get("5XX") == ERR, f"{where} 缺 4XX／5XX → components/responses/Error"
+                  for st, v in r.items():
+                      st = str(st)
+                      if st[0] in "45":
+                          assert v.get("$ref") == ERR["$ref"], f"{where} {st} 要引用 components/responses/Error"
+                          k = re.match(r"[A-Z][A-Z0-9_]{2,}", str(v.get("description", "")))
+                          if k and k.group(0) in seen:
+                              assert http_of.get(k.group(0)) == int(st), f"{where} {st} 寫 {k.group(0)}，但目錄的 HTTP 狀態是 {http_of.get(k.group(0))}"
+                      else:
+                          assert v.get("$ref") != ERR["$ref"], f"{where} {st} 不是錯誤，不可套用 Error"
+          print(f"errors.yaml ok：{len(codes)} 個代碼（API {len(api_codes)}、工具 {len(tool_cat)}），Error 結構正例通過、4 個負例被拒；{ops} 個 operation 都接上 4XX／5XX Error")
           PY
       - name: 契約變更需要 contract 標籤
         # 讀 PR 目前的標籤而不是事件快照：開 PR 後才補標籤，重跑這個 job 就能過，不必再推一個 commit
