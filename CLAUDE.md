@@ -5,7 +5,7 @@
 ## 開工前
 1. `git fetch origin && git switch -c <ws>/<issue-id>-<slug> origin/main`（ws = infra | data | query | web | agent | qa）。
 2. 讀 issue（Story 模板）裡的「驗收條件」；把它轉成測試先寫下來。
-3. 只改自己工作流擁有的目錄；要改契約（`backend/openapi.yaml`、`backend/semantic/*.yaml`、`backend/mcp/tools.yaml`、`backend/security/*.yaml`）先開「contract:」PR，不要夾在功能 PR 裡。
+3. 只改自己工作流擁有的目錄；要改契約（`backend/openapi.yaml`、`backend/api/errors.yaml`、`backend/semantic/*.yaml`、`backend/mcp/tools.yaml`、`backend/security/*.yaml`）先開「contract:」PR，不要夾在功能 PR 裡。
 
 ## 收工前（每個 PR 都要）
 ```bash

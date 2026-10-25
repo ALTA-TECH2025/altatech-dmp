@@ -25,7 +25,7 @@ jobs:
             web: ['prototype/**', 'web/**']
             deploy: ['deploy/**', '.github/**']
             streaming: ['backend/streaming/**', 'backend/integration/modeling.py', 'backend/integration/transforms.py', 'backend/integration/models.example.yaml', 'backend/semantic/user_properties.yaml']   # 批流一致性會用到的規則
-            contract: ['backend/openapi.yaml', 'backend/semantic/*.yaml', 'backend/mcp/tools.yaml', 'backend/security/*.yaml']   # 契約 = 語意層 yaml（CLAUDE.md）；compiler/ 的程式不是契約
+            contract: ['backend/openapi.yaml', 'backend/api/errors.yaml', 'backend/semantic/*.yaml', 'backend/mcp/tools.yaml', 'backend/security/*.yaml']   # 契約 = 語意層 yaml（CLAUDE.md）；compiler/ 的程式不是契約
   contract:
     needs: changes
     runs-on: ubuntu-latest
@@ -53,6 +53,37 @@ jobs:
               for r in rejects:
                   assert not v.is_valid(r), (name, r)
               print(name, "ok: 正例通過、", len(rejects), "個負例被拒")
+          PY
+      - name: 錯誤碼目錄與 OpenAPI／工具錯誤碼一致
+        # docs/46：REST 與 AI 工具共用 backend/api/errors.yaml；三處不一致時擋下
+        run: |
+          python3 - <<'PY'
+          import re, yaml, jsonschema
+          cat = yaml.safe_load(open("backend/api/errors.yaml", encoding="utf-8"))
+          api = yaml.safe_load(open("backend/openapi.yaml", encoding="utf-8"))
+          tools = yaml.safe_load(open("backend/mcp/tools.yaml", encoding="utf-8"))
+          codes, seen = cat["codes"], set()
+          for c in codes:
+              k = c["code"]; assert re.fullmatch(r"[A-Z][A-Z0-9_]+", k), k
+              assert k not in seen, f"重複代碼 {k}"; seen.add(k)
+              assert 400 <= c["http"] <= 599 and c["category"] in cat["categories"], k
+              assert isinstance(c["retryable"], bool) and c["scope"] and set(c["scope"]) <= {"api", "tool"}, k
+              assert c["message"].strip() and c["hint"].strip() and c["log"] in {"info", "warn", "error"}, k
+          api_codes = [c["code"] for c in codes if "api" in c["scope"]]
+          S = api["components"]["schemas"]
+          assert S["Error"]["properties"]["code"]["enum"] == api_codes, "openapi Error.code enum 要和 errors.yaml（scope 含 api）一致"
+          tool_cat = {c["code"]: c["retryable"] for c in codes if "tool" in c["scope"]}
+          tool_yaml = {e["code"]: e["retryable"] for e in tools["errors"]}
+          assert tool_yaml == tool_cat, f"tools.yaml errors 與 errors.yaml（scope 含 tool）不一致：{tool_yaml} vs {tool_cat}"
+          assert set(S["ToolError"]["properties"]["code"]["enum"]) == set(tool_cat), "openapi ToolError.code enum 要和 tool 代碼一致"
+          for k in cat["mapping"].values():
+              assert k in seen, f"mapping 指向不存在的代碼 {k}"
+          v = jsonschema.Draft202012Validator(S["Error"])
+          ok = {"detail": "你沒有執行這個操作的權限", "code": "AUTHZ_DENIED", "retryable": False, "request_id": "req-01HZX3", "params": {"permission": "events.export"}}
+          v.validate(ok)
+          for bad in [{**ok, "code": "NOPE"}, {k: ok[k] for k in ok if k != "request_id"}, {**ok, "sql": "SELECT 1"}, {**ok, "request_id": "a b"}]:
+              assert not v.is_valid(bad), bad
+          print(f"errors.yaml ok：{len(codes)} 個代碼（API {len(api_codes)}、工具 {len(tool_cat)}），Error 結構正例通過、4 個負例被拒")
           PY
       - name: 契約變更需要 contract 標籤
         # 讀 PR 目前的標籤而不是事件快照：開 PR 後才補標籤，重跑這個 job 就能過，不必再推一個 commit

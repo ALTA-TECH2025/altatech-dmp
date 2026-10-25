@@ -2,7 +2,10 @@ openapi: 3.1.0
 info:
   title: AltaTech DMP API
   version: 0.1.0
-  description: 人（UI）與 AI agent 共用的語意層／分析／分群／洞察 API。所有端點以 on_behalf_of 身份套權限。
+  description: >-
+    人（UI）與 AI agent 共用的語意層／分析／分群／洞察 API。所有端點以 on_behalf_of 身份套權限。
+    所有端點的非 2xx 回應（202 送審除外）一律是 components.schemas.Error，錯誤碼見 backend/api/errors.yaml 與 docs/46；
+    每個回應都帶 X-Request-Id 標頭，與 Error.request_id 相同（各 path 不再逐一列出錯誤回應）。
 servers:
   - url: https://dmp.internal/api
 security: [{ bearerAuth: [] }]
@@ -893,7 +896,38 @@ paths:
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer }
+  headers:
+    XRequestId:
+      description: '請求追蹤編號。來自 F5／前端且符合格式就沿用，否則由 API 產生；寫進日誌與審計，使用者回報問題時提供這個編號'
+      schema: { type: string, pattern: '^[A-Za-z0-9._-]{8,64}$' }
+  responses:
+    Error:
+      description: 錯誤（格式見 Error；HTTP 狀態碼依 backend/api/errors.yaml）
+      headers: { X-Request-Id: { $ref: '#/components/headers/XRequestId' } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
   schemas:
+    Error:
+      type: object
+      description: 'REST API 統一錯誤格式（docs/46）。detail 沿用 FastAPI 欄位名，舊前端只讀 detail 也能顯示；新前端依 code 決定行為（例 UNAUTHENTICATED 導向登入、STEP_UP_REQUIRED 要求再次驗證）'
+      required: [detail, code, retryable, request_id]
+      additionalProperties: false
+      properties:
+        detail: { type: string, description: '給人看的一句話（zh-TW）；不含內部錯誤原文、SQL、主機名、堆疊或個資' }
+        code: { type: string, enum: [INVALID_ARGUMENT, RULE_VIOLATION, PII_REJECTED, PAYLOAD_TOO_LARGE, UNAUTHENTICATED, TOKEN_INVALID, OTP_INVALID, ACCOUNT_LOCKED, CSRF_INVALID, STEP_UP_REQUIRED, AUTHZ_DENIED, NOT_FOUND, GONE, CONFLICT, IN_USE, NOT_APPROVED, FOUR_EYES_REQUIRED, RATE_LIMITED, BUDGET_EXCEEDED, DATA_NOT_READY, TIMEOUT, NOT_CONFIGURED, DEPENDENCY_UNAVAILABLE, UPSTREAM_FAILED, INTERNAL] }
+        retryable: { type: boolean, description: '同樣的請求稍後重送是否可能成功' }
+        request_id: { type: string, pattern: '^[A-Za-z0-9._-]{8,64}$' }
+        params: { type: object, additionalProperties: { type: [string, number, boolean, array] }, description: '組訊息用的值（例 limit、permission、used_by 前 5 筆名稱）；不得含個資或密鑰' }
+        errors:
+          type: array
+          description: 欄位層級錯誤（參數驗證、規則檢查）
+          items:
+            type: object
+            required: [field, message]
+            additionalProperties: false
+            properties:
+              field: { type: string, description: '欄位路徑，例 body.steps[2].event' }
+              code: { type: string }
+              message: { type: string }
     AgentRunCreate:
       type: object
       required: [entry, question]
@@ -937,6 +971,7 @@ components:
         error: { $ref: '#/components/schemas/ToolError' }
     ToolError:
       type: object
+      description: 'AI 工具錯誤（docs/39 §2.3）；代碼與 REST API 共用 backend/api/errors.yaml（scope 含 tool 的代碼）'
       properties:
         code: { type: string, enum: [INVALID_ARGUMENT, AMBIGUOUS, AUTHZ_DENIED, BUDGET_EXCEEDED, TIMEOUT, DATA_NOT_READY, CONTRACT_MISMATCH, CONFLICT, NOT_FOUND, RATE_LIMITED, MODEL_ENDPOINT_NOT_CONFIGURED, INTERNAL] }
         message: { type: string }

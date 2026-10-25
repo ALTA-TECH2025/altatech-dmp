@@ -1,0 +1,61 @@
+# 錯誤碼目錄（契約）：REST API 與 AI 工具共用同一套代碼。設計與規則見 docs/46。
+# - 回應格式是 openapi.yaml 的 components.schemas.Error；code 的 enum 必須和這裡 scope 含 api 的代碼完全一致（CI contract job 檢查）。
+# - backend/mcp/tools.yaml 的 errors 必須是這裡 scope 含 tool 的子集，retryable 一致。
+# - 代碼一經發布不改名、不改意義；新增只能加在後面。前端遇到不認得的代碼，顯示 detail 並附 request_id。
+# - message 是預設訊息（zh-TW，給業務使用者看）：不得帶內部錯誤原文、SQL、主機名、堆疊或個資；需要帶值時用 params（例 {limit}）。
+# - hint 是建議的下一步；log 是後端記錄等級（client 錯誤記 info，避免洗版；伺服器端錯誤記 error 並附 request_id）。
+version: 1
+
+categories:
+  client:     使用者或呼叫端可以修正（改參數、補權限、換名稱）
+  auth:       身分與登入狀態
+  state:      資源目前的狀態不允許這個操作（重複、被引用、未核可、已到期）
+  capacity:   限流、預算、資料尚未就緒，稍後或縮小範圍可再試
+  dependency: 下游服務（ClickHouse、PostgreSQL、舊平台、通知管道）不可用或失敗
+  server:     平台本身的錯誤
+
+codes:
+  # ---- client ----
+  - { code: INVALID_ARGUMENT,   http: 400, category: client,     retryable: false, scope: [api, tool], log: info,  message: 請求內容不正確,                     hint: 依欄位說明修正後再送出 }
+  - { code: RULE_VIOLATION,     http: 422, category: client,     retryable: false, scope: [api],       log: info,  message: 這個設定不符合平台規則,               hint: 依說明調整（例如型別只能放寬、優先序不可重複） }
+  - { code: PII_REJECTED,       http: 422, category: client,     retryable: false, scope: [api],       log: warn,  message: 含有不可進入平台的個資欄位（L4）,     hint: 移除該欄位；L4 欄位一律不入倉、不可用於維度或匯出 }
+  - { code: PAYLOAD_TOO_LARGE,  http: 413, category: client,     retryable: false, scope: [api],       log: info,  message: "內容超過大小上限（{limit}）",          hint: 縮小範圍或減少項目後再試 }
+  - { code: AMBIGUOUS,          http: 400, category: client,     retryable: false, scope: [tool],      log: info,  message: 問題的口徑不明確，需要使用者選擇,     hint: 依提示選擇口徑（run 轉 waiting_input） }
+  - { code: CONTRACT_MISMATCH,  http: 409, category: client,     retryable: false, scope: [tool],      log: warn,  message: 工具或語意層版本與執行時不一致,       hint: 重新開始這次分析 }
+  # ---- auth ----
+  - { code: UNAUTHENTICATED,    http: 401, category: auth,       retryable: false, scope: [api],       log: info,  message: 尚未登入或登入已逾時,                 hint: 重新登入 }
+  - { code: TOKEN_INVALID,      http: 401, category: auth,       retryable: false, scope: [api],       log: info,  message: API token 無效或已過期,                hint: 重新換發 token }
+  - { code: OTP_INVALID,        http: 401, category: auth,       retryable: false, scope: [api],       log: warn,  message: 驗證碼錯誤或已使用過,                 hint: 輸入驗證器上最新的驗證碼；連續失敗會暫時鎖定 }
+  - { code: ACCOUNT_LOCKED,     http: 403, category: auth,       retryable: false, scope: [api],       log: warn,  message: 帳號暫時鎖定,                         hint: 稍後再試，或請系統管理員解鎖 }
+  - { code: CSRF_INVALID,       http: 403, category: auth,       retryable: false, scope: [api],       log: warn,  message: 頁面已過期，請重新整理後再操作,       hint: 重新整理頁面 }
+  - { code: STEP_UP_REQUIRED,   http: 403, category: auth,       retryable: false, scope: [api],       log: info,  message: 這個操作需要再次驗證身分,             hint: 完成再次驗證（MFA）後重試 }
+  - { code: AUTHZ_DENIED,       http: 403, category: auth,       retryable: false, scope: [api, tool], log: warn,  message: 你沒有執行這個操作的權限,             hint: 向系統管理員申請對應角色或臨時權限 }
+  # ---- state ----
+  - { code: NOT_FOUND,          http: 404, category: state,      retryable: false, scope: [api, tool], log: info,  message: 找不到這筆資料，或你沒有檢視權限,     hint: 確認連結或名稱；不同權限看到的範圍不同 }
+  - { code: GONE,               http: 410, category: state,      retryable: false, scope: [api],       log: info,  message: 這筆資料已到期或已清除,               hint: 重新產生 }
+  - { code: CONFLICT,           http: 409, category: state,      retryable: false, scope: [api, tool], log: info,  message: 與現有資料衝突（名稱重複或已被修改）, hint: 換一個名稱，或重新載入後再修改 }
+  - { code: IN_USE,             http: 409, category: state,      retryable: false, scope: [api],       log: info,  message: 仍被其他項目使用，不能刪除或停用,     hint: 先移除引用（params.used_by 列出前幾個）再操作 }
+  - { code: NOT_APPROVED,       http: 409, category: state,      retryable: false, scope: [api],       log: info,  message: 尚未核可，不能執行,                   hint: 等待審批完成，或到審批中心查看進度 }
+  - { code: FOUR_EYES_REQUIRED, http: 409, category: state,      retryable: false, scope: [api],       log: warn,  message: 不能核准自己提出的申請（雙人複核）,   hint: 請另一位有審批權限的人核可 }
+  # ---- capacity ----
+  - { code: RATE_LIMITED,       http: 429, category: capacity,   retryable: true,  scope: [api, tool], log: info,  message: "同時執行的請求太多（上限 {limit}）",   hint: 等前一個完成後再試 }
+  - { code: BUDGET_EXCEEDED,    http: 422, category: capacity,   retryable: false, scope: [api, tool], log: info,  message: 查詢範圍太大，超過掃描上限,           hint: 縮短日期區間或減少分組維度 }
+  - { code: DATA_NOT_READY,     http: 409, category: capacity,   retryable: false, scope: [api, tool], log: info,  message: 資料尚未就緒（同步或計算中）,         hint: 等同步任務或例行計算完成後再查 }
+  # ---- dependency ----
+  - { code: TIMEOUT,            http: 504, category: dependency, retryable: true,  scope: [api, tool], log: warn,  message: 處理逾時,                             hint: 稍後再試，或縮小查詢範圍 }
+  - { code: NOT_CONFIGURED,     http: 501, category: dependency, retryable: false, scope: [api],       log: info,  message: 此環境未啟用這項功能,                 hint: 請資訊管理人員確認部署設定 }
+  - { code: MODEL_ENDPOINT_NOT_CONFIGURED, http: 501, category: dependency, retryable: false, scope: [tool], log: info, message: 模型端點或模型可見範圍參數尚未設定, hint: 正式模型核定前不啟用（docs/41 D2、D3） }
+  - { code: DEPENDENCY_UNAVAILABLE, http: 503, category: dependency, retryable: true, scope: [api],    log: error, message: 後端服務暫時無法使用,                 hint: 稍後再試；持續發生請回報 request_id }
+  - { code: UPSTREAM_FAILED,    http: 502, category: dependency, retryable: true,  scope: [api],       log: error, message: 後端服務執行失敗,                     hint: 稍後再試；持續發生請回報 request_id }
+  # ---- server ----
+  - { code: INTERNAL,           http: 500, category: server,     retryable: true,  scope: [api, tool], log: error, message: 系統發生錯誤,                         hint: 稍後再試；持續發生請回報 request_id }
+
+# 例外對應（後端 PR 實作時遵守）：
+mapping:
+  request_validation: INVALID_ARGUMENT       # FastAPI 參數驗證失敗：欄位錯誤放 errors[]，detail 仍是一句話
+  PermissionError: AUTHZ_DENIED
+  ValueError: INVALID_ARGUMENT               # 只回目錄訊息；原始例外訊息只寫日誌
+  TimeoutError: TIMEOUT
+  unhandled: INTERNAL                        # 不回任何例外內容
+non_errors:
+  - 202 pending_review：送審成功不是錯誤，沿用 { status, approval, message }
