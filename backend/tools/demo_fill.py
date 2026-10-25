@@ -10,6 +10,7 @@ import os
 import sys
 import tempfile
 import time
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 from urllib import request as _rq
@@ -108,7 +109,7 @@ def main() -> None:
     tables = {t["id"] for t in it.call("GET", "/v1/integration/tables")}
     if "dwh_trade.dbo.fact_order_hist" not in tables:
         from ..integration.e2e_clickhouse import synth
-        work = Path(os.environ.get("DMP_DEMO_WORK") or tempfile.mkdtemp(prefix="dmp-demo-")); work.mkdir(parents=True, exist_ok=True); files = synth(work, 300, 11)
+        work = Path(os.environ.get("DMP_DEMO_WORK") or tempfile.mkdtemp(prefix="dmp-demo-")); work.mkdir(parents=True, exist_ok=True); files = synth(work, 300, 11, day=date.today() - timedelta(days=1))   # 同步走真實時鐘：樣本放昨天，否則 time_window（7 天）過期後全數隔離、示範專案沒有委託／成交事件
         it.call("POST", "/v1/integration/tables", {"connection": "dwh_trade", "table": "dbo.fact_order_hist", "pk": ["ORD_NO", "STATUS"], "incremental_field": "UPDATED_AT", "source": {"kind": "csv", "path": str(files["orders"])}})
     tasks = {t["id"] for t in it.call("GET", "/v1/integration/sync-tasks")}
     if "sync_orders" not in tasks:
