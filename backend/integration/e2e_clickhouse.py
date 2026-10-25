@@ -17,7 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +53,8 @@ def start_clickhouse(binary: str, workdir: Path, extra: str = "") -> subprocess.
     p.kill(); raise RuntimeError("ClickHouse 未在 30 秒內啟動")
 
 
-def synth(workdir: Path, n_orders: int = 20_000, seed: int = 7) -> dict[str, Path]:
+def synth(workdir: Path, n_orders: int = 20_000, seed: int = 7, day: date | None = None) -> dict[str, Path]:
+    """合成委託／商品樣本；day 預設 2026-10-16（e2e 以固定時鐘跑）。走真實時鐘的自測要傳近期日期，否則清洗的 time_window（7 天）會把全部列隔離。"""
     rnd = random.Random(seed)
     inst = workdir / "instrument_master.csv"
     symbols = [f"{2300 + i}" for i in range(300)]
@@ -64,7 +65,8 @@ def synth(workdir: Path, n_orders: int = 20_000, seed: int = 7) -> dict[str, Pat
         w.writerow(["BAD1", "", "T", "x", "STOCK", 1000])         # required 失敗 → 隔離
         w.writerow(["BAD2", "壞市場", "Z", "x", "STOCK", 1000])   # enum 失敗 → 隔離
     orders = workdir / "fact_order_hist.csv"
-    base = datetime(2026, 10, 16, 9, 0, tzinfo=timezone(timedelta(hours=8)))
+    d = day or date(2026, 10, 16)
+    base = datetime(d.year, d.month, d.day, 9, 0, tzinfo=timezone(timedelta(hours=8)))
     rows = []
     for i in range(n_orders):
         t = base + timedelta(seconds=rnd.randint(0, 3 * 3600))
