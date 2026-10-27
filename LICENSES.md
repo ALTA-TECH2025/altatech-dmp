@@ -35,13 +35,15 @@
 | mcp（官方 SDK）/ LangGraph | — | MIT / MIT | Agent | — | Anthropic／LangChain（美） |
 | PyJWT / cryptography | 2.x / 4x | MIT / Apache-2.0 或 BSD-3 | 登入（OIDC ID token 驗證、API token） | — | 個人（美）／PyCA（美） |
 | python-ldap | 3.x | PSF 式（permissive） | 直連 AD（direct 模式才需要；broker 模式不裝） | 需 libldap | python-ldap 社群（德） |
-| Vitest | 3.x | MIT | 前端測試 | — | Vitest team／VoidZero（美；維護者大陸出生） |
+| Vitest | 5.0.5 | MIT | 前端測試 | — | Vitest team／VoidZero（美；維護者大陸出生） |
 | RoaringBitmap（Java）/ pyroaring | — | Apache-2.0 / MIT | Bitmap | — | 個人（加）／個人（法） |
 | franz-go | — | BSD-3 | Go Kafka 客戶端 | — | 個人（美） |
 | Eclipse Temurin JDK | 17/21 | GPLv2 + Classpath Exception | Java 執行環境 | 可自由使用 | Eclipse Foundation |
 | Red Hat UBI 9 | 9.4 | UBI EULA | 容器基底 | 免訂閱可再散布 | Red Hat（美） |
 | Syft / Trivy | — | Apache-2.0 | SBOM／弱點掃描 | CI | Anchore（美）／Aqua（以） |
-| Playwright（@playwright/test）+ Chromium | 1.48 | Apache-2.0 / BSD-3 | 瀏覽器端到端測試（CI 對真後端跑主線；不進產品） | devDependency | Microsoft（美）／Google（美） |
+| Playwright（@playwright/test）+ Chromium | 1.64.1（Chromium 隨 Playwright 安裝） | Apache-2.0 / BSD-3 | 瀏覽器端到端測試（CI 對真後端跑主線；不進產品） | devDependency | Microsoft（美）／Google（美） |
 | PyFlink（apache-flink、apache-flink-libraries）及其 Python 相依（apache-beam、pemja、py4j、pyarrow、pandas、numpy、grpcio、protobuf 等 51 個，`backend/streaming/requirements-flink.txt`） | 2.3.0 | Apache-2.0；相依為 Apache-2.0／BSD／MIT／ISC／MPL-2.0／PSF-2.0（regex 另含 CNRI-Python，Python 系寬鬆授權） | Flink 作業的 Python UDF 與批流一致性測試（docs/43 F2） | 2026-10-22 pip-audit 0 弱點；pyarrow 23.0.1、httplib2 0.32.0 刻意高於上游上限以避開 CVE-2026-25087／CVE-2026-59939（檔頭說明）；不進 dmp-core 映像 | ASF（美） |
 
 CI 規則：SBOM 中任何不在白名單的授權 → 失敗；新增元件需更新本表。
+
+前端精確鎖定版本：見 [docs/32 §1.3.1](docs/32-oss-inventory-and-licensing.md#131-前端鎖定版本2026-10-27) 與 `web/package-lock.json`（2026-10-27 安全更新）。
