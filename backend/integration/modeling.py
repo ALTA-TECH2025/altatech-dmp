@@ -247,6 +247,8 @@ def validate(model: Model, sem: Semantic | None = None) -> list[str]:
         elif tf := (model.raw.get("time") or {}).get("field"):
             if tf not in id_parts:
                 errs.append(f"dedupe.event_id 必須包含時間欄位 {tf}（不同時間點的事件要分開保留）")
+    if model.entity == "user" and not any(i.get("target") == "$identity_login_id" for i in model.identities):
+        errs.append("用戶模型需要 $identity_login_id 身分（客戶代碼代碼化後就是 one_id，與事件同一個人）")
     if model.entity == "dim" and not model.raw.get("target", {}).get("table"):
         errs.append("維度表模型需要 target.table")
     dropped = set(model.raw.get("drop_fields", []))
@@ -414,6 +416,15 @@ def _reason_source_field(model: Model, reason: str | None) -> str | None:
     return None
 
 
+def _identities(model: Model, row: dict[str, Any]) -> dict[str, Any]:
+    ids = {}
+    for idn in model.identities:
+        val = apply_transform(idn.get("transform"), row.get(idn["from"]))
+        if val is not None:
+            ids[idn["target"]] = val
+    return ids
+
+
 def apply(model: Model, rows: list[dict[str, Any]], *, known_fields: set[str] | None = None,
           now: datetime | None = None, batch_id: str = "") -> Outcome:
     """欄位映射 + 清洗；輸出符合目標表的列。known_fields 給了就偵測來源新欄位（Schema drift）。"""
@@ -444,11 +455,7 @@ def apply(model: Model, rows: list[dict[str, Any]], *, known_fields: set[str] | 
                     out.quarantined.append((row, f"bad_time:{sem_time.get('field')}"))
                     continue
                 rec["time"] = ms
-                ids = {}
-                for idn in model.identities:
-                    val = apply_transform(idn.get("transform"), row.get(idn["from"]))
-                    if val is not None:
-                        ids[idn["target"]] = val
+                ids = _identities(model, row)
                 if "$identity_login_id" not in ids:
                     out.quarantined.append((row, "no_login_identity"))
                     continue
@@ -462,6 +469,13 @@ def apply(model: Model, rows: list[dict[str, Any]], *, known_fields: set[str] | 
                 rec["event_id"] = _event_id(model, row, ev)
                 v1 = _event_id_v1(model, row, ev)
                 if v1: rec["_event_id_v1"] = v1
+            elif model.entity == "user":   # 用戶主檔：one_id 與事件路徑相同（客戶代碼 token_v1），同一個人才對得起來
+                ids = _identities(model, row)
+                if "$identity_login_id" not in ids:
+                    out.quarantined.append((row, "no_login_identity"))
+                    continue
+                rec["identities"] = ids
+                rec["one_id"] = ids["$identity_login_id"]
             props: dict[str, Any] = {}
             for f in model.fields:
                 if "expr" in f:
@@ -529,11 +543,90 @@ def to_ch_row(model: Model, rec: dict[str, Any], project: str = "altatech_dmp", 
         row["props"]["$identities"] = rec.get("identities", {})
         if rec.get("_event_id_v1"): row["_event_id_v1"] = rec["_event_id_v1"]   # 只給去重對照（aggregates.dedupe 寫入前移除）
         return row
-    if model.entity == "user":   # 寬表：已登記屬性直接是欄位，未登記的進 props_extra
-        return {"one_id": rec["one_id"], **rec["props"], "props_extra": {}, "first_seen": ms_to_dt(ingest_ms), "updated_at": ms_to_dt(ingest_ms)}
+    if model.entity == "user":
+        return user_row(rec, ingest_ms)
     key = model.raw["target"]["key"]
     props = dict(rec["props"])
     return {key: props.pop(key), "props": props, "updated_at": ms_to_dt(ingest_ms)}
+
+
+# ---------------------------------------------------------------- 用戶主檔：只更新帶到的屬性（#46）
+def user_meta() -> tuple[dict[str, dict[str, Any]], set[str]]:
+    """(寬表欄位 key → 屬性定義, L3 以上的 key)。欄位規則與 clickhouse/gen_users_ddl.columns 相同：L0–L2 才進 dmp.users。"""
+    up = yaml.safe_load((SEMANTIC / "user_properties.yaml").read_text(encoding="utf-8"))["user_properties"]
+    cols = {p["key"]: p for p in up if p.get("sensitivity", "L1") in ("L0", "L1", "L2")}
+    return cols, {p["key"] for p in up} - set(cols)
+
+
+def user_row(rec: dict[str, Any], ingest_ms: int) -> dict[str, Any]:
+    """apply() 的用戶列 → dmp.users 的「部分列」：只放這批帶到值的屬性。
+    值是 None 或空字串 = 來源沒帶到，不覆寫舊值（要清空走 unset，#43）。L3（客戶代碼、營業員）不進寬表。
+    first_seen 不在這裡給：由 merge_users 依倉裡有沒有這個人決定。"""
+    cols, high = user_meta()
+    row: dict[str, Any] = {"one_id": rec["one_id"]}
+    extra: dict[str, Any] = {}
+    for k, v in rec["props"].items():
+        if v is None or v == "" or k in high:
+            continue
+        if k in cols:
+            row[k] = v
+        else:
+            extra[k] = v
+    if extra:
+        row["props_extra"] = extra
+    row["updated_at"] = ms_to_dt(ingest_ms)
+    return row
+
+
+def _same(a: Any, b: Any) -> bool:
+    """倉裡讀回的值（JSONEachRow：數字、0/1、空字串、{}）與來源值是否相同；判斷錯只會多寫一列，不會漏寫。"""
+    if a in (None, "", {}) and b in (None, "", {}):
+        return True
+    if isinstance(a, bool) or isinstance(b, bool):
+        return a == b or (a in (0, 1, True, False, "0", "1") and b in (0, 1, True, False, "0", "1") and int(a) == int(b))
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return canon(a) == canon(b)
+    if isinstance(a, dict) and isinstance(b, dict):
+        return canon_json(a) == canon_json(b)
+    return a == b or (a is not None and b is not None and str(a) == str(b))
+
+
+def merge_users(existing: dict[str, dict[str, Any]], rows: list[dict[str, Any]], ingest_ms: int) -> tuple[list[dict[str, Any]], int]:
+    """把這批部分列疊到倉裡的現值上，回傳 (要寫入的完整列, 內容沒變而略過的人數)。
+    - 帶到的屬性覆蓋；沒帶到的保留原值；props_extra 逐鍵合併。
+    - update: set_once 的屬性（例：首次來源）已有值就不改。
+    - first_seen 只在倉裡沒有這個人時設為本批時間。
+    - 同一批同一人出現多次：依序疊加（後面的值為準）。內容與倉裡完全相同就不寫（重跑同一批 = 0 列寫入，冪等）。"""
+    cols, _ = user_meta()
+    set_once = {k for k, p in cols.items() if p.get("update") == "set_once"}
+    now = ms_to_dt(ingest_ms)
+    merged: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        oid = r["one_id"]
+        cur = merged.get(oid)
+        if cur is None:
+            cur = dict(existing.get(oid) or {})
+            cur.setdefault("one_id", oid)
+            cur.setdefault("first_seen", now)
+        for k, v in r.items():
+            if k in ("one_id", "updated_at"):
+                continue
+            if k == "props_extra":
+                cur["props_extra"] = {**(cur.get("props_extra") or {}), **v}
+            elif k in set_once and cur.get(k) not in (None, ""):
+                continue
+            else:
+                cur[k] = v
+        cur["updated_at"] = now
+        merged[oid] = cur
+    out, unchanged = [], 0
+    for oid, cur in merged.items():
+        old = existing.get(oid)
+        if old is not None and all(_same(cur.get(k), old.get(k)) for k in set(cur) | set(old) if k not in ("updated_at", "one_id_uint")):
+            unchanged += 1
+            continue
+        out.append(cur)
+    return out, unchanged
 
 
 def compile_sql(model: Model, raw_table: str, project: str = "altatech_dmp", batch_id: str = "{batch_id}") -> str:
@@ -654,4 +747,32 @@ if __name__ == "__main__":
     assert quarantine_row(m, o2.quarantined[0][0], fl4, o2.quarantined[0][1])["STATUS"] == "WEIRD"                                          # 像代碼的值保留供追查
     qe = quarantine_row(m, {**rows[2], "MKT": "王小明"}, fl4, "enum:market"); assert qe["MKT"] == "[非代碼值，已遮罩]", qe                       # enum 目標欄換回來源欄
     pv = json.dumps(preview(m, [base]), ensure_ascii=False); assert "王小明" not in pv and "9800000002" not in pv, pv   # 預覽也不回傳個資
+    # 用戶主檔（#46）：one_id 與事件同一個代碼；只更新帶到的屬性；first_seen 只設一次；重跑同一批不寫
+    from backend.clickhouse.gen_users_ddl import columns as _ddl_cols
+    from backend.clickhouse.gen_users_ddl import load_props as _ddl_props
+    assert list(user_meta()[0]) == [k for k, _, _ in _ddl_cols(_ddl_props())]                            # 寬表欄位與 DDL 產生器同一套規則
+    um = load(ROOT / "integration" / "models.customer.yaml"); assert validate(um) == [], validate(um)
+    assert any("identity_login_id" in x for x in validate(Model({**um.raw, "identities": []})))
+    cust = {"CUST_ID": "C001", "GRADE": "2", "BRANCH": " 101 ", "SEX": "F", "OPEN_DATE": "2024-03-01", "MARGIN_FLAG": "Y", "AUM": "1200000", "CUST_NAME": "王小明", "ID_NO": "A123456789"}
+    uo = apply(um, [cust, {"GRADE": "1"}])
+    assert uo.summary == {"in": 2, "ok": 1, "quarantined": 1, "rejected": 0} and uo.quarantined[0][1] == "no_login_identity", uo.summary
+    assert uo.ok[0]["one_id"] == a1["one_id"]                                                          # 同一個客戶代碼 → 事件與用戶同一個 one_id
+    t0, t1 = 1_760_000_000_000, 1_760_086_400_000
+    r1 = to_ch_row(um, uo.ok[0], ingest_ms=t0)
+    assert r1 == {"one_id": a1["one_id"], "tier": "P2", "branch_id": "101", "gender": "女", "signup_date": "2024-03-01", "has_margin": "1", "aum": 1200000.0, "updated_at": ms_to_dt(t0)}, r1
+    assert "王小明" not in json.dumps(r1, ensure_ascii=False) and "first_seen" not in r1
+    assert "customer_code" not in to_ch_row(Model({**um.raw, "fields": um.fields + [{"target": "customer_code", "from": "CUST_ID"}]}), {**uo.ok[0], "props": {**uo.ok[0]["props"], "customer_code": "C001"}}, ingest_ms=t0)   # L3 不進寬表
+    new, same = merge_users({}, [r1], t0)
+    assert same == 0 and new == [{**r1, "first_seen": ms_to_dt(t0)}], new                                # 新客戶：first_seen = 本批時間
+    stored = {a1["one_id"]: {**new[0], "has_margin": 1, "lifecycle": "", "first_utm_source": "google", "props_extra": {}}}   # 倉裡讀回來的樣子（0/1、空字串、{}）
+    part = to_ch_row(um, apply(um, [{"CUST_ID": "C001", "GRADE": "4", "BRANCH": "", "FIRST": "x"}]).ok[0], ingest_ms=t1)
+    up, same = merge_users(stored, [part], t1)
+    assert same == 0 and len(up) == 1 and up[0]["tier"] == "P4" and up[0]["branch_id"] == "101" and up[0]["aum"] == 1200000.0, up   # 只改帶到的；空白不覆寫
+    assert up[0]["first_seen"] == ms_to_dt(t0) and up[0]["updated_at"] == ms_to_dt(t1)                  # first_seen 不動
+    up2, _ = merge_users(stored, [{"one_id": a1["one_id"], "first_utm_source": "fb", "props_extra": {"k": 1}}], t1)
+    assert up2[0]["first_utm_source"] == "google" and up2[0]["props_extra"] == {"k": 1}                  # set_once 已有值不改；props_extra 逐鍵合併
+    again, same = merge_users(stored, [r1], t1)
+    assert again == [] and same == 1, again                                                              # 重跑同一批：內容相同 → 不寫（冪等）
+    seq, _ = merge_users({}, [r1, {**part, "updated_at": ms_to_dt(t0)}], t0)
+    assert len(seq) == 1 and seq[0]["tier"] == "P4" and seq[0]["branch_id"] == "101"                    # 同批同一人多列：依序疊加
     print("modeling ok", o.summary)

@@ -193,6 +193,7 @@ def main() -> int:
             agg_stage(ch)
             agg_upgrade_stage(ch)
             dbapi_stage(ch, work, all_rows)
+            users_stage(ch, work)
             if os.environ.get("E2E_USERS", "1") != "0":
                 main_users_bench(ch)
             from ..semantic.compiler.golden import compiler_stage  # 語意查詢編譯器：30 條黃金查詢 oracle vs SQL 誤差 0
@@ -655,6 +656,52 @@ def dbapi_stage(ch: ClickHouseHTTP | None, work: Path, rows: list[dict[str, Any]
     assert run1["rows_in"] == 12000 and run2["rows_in"] == 8000 and run2["watermark_from"] == run1["watermark_to"], (run1["rows_in"], run2["rows_in"])
     assert all(x["rows_loaded"] == x["rows_ok"] for x in (run1, run2))
     print(f"dbapi (sqlite stand-in for MSSQL): window1 in={run1['rows_in']} ok={run1['rows_ok']} loaded={run1['rows_loaded']}; window2 in={run2['rows_in']} ok={run2['rows_ok']} loaded={run2['rows_loaded']}; watermark={run2['watermark_to']}")
+
+
+def users_stage(ch: ClickHouseHTTP, work: Path) -> None:
+    """用戶主檔建模（#46）：新客戶、既有客戶部分欄位更新、重跑同一批；one_id 與事件路徑同一個代碼。"""
+    src = work / "dim_customer.csv"
+    cols = ["CUST_ID", "GRADE", "BRANCH", "SEX", "OPEN_DATE", "MARGIN_FLAG", "AUM", "CUST_NAME", "ID_NO", "PHONE", "UPDATED_AT"]
+    pii = {"CUST_NAME": "王小明", "ID_NO": "A123456789", "PHONE": "0912345678"}
+
+    def write(rows: list[dict[str, Any]]) -> None:
+        with src.open("w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=cols); w.writeheader(); w.writerows([{**dict.fromkeys(cols, ""), **pii, **r} for r in rows])
+
+    def state() -> dict[str, dict[str, Any]]:
+        return {r["one_id"]: r for r in (json.loads(x) for x in ch.query("SELECT one_id, tier, branch_id, gender, signup_date, has_margin, aum, first_seen, updated_at FROM dmp.users FINAL FORMAT JSONEachRow").splitlines() if x.strip())}
+
+    tok = lambda c: modeling.apply_transform("token_v1(k_idm)", c)
+    s = Scheduler(work / "sched_users.db", LocalRunner(ch))
+    t1, t2, t3 = (datetime(2026, 10, 16 + d, 21, 30, tzinfo=UTC) for d in range(3))
+    s.add_task("sync_customer", str(ROOT / "integration" / "models.customer.yaml"), cron="30 5 * * *", mode="full", retries=0, backoff_s=60, schema_change="auto_map", source={"kind": "csv", "path": str(src)}, now=t1)
+    write([{"CUST_ID": "C00001", "GRADE": "2", "BRANCH": " 101 ", "SEX": "F", "OPEN_DATE": "2024-03-01", "MARGIN_FLAG": "Y", "AUM": "1200000"},
+           {"CUST_ID": "C00002", "GRADE": "3", "BRANCH": "205", "SEX": "M", "OPEN_DATE": "2023-07-15", "MARGIN_FLAG": "N", "AUM": "80000"}])
+    assert s.run_now("sync_customer", t1)["status"] == "success"
+    r1 = s.runs("sync_customer", 1)[0]; u1 = state()
+    a, b, c = tok("C00001"), tok("C00002"), tok("C09999")
+    assert set(u1) == {a, b} and r1["rows_ok"] == r1["rows_loaded"] == 2, (u1, r1)
+    assert u1[a]["tier"] == "P2" and u1[a]["branch_id"] == "101" and u1[a]["gender"] == "女" and u1[a]["signup_date"] == "2024-03-01" and u1[a]["has_margin"] == 1 and u1[a]["aum"] == 1200000, u1[a]
+    assert u1[a]["first_seen"].startswith("2026-10-16 21:30") and u1[b]["has_margin"] == 0
+    assert ch.scalar(f"SELECT count() FROM dmp.events WHERE one_id IN ('{a}', '{b}')") > 0                        # 用戶 one_id = 事件 one_id（同一個客戶代碼）
+    assert "王小明" not in ch.query("SELECT * FROM dmp.users FINAL FORMAT JSONEachRow")                            # 個資不入倉
+    # 第 2 天：C00001 只換等級（分公司、資產空白 = 沒帶到）；C09999 新客戶
+    write([{"CUST_ID": "C00001", "GRADE": "4"}, {"CUST_ID": "C09999", "GRADE": "1", "BRANCH": "300", "OPEN_DATE": "2026-10-17"}])
+    assert s.run_now("sync_customer", t2)["status"] == "success"
+    r2 = s.runs("sync_customer", 1)[0]; u2 = state()
+    assert set(u2) == {a, b, c} and r2["rows_ok"] == r2["rows_loaded"] == 2, (u2, r2)
+    assert u2[a]["tier"] == "P4" and u2[a]["branch_id"] == "101" and u2[a]["aum"] == 1200000 and u2[a]["has_margin"] == 1 and u2[a]["gender"] == "女", u2[a]   # 沒帶到的保留
+    assert u2[a]["first_seen"] == u1[a]["first_seen"] and u2[a]["updated_at"].startswith("2026-10-17 21:30")       # first_seen 不動
+    assert u2[b] == u1[b] and u2[c]["first_seen"].startswith("2026-10-17 21:30") and u2[c]["tier"] == "P1"
+    # 第 3 天重跑同一批：內容沒變 → 不寫，結果完全不變（含 updated_at）
+    assert s.run_now("sync_customer", t3)["status"] == "success"
+    r3 = s.runs("sync_customer", 1)[0]
+    assert state() == u2 and r3["rows_loaded"] == r3["rows_ok"] == 2 and "users: written=0 unchanged=2" in r3["log"], (r3["log"][-300:], state())
+    assert ch.scalar("SELECT count() FROM dmp.users FINAL") == 3
+    ch.query("SYSTEM RELOAD DICTIONARY dmp.users_dict")                                                            # 主檔不帶「最近活躍」（NULL）時字典也要載得起來
+    assert ch.query(f"SELECT dictGet('dmp.users_dict', 'tier', cityHash64('{a}'))").strip() == "P4"
+    ch.query("TRUNCATE TABLE dmp.users")                                                                         # 後面的用戶壓測從空表開始算筆數
+    print("users (#46): day1 new=2; day2 partial update C00001 (tier P2→P4, branch/aum kept, first_seen kept) + new C09999; day3 rerun written=0 unchanged=2")
 
 
 # ---------------------------------------------------------------- GA360 BigQuery 匯出：串流 → 日批覆蓋 → 72 小時重寫（假 BigQuery）
