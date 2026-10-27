@@ -300,12 +300,14 @@ def main(store: Any | None = None) -> None:
     lst2 = c.post("/v1/users/list", json={**uq, "columns": ["aum", "churn_score"]}).json(); assert "aum" not in lst2["masked"] and lst2["masked"]["churn_score"], lst2["masked"]
     # 5b. 數據整合：連線（secret_ref 才收）→ 測試 → 輪替 → 數據表探索（L4 標記）→ 同步任務（模型驗證、排程）→ 預覽 → 立即執行（乾跑）→ 執行紀錄；權限：資訊管理可建、行銷不可
     import tempfile
+    from datetime import date as _date
+    from datetime import timedelta as _td
     from pathlib import Path as _P
 
     from ..integration import modeling as _m
     from ..integration.e2e_clickhouse import synth as _synth
     _m.set_key("k_idm", b"test-key-idm"); _m.set_key("k_acct", b"test-key-acct")
-    work = _P(tempfile.mkdtemp(prefix="dmp-integ-")); files = _synth(work, 300, 11)
+    work = _P(tempfile.mkdtemp(prefix="dmp-integ-")); files = _synth(work, 300, 11, day=_date.today() - _td(days=1))   # 預覽與立即執行走真實時鐘：樣本放昨天，避免 time_window（7 天）過期後全數隔離
     login(c, sm, ["marketing"], "mkt"); assert c.get("/v1/integration/connections").status_code == 403
     login(c, sm, ["it_admin"], "it")
     cons = c.get("/v1/integration/connectors").json(); assert {x["type"] for x in cons} >= {"mssql", "bigquery", "dwh"} and "kerberos" in cons[[x["type"] for x in cons].index("mssql")]["auth_methods"]
