@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isSecretRef, looksLikeSecret, parseList, rotationText, runText, scheduleBody } from './integration';
+import { isSecretRef, looksLikeSecret, parseList, queuedResult, rotationText, runText, RUN_STATUS_CN, scheduleBody } from './integration';
+import type { SyncRun } from './types';
 
 describe('integration helpers', () => {
   it('secret ref 格式', () => {
@@ -23,5 +24,14 @@ describe('integration helpers', () => {
     expect(scheduleBody('interval', '15')).toEqual({ interval_min: 15 }); expect(scheduleBody('interval', '0')).toBeNull();
     expect(scheduleBody('cron', '*/15 * * * *')).toEqual({ cron: '*/15 * * * *' }); expect(scheduleBody('cron', 'daily')).toBeNull();
     expect(parseList('ORD_NO, STATUS、x')).toEqual(['ORD_NO', 'STATUS', 'x']);
+  });
+  it('立即執行排隊：找到該筆且結束才回結果（#87）', () => {
+    const r = (id: number, status: string): SyncRun => ({ id, task_id: 't', scheduled_for: '2026-10-28T16:00:00+00:00', attempt: 1, status, trigger: 'manual', started_at: null, finished_at: null, rows_in: status === 'success' ? 300 : null, rows_ok: null, rows_quarantined: null, rows_rejected: null, rows_loaded: null, error: null, log: [], watermark_from: null, watermark_to: null });
+    expect(queuedResult([], 7)).toBeNull();                                        // 還沒出現在紀錄裡
+    for (const s of ['queued', 'running', 'retry_wait', 'interrupted']) expect(queuedResult([r(7, s)], 7)).toBeNull();
+    expect(queuedResult([r(8, 'success'), r(7, 'queued')], 7)).toBeNull();        // 別筆結束不算
+    expect(queuedResult([r(7, 'success')], 7)?.rows_in).toBe(300);
+    expect(queuedResult([r(7, 'failed')], 7)?.status).toBe('failed');
+    expect(RUN_STATUS_CN.queued).toBe('已排入佇列');
   });
 });

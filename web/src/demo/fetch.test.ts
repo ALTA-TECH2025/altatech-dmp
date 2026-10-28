@@ -31,3 +31,13 @@ describe('示範：範例儀表板卡片用擷取的真實結果', () => {
     expect(got).toEqual(fx.routes[k!]);
   });
 });
+
+describe('示範：同步任務立即執行只排隊', () => {
+  it('回 202 queued、帶任務中文名、標示 demo', async () => {
+    const res = await demoFetch('/v1/integration/sync-tasks/sync_orders/run', { method: 'POST' });
+    const b = await res.json() as { status: string; run_id: number | null; demo: boolean; cn: string; task_id: string };
+    expect(res.status).toBe(202);
+    expect(b).toMatchObject({ task_id: 'sync_orders', status: 'queued', run_id: null, demo: true });
+    expect(b.cn).not.toBe('');
+  });
+});

@@ -114,6 +114,10 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
     const count = (a: string) => rows.filter((r) => r.action === a).length;
     return { body: { kind, applied, total: rows.length, summary: { create: count('create'), update: 0, change_request: 0, unchanged: count('unchanged'), error: 0 }, rows, demo: true, message: applied ? '示範模式：已模擬套用，變更不會保存' : undefined } };
   }
+  if (seg[1] === 'integration' && seg[2] === 'sync-tasks' && seg[4] === 'run' && method === 'POST') {          // 示範：立即執行只登記排隊（#87），不實際跑
+    const t = ((fx.routes['GET /v1/integration/sync-tasks'] as Obj[] | undefined) ?? []).find((x) => x.id === seg[3]);
+    return { body: { task_id: seg[3], cn: String(t?.cn ?? seg[3]), run_id: null, status: 'queued', scheduled_for: now(), demo: true }, status: 202 };
+  }
   if (seg[1] === 'ops' && seg[2] === 'batch-jobs' && seg[4] === 'rerun' && method === 'POST') return { body: { job: seg[3], status: 'success', demo: true }, status: 202 };   // 示範：重跑同步任務
   if (seg[1] === 'ops' && seg[2] === 'notify') {                                                    // 示範：通知設定／測試／紀錄（記憶體覆蓋層）
     const base = (mem.notify ?? (fx.routes['GET /v1/ops/notify'] as Obj | undefined)) as Obj | undefined;

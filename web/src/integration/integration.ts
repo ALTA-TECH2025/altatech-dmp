@@ -1,5 +1,5 @@
 // 數據整合頁的純函式與顯示常數（有單元測試）：密鑰參照格式、疑似明文、輪替文字、任務與執行狀態、排程文字
-import type { Rotation, RunSummary, SyncTask, TestStep } from './types';
+import type { Rotation, RunSummary, SyncRun, SyncTask, TestStep } from './types';
 
 /** secret_ref 三種格式（與 backend/integration/auth.py 相同）。 */
 export const SECRET_REF_RES = [
@@ -27,7 +27,17 @@ export function rotationText(r: Rotation): { text: string; pill: 'gray' | 'blue'
 }
 
 export const TASK_STATUS: Record<SyncTask['status'], { cn: string; pill: string }> = { active: { cn: '啟用', pill: 'blue' }, paused: { cn: '已暫停', pill: 'amber' }, error: { cn: '最近失敗', pill: 'red' } };
-export const RUN_STATUS_CN: Record<string, string> = { success: '成功', running: '執行中', failed: '失敗', retry_wait: '等待重試', retried: '已重試', skipped: '略過（上游未就緒）' };
+export const RUN_STATUS_CN: Record<string, string> = { queued: '已排入佇列', success: '成功', running: '執行中', failed: '失敗', retry_wait: '等待重試', retried: '已重試', interrupted: '中斷（主控切換，將重試）', skipped: '略過（上游未就緒）' };
+/** 還沒結束的狀態：排隊、執行中、中斷後等重試。 */
+export const RUN_PENDING = new Set(['queued', 'running', 'retry_wait', 'interrupted']);
+export const QUEUE_POLL_MS = 3000;
+export const QUEUE_WAIT_MS = 5 * 60_000;
+
+/** 立即執行後的輪詢：在執行紀錄裡找排隊那一筆；結束了回該筆，還沒結束（或還沒出現）回 null。 */
+export function queuedResult(rows: SyncRun[], runId: number): SyncRun | null {
+  const r = rows.find((x) => x.id === runId);
+  return r && !RUN_PENDING.has(r.status) ? r : null;
+}
 export const runPill = (s: string): string => (s === 'success' ? 'blue' : s === 'failed' ? 'red' : s === 'skipped' ? 'gray' : 'amber');
 
 /** 最近執行一行摘要。 */

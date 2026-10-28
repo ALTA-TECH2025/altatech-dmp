@@ -6,7 +6,7 @@ import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
 import { EmptyState, KeyValue, Mono, PageHeader, SectionTitle, StatTile, StatusBadge } from '@/ds';
-import { isSecretRef, looksLikeSecret, parseList, rotationText, runPill, runText, RUN_STATUS_CN, scheduleBody, SENS_PILL, STEP_CN, TASK_STATUS } from './integration';
+import { isSecretRef, looksLikeSecret, parseList, QUEUE_POLL_MS, QUEUE_WAIT_MS, queuedResult, rotationText, runPill, runText, RUN_STATUS_CN, scheduleBody, SENS_PILL, STEP_CN, TASK_STATUS } from './integration';
 import { OutputTab } from './OutputTab';
 import type { Connection, ConnectionCreate, ConnectionTest, Connector, ExtTable, Preview, Privileges, RunNow, SyncRun, SyncTask, SyncTaskCreate, TableCreate } from './types';
 import type { OutputTask } from './output';
@@ -51,7 +51,7 @@ function IntegrationInner() {
       {err && <Alert color="red" variant="light" mb="md">{err}</Alert>}
       {tab === 'connections' && <ConnectionsTab connectors={connectors} conns={conns} busy={busy} canUse={canUse} canAdmin={canAdmin} run={run} />}
       {tab === 'tables' && <TablesTab conns={conns} tables={tables} busy={busy} canUse={canUse} run={run} />}
-      {tab === 'tasks' && <TasksTab tasks={tasks} busy={busy} canUse={canUse} run={run} onNew={() => setTab('wizard')} />}
+      {tab === 'tasks' && <TasksTab tasks={tasks} busy={busy} canUse={canUse} run={run} onNew={() => setTab('wizard')} reload={reload} />}
       {tab === 'wizard' && <Wizard tables={tables} tasks={tasks} canUse={canUse} onDone={async () => { await reload(); setTab('tasks'); }} />}
       {tab === 'output' && <OutputTab />}
     </div>
@@ -213,7 +213,7 @@ function TablesTab({ conns, tables, busy, canUse, run }: { conns: Connection[]; 
 }
 
 /* ------------------------------------------------------------------ 同步任務 */
-function TasksTab({ tasks, busy, canUse, run, onNew }: { tasks: SyncTask[]; busy: boolean; canUse: boolean; run: (fn: () => Promise<void>, fb: string) => Promise<void>; onNew: () => void }) {
+function TasksTab({ tasks, busy, canUse, run, onNew, reload }: { tasks: SyncTask[]; busy: boolean; canUse: boolean; run: (fn: () => Promise<void>, fb: string) => Promise<void>; onNew: () => void; reload: () => Promise<void> }) {
   const [runs, setRuns] = useState<{ id: string; rows: SyncRun[] } | null>(null);
   const [pv, setPv] = useState<{ id: string; res: Preview } | null>(null);
   const [last, setLast] = useState<RunNow | null>(null);
@@ -223,9 +223,7 @@ function TasksTab({ tasks, busy, canUse, run, onNew }: { tasks: SyncTask[]; busy
         <Text size="sm" c="dimmed">目標類型決定寫入：事件表只增量（event_id 去重）、用戶表 upsert、維度表 upsert 或全量；依賴的上游同窗口成功才跑；失敗按退避重試；Schema 變更依策略自動映射／忽略／暫停並通知。</Text>
         {canUse && <Button variant="filled" ml="auto" onClick={onNew}>＋ 建立任務</Button>}
       </Group>
-      {last && <Paper><SectionTitle title={`立即執行 · ${last.cn}`} right={<Button size="compact-sm" variant="subtle" onClick={() => setLast(null)}>關閉</Button>}><StatusBadge tone={runPill(last.status)}>{RUN_STATUS_CN[last.status] ?? last.status}</StatusBadge></SectionTitle>
-        <SimpleGrid cols={{ base: 2, sm: 5 }}>{([['讀入', last.rows_in], ['通過', last.rows_ok], ['隔離', last.rows_quarantined], ['拒絕', last.rows_rejected], ['載入', last.rows_loaded]] as [string, number | null][]).map(([k, v]) => <StatTile key={k} label={k} value={(v ?? 0).toLocaleString()} />)}</SimpleGrid>
-        {last.error && <Alert color="red" variant="light" mt="sm">{last.error}</Alert>}</Paper>}
+      {last && <QueuedRun key={`${last.task_id}:${last.run_id ?? ''}`} rn={last} onDone={reload} onClose={() => setLast(null)} />}
       <Paper p={0} style={{ overflow: 'hidden' }}>
         <Table.ScrollContainer minWidth={1100}>
           <Table>
@@ -272,6 +270,41 @@ function TasksTab({ tasks, busy, canUse, run, onNew }: { tasks: SyncTask[]; busy
 }
 
 /* ------------------------------------------------------------------ 建立任務精靈 */
+/** 立即執行：API 只登記排隊（202），由主控 worker 執行；這裡每 3 秒讀執行紀錄，結束就顯示結果並刷新任務列表，5 分鐘沒動靜提示確認 worker。 */
+function QueuedRun({ rn, onDone, onClose }: { rn: RunNow; onDone: () => Promise<void>; onClose: () => void }) {
+  const [res, setRes] = useState<SyncRun | null>(null);
+  const [status, setStatus] = useState(rn.status);
+  const [stale, setStale] = useState(false);
+  const runId = rn.run_id;
+  useEffect(() => {
+    if (runId == null || rn.demo) return;
+    let alive = true; const t0 = Date.now();
+    const tick = async () => {
+      try {
+        const rows = await api.get<SyncRun[]>(`/v1/integration/sync-tasks/${rn.task_id}/runs?limit=20`);
+        if (!alive) return;
+        const cur = rows.find((x) => x.id === runId); if (cur) setStatus(cur.status);
+        const done = queuedResult(rows, runId);
+        if (done) { setRes(done); void onDone(); return; }
+      } catch { /* 暫時讀不到就下一輪再試 */ }
+      if (!alive) return;
+      if (Date.now() - t0 > QUEUE_WAIT_MS) { setStale(true); return; }
+      timer = window.setTimeout(() => void tick(), QUEUE_POLL_MS);
+    };
+    let timer = window.setTimeout(() => void tick(), QUEUE_POLL_MS);
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [rn.task_id, runId, rn.demo]);
+  const shown = res?.status ?? status;
+  return (
+    <Paper><SectionTitle title={`立即執行 · ${rn.cn}`} right={<Button size="compact-sm" variant="subtle" onClick={onClose}>關閉</Button>}><StatusBadge tone={runPill(shown)}>{RUN_STATUS_CN[shown] ?? shown}</StatusBadge></SectionTitle>
+      {rn.demo ? <Text size="sm" c="dimmed">示範模式：已模擬排入佇列，不會實際執行。</Text>
+        : !res ? <Text size="sm" c="dimmed">{runId != null ? `執行紀錄 #${runId}` : ''}{rn.scheduled_for ? ` · 排入 ${rn.scheduled_for.slice(0, 16).replace('T', ' ')}` : ''} · 由主控 worker 依序執行，完成後這裡自動更新。</Text> : null}
+      {stale && !res && <Alert color="amber" variant="light" mt="sm">5 分鐘仍未執行：請資訊管理人員確認 worker 是否在跑（DMP_ROLE=worker，或單機 DMP_TICK=1）。紀錄仍在佇列，worker 起來後會照順序跑。</Alert>}
+      {res && <SimpleGrid cols={{ base: 2, sm: 5 }}>{([['讀入', res.rows_in], ['通過', res.rows_ok], ['隔離', res.rows_quarantined], ['拒絕', res.rows_rejected], ['載入', res.rows_loaded]] as [string, number | null][]).map(([k, v]) => <StatTile key={k} label={k} value={(v ?? 0).toLocaleString()} />)}</SimpleGrid>}
+      {res?.error && <Alert color="red" variant="light" mt="sm">{res.error}</Alert>}</Paper>
+  );
+}
+
 function Wizard({ tables, tasks, canUse, onDone }: { tables: ExtTable[]; tasks: SyncTask[]; canUse: boolean; onDone: () => Promise<void> }) {
   const [step, setStep] = useState(1);
   const [d, setD] = useState({ id: '', cn: '', table_id: tables[0]?.id ?? '', model_path: 'backend/integration/models.example.yaml', mode: 'incremental' as 'full' | 'incremental', schedKind: 'interval' as 'interval' | 'cron', sched: '15', depends: '', schema_change: 'pause_and_notify' as SyncTaskCreate['schema_change'], retries: 3 });
