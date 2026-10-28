@@ -7,6 +7,13 @@
 2. 讀 issue（Story 模板）裡的「驗收條件」；把它轉成測試先寫下來。
 3. 只改自己工作流擁有的目錄；要改契約（`backend/openapi.yaml`、`backend/semantic/*.yaml`、`backend/mcp/tools.yaml`、`backend/security/*.yaml`）先開「contract:」PR，不要夾在功能 PR 裡。
 
+## 規格先行（superpowers）
+repo 已在 `.claude/settings.json` 啟用 superpowers 外掛（brainstorming → 規格 → 計畫 → 實作）。新功能、資料邏輯、契約變更先走 brainstorming，把邊界條件問清楚再寫程式；一行修正、純文件可略過。
+- **規格回寫 issue**：結論寫進 issue 的「驗收條件」；問不到答案的項目列成「待確認」，不可自行填預設值（例：空值算清空還是沒帶到、要不要等客戶／法遵）。
+- **必問清單**（DMP 常漏的）：口徑來源（`backend/semantic/*.yaml`）；權限與個資等級（L1–L4、`backend/security/*.yaml`）；重跑／冪等／並行寫入；時區與時間窗；空值與缺欄位；跟哪個契約有關、要不要先開 contract PR；誰要拍板（研發、運維、客戶、法遵）。
+- **檔案位置**：規格 `docs/superpowers/specs/`、計畫 `docs/superpowers/plans/`；另開 docs PR 或隨契約 PR 送審，不夾在功能 PR（功能 PR 仍 < 400 行）。
+- **與本檔衝突時以本檔與 `AGENTS.md` 為準**：分支命名 `<ws>/<issue-id>-<slug>`、契約先行、commit 中文、收工檢查清單照跑；測試沿用各工作流既有自測（`python3 -m … selftest`、vitest、Playwright），不另立框架；雲端 session 本身就是獨立 worktree，不必再建；完成分支時不自行合併，等負責人同意。
+
 ## 收工前（每個 PR 都要）
 ```bash
 python3 backend/security/policy.py && python3 backend/integration/transforms.py && python3 backend/integration/auth.py && python3 backend/oneid/attribution.py && python3 -m backend.auth && python3 -m backend.auth.local selftest && python3 -m backend.api && python3 -m backend.segments && python3 -m backend.api.store_pg

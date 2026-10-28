@@ -43,5 +43,6 @@
 | Syft / Trivy | — | Apache-2.0 | SBOM／弱點掃描 | CI | Anchore（美）／Aqua（以） |
 | Playwright（@playwright/test）+ Chromium | 1.48 | Apache-2.0 / BSD-3 | 瀏覽器端到端測試（CI 對真後端跑主線；不進產品） | devDependency | Microsoft（美）／Google（美） |
 | PyFlink（apache-flink、apache-flink-libraries）及其 Python 相依（apache-beam、pemja、py4j、pyarrow、pandas、numpy、grpcio、protobuf 等 51 個，`backend/streaming/requirements-flink.txt`） | 2.3.0 | Apache-2.0；相依為 Apache-2.0／BSD／MIT／ISC／MPL-2.0／PSF-2.0（regex 另含 CNRI-Python，Python 系寬鬆授權） | Flink 作業的 Python UDF 與批流一致性測試（docs/43 F2） | 2026-10-22 pip-audit 0 弱點；pyarrow 23.0.1、httplib2 0.32.0 刻意高於上游上限以避開 CVE-2026-25087／CVE-2026-59939（檔頭說明）；不進 dmp-core 映像 | ASF（美） |
+| superpowers（Claude Code 外掛，`.claude/settings.json` 啟用） | 6.4.2 | MIT | 開發流程 skill：規格先行（brainstorming → 規格 → 計畫）、TDD、審查、除錯 | 開發工具；只有文字型 skill 與一個 SessionStart hook（注入使用說明，不連網、不改檔），不進產品映像；來源為 Anthropic 內建外掛目錄 | Jesse Vincent（美） |
 
 CI 規則：SBOM 中任何不在白名單的授權 → 失敗；新增元件需更新本表。
