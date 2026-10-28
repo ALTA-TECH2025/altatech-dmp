@@ -57,7 +57,7 @@ def ddl(local: bool = False) -> str:
            "",
            f"-- 事件查詢關聯用戶屬性：可篩選／可分組的熱欄位（≤ {MAX_HOT} 個）載成 dictionary，dictGet 不 JOIN；其餘屬性走 users FINAL JOIN\nCREATE DICTIONARY IF NOT EXISTS dmp.users_dict\n(\n    one_id_uint UInt64,\n"
            + ",\n".join(f"    {k:<20} {t}" for k, t, _ in hot_cols) + "\n)\nPRIMARY KEY one_id_uint\n"
-           + "SOURCE(CLICKHOUSE(NAME dmp_dict QUERY 'SELECT one_id_uint, " + ", ".join(f"{('ifNull(' + k + ', 0)') if y == 'number' else ('ifNull(' + k + ', toDate(0))') if y == 'date' else k}" for k, _, y in hot_cols)
+           + "SOURCE(CLICKHOUSE(NAME dmp_dict QUERY 'SELECT one_id_uint, " + ", ".join(f"{('ifNull(' + k + ', 0)') if y == 'number' else ('ifNull(' + k + ', toDate(0))') if y == 'date' else ('ifNull(' + k + ', toDateTime64(0, 3))') if y == 'datetime' else k}" for k, _, y in hot_cols)
            + " FROM dmp.users FINAL'))\nLAYOUT(HASHED())\nLIFETIME(MIN 300 MAX 600);",
            END]
     return "\n".join(out)

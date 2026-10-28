@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from . import modeling
+from . import aggregates, modeling
 from .scheduler import RunResult
 
 
@@ -48,6 +48,21 @@ class ClickHouseHTTP:
         body = "\n".join(json.dumps(r, ensure_ascii=False, default=str) for r in rows).encode()
         self.query(f"INSERT INTO {table} FORMAT JSONEachRow", data=body, settings={"input_format_import_nested_json": 1, "date_time_input_format": "best_effort"})
         return len(rows)
+
+
+def fetch_users(ch: ClickHouseHTTP, one_ids: list[str], chunk: int = 5_000) -> dict[str, dict[str, Any]]:
+    """dmp.users 目前的值（FINAL）：one_id → 完整列（寬表欄位、props_extra、first_seen）。給 modeling.merge_users 疊加用。"""
+    cols, _ = modeling.user_meta()
+    sel = ", ".join(["one_id", *cols, "props_extra", "first_seen"])
+    out: dict[str, dict[str, Any]] = {}
+    ids = sorted(set(one_ids))
+    for i in range(0, len(ids), chunk):
+        lit = ", ".join("'" + x.replace("\\", "\\\\").replace("'", "\\'") + "'" for x in ids[i:i + chunk])
+        body = ch.query(f"SELECT {sel} FROM dmp.users FINAL WHERE one_id IN ({lit}) FORMAT JSONEachRow")
+        for line in body.splitlines():
+            if line.strip():
+                r = json.loads(line); out[r["one_id"]] = r
+    return out
 
 
 def local_ddl(schema_sql: str) -> list[str]:
@@ -97,6 +112,20 @@ class LocalRunner:
         self.db_connections = db_connections or {}     # connection id（connectors.yaml 的連線）→ DB-API connect 工廠
         self.bq_clients = bq_clients or {}             # connection id → BigQuery client（ga4_source.BigQueryLike）
 
+    def _settle_marks(self, marks: Any, batch_id: str, log: Callable[[str], None]) -> set[str]:
+        """落地之後：與別的寫入者窗口重疊的日期（可能同一筆被寫兩次）先登記待重建再重建；寫入期間被別人重建換過分區的日期由我重建；其餘 touch 自己確認。"""
+        race = marks.concurrent()
+        if race:
+            aggregates.mark_pending(self.ch, race, batch_id)
+            log(f"daily_agg: concurrent writer on {sorted(race)} → rebuild")
+        return race | marks.settle()
+
+    @staticmethod
+    def _log_dedupe(d: Any, log: Callable[[str], None]) -> None:
+        log(f"dedupe: skipped={d.skipped} identical rows already in dmp.events" + (f" (incl. {d.skipped_v1} stored under the pre-content event_id formula)" if getattr(d, "skipped_v1", 0) else ""))
+        if d.kept_first:
+            log(f"dedupe: kept_first={d.kept_first} event_ids already in dmp.events with different content (first copy kept, not overwritten): {d.kept_first_ids}")
+
     def _run_ga4(self, task: dict[str, Any], *, watermark: str | None, batch_id: str, now: datetime, log: Callable[[str], None]) -> RunResult:
         from . import ga4_source
         src = task["source"]
@@ -112,10 +141,23 @@ class LocalRunner:
             for _, why in b.quarantined: by[why.split(":")[0]] = by.get(why.split(":")[0], 0) + 1
             log(f"quarantined by L4/PII gate (not loaded into dmp.events): {by}")
         if self.ch is None or not (b.rows or b.quarantined):
+            if self.ch is not None:                                                # 空批次（表不存在、重述沒變）也要補做上次中斷留下的待重建日期
+                done = aggregates.rebuild(self.ch, set(), batch_id)
+                if done:
+                    log(f"daily_agg rebuilt for {done} (pending from an interrupted run; this batch was empty)")
             res.rows_loaded = res.rows_ok; return res
-        for i in range(0, len(b.rows), 50_000):
-            self.ch.insert_json("dmp.events", b.rows[i:i + 50_000])
-        res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'")
+        marks = aggregates.begin(self.ch, set(), batch_id, touch=[aggregates.event_date_of(r) for r in b.rows])   # 這批會寫到的日期先登記（帶租約；去重之前，並行寫入者才看得到彼此）
+        d = aggregates.dedupe(self.ch, b.rows)                                    # 事件只追加：倉裡已有的 event_id 不再寫入（保留第一筆）→ 日彙總不會多算
+        for i in range(0, len(d.rows), 50_000):
+            marks.check()                                                         # 租約過期就不准再寫（這批失敗、排程重試）
+            self.ch.insert_json("dmp.events", d.rows[i:i + 50_000])
+        marks.landed()                                                            # 資料全部落地 → 重建才可以確認這個標記
+        res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'") + d.skipped + d.kept_first   # 略過的列早已在倉裡，對帳上算已載入
+        mine = self._settle_marks(marks, batch_id, log)
+        done = aggregates.rebuild(self.ch, mine, batch_id)                        # ∪ 上次中斷留下的待重建日期
+        if done:
+            log(f"daily_agg rebuilt for {done}" + (" (incl. pending from an interrupted run)" if set(done) - mine else ""))
+        self._log_dedupe(d, log)
         at = now.strftime("%Y-%m-%d %H:%M:%S.") + f"{now.microsecond // 1000:03d}"
         # 隔離列與 modeling 路徑同格式（原因 + 原列），但個資列不留內容（與 pii 拒絕列同規則）
         self.ch.insert_json("dmp.quarantine", [{"task_id": task["id"], "batch_id": batch_id, "at": at, "reason": why, "row": ""} for _, why in b.quarantined])
@@ -127,7 +169,7 @@ class LocalRunner:
             now: datetime, log: Callable[[str], None]) -> RunResult:
         if task["source"].get("kind") == "ga4":
             return self._run_ga4(task, watermark=watermark, batch_id=batch_id, now=now, log=log)
-        model = modeling.load(task["model_path"])
+        model = modeling.loads(task["model_yaml"]) if task.get("model_yaml") else modeling.load(task["model_path"])   # db:<id> = 畫面建的模型（存排程資料庫）
         errs = modeling.validate(model, self.sem)
         if errs:
             raise ValueError("模型未通過驗證：" + "; ".join(errs))
@@ -157,14 +199,38 @@ class LocalRunner:
         if model.entity == "dim" and model.raw.get("target", {}).get("mode") == "full":
             self.ch.query(f"TRUNCATE TABLE {model.target_table}")
         target_rows = [modeling.to_ch_row(model, r, self.project, ingest_ms) for r in out.ok]
+        skipped, rebuild_dates = 0, set()
+        d = None
+        if model.entity == "event":
+            marks = aggregates.begin(self.ch, set(), batch_id, touch=[aggregates.event_date_of(r) for r in target_rows])   # 會寫到的日期先登記（去重之前）
+            d = aggregates.dedupe(self.ch, target_rows)                        # 事件只追加：重試／重跑窗口的同一事件不再寫入（保留第一筆）
+            target_rows, skipped = d.rows, d.skipped + d.kept_first
+        else:
+            marks = None
+        users_unchanged = 0
+        if model.entity == "user":   # 只更新帶到的屬性：先讀倉裡現值再疊加（ReplacingMergeTree 一寫就是整列取代，#46）
+            target_rows, users_unchanged = modeling.merge_users(fetch_users(self.ch, [r["one_id"] for r in target_rows]), target_rows, ingest_ms)
+            log(f"users: written={len(target_rows)} unchanged={users_unchanged}")
         for i in range(0, len(target_rows), 50_000):
+            if marks is not None: marks.check()
             self.ch.insert_json(model.target_table, target_rows[i:i + 50_000])
+        if marks is not None: marks.landed()
         at = now.strftime("%Y-%m-%d %H:%M:%S.") + f"{now.microsecond // 1000:03d}"
-        q_rows = [{"task_id": task["id"], "batch_id": batch_id, "at": at, "reason": reason, "row": json.dumps(row, ensure_ascii=False, default=str)} for row, reason in out.quarantined]
+        forbidden = modeling.Semantic.load().forbidden_l4
+        q_rows = [{"task_id": task["id"], "batch_id": batch_id, "at": at, "reason": reason,
+                   "row": json.dumps(modeling.quarantine_row(model, row, forbidden, reason), ensure_ascii=False, default=str)} for row, reason in out.quarantined]   # 個資不入庫：隔離列也先去個資
         q_rows += [{"task_id": task["id"], "batch_id": batch_id, "at": at, "reason": reason, "row": ""} for _, reason in out.rejected]
         self.ch.insert_json("dmp.quarantine", q_rows)
         if model.entity == "event":
-            res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'")
+            res.rows_loaded = self.ch.scalar(f"SELECT count() FROM dmp.events WHERE batch_id = '{batch_id}'") + skipped
+            if marks is not None: rebuild_dates = self._settle_marks(marks, batch_id, log)
+            done = aggregates.rebuild(self.ch, rebuild_dates, batch_id)       # ∪ 上次中斷留下的待重建日期
+            if done:
+                log(f"daily_agg rebuilt for {done}" + (" (incl. pending from an interrupted run)" if set(done) - rebuild_dates else ""))
+            if d is not None and (d.skipped or d.kept_first):
+                self._log_dedupe(d, log)
+        elif model.entity == "user":
+            res.rows_loaded = res.rows_ok      # 內容沒變而沒寫的人也已在倉裡（同事件的略過列，對帳算已載入）
         else:
             res.rows_loaded = len(target_rows)
         self.ch.insert_json("dmp.ingest_recon", [{"task_id": task["id"], "batch_id": batch_id, "at": at, "rows_in": res.rows_in, "rows_ok": res.rows_ok,

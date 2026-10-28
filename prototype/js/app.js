@@ -189,7 +189,7 @@ function mScore(v) { if (['admin', 'data_analyst', 'digital_ops'].includes(RK())
 
 function activeGroup() { const n = S.route.name; return NAV_GROUPS.find(g => g.items.some(it => it[0].split('/')[0] === n)) || NAV_GROUPS[0]; }
 function viewGate() {
-  return `<div class="gate"><div class="gate-brand">${LOGO_MARK}<div><b>ALTA TECH<sup>LTD</sup></b><span>AltaTech DMP · 數位軌跡／客戶數據中台 · 原型 ${VERSION}</span></div></div>
+  return `<div class="gate"><div class="gate-brand">${LOGO_MARK}<div><b>ALTA TECH</b><span>AltaTech DMP · 數位軌跡／客戶數據中台 · 原型 ${VERSION}</span></div></div>
   <div class="gate-card"><h1>選擇示範身分</h1><p>原型以五種角色展示企業級權限：模組權限（哪些功能可見／可用／可匯出／可審批）、數據權限（行級範圍）、欄位隱碼（依敏感等級）、審批與審計。資料皆為模擬。</p>
   ${ACCOUNTS.map(a => `<button class="gate-role" data-act="login" data-arg="${a.id}"><span class="av" style="background:${a.col}">${a.init}</span><span><span class="nm">${esc(a.name)}</span><span class="em">${esc(a.email)}</span></span><span class="rl">${esc(a.role)}</span></button>`).join('')}</div>
   <div class="gate-note">舊平台 → GA360 遷移：依舊平台事件字典給 GA360 埋點設計建議、舊平台歷史資料盤點導出載入、新舊資料整合測試、數據中台交易資料導入與結合分析。事件／漏斗／留存／路徑／歸因／用戶列表／自定義 SQL／分群與標籤；AI 洞察為第二階段。</div></div>`;
@@ -197,7 +197,7 @@ function viewGate() {
 function viewTopNav() {
   const u = S.user; const g = activeGroup(); const open = INSIGHTS.filter(i => i.status === 'open').length;
   const groups = NAV_GROUPS.filter(gr => gr.items.some(it => canRoute(it[0]))).map(gr => `<button class="${gr.id === g.id ? 'on' : ''}" data-act="goto" data-arg="#/${gr.items.find(it => canRoute(it[0]))[0]}">${gr.cn}${gr.id === 'ai' ? `<span class="badge">${open}</span>` : ''}</button>`).join('');
-  return `<header class="topnav"><div class="tn-in"><button class="icon-btn hamb" data-act="navtoggle" aria-label="選單">${svg(I.menu, 20)}</button><a class="brand" href="#/overview">${LOGO_MARK}<b>ALTA TECH<sup>LTD</sup></b><span class="prod">DMP</span></a><nav class="tn-nav">${groups}</nav>
+  return `<header class="topnav"><div class="tn-in"><button class="icon-btn hamb" data-act="navtoggle" aria-label="選單">${svg(I.menu, 20)}</button><a class="brand" href="#/overview">${LOGO_MARK}<b>ALTA TECH</b><span class="prod">DMP</span></a><nav class="tn-nav">${groups}</nav>
     <div class="tn-right">${FEATURES.ai ? `<div class="search">${svg(I.spark, 15)}<input placeholder="問 AI：上週開戶到入金的轉化率？" data-act="askbar" value="" autocomplete="off"><kbd>⏎</kbd></div>` : `<span class="pill gray phase" title="第一階段不含 AI 洞察；語意層與工具閘道契約已保留">AI 洞察：第二階段</span>`}
       <button class="org-pick" data-act="noop">證券示範專案<span class="sep">/</span>prod</button>
       ${FEATURES.ai ? `<button class="icon-btn" data-act="goto" data-arg="#/ai/insights" title="洞察通知">${svg(I.bell, 18)}<span class="dot"></span></button>` : `<button class="icon-btn" data-act="goto" data-arg="#/migration" title="歷史資料遷移">${svg(I.bell, 18)}<span class="dot"></span></button>`}
@@ -206,7 +206,7 @@ function viewTopNav() {
 }
 function viewMobileNav() {
   if (!S.navOpen) return ''; const cur = S.route.name === 'ai' ? `ai/${S.ai.tab}` : S.route.name;
-  return `<div class="mnav"><div class="drawer-bg" data-act="navclose"></div><nav class="mnav-panel"><div class="hd">${LOGO_MARK}<b>ALTA TECH<sup>LTD</sup></b><span class="prod">DMP</span><button class="icon-btn x" data-act="navclose">✕</button></div>
+  return `<div class="mnav"><div class="drawer-bg" data-act="navclose"></div><nav class="mnav-panel"><div class="hd">${LOGO_MARK}<b>ALTA TECH</b><span class="prod">DMP</span><button class="icon-btn x" data-act="navclose">✕</button></div>
     ${NAV_GROUPS.filter(gr => gr.items.some(it => canRoute(it[0]))).map(gr => `<div class="grp">${gr.cn}</div>${gr.items.filter(it => canRoute(it[0])).map(it => `<button class="it ${it[0] === cur ? 'on' : ''}" data-act="goto" data-arg="#/${it[0]}">${it[1]}</button>`).join('')}`).join('')}
     <div class="ft"><button class="it" data-act="logout">切換身分</button></div></nav></div>`;
 }

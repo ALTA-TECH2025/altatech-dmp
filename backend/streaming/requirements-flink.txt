@@ -1,0 +1,59 @@
+# PyFlink 測試環境（docs/43 F2）：完整釘選，CI 用 pip install --no-deps -r 安裝，結果可重現。
+# 需要 JDK 17 或 21（CI 用 Temurin 21）；Python 3.12。只給 Flink 作業與批流一致性測試用，不進 dmp-core 映像。
+# 2026-10-22 pip-audit：0 個已知弱點。
+# 刻意覆蓋上游上限（pip check 會列出這兩項，屬預期）：
+#   pyarrow 23.0.1：apache-flink 2.3 要求 <21、apache-beam 2.61 要求 <17，但 16.1／20.x 有 CVE-2026-25087（修在 23.0.1）
+#   httplib2 0.32.0：apache-beam 2.61 要求 <0.23，但 0.22 有 CVE-2026-59939（修在 0.32.0）
+#   覆蓋後 python3 -m backend.streaming.parity --require-flink 三種寫法（Table UDF process／thread、DataStream）皆與批次逐列相同。
+#   我們的作業不用 Arrow／pandas UDF，也不經 httplib2 連外；升 PyFlink 版本時先拿掉這兩行覆蓋重新檢查。
+apache-beam==2.61.0
+apache-flink==2.3.0
+apache-flink-libraries==2.3.0
+attrs==26.1.0
+avro==1.12.2
+certifi==2026.10.19
+charset-normalizer==3.5.2
+cloudpickle==2.2.1
+crcmod==1.7
+dill==0.3.1.1
+dnspython==2.9.0
+docopt==0.6.2
+fastavro==1.13.1
+fasteners==0.20
+find_libpython==0.5.1
+grpcio==1.65.5
+hdfs==2.7.3
+httplib2==0.32.0
+idna==3.20
+jsonpickle==3.4.2
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+numpy==2.1.3
+objsize==0.7.1
+orjson==3.13.0
+packaging==26.3
+pandas==2.2.3
+pemja==0.5.7
+proto-plus==1.28.2
+protobuf==5.29.6
+py4j==0.10.9.7
+pyarrow==23.0.1
+pyarrow-hotfix==0.7
+pydot==1.4.2
+pymongo==4.19.0
+pyparsing==3.3.3
+python-dateutil==2.9.0.post0
+pytz==2026.5
+PyYAML==6.0.3
+redis==5.3.1
+referencing==0.37.0
+regex==2026.9.29
+requests==2.34.2
+rpds-py==2026.9.1
+ruamel.yaml==0.19.1
+six==1.17.0
+sortedcontainers==2.4.0
+typing_extensions==4.16.0
+tzdata==2026.5
+urllib3==2.8.0
+zstandard==0.25.0

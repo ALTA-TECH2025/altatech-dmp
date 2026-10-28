@@ -199,5 +199,59 @@ def s5():
     s.text(96, 980, "對照 2025/07 提案舊棧（Hadoop／Hive／HBase／ZooKeeper／RocketMQ／MySQL 5.7／Redis／Tendis／InfluxDB／Consul／MinIO，約 20 個元件）：有狀態服務從十幾個降到 5 個，沒有 EOL 版本，沒有改寫版。", 17, 400, C["gray"])
     s.save("slide-5-onprem-deployment.svg")
 
+# ------------------------------------------------------------------ 6. Docker 部署（2026-10-22 研發／運維決議，取代第 4、5 頁的 Kubernetes 做法）
+def s6():
+    s = Slide("部署架構（2026-10 決議版）：Docker Compose，不用 Kubernetes",
+              "快取用 Redis、日誌用 Loki；每台主機一份 Compose、同一批 6 個自建映像；機房 RHEL／Rocky 9，GCP 用 Compute Engine VM（可改託管 Cloud SQL／Memorystore／GCS）", 6)
+    # 入口列
+    s.box(96, 196, 560, 96, "入口", ["客戶負載平衡（F5／GCP 內部 LB）→ 主機 1 nginx（TLS）", "主機 2 為備援；雙活待共用 session 與作業租約"], "red", 22, 15)
+    s.box(672, 196, 560, 96, "映像與部署", ["Harbor 離線映像倉（Trivy 弱掃）；每台 compose ＋ .env，逐台換版"], "gray", 22, 16)
+    s.box(1248, 196, 576, 96, "主機規模", ["本頁 3 台版（D 檔正式／C 檔測試）；A 檔 6 台把", "ClickHouse 兩副本移到專用機；單機測試全放一台"], "gray", 22, 15)
+    hosts = [
+        ("主機 1", [("dmp-web（nginx）", "前端靜態檔＋反向代理", "brand"), ("dmp-core API ＋ worker", "唯一接流量；背景作業只在這台執行", "brand"),
+                   ("ClickHouse 副本 1", "行為事件倉、MV、Bitmap", "yellow"), ("ClickHouse Keeper 1", "副本協調", "yellow"),
+                   ("PostgreSQL 16 主庫", "控制面；pgBackRest WAL 歸檔", "yellow"),
+                   ("Redis 主 ＋ Sentinel", "登入狀態、快取、佇列；AOF", "yellow")]),
+        ("主機 2", [("dmp-web（nginx）", "備援；平時不接流量", "brand"), ("dmp-core API（備援）", "不開背景作業；切換時使用者需重新登入", "brand"),
+                   ("ClickHouse 副本 2", "任一台故障另一副本續服", "yellow"), ("ClickHouse Keeper 2", "副本協調", "yellow"),
+                   ("PostgreSQL 16 從庫", "串流複寫；切換走手動程序", "yellow"),
+                   ("Redis 從 ＋ Sentinel", "主庫故障由 Sentinel 自動切換", "yellow")]),
+        ("主機 3", [("dmp-ingest（選配）", "MA／LINE 直送才啟用；Kafka、Flink 第二階段", "teal"), ("ClickHouse Keeper 3", "三節點多數決", "yellow"),
+                   ("Redis Sentinel 3", "第三票", "yellow"), ("Keycloak ＋ OpenBao", "SSO／OIDC；密鑰落檔掛載", "purple"),
+                   ("Prometheus ＋ Alertmanager", "指標、告警 → Email／LINE", "purple"), ("Grafana ＋ Loki", "看板與日誌查詢（Loki 取代其他日誌元件）", "purple"),
+                   ("SeaweedFS（三台都有）", "master＋volume 2 副本；備份另複製到叢集外", "yellow")]),
+    ]
+    for i, (hn, items) in enumerate(hosts):
+        x = 96 + i * 408; w = 392
+        s.rect(x, 312, w, 548, "#FBFCFE", C["brandline"], 16)
+        s.text(x + 20, 346, hn, 22, 800, C["brand"])
+        s.text(x + w - 20, 346, "Docker Engine ＋ Compose", 15, 600, C["muted"], "end")
+        for j, (t, d, c) in enumerate(items):
+            y = 362 + j * 70
+            s.rect(x + 14, y, w - 28, 62, C[c + "soft"], C[c], 10)
+            s.p.append(f'<rect x="{x + 14}" y="{y}" width="6" height="62" rx="3" fill="{C[c]}"/>')
+            s.text(x + 32, y + 26, t, 18, 800); s.text(x + 32, y + 50, d, 15, 400, C["gray"])
+    # 右欄：拿掉 Kubernetes 後誰補位
+    s.rect(1328, 312, 496, 548, C["redsoft"], C["red"], 16)
+    s.text(1352, 346, "拿掉 Kubernetes 後由誰補位", 22, 800, C["red"])
+    tips = [("程序掛掉", ["restart: unless-stopped ＋ healthcheck"]),
+            ("主機掛掉", ["ClickHouse 雙副本、Keeper 三節點自身容錯；Redis Sentinel", "PostgreSQL 手動 promote（RTO 30 分鐘）", "主機 1 掛：改送主機 2 API、手動起 worker"]),
+            ("第二階段才有", ["Kafka 三節點、Flink standalone（docs/43）", "啟用時 Kafka 各放一台、Flink 放主機 3"]),
+            ("換版與容量", ["逐台 pull ＋ up，維護窗口內", "沒有自動擴縮，容量按檔位預留"]),
+            ("隔離", ["每台 Docker 網路＋主機防火牆", "容器非 root、唯讀、cap_drop ALL"]),
+            ("密鑰與憑證", ["設定只存 secret_ref；客戶內部 CA 簽發", "憑證到期前告警"])]
+    yy = 380
+    for t, ds in tips:
+        s.text(1352, yy, "• " + t, 18, 800, C["ink"])
+        for d in ds:
+            yy += 23; s.text(1372, yy, d, 15, 400, C["gray"])
+        yy += 31
+    # 每台共通 ＋ 授權
+    s.rect(96, 876, 1728, 52, C["graysoft"], C["gray"], 12)
+    s.text(120, 909, "每台共通：Alloy（容器日誌 → Loki）· node-exporter · cAdvisor · RHEL／Rocky 9（SELinux enforcing）　｜　備份：ClickHouse BACKUP TO S3、pgBackRest、Redis AOF", 17, 600)
+    s.rect(96, 938, 1728, 52, C["yellowsoft"], C["yellow"], 12)
+    s.text(120, 971, "授權：Redis 8 選 AGPLv3；Loki、Grafana 為 AGPLv3 — 皆用官方映像、不修改、僅內部使用、不對外提供服務（同既有 Grafana 例外，待法務確認）；其餘 Apache-2.0／BSD／MIT", 17, 600)
+    s.save("slide-6-docker-deployment.svg")
+
 if __name__ == "__main__":
-    s1(); s2(); s3(); s4(); s5()
+    s1(); s2(); s3(); s4(); s5(); s6()
