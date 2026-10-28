@@ -50,6 +50,21 @@ class ClickHouseHTTP:
         return len(rows)
 
 
+def fetch_users(ch: ClickHouseHTTP, one_ids: list[str], chunk: int = 5_000) -> dict[str, dict[str, Any]]:
+    """dmp.users 目前的值（FINAL）：one_id → 完整列（寬表欄位、props_extra、first_seen）。給 modeling.merge_users 疊加用。"""
+    cols, _ = modeling.user_meta()
+    sel = ", ".join(["one_id", *cols, "props_extra", "first_seen"])
+    out: dict[str, dict[str, Any]] = {}
+    ids = sorted(set(one_ids))
+    for i in range(0, len(ids), chunk):
+        lit = ", ".join("'" + x.replace("\\", "\\\\").replace("'", "\\'") + "'" for x in ids[i:i + chunk])
+        body = ch.query(f"SELECT {sel} FROM dmp.users FINAL WHERE one_id IN ({lit}) FORMAT JSONEachRow")
+        for line in body.splitlines():
+            if line.strip():
+                r = json.loads(line); out[r["one_id"]] = r
+    return out
+
+
 def local_ddl(schema_sql: str) -> list[str]:
     """把 schema.sql 的 Replicated 引擎與冷層 TTL 轉成單機版（測試環境）。"""
     s = re.sub(r"--[^\n]*", "", schema_sql)                       # 先去註解，再動引擎與 TTL
@@ -192,6 +207,10 @@ class LocalRunner:
             target_rows, skipped = d.rows, d.skipped + d.kept_first
         else:
             marks = None
+        users_unchanged = 0
+        if model.entity == "user":   # 只更新帶到的屬性：先讀倉裡現值再疊加（ReplacingMergeTree 一寫就是整列取代，#46）
+            target_rows, users_unchanged = modeling.merge_users(fetch_users(self.ch, [r["one_id"] for r in target_rows]), target_rows, ingest_ms)
+            log(f"users: written={len(target_rows)} unchanged={users_unchanged}")
         for i in range(0, len(target_rows), 50_000):
             if marks is not None: marks.check()
             self.ch.insert_json(model.target_table, target_rows[i:i + 50_000])
@@ -210,6 +229,8 @@ class LocalRunner:
                 log(f"daily_agg rebuilt for {done}" + (" (incl. pending from an interrupted run)" if set(done) - rebuild_dates else ""))
             if d is not None and (d.skipped or d.kept_first):
                 self._log_dedupe(d, log)
+        elif model.entity == "user":
+            res.rows_loaded = res.rows_ok      # 內容沒變而沒寫的人也已在倉裡（同事件的略過列，對帳算已載入）
         else:
             res.rows_loaded = len(target_rows)
         self.ch.insert_json("dmp.ingest_recon", [{"task_id": task["id"], "batch_id": batch_id, "at": at, "rows_in": res.rows_in, "rows_ok": res.rows_ok,
