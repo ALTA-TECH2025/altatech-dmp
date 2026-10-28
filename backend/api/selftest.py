@@ -384,6 +384,13 @@ def main(store: Any | None = None) -> None:
     assert c.post(f"/v1/bookmarks/{bmj['id']}/data").json()["masked"] and c.put(f"/v1/bookmarks/{bmj['id']}", json={"name": "x"}).status_code == 403
     assert c.post("/v1/bookmarks", json={"name": "行銷的", "kind": "events", "query": q, "new_dashboard": "行銷看板"}).status_code == 403   # 行銷 overview 只有 view：可存書籤、不能建看板
     mb = c.post("/v1/bookmarks", json={"name": "行銷的", "kind": "events", "query": q}); assert mb.status_code == 201 and mb.json()["added_to"] == []
+    dup = c.post("/v1/bookmarks", json={"name": "成交金額（平台別）", "kind": "events", "query": q})          # 同專案重名：不分擁有者與類型、看不到的也算（Windy 2026-10-28）
+    assert dup.status_code == 409 and dup.json()["code"] == "CONFLICT" and bmj["id"] not in dup.text, dup.text
+    assert c.put(f"/v1/bookmarks/{mb.json()['id']}", json={"name": " 成交金額（平台別） "}).status_code == 409                       # 改名撞名也擋（前後空白不算不同）
+    assert c.put(f"/v1/bookmarks/{mb.json()['id']}", json={"name": "行銷的", "description": "同名存回自己不算重名"}).status_code == 200
+    other = c.post("/v1/bookmarks", json={"name": "成交金額（平台別）", "kind": "events", "query": {**q, "project": "other_proj"}})
+    assert other.status_code in (201, 400, 403), other.text                                                                       # 別的專案不受限（該專案能否查詢由權限決定）
+    assert other.status_code != 409, other.text
     login(c, sm, ["data_analyst"], "ana")
     assert c.delete(f"/v1/bookmarks/{bmj['id']}").status_code == 204
     cd3 = c.post(f"/v1/dashboards/{did}/cards/{bc['id']}/data").json(); assert any("書籤已刪除" in w for w in cd3["warnings"]) and cd3["rows"]

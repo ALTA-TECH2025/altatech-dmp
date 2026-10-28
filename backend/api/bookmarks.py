@@ -12,6 +12,7 @@ from ..security.policy import Subject, authorize
 from ..semantic.compiler import Catalog
 from .analytics import RUNNERS, Executor, compile_kind, execute_kind
 from .dashboards import CHARTS, _format, _shared, apply_time, editable, visible
+from .errors import ApiError
 from .store import Store
 
 KIND = "bookmark"
@@ -39,6 +40,17 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
             raise HTTPException(403, "只有擁有者或系統管理員可以修改此書籤")
         return b
 
+    def project_of(b: dict[str, Any]) -> str:
+        q = b.get("query")
+        return str(q.get("project") or "") if isinstance(q, dict) else ""
+
+    def unique_name(b: dict[str, Any], cur: dict[str, Any] | None) -> None:
+        """同一專案內書籤（含漏斗）不可重名，不分擁有者與類型（Windy 2026-10-28）；引用一律用系統編號 id，名稱只給人看。
+        看不到的書籤也算，回應不透露是誰的、編號多少。"""
+        me = cur["id"] if cur else None
+        if any(x["id"] != me and x.get("name") == b["name"] and project_of(x) == project_of(b) for x in store.items(KIND)):
+            raise ApiError("CONFLICT", f"書籤名稱「{b['name']}」在這個專案已被使用，請換一個名稱", params={"name": b["name"]})
+
     def validate(body: dict[str, Any], s: Subject, cur: dict[str, Any] | None = None) -> dict[str, Any]:
         b = dict(cur or {})
         if cur is None or "kind" in body or "query" in body:
@@ -54,6 +66,8 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
             b["name"] = str(body.get("name") or "").strip()[:80]
             if not b["name"]:
                 raise HTTPException(400, "name 必填")
+        if "name" in body or cur is None or "query" in body:
+            unique_name(b, cur)
         if "description" in body: b["description"] = str(body.get("description") or "")[:400]
         if "chart" in body or cur is None:
             b["chart"] = str(body.get("chart") or "auto")
@@ -73,22 +87,24 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
     @r.post("/v1/bookmarks", status_code=201)
     def create(body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
         b = validate(body, subject)
-        b.update({"id": "bm_" + secrets.token_hex(5), "owner": subject.user_id, "created_at": _now(), "updated_at": _now()})
-        store.put_item(KIND, b)
-        store.audit("bookmark.created", {"user": subject.user_id, "bookmark": b["id"], "kind": b["kind"], "name": b["name"]})
-        added: list[dict[str, str]] = []
         targets = [str(x) for x in (body.get("add_to") or [])]
-        if body.get("new_dashboard"):
-            if not authorize(subject, "use", "overview").allowed:
-                raise HTTPException(403, "需要總覽的可用權限才能建看板")
-            nd = {"id": "d_" + secrets.token_hex(5), "name": str(body["new_dashboard"]).strip()[:60] or "我的儀表板", "description": "", "owner": subject.user_id, "shared": {"roles": [], "users": []}, "time": {"preset": "30d"}, "cards": [], "created_at": _now(), "updated_at": _now()}
-            store.put_item("dashboard", nd); store.audit("dashboard.created", {"user": subject.user_id, "dashboard": nd["id"], "name": nd["name"], "cards": 0}); targets.append(nd["id"])
+        if body.get("new_dashboard") and not authorize(subject, "use", "overview").allowed:   # 先檢查完再存：失敗時不留下孤兒書籤（否則重試同名會被當成重名）
+            raise HTTPException(403, "需要總覽的可用權限才能建看板")
         for did in targets:
             d = next((x for x in store.items("dashboard") if x["id"] == did), None)
             if not d or not visible(d, subject) or not editable(d, subject):
                 raise HTTPException(403, f"看板 {did} 不存在或不可編輯")
             if len(d.get("cards") or []) >= 24:
                 raise HTTPException(400, f"看板 {d['name']} 已達 24 張卡片")
+        b.update({"id": "bm_" + secrets.token_hex(5), "owner": subject.user_id, "created_at": _now(), "updated_at": _now()})
+        store.put_item(KIND, b)
+        store.audit("bookmark.created", {"user": subject.user_id, "bookmark": b["id"], "kind": b["kind"], "name": b["name"]})
+        added: list[dict[str, str]] = []
+        if body.get("new_dashboard"):
+            nd = {"id": "d_" + secrets.token_hex(5), "name": str(body["new_dashboard"]).strip()[:60] or "我的儀表板", "description": "", "owner": subject.user_id, "shared": {"roles": [], "users": []}, "time": {"preset": "30d"}, "cards": [], "created_at": _now(), "updated_at": _now()}
+            store.put_item("dashboard", nd); store.audit("dashboard.created", {"user": subject.user_id, "dashboard": nd["id"], "name": nd["name"], "cards": 0}); targets.append(nd["id"])
+        for did in targets:
+            d = next(x for x in store.items("dashboard") if x["id"] == did)
             c = {"id": "c_" + secrets.token_hex(4), "bookmark": b["id"], "title": b["name"], "kind": b["kind"], "query": b["query"], "chart": b["chart"], "format": b.get("format", "auto"), "width": int(body.get("width") or 1) if int(body.get("width") or 1) in (1, 2) else 1, "note": "", "created_by": subject.user_id, "created_at": _now()}
             d["cards"] = [*(d.get("cards") or []), c]; d["updated_at"] = _now(); store.put_item("dashboard", d)
             store.audit("dashboard.card.added", {"user": subject.user_id, "dashboard": did, "card": c["id"], "kind": c["kind"], "bookmark": b["id"]}); added.append({"dashboard": did, "name": d["name"]})
