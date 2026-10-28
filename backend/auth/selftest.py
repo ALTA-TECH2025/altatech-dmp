@@ -204,25 +204,27 @@ def main() -> None:
     assert [p["key"] for p in AuthService(ov, {"keycloak": stub}, sm).visible_providers()] == ["keycloak"]
     cfg = dict(CFG); cfg["mode"] = "direct"
     svc = AuthService(cfg, {"entra": entra, "ad": ad}, sm, tokens, lambda: asg)
+    from ..api import errors as api_errors
     app = FastAPI(); app.include_router(build_router(svc))
+    api_errors.install(app, type("Sink", (), {"audit": lambda self, e, d: None})())   # 與正式 API 同一套錯誤輸出；302 不能被改成 Error
     c = TestClient(app, base_url="https://dmp.internal")
     assert [p["key"] for p in c.get("/auth/providers").json()["providers"]] == ["entra", "ad"]
-    assert c.get("/v1/iam/me").status_code == 401
+    assert c.get("/v1/iam/me").json()["code"] == "UNAUTHENTICATED"
     r = c.get("/auth/login", params={"provider": "entra", "return_to": "/users"}, follow_redirects=False)
-    assert r.status_code == 302 and "code_challenge" in r.headers["location"] and "dmp_login" in r.headers.get("set-cookie", "")
+    assert r.status_code == 302 and "code_challenge" in r.headers["location"] and "dmp_login" in r.headers.get("set-cookie", "") and not r.content and r.headers.get("x-request-id")
     state = r.headers["location"].split("state=")[1].split("&")[0]
     idp.codes["c9"] = {"oid": "oid-ops", "upn": "ops@corp.internal", "name": "陳柏宇", "groups": ["1c7b1c9a-0000-4000-8000-000000000004", "1c7b1c9a-0000-4000-8000-000000000002"], "nonce": svc.login_states[state].nonce}
     r = c.get("/auth/callback", params={"code": "c9", "state": state}, follow_redirects=False)
-    assert r.status_code == 302 and r.headers["location"] == "/users", (r.status_code, r.text)
+    assert r.status_code == 302 and r.headers["location"] == "/users" and "dmp_sid=" in r.headers.get("set-cookie", "") and not r.content, (r.status_code, r.text)
     me = c.get("/v1/iam/me").json()
     import os
     if os.environ.get("AUTH_DEBUG"): print(json.dumps(me, ensure_ascii=False)[:1200])
     assert [x["key"] for x in me["roles"]] == ["marketing", "digital_ops"] and "approve" in me["grants"]["segments"] and me["masking"]["amount"]["policy"] == "plain" and me["session"]["csrf_header"] == "X-CSRF-Token"
-    assert c.post("/auth/logout").status_code == 403                                  # 沒帶 CSRF
+    assert c.post("/auth/logout").json()["code"] == "CSRF_INVALID"                    # 沒帶 CSRF → 403
     tk2 = c.post("/auth/token", headers={"X-CSRF-Token": c.cookies["dmp_csrf"]}).json()["access_token"]
     assert tokens.verify(tk2).roles == ["marketing", "digital_ops"]
     r = c.post("/auth/ldap", json={"username": "wuch", "password": "Passw0rd!"}); assert r.json()["next"] == "totp"
-    r = c.post("/auth/ldap", json={"username": "wuch", "password": "Passw0rd!", "totp": "123456"}); assert r.status_code == 401 and "驗證器" in r.json()["detail"]   # AD 直連尚未接 TOTP 驗證器 → 不放行
+    r = c.post("/auth/ldap", json={"username": "wuch", "password": "Passw0rd!", "totp": "123456"}); assert r.status_code == 401 and "驗證器" in r.json()["detail"] and r.json()["code"] == "OTP_INVALID"   # AD 直連尚未接 TOTP 驗證器 → 不放行
     r = c.post("/auth/logout", headers={"X-CSRF-Token": c.cookies["dmp_csrf"]}); assert r.status_code == 200 and "logout" in (r.json()["idp_logout"] or "")
     assert c.get("/v1/iam/me").status_code == 401
     # 9. 本機帳號（provider=local）：密碼 → next=totp → 錯碼 401 → 正確碼登入（amr pwd+mfa，角色來自帳號）→ 15 分鐘後 admin 降級 → step-up 回復 → 不允許的角色被濾掉
@@ -248,6 +250,11 @@ def main() -> None:
     assert c.post("/auth/step-up", json={"totp": "000000"}, headers={"X-CSRF-Token": c.cookies["dmp_csrf"]}).status_code == 401
     r = c.post("/auth/step-up", json={"totp": totp_code(sec, clock())}, headers={"X-CSRF-Token": c.cookies["dmp_csrf"]}); assert r.status_code == 200 and "admin" in r.json()["roles"], r.text
     assert not c.get("/v1/iam/me").json()["session"]["step_up_needed"]
+    la.add("lock.me", "lock-me-password-123", ["data_analyst"])               # 連錯 5 次：第 6 次撞速率限制 → 429；過了一分鐘 → 帳號鎖定 403（docs/46 代碼）
+    codes = [c.post("/auth/ldap", json={"provider": "local", "username": "lock.me", "password": "wrong-wrong-wrong-1"}).json()["code"] for _ in range(6)]
+    assert codes == ["UNAUTHENTICATED"] * 5 + ["RATE_LIMITED"], codes
+    clock.t += 61; r = c.post("/auth/ldap", json={"provider": "local", "username": "lock.me", "password": "lock-me-password-123"})
+    assert r.status_code == 403 and r.json()["code"] == "ACCOUNT_LOCKED" and "鎖定" in r.json()["detail"], r.text
     assert {x["event"] for x in audit} >= {"auth.login.failed", "auth.step_up.failed", "auth.step_up"}
     c.post("/auth/logout", headers={"X-CSRF-Token": c.cookies["dmp_csrf"]})
     shared = _shared_two_nodes(cfg, entra, idp, clock, asg)

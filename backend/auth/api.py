@@ -12,6 +12,7 @@ from urllib.parse import urlencode
 import yaml  # type: ignore
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from ..api.errors import ApiError
 from ..security.policy import Subject, authorize
 from .ldap import LdapError, LdapProvider
 from .local import LocalError, LocalProvider
@@ -47,6 +48,11 @@ class AuthService:
                                     roles=roles, groups=ident.groups, amr=ident.amr, auth_time=ident.auth_time, scope=scope, ip=ip, base_roles=base_roles(ident, self.cfg["role_mapping"]))
 
 
+
+def _login_code(why: str) -> str:
+    """帳密登入失敗分類：鎖定 → ACCOUNT_LOCKED；速率限制 → RATE_LIMITED；其餘（帳密錯、到期）→ UNAUTHENTICATED。"""
+    return "ACCOUNT_LOCKED" if "鎖定" in why else "RATE_LIMITED" if ("頻繁" in why or "次數過多" in why) else "UNAUTHENTICATED"
+
 def _set(resp: Response, headers: list[tuple[str, str]]) -> None:
     for k, v in headers:
         resp.headers.append(k, v)
@@ -56,9 +62,9 @@ def current_session(svc: AuthService, req: Request) -> Session:
     sid = req.cookies.get(svc.cfg["session"]["cookie"]["name"])
     s = svc.sessions.resolve(sid, req.client.host if req.client else "")
     if not s:
-        raise HTTPException(401, "未登入或 session 已逾時")
+        raise ApiError("UNAUTHENTICATED", "未登入或 session 已逾時")
     if req.method not in ("GET", "HEAD", "OPTIONS") and not svc.sessions.check_csrf(s, req.headers.get(svc.cfg["session"]["csrf"]["header"])):
-        raise HTTPException(403, "CSRF token 不符")
+        raise ApiError("CSRF_INVALID")
     return s
 
 
@@ -111,7 +117,7 @@ def build_router(svc: AuthService) -> APIRouter:
             ident = p.authenticate(username, str(body.get("password", "")), ip)
         except (LdapError, LocalError) as e:
             svc.sessions.audit("auth.login.failed", {"provider": key, "user": username[:64], "why": str(e)})
-            raise HTTPException(401, str(e)) from None
+            raise ApiError(_login_code(str(e)), str(e)) from None
         if p.cfg.get("mfa") == "totp":
             code = str(body.get("totp") or "")
             if not code:
@@ -119,7 +125,7 @@ def build_router(svc: AuthService) -> APIRouter:
             check = getattr(p, "check_totp", None)                               # AD 直連的 TOTP 需另接驗證器服務；沒有實作時這裡不放行 mfa
             if check is None or not check(username, code):
                 svc.sessions.audit("auth.login.failed", {"provider": key, "user": username[:64], "why": "totp"})
-                raise HTTPException(401, "驗證碼錯誤或已使用" if check else "此環境尚未接上 TOTP 驗證器")
+                raise ApiError("OTP_INVALID", "驗證碼錯誤或已使用" if check else "此環境尚未接上 TOTP 驗證器")
             ident.amr = ["pwd", "mfa"]
         s = svc.finish_login(ident, ip)
         _set(resp, svc.sessions.cookie_headers(s))
@@ -135,7 +141,7 @@ def build_router(svc: AuthService) -> APIRouter:
             raise HTTPException(400, "此登入方式的 step-up 由身分提供者處理，請重新登入")
         if not check(s.username, str(body.get("totp") or "")):
             svc.sessions.audit("auth.step_up.failed", {"user": s.user_id})
-            raise HTTPException(401, "驗證碼錯誤或已使用")
+            raise ApiError("OTP_INVALID", "驗證碼錯誤或已使用")
         s.step_up_at = int(svc.sessions.now())
         if "mfa" not in s.amr:
             s.amr = [*s.amr, "mfa"]
@@ -217,7 +223,7 @@ def subject_from_request(svc: AuthService, req: Request) -> Subject:
         try:
             return svc.tokens.verify(auth[7:])
         except Exception:
-            raise HTTPException(401, "API token 無效或過期") from None
+            raise ApiError("TOKEN_INVALID", "API token 無效或過期") from None
     return svc.sessions.subject(current_session(svc, req))
 
 

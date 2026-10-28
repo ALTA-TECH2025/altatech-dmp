@@ -9,8 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 
 from ..activation.service import httpx_transport as _httpx_transport
 from ..approvals import ApprovalService, ExportService, RevealService
@@ -25,7 +24,7 @@ from ..ops.service import OpsService
 from ..security.policy import Subject
 from ..segments import SegmentService
 from ..semantic.compiler import Catalog
-from . import activation, analytics, ask, bookmarks, dashboards, exports, iam, integration, meta, migration, ops, output, segments, sql, sysadmin, tags, users
+from . import activation, analytics, ask, bookmarks, dashboards, errors, exports, iam, integration, meta, migration, ops, output, segments, sql, sysadmin, tags, users
 from .store import Store
 from .sysadmin import member_directory
 
@@ -131,19 +130,7 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     app.include_router(ops.build_router(store, get_subject, ops_svc, metrics_token, notifier))
     app.state.ops = ops_svc; app.state.notifier = notifier
 
-    @app.exception_handler(HTTPException)
-    async def _http(request: Request, e: HTTPException) -> Any:
-        if e.status_code == 403:                                                # 權限拒絕也是審計事件（日誌統計看板的「權限拒絕」）
-            store.audit("authz.denied", {"user": getattr(request.state, "user_id", ""), "path": request.url.path, "method": request.method, "reason": str(e.detail)[:200]})
-        return await http_exception_handler(request, e)
-
-    @app.exception_handler(PermissionError)
-    def _perm(_: Request, e: PermissionError) -> JSONResponse:
-        return JSONResponse({"detail": str(e)}, status_code=403)
-
-    @app.exception_handler(ValueError)
-    def _val(_: Request, e: ValueError) -> JSONResponse:
-        return JSONResponse({"detail": str(e)}, status_code=400)
+    errors.install(app, store)                                             # X-Request-Id、統一 Error 輸出、403 審計（docs/46）
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next: Any) -> Any:
@@ -181,7 +168,7 @@ def mount_web(app: FastAPI, dist: Path) -> None:
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str) -> Any:
         if path.startswith(("v1/", "auth/", "healthz")):                     # API 路徑不存在要回 404 JSON，不要回 index.html
-            return JSONResponse({"detail": "Not Found"}, status_code=404)
+            raise HTTPException(404)
         f = (dist / path).resolve() if path else index
         if path and f.is_relative_to(dist) and f.is_file():
             hdr = {"Cache-Control": "public, max-age=31536000, immutable"} if path.startswith("assets/") else {"Cache-Control": "no-cache"}
