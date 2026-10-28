@@ -17,7 +17,7 @@
 
 | 層 | 元件 | Vuln | HA | Main | Vibe | 總評 | 備註 / 決定 |
 |---|---|---|---|---|---|---|---|
-| 前端 | React 18 + Vite + TypeScript | 4 | — | 5 | **5** | 4.7 | LLM 最熟；相依樹用 `pnpm audit` + Renovate 控制 |
+| 前端 | React 19 + Vite + TypeScript | 4 | — | 5 | **5** | 4.7 | LLM 最熟；相依樹用 `npm audit` + Renovate 控制 |
 | 前端 | 自繪 SVG + D3（scale／shape） | 5 | — | 5 | 5 | 5.0 | 原型已全部自繪；ECharts（百度起源）依客戶供應商評分改不採用（docs/25） |
 | 後端 | Python 3.12 + FastAPI + Pydantic v2 | 4 | 5 | 5 | **5** | 4.8 | 採用；所有業務服務統一此棧 |
 | 後端 | SQLGlot（SQL 生成） | 4 | — | 4 | 4 | 4.0 | 語意層編譯器；純 Python，無原生相依 |
@@ -58,7 +58,7 @@
 |---|---|---|
 | 相依鎖定 | 所有語言鎖版本（pnpm-lock、uv.lock、Gradle lock、go.sum）；映像以 digest 固定 | — |
 | 自動更新 | Renovate 每週開 PR（安全更新即時）；minor 自動合併需測試全綠 | Renovate（AGPL 工具，僅 CI 使用）或 Dependabot |
-| 原始碼掃描 | 每次 PR：SAST、秘密掃描、相依弱點 | Semgrep OSS（LGPL）、gitleaks（MIT）、`pnpm audit`／`pip-audit`／`govulncheck` |
+| 原始碼掃描 | 每次 PR：SAST、秘密掃描、相依弱點 | Semgrep OSS（LGPL）、gitleaks（MIT）、`npm audit`／`pip-audit`／`govulncheck` |
 | SBOM 與映像掃描 | 每次建置：產 SBOM，掃映像，Critical／High 阻擋發佈 | Syft、Grype、Trivy（Apache-2.0） |
 | 授權檢查 | SBOM 比對白名單，非白名單即失敗 | 自建 `license_check.py` |
 | 簽章與准入 | 映像以 cosign 簽章；GKE Binary Authorization 只允許簽章映像 | Sigstore（Apache-2.0） |
