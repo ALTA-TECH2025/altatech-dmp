@@ -392,6 +392,19 @@ def main(store: Any | None = None) -> None:
     assert other.status_code in (201, 400, 403), other.text                                                                       # 別的專案不受限（該專案能否查詢由權限決定）
     assert other.status_code != 409, other.text
     login(c, sm, ["data_analyst"], "ana")
+    # 存書籤順手加進看板：目標去重、24 張上限、width 驗證都在寫入前完成，失敗不留書籤也不留部分卡片（#94 審查）
+    d23, d2 = (c.post("/v1/dashboards", json={"name": n}).json()["id"] for n in ("滿 23 張的看板", "另一個看板"))
+    dd = next(x for x in store.items("dashboard") if x["id"] == d23); dd["cards"] = [{**cards[0], "id": f"c_fill{i}"} for i in range(23)]; store.put_item("dashboard", dd)
+    ncards = lambda did_: len(next(x for x in store.items("dashboard") if x["id"] == did_)["cards"])
+    nbm = len(store.items("bookmark"))
+    r = c.post("/v1/bookmarks", json={"name": "重複目標", "kind": "events", "query": q, "add_to": [d23, d23, d2]})
+    assert r.status_code == 201 and [x["dashboard"] for x in r.json()["added_to"]] == [d23, d2] and ncards(d23) == 24 and ncards(d2) == 1, r.text
+    full = c.post("/v1/bookmarks", json={"name": "第 25 張", "kind": "events", "query": q, "add_to": [d2, d23]})
+    assert full.status_code == 400 and len(store.items("bookmark")) == nbm + 1 and ncards(d2) == 1 and ncards(d23) == 24, full.text
+    bad_w = c.post("/v1/bookmarks", json={"name": "寬度錯", "kind": "events", "query": q, "add_to": [d2], "width": "not-an-int"})
+    assert bad_w.status_code == 400 and len(store.items("bookmark")) == nbm + 1 and ncards(d2) == 1, bad_w.text
+    assert c.post("/v1/bookmarks", json={"name": "第 25 張", "kind": "events", "query": q}).status_code == 201   # 失敗那次沒留下同名書籤
+    for x in (d23, d2): assert c.delete(f"/v1/dashboards/{x}").status_code == 200
     assert c.delete(f"/v1/bookmarks/{bmj['id']}").status_code == 204
     cd3 = c.post(f"/v1/dashboards/{did}/cards/{bc['id']}/data").json(); assert any("書籤已刪除" in w for w in cd3["warnings"]) and cd3["rows"]
     assert next(x for x in c.get(f"/v1/dashboards/{did}").json()["cards"] if x["id"] == bc["id"])["bookmark_deleted"] is True

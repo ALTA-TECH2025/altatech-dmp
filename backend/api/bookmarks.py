@@ -87,7 +87,12 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
     @r.post("/v1/bookmarks", status_code=201)
     def create(body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
         b = validate(body, subject)
-        targets = [str(x) for x in (body.get("add_to") or [])]
+        targets = list(dict.fromkeys(str(x) for x in (body.get("add_to") or [])))     # 同一看板寫兩次只加一張（否則可越過 24 張上限）
+        try:
+            width = int(body.get("width") or 1)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "width 只能是 1 或 2") from None
+        width = width if width in (1, 2) else 1
         if body.get("new_dashboard") and not authorize(subject, "use", "overview").allowed:   # 先檢查完再存：失敗時不留下孤兒書籤（否則重試同名會被當成重名）
             raise HTTPException(403, "需要總覽的可用權限才能建看板")
         for did in targets:
@@ -105,7 +110,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
             store.put_item("dashboard", nd); store.audit("dashboard.created", {"user": subject.user_id, "dashboard": nd["id"], "name": nd["name"], "cards": 0}); targets.append(nd["id"])
         for did in targets:
             d = next(x for x in store.items("dashboard") if x["id"] == did)
-            c = {"id": "c_" + secrets.token_hex(4), "bookmark": b["id"], "title": b["name"], "kind": b["kind"], "query": b["query"], "chart": b["chart"], "format": b.get("format", "auto"), "width": int(body.get("width") or 1) if int(body.get("width") or 1) in (1, 2) else 1, "note": "", "created_by": subject.user_id, "created_at": _now()}
+            c = {"id": "c_" + secrets.token_hex(4), "bookmark": b["id"], "title": b["name"], "kind": b["kind"], "query": b["query"], "chart": b["chart"], "format": b.get("format", "auto"), "width": width, "note": "", "created_by": subject.user_id, "created_at": _now()}
             d["cards"] = [*(d.get("cards") or []), c]; d["updated_at"] = _now(); store.put_item("dashboard", d)
             store.audit("dashboard.card.added", {"user": subject.user_id, "dashboard": did, "card": c["id"], "kind": c["kind"], "bookmark": b["id"]}); added.append({"dashboard": did, "name": d["name"]})
         return {**out(b, subject), "added_to": added}
