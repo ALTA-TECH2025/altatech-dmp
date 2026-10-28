@@ -17,6 +17,7 @@ from ..auth.api import AuthService, load_cfg
 from ..auth.session import MemoryStore as SessionMemory
 from ..auth.session import SessionManager
 from ..security.policy import RBAC, Subject
+from . import errors_selftest
 from .app import create_app
 from .store import MemoryStore
 
@@ -254,7 +255,7 @@ def main(store: Any | None = None) -> None:
     assert c.get("/v1/profiles/v1_abcdef1234?reason=客訴調查").status_code == 403          # 行銷不可細查
     login(c, sm, ["it_admin"], "it"); assert c.post("/v1/users/estimate", json=uq).status_code == 403
     login(c, sm, ["data_analyst"], "ana")
-    assert c.get("/v1/profiles/v1_abcdef1234").status_code == 422 and c.get("/v1/profiles/v1_abcdef1234?reason=x").status_code == 400
+    assert c.get("/v1/profiles/v1_abcdef1234").status_code == 400 and c.get("/v1/profiles/v1_abcdef1234?reason=x").status_code == 400
     pr = c.get("/v1/profiles/v1_abcdef1234?reason=客訴單 C-1001&now=2026-10-16"); assert pr.status_code == 200, pr.text
     pb = pr.json(); assert pb["one_id"] == "v1_abc****" and pb["props"]["aum"] == 1500000 and pb["segments"] == ["vip"] and pb["summary"]["total"] == 10 and pb["summary"]["events"][0]["cn"] and pb["masked"] == {"one_id": "mask_tail(4)"}, pb
     assert c.get("/v1/profiles/nope?reason=客訴單 C-1001").status_code == 404
@@ -638,7 +639,7 @@ def main(store: Any | None = None) -> None:
     assert c.post("/v1/meta/events", json={"name": "x", "cn": "x", "entity": "user", "source": "GA360", "kind": "behavior", "owner": "a"}).status_code == 403   # 分析師只能看
     login(c, sm, ["it_admin"], "it")
     bad = c.post("/v1/meta/events", json={"name": "fund_redeem", "cn": "基金贖回", "entity": "user", "source": "基金平台", "kind": "business", "owner": "財富", "status": "live", "properties": [{"key": "mobile", "type": "string", "sensitivity": "L4"}]})
-    assert bad.status_code == 422 and any("L4" in x for x in bad.json()["detail"]["errors"]), bad.json()
+    assert bad.status_code == 422 and any("L4" in x for x in [e["message"] for e in bad.json()["errors"]]), bad.json()
     dr = c.post("/v1/meta/events", json={"name": "fund_redeem", "cn": "基金贖回", "entity": "user", "source": "基金平台", "kind": "business", "owner": "", "status": "draft", "properties": [{"key": "fund_code", "type": "string", "sensitivity": "L1"}]}).json()
     assert dr["status"] == "draft" and dr["errors"] and not dr["catalog_synced"]
     assert c.post("/v1/meta/events/fund_redeem/status", json={"to": "live"}).status_code == 422                       # 缺負責人
@@ -960,7 +961,7 @@ def main(store: Any | None = None) -> None:
     q = {x["key"]: x for x in pl["quality"]}; assert q["delivery_success"]["value"] is not None and q["k_suppressed"]["value"] is not None, q
     qp = c.get("/v1/ops/query-perf?window=24h").json(); mods = {m["module"]: m for m in qp["modules"]}
     assert "events" in mods and mods["events"]["n"] >= 1 and mods["events"]["p95_ms"] is not None and mods["events"]["sla_ms"] == 3000 and "sql" in mods and mods["sql"]["cn"] == "自定義 SQL", mods
-    assert qp["clickhouse"]["n"] == 42 and qp["slow"] and qp["slow"][0]["ms"] >= qp["slow"][-1]["ms"] and c.get("/v1/ops/query-perf?window=2h").status_code == 422
+    assert qp["clickhouse"]["n"] == 42 and qp["slow"] and qp["slow"][0]["ms"] >= qp["slow"][-1]["ms"] and c.get("/v1/ops/query-perf?window=2h").status_code == 400
     bj = c.get("/v1/ops/batch-jobs").json(); jn = [j["name"] for j in bj["jobs"]]
     assert "scheduler" in jn and "segments" in jn and bj["storage"][0]["name"] == "clickhouse.events" and bj["storage"][-1]["name"] == "control_plane" and bj["storage"][-1]["rows"] > 100, (jn, bj["storage"])
     sync_names = [j["name"] for j in bj["jobs"] if j["kind"] == "sync"]
@@ -994,7 +995,10 @@ def main(store: Any | None = None) -> None:
     login(c, sm, ["admin"], "adm")
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake legacy api)+bookmarks+sql sandbox+tags+activation(push/deliveries)+ops(pipeline/query-perf/batch-jobs/alerts/metrics/series/notify email+line+alertmanager)+ask(rules)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    r = c.post("/v1/semantic/compile", json=q); assert r.json()["code"] == "CSRF_INVALID" and r.headers["x-request-id"] == r.json()["request_id"], r.text
+    # 8. 統一錯誤輸出（docs/46）：每個代碼符合 Error、5xx 不洩漏、request_id 進審計與日誌
+    n_codes = errors_selftest.run(app, store)
+    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake legacy api)+bookmarks+sql sandbox+tags+activation(push/deliveries)+ops(pipeline/query-perf/batch-jobs/alerts/metrics/series/notify email+line+alertmanager)+ask(rules)+dashboard share(explain/render/token/expiry/schedule) +errors({n_codes} codes) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":
