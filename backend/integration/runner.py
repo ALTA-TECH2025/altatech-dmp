@@ -169,7 +169,7 @@ class LocalRunner:
             now: datetime, log: Callable[[str], None]) -> RunResult:
         if task["source"].get("kind") == "ga4":
             return self._run_ga4(task, watermark=watermark, batch_id=batch_id, now=now, log=log)
-        model = modeling.load(task["model_path"])
+        model = modeling.loads(task["model_yaml"]) if task.get("model_yaml") else modeling.load(task["model_path"])   # db:<id> = 畫面建的模型（存排程資料庫）
         errs = modeling.validate(model, self.sem)
         if errs:
             raise ValueError("模型未通過驗證：" + "; ".join(errs))

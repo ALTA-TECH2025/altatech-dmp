@@ -340,8 +340,11 @@ def main(store: Any | None = None) -> None:
     assert c.delete("/v1/integration/connections/dwh_trade").status_code == 409                 # 有任務使用
     pv = c.post("/v1/integration/sync-tasks/sync_orders/preview", json={"limit": 200}).json(); assert pv["summary"]["in"] == 200 and pv["summary"]["ok"] > 150 and pv["pii_hits"] == 0 and pv["events"], pv["summary"]
     assert all("王小明" not in json.dumps(x, ensure_ascii=False) for x in pv["sample_ok"])      # 個資欄位 drop_fields 不進輸出
-    run = c.post("/v1/integration/sync-tasks/sync_orders/run").json(); assert run["status"] == "success" and run["rows_in"] == 300 and run["rows_loaded"] == run["rows_ok"] > 0, run
-    runs = c.get("/v1/integration/sync-tasks/sync_orders/runs").json(); assert runs[0]["trigger"] == "manual" and runs[0]["status"] == "success" and isinstance(runs[0]["log"], list)
+    run_resp = c.post("/v1/integration/sync-tasks/sync_orders/run"); run = run_resp.json(); assert run_resp.status_code == 202 and run["status"] == "queued" and run["run_id"], run   # 交給主控 worker 排隊（#87）
+    assert c.post("/v1/integration/sync-tasks/sync_orders/run").json()["run_id"] == run["run_id"]                   # 重按不會排兩次
+    app.state.scheduler.tick()                                                                                       # worker 下一次 tick 執行
+    runs = c.get("/v1/integration/sync-tasks/sync_orders/runs").json(); assert runs[0]["id"] == run["run_id"] and runs[0]["trigger"] == "manual" and runs[0]["status"] == "success" and isinstance(runs[0]["log"], list), runs[0]
+    assert runs[0]["rows_in"] == 300 and runs[0]["rows_loaded"] == runs[0]["rows_ok"] > 0, runs[0]
     lst = c.get("/v1/integration/sync-tasks").json(); assert lst[0]["last"]["status"] == "success" and lst[0]["watermark"], lst[0]
     assert c.get("/v1/integration/tables").json()[0]["used_by"] == ["sync_orders"]
     login(c, sm, ["marketing"], "mkt"); assert c.post("/v1/integration/sync-tasks/sync_orders/run").status_code == 403
