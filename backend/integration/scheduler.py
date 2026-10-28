@@ -471,6 +471,49 @@ class Scheduler:
         self.db.execute("INSERT INTO alerts(at, task_id, level, message) VALUES (?,?,?,?)", (iso(now), task_id, level, message))
 
 
+TASK_COLS = ("id", "model_path", "cron", "interval_min", "mode", "depends_on", "retries", "backoff_s", "schema_change", "enabled", "paused_reason", "source", "created_at")
+
+
+def import_sqlite(src: str | Path, dst: Scheduler, base: Path | None = None) -> dict[str, int]:
+    """一次性把 quickstart 的 SQLite 排程搬進 PostgreSQL（規格 §3.7、驗收 9）：任務、水位、已知欄位、模型。
+    - 執行紀錄與告警不搬（舊環境的紀錄，接手後重新累積）。
+    - 目的端已有的同 id 不覆蓋，重跑只會全部算「已存在」。
+    - 舊版畫面建的模型是 models.generated/<id>.yaml 檔：讀得到就入庫，任務改成 db:<id>；讀不到照原路徑搬並計入 missing_models。"""
+    if not Path(src).is_file():
+        raise FileNotFoundError(f"找不到 SQLite 排程檔：{src}")
+    old = sqlite3.connect(f"file:{src}?mode=ro", uri=True); old.row_factory = sqlite3.Row
+    def rows(table: str) -> list[sqlite3.Row]:
+        try: return old.execute(f"SELECT * FROM {table}").fetchall()
+        except sqlite3.OperationalError: return []                                    # 舊版沒有 models 表
+    n = {"tasks": 0, "watermarks": 0, "known_fields": 0, "models": 0, "existing": 0, "missing_models": 0}
+    def put(sql: str, args: tuple[Any, ...], key: str) -> None:
+        hit = dst.db.execute(sql + " ON CONFLICT DO NOTHING RETURNING 1 AS ok", args).fetchone()
+        n[key if hit else "existing"] += 1
+    now = iso(datetime.now(UTC)); base = base or Path.cwd()
+    try:
+        for m in rows("models"):
+            put("INSERT INTO models (id, yaml, updated_at) VALUES (?,?,?)", (m["id"], m["yaml"], m["updated_at"]), "models")
+        for t in rows("tasks"):
+            v = dict(t); mp = str(v["model_path"])
+            if not mp.startswith("db:") and "models.generated" in mp:
+                f = Path(mp) if Path(mp).is_absolute() else base / mp
+                if f.is_file():
+                    put("INSERT INTO models (id, yaml, updated_at) VALUES (?,?,?)", (f.stem, f.read_text(encoding="utf-8"), now), "models"); v["model_path"] = f"db:{f.stem}"
+                else:
+                    n["missing_models"] += 1
+            put(f"INSERT INTO tasks ({', '.join(TASK_COLS)}) VALUES ({', '.join('?' * len(TASK_COLS))})", tuple(v[c] for c in TASK_COLS), "tasks")
+        for w in rows("watermarks"):
+            put("INSERT INTO watermarks (task_id, value, updated_at) VALUES (?,?,?)", (w["task_id"], w["value"], w["updated_at"]), "watermarks")
+        for k in rows("known_fields"):
+            put("INSERT INTO known_fields (task_id, fields, version) VALUES (?,?,?)", (k["task_id"], k["fields"], k["version"]), "known_fields")
+        dst.db.commit()
+    except Exception:
+        dst.db.rollback(); raise
+    finally:
+        old.close()
+    return n
+
+
 def common_selftest(s: Scheduler, fr: Any, t: datetime) -> None:
     """SQLite 與 PostgreSQL 共用的 #87 驗收：排隊、模型、中斷接手、保留。"""
     ypath = s.put_model("sync_gen", "model:\n  id: gen\n  entity: event\n", t)
@@ -532,7 +575,15 @@ def pg_selftest(fake_runner: Any) -> None:
         assert mine["status"] == "superseded" and a.watermark("sync_x") != "A-late", (mine, a.watermark("sync_x"))
         sts = {x["id"]: x["status"] for x in b.runs("sync_x", 10)}
         assert sts[q["run_id"]] == "interrupted" and "success" in sts.values(), sts
-        print(f"scheduler pg ok: 兩份 worker 共用、只有主控執行、排隊、中斷接手（舊主控晚到結案未寫入）、模型入庫、保留 {KEEP_DAYS} 天")
+        # 匯入 quickstart 的 SQLite 排程（驗收 9）：B 看得到、重跑不重複
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            old = Scheduler(Path(d) / "old.db", fake_runner()); old.add_task("old_sync", old.put_model("old_m", "model: {id: old_m}\n"), interval_min=30, now=t)
+            old.db.execute("INSERT INTO watermarks (task_id, value, updated_at) VALUES ('old_sync', '2026-10-01T00:00:00+00:00', ?)", (iso(t),)); old.db.commit(); old.db.close()
+            got = import_sqlite(Path(d) / "old.db", a); again = import_sqlite(Path(d) / "old.db", a)
+        assert got["tasks"] == got["models"] == got["watermarks"] == 1 and again["existing"] == 3 and again["tasks"] == 0, (got, again)
+        assert b.task("old_sync")["model_path"] == "db:old_m" and b.watermark("old_sync") == "2026-10-01T00:00:00+00:00" and "old_m" in b.model_text("db:old_m")
+        print(f"scheduler pg ok: 兩份 worker 共用、只有主控執行、排隊、中斷接手（舊主控晚到結案未寫入）、模型入庫、SQLite 匯入、保留 {KEEP_DAYS} 天")
     finally:
         for x in (a, b): x.db.close()
         la.stop(); lb.stop()
@@ -594,5 +645,15 @@ if __name__ == "__main__":
         assert cron_prev("*/15 * * * *", datetime(2026, 10, 16, 5, 44)) == datetime(2026, 10, 16, 5, 30)
         # #87：手動執行排隊、模型入庫、中斷接手、保留 365 天（SQLite 版；PostgreSQL 版見下方 pg_selftest）
         common_selftest(s, fr, t0 + timedelta(days=2))
+        # 匯入 SQLite（quickstart 舊排程 → 新儲存）：任務、水位、已知欄位、模型；舊版 models.generated 檔入庫改 db:；重跑不重複
+        gen = Path(d) / "models.generated"; gen.mkdir(); (gen / "ui_x.yaml").write_text("model: {id: ui_x}\n", encoding="utf-8")
+        s.add_task("ui_x", str(gen / "ui_x.yaml"), interval_min=60, now=t0); s.add_task("lost", "models.generated/lost.yaml", interval_min=60, now=t0)
+        dst = Scheduler(Path(d) / "dst.db", fr)
+        got = import_sqlite(Path(d) / "sched.db", dst, base=Path(d) / "nowhere")
+        n_tasks = len(s.db.execute("SELECT id FROM tasks").fetchall())
+        assert got["tasks"] == n_tasks and got["missing_models"] == 1 and got["watermarks"] >= 2 and got["models"] >= 2, got
+        assert dst.task("ui_x")["model_path"] == "db:ui_x" and "ui_x" in dst.model_text("db:ui_x") and dst.watermark("sync_orders") == s.watermark("sync_orders")
+        assert dst.runs("sync_orders") == [] and dst.task("lost")["model_path"] == "models.generated/lost.yaml"
+        again = import_sqlite(Path(d) / "sched.db", dst); assert again["tasks"] == again["models"] == 0 and again["existing"] >= 8, again
         print("scheduler ok; runs:", len(s.db.execute("SELECT * FROM runs").fetchall()), "alerts:", len(s.alerts()))
     pg_selftest(FakeRunner)
