@@ -7,7 +7,7 @@ import { fieldError } from '@/api/errors';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
 import { EmptyState, ErrorAlert, KeyValue, Mono, PageHeader, SectionTitle, StatTile, StatusBadge } from '@/ds';
-import { isSecretRef, looksLikeSecret, parseList, QUEUE_POLL_MS, QUEUE_WAIT_MS, queuedResult, rotationText, runPill, runText, RUN_STATUS_CN, scheduleBody, SENS_PILL, STEP_CN, TASK_STATUS } from './integration';
+import { isSecretRef, looksLikeSecret, parseList, rotationText, runPill, runText, RUN_STATUS_CN, scheduleBody, SENS_PILL, STEP_CN, TASK_STATUS, watchQueuedRun } from './integration';
 import { OutputTab } from './OutputTab';
 import type { Connection, ConnectionCreate, ConnectionTest, Connector, ExtTable, Preview, Privileges, RunNow, SyncRun, SyncTask, SyncTaskCreate, TableCreate } from './types';
 import type { OutputTask } from './output';
@@ -274,32 +274,23 @@ function TasksTab({ tasks, busy, canUse, run, onNew, reload }: { tasks: SyncTask
 function QueuedRun({ rn, onDone, onClose }: { rn: RunNow; onDone: () => Promise<void>; onClose: () => void }) {
   const [res, setRes] = useState<SyncRun | null>(null);
   const [status, setStatus] = useState(rn.status);
+  const [latestId, setLatestId] = useState<number | null>(rn.run_id);
   const [stale, setStale] = useState(false);
   const runId = rn.run_id;
   useEffect(() => {
     if (runId == null || rn.demo) return;
-    let alive = true; const t0 = Date.now();
-    const tick = async () => {
-      try {
-        const rows = await api.get<SyncRun[]>(`/v1/integration/sync-tasks/${rn.task_id}/runs?limit=20`);
-        if (!alive) return;
-        const cur = rows.find((x) => x.id === runId); if (cur) setStatus(cur.status);
-        const done = queuedResult(rows, runId);
-        if (done) { setRes(done); void onDone(); return; }
-      } catch { /* 暫時讀不到就下一輪再試 */ }
-      if (!alive) return;
-      if (Date.now() - t0 > QUEUE_WAIT_MS) { setStale(true); return; }
-      timer = window.setTimeout(() => void tick(), QUEUE_POLL_MS);
-    };
-    let timer = window.setTimeout(() => void tick(), QUEUE_POLL_MS);
-    return () => { alive = false; window.clearTimeout(timer); };
+    return watchQueuedRun({                                                       // 追整條重試鏈：暫時失敗重試、主控中斷接手都會開新紀錄
+      runId, fetchRuns: () => api.get<SyncRun[]>(`/v1/integration/sync-tasks/${rn.task_id}/runs?limit=20`),
+      onUpdate: ({ latest, stale: st }) => { if (latest) { setStatus(latest.status); setLatestId(latest.id); } setStale(st); },
+      onDone: (r) => { setRes(r); void onDone(); },
+    });
   }, [rn.task_id, runId, rn.demo]);
   const shown = res?.status ?? status;
   return (
     <Paper><SectionTitle title={`立即執行 · ${rn.cn}`} right={<Button size="compact-sm" variant="subtle" onClick={onClose}>關閉</Button>}><StatusBadge tone={runPill(shown)}>{RUN_STATUS_CN[shown] ?? shown}</StatusBadge></SectionTitle>
       {rn.demo ? <Text size="sm" c="dimmed">示範模式：已模擬排入佇列，不會實際執行。</Text>
-        : !res ? <Text size="sm" c="dimmed">{runId != null ? `執行紀錄 #${runId}` : ''}{rn.scheduled_for ? ` · 排入 ${rn.scheduled_for.slice(0, 16).replace('T', ' ')}` : ''} · 由主控 worker 依序執行，完成後這裡自動更新。</Text> : null}
-      {stale && !res && <Alert color="amber" variant="light" mt="sm">5 分鐘仍未執行：請資訊管理人員確認 worker 是否在跑（DMP_ROLE=worker，或單機 DMP_TICK=1）。紀錄仍在佇列，worker 起來後會照順序跑。</Alert>}
+        : !res ? <Text size="sm" c="dimmed">{latestId != null ? `執行紀錄 #${latestId}${runId != null && latestId !== runId ? `（重試自 #${runId}）` : ''}` : ''}{rn.scheduled_for ? ` · 排入 ${rn.scheduled_for.slice(0, 16).replace('T', ' ')}` : ''} · 由主控 worker 依序執行，完成後這裡自動更新。</Text> : null}
+      {stale && !res && <Alert color="amber" variant="light" mt="sm">排入超過 5 分鐘仍未開始：請資訊管理人員確認 worker 是否在跑（DMP_ROLE=worker，或單機 DMP_TICK=1）。紀錄仍在佇列，worker 起來後會照順序跑，這裡會繼續更新。</Alert>}
       {res && <SimpleGrid cols={{ base: 2, sm: 5 }}>{([['讀入', res.rows_in], ['通過', res.rows_ok], ['隔離', res.rows_quarantined], ['拒絕', res.rows_rejected], ['載入', res.rows_loaded]] as [string, number | null][]).map(([k, v]) => <StatTile key={k} label={k} value={(v ?? 0).toLocaleString()} />)}</SimpleGrid>}
       {res?.error && <Alert color="red" variant="light" mt="sm">{res.error}</Alert>}</Paper>
   );

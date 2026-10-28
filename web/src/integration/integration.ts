@@ -27,16 +27,47 @@ export function rotationText(r: Rotation): { text: string; pill: 'gray' | 'blue'
 }
 
 export const TASK_STATUS: Record<SyncTask['status'], { cn: string; pill: string }> = { active: { cn: '啟用', pill: 'blue' }, paused: { cn: '已暫停', pill: 'amber' }, error: { cn: '最近失敗', pill: 'red' } };
-export const RUN_STATUS_CN: Record<string, string> = { queued: '已排入佇列', success: '成功', running: '執行中', failed: '失敗', retry_wait: '等待重試', retried: '已重試', interrupted: '中斷（主控切換，將重試）', skipped: '略過（上游未就緒）' };
-/** 還沒結束的狀態：排隊、執行中、中斷後等重試。 */
-export const RUN_PENDING = new Set(['queued', 'running', 'retry_wait', 'interrupted']);
+export const RUN_STATUS_CN: Record<string, string> = { queued: '已排入佇列', success: '成功', running: '執行中', failed: '失敗', retry_wait: '等待重試', retried: '已重試', interrupted: '中斷（主控切換）', skipped: '略過（上游未就緒）' };
+/** 重試鏈上「還沒結束」的狀態。retried 是被下一筆接手的舊紀錄；interrupted 若還有重試次數，後端會在同一交易補一筆 retry_wait，所以鏈尾是 interrupted 代表重試已用完。 */
+export const RUN_PENDING = new Set(['queued', 'running', 'retry_wait', 'retried']);
 export const QUEUE_POLL_MS = 3000;
+export const QUEUE_SLOW_POLL_MS = 15_000;
 export const QUEUE_WAIT_MS = 5 * 60_000;
 
-/** 立即執行後的輪詢：在執行紀錄裡找排隊那一筆；結束了回該筆，還沒結束（或還沒出現）回 null。 */
-export function queuedResult(rows: SyncRun[], runId: number): SyncRun | null {
-  const r = rows.find((x) => x.id === runId);
-  return r && !RUN_PENDING.has(r.status) ? r : null;
+/** 一次「立即執行」的重試鏈：原始那筆，加上之後同任務、同排程時間、由重試產生的紀錄（暫時失敗重試、主控中斷接手都會開新紀錄）。
+ *  排程窗口的紀錄 trigger 是 schedule，不會混進來；同一分鐘的排程也不會跑（手動那筆先佔住窗口）。 */
+export function runChain(rows: SyncRun[], runId: number): SyncRun[] {
+  const root = rows.find((x) => x.id === runId);
+  if (!root) return [];
+  return rows.filter((x) => x.id === runId || (x.id > runId && x.trigger === 'retry' && x.scheduled_for === root.scheduled_for)).sort((a, b) => a.id - b.id);
+}
+
+/** 鏈尾那筆與是否已結束。還沒出現在紀錄裡（latest=null）視為未結束。 */
+export function chainState(rows: SyncRun[], runId: number): { latest: SyncRun | null; done: boolean } {
+  const c = runChain(rows, runId); const latest = c[c.length - 1] ?? null;
+  return { latest, done: !!latest && !RUN_PENDING.has(latest.status) };
+}
+
+/** 輪詢一次手動執行直到整條重試鏈結束；不依賴 React，方便用假時鐘測。
+ *  超過 5 分鐘：鏈尾仍是 queued（或還沒出現）才標 stale 提醒確認 worker；執行中的長任務不警告。兩種都繼續追，只是放慢到 15 秒。 */
+export function watchQueuedRun(o: {
+  runId: number; fetchRuns: () => Promise<SyncRun[]>;
+  onUpdate: (s: { latest: SyncRun | null; stale: boolean }) => void; onDone: (r: SyncRun) => void;
+  now?: () => number; schedule?: (fn: () => void, ms: number) => unknown; cancel?: (h: unknown) => void;
+}): () => void {
+  const now = o.now ?? Date.now; const schedule = o.schedule ?? ((fn, ms) => setTimeout(fn, ms)); const cancel = o.cancel ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
+  const t0 = now(); let alive = true; let handle: unknown;
+  const tick = async () => {
+    try {
+      const st = chainState(await o.fetchRuns(), o.runId);
+      if (!alive) return;
+      o.onUpdate({ latest: st.latest, stale: now() - t0 > QUEUE_WAIT_MS && (!st.latest || st.latest.status === 'queued') });
+      if (st.done && st.latest) { o.onDone(st.latest); return; }
+    } catch { /* 暫時讀不到就下一輪再試 */ }
+    if (alive) handle = schedule(() => void tick(), now() - t0 > QUEUE_WAIT_MS ? QUEUE_SLOW_POLL_MS : QUEUE_POLL_MS);
+  };
+  handle = schedule(() => void tick(), QUEUE_POLL_MS);
+  return () => { alive = false; cancel(handle); };
 }
 export const runPill = (s: string): string => (s === 'success' ? 'blue' : s === 'failed' ? 'red' : s === 'skipped' ? 'gray' : 'amber');
 
