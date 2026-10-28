@@ -27,7 +27,6 @@ from ..security.policy import Subject, authorize
 from .store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
-MODELS_DIR = ROOT / "integration"
 PII_HINTS = ("name", "phone", "mobile", "email", "mail", "id_no", "idno", "birth", "addr", "tel")
 SCHEMA_CHANGE = {"auto_map": "auto_map", "ignore": "ignore", "pause_and_notify": "pause", "pause": "pause"}
 
@@ -301,12 +300,16 @@ def build_router(store: Store, get_subject: Any, sched: Scheduler, secret_writer
             status = {s["id"]: s for s in sched.status()}
         return [_task_view(m, status.get(m["id"])) for m in store.items("sync_task")]
 
+    def _load_model(model_path: str) -> modeling.Model:
+        if model_path.startswith("db:"):                        # 畫面建的模型存在排程資料庫（接管到主機 2 不遺失，#87）
+            with lock:
+                return modeling.loads(sched.model_text(model_path))
+        return modeling.load(model_path)
+
     def _model_path(body: dict[str, Any]) -> str:
-        if body.get("model"):                                   # 建模精靈的產物：存成任務自己的 yaml
-            p = MODELS_DIR / "models.generated" / f"{body['id']}.yaml"
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(yaml.safe_dump({"model": body["model"]}, allow_unicode=True, sort_keys=False), encoding="utf-8")
-            return str(p)
+        if body.get("model"):                                   # 建模精靈的產物：存進排程資料庫，不寫映像內目錄
+            with lock:
+                return sched.put_model(str(body["id"]), yaml.safe_dump({"model": body["model"]}, allow_unicode=True, sort_keys=False))
         mp = body.get("model_path")
         if not mp:
             raise HTTPException(400, "請提供 model（建模產物）或 model_path")
@@ -322,7 +325,7 @@ def build_router(store: Store, get_subject: Any, sched: Scheduler, secret_writer
         if not tid or any(t["id"] == tid for t in store.items("sync_task")):
             raise HTTPException(409 if tid else 400, f"任務 id 重複或缺少：{tid}")
         model_path = _model_path(body)
-        model = modeling.load(model_path)
+        model = _load_model(model_path)
         errs = modeling.validate(model, modeling.Semantic.load())
         if errs:
             raise HTTPException(422, "模型未通過驗證：" + "; ".join(errs))
@@ -364,13 +367,11 @@ def build_router(store: Store, get_subject: Any, sched: Scheduler, secret_writer
         meta = _meta(id)
         try:
             with lock:
-                res = sched.run_now(id)
-                last = sched.runs(id, 1)
-                res = {**(last[0] if last else {}), **{k: v for k, v in res.items() if v is not None}}
+                res = sched.enqueue(id)                         # 交給持有主控租約的 worker：下一次 tick（約 1 分鐘內）執行，結果看執行紀錄
         except KeyError:
             raise HTTPException(404, f"排程器沒有任務：{id}") from None
-        store.audit("task.rerun", {"user": subject.user_id, "task_id": id, "status": res.get("status"), "rows_in": res.get("rows_in"), "rows_loaded": res.get("rows_loaded")})
-        return {"task_id": id, "cn": meta["cn"], **{k: res.get(k) for k in ("status", "scheduled_for", "attempt", "rows_in", "rows_ok", "rows_quarantined", "rows_rejected", "rows_loaded", "error")}}
+        store.audit("task.rerun", {"user": subject.user_id, "task_id": id, "status": res["status"], "run_id": res["run_id"]})
+        return {"task_id": id, "cn": meta["cn"], **{k: res.get(k) for k in ("run_id", "status", "scheduled_for")}}
 
     @r.get("/v1/integration/sync-tasks/{id}/runs")
     def task_runs(id: str, limit: int = Query(20, ge=1, le=200), subject: Subject = Depends(get_subject)) -> list[dict[str, Any]]:
@@ -388,7 +389,7 @@ def build_router(store: Store, get_subject: Any, sched: Scheduler, secret_writer
     def preview_task(id: str, body: dict[str, Any] | None = None, subject: Subject = Depends(get_subject)) -> dict[str, Any]:
         need(subject, "use")
         meta = _meta(id)
-        model = modeling.load(meta["model_path"])
+        model = _load_model(meta["model_path"])
         src = meta.get("source") or {}
         rows: list[dict[str, Any]]
         if body and body.get("rows"):

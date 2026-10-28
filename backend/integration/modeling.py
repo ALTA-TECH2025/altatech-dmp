@@ -191,7 +191,11 @@ class Model:
 
 
 def load(path: str | Path) -> Model:
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    return loads(Path(path).read_text(encoding="utf-8"))
+
+
+def loads(text: str) -> Model:
+    data = yaml.safe_load(text)
     return Model(data["model"] if "model" in data else data)
 
 
