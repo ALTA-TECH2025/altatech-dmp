@@ -8,9 +8,9 @@
   CLICKHOUSE_URL / CLICKHOUSE_USER / CLICKHOUSE_PASSWORD
   DMP_PG_DSN_REF        控制面 PostgreSQL 連線字串的 secret_ref（正式）；本機開發可用 DMP_PG_DSN 明文；兩者都沒有才用 DMP_STORE_PATH JSON 檔
   DMP_STORE_PATH        控制面 JSON 檔（單機開發用）
-  DMP_EXPORT_DIR        匯出檔目錄（核可後產生的 CSV；正式環境換物件儲存 + 到期清理）
+  DMP_EXPORT_DIR        匯出檔目錄（核可後產生的 CSV、看板寄送、資料輸出）；控制面是 PostgreSQL 時必填（指到共用持久目錄 APP_DATA）
   DMP_API_KEY_PEM / DMP_API_PUB_PEM   API token 簽章金鑰檔（沒有就不開 /auth/token）
-  DMP_SCHED_DB          同步任務排程狀態（SQLite 路徑）；沒有就用暫存檔（重啟後水位重來）
+  DMP_SCHED_DB          同步任務排程狀態（SQLite 路徑，本機用）；控制面是 PostgreSQL 時改存 PostgreSQL、不讀這個；都沒有就用暫存檔（重啟後水位重來）
   DMP_LOCAL_ACCOUNTS    本機帳號檔（JSON；idp.yaml › local_accounts）；設了且 mode=direct 就多一個 provider=local 的帳密登入
   DMP_LOCAL_ALLOWED_ROLES  本機帳號可持有的角色（逗號分隔；* = 全部）；預設照 idp.yaml（只有 custom_*）。單機測試環境才放開
   DMP_WEB_DIST          前端建置目錄（web/dist）；設了就由 API 同源提供前端（SPA）
@@ -93,7 +93,15 @@ def build() -> Any:
     ch = ClickHouseHTTP(os.environ["CLICKHOUSE_URL"], user=os.environ.get("CLICKHOUSE_USER", "default"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), timeout=120) if os.environ.get("CLICKHOUSE_URL") else None
     auth = AuthService(cfg, providers, sessions, tokens, store.assignments, login_states)
     sched = None
-    if os.environ.get("DMP_SCHED_DB"):                      # 排程狀態（SQLite）；執行器直接寫 ClickHouse
+    if hasattr(store, "pool"):                               # 控制面 PostgreSQL（正式部署）：排程與畫面建的模型同庫，API／worker 拆開或接管都同一份（#87）
+        if not os.environ.get("DMP_EXPORT_DIR"):
+            raise SystemExit("控制面是 PostgreSQL 時必須設定 DMP_EXPORT_DIR（共用持久目錄，例 /data/dmp/app/exports）；否則匯出檔寫進容器暫存區，重啟就不見")
+        from ..integration.runner import LocalRunner
+        from ..integration.scheduler import PgSchedDB, Scheduler
+        if os.environ.get("DMP_SCHED_DB"):
+            print("[dmp] 控制面是 PostgreSQL：同步排程改存 PostgreSQL，DMP_SCHED_DB 不再使用（舊的 SQLite 排程不會自動搬過來）", flush=True)
+        sched = Scheduler(PgSchedDB(store), LocalRunner(ch))
+    elif os.environ.get("DMP_SCHED_DB"):                    # 排程狀態（SQLite）；執行器直接寫 ClickHouse
         from ..integration.runner import LocalRunner
         from ..integration.scheduler import Scheduler
         sched = Scheduler(os.environ["DMP_SCHED_DB"], LocalRunner(ch))
@@ -144,6 +152,8 @@ def start_ticker(app: Any, store: Any, ch: Any) -> Any:
             svc = getattr(app.state, name, None)
             if svc is not None:
                 svc.fence = lease
+        if sched is not None:
+            sched.fence = lease                                              # 同步任務結案要仍持有租約；別人留下的 running 由新主控標中斷重跑
     app.state.tick_lease = lease
 
     class LeaseLost(Exception):

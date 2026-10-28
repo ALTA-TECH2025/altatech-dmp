@@ -114,7 +114,16 @@ def main() -> None:
     tasks = {t["id"] for t in it.call("GET", "/v1/integration/sync-tasks")}
     if "sync_orders" not in tasks:
         it.call("POST", "/v1/integration/sync-tasks", {"id": "sync_orders", "cn": "委託事實表 → 委託／成交事件", "model_path": "backend/integration/models.example.yaml", "source": {"table_id": "dwh_trade.dbo.fact_order_hist"}, "schedule": {"interval_min": 15}, "mode": "incremental", "schema_change": "pause_and_notify"})
-        it.call("POST", "/v1/integration/sync-tasks/sync_orders/run")
+        q = it.call("POST", "/v1/integration/sync-tasks/sync_orders/run")      # 交給背景 worker 排隊（#87）：等它跑完，後面的看板與分群才有資料
+        for _ in range(60):
+            last = next((r for r in it.call("GET", "/v1/integration/sync-tasks/sync_orders/runs?limit=5") if r["id"] == q["run_id"]), None)
+            if last and last["status"] not in ("queued", "running"):
+                if last["status"] != "success":
+                    raise SystemExit(f"示範同步任務失敗：{last['status']} {last.get('error') or ''}")
+                break
+            time.sleep(5)
+        else:
+            raise SystemExit("示範同步任務 5 分鐘內沒有執行：API 需要 DMP_TICK=1（或另開 worker）")
     # 5. 治理：登記草稿事件、變更單、虛擬事件、字典上傳（資訊管理）；admin 建一筆本地指派
     evs = {e["name"] for e in it.call("GET", "/v1/meta/events")["items"]}
     if "fund_redeem" not in evs:
