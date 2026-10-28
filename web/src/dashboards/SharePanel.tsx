@@ -126,7 +126,7 @@ function AskTab({ d, status, onAdded }: { d: Dashboard; status: AskStatus | null
   const run = async (question = q) => {
     if (!question.trim()) return; setBusy(true); setErr(null); setMsg(null); setRes(null);
     try { const r = await api.post<AskResult>(`/v1/dashboards/${d.id}/ask`, { question }); setRes(r); setCards(r.cards); }
-    catch (e) { setErr(e instanceof ApiError ? (typeof e.body === 'object' && e.body && 'detail' in e.body && typeof (e.body as { detail: unknown }).detail === 'object' ? '問題對不上任何分析模型或語意層事件；試試提到事件名（成交、委託、登入、看盤、開戶…）' : e.message) : '解析失敗'); }
+    catch (e) { setErr(e instanceof ApiError ? (e.status === 422 ? '問題對不上任何分析模型或語意層事件；試試提到事件名（成交、委託、登入、看盤、開戶…）' : e.message) : '解析失敗'); }
     finally { setBusy(false); }
   };
   const chosen = cards.filter((c) => c.selected);

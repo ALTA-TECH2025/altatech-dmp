@@ -1,18 +1,18 @@
 // 數據整合：數據源管理（連線：secret_ref、測試診斷、輪替、最小權限）→ 數據表管理（登記、探索欄位與敏感等級、重新探索）→ 同步任務（建立精靈、預覽、立即執行、執行紀錄）→ 數據輸出（任務、審批、預覽、執行紀錄；OutputTab）。設計系統元件組合。
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Alert, Badge, Button, Group, NativeSelect, Paper, SegmentedControl, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
-import { api, ApiError } from '@/api/client';
+import { Alert, Badge, Box, Button, Group, NativeSelect, Paper, SegmentedControl, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
+import { api } from '@/api/client';
+import { fieldError } from '@/api/errors';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
-import { EmptyState, KeyValue, Mono, PageHeader, SectionTitle, StatTile, StatusBadge } from '@/ds';
+import { EmptyState, ErrorAlert, KeyValue, Mono, PageHeader, SectionTitle, StatTile, StatusBadge } from '@/ds';
 import { isSecretRef, looksLikeSecret, parseList, rotationText, runPill, runText, RUN_STATUS_CN, scheduleBody, SENS_PILL, STEP_CN, TASK_STATUS } from './integration';
 import { OutputTab } from './OutputTab';
 import type { Connection, ConnectionCreate, ConnectionTest, Connector, ExtTable, Preview, Privileges, RunNow, SyncRun, SyncTask, SyncTaskCreate, TableCreate } from './types';
 import type { OutputTask } from './output';
 
 type Tab = 'connections' | 'tables' | 'tasks' | 'wizard' | 'output';
-const errText = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 const opt = (value: string, label: string) => ({ value, label });
 const WARN_BG = 'var(--mantine-color-orange-light)';   // 需要注意的列（最近失敗）底色，跟著深淺色走
 
@@ -30,7 +30,7 @@ function IntegrationInner() {
   const [conns, setConns] = useState<Connection[]>([]);
   const [tables, setTables] = useState<ExtTable[]>([]);
   const [tasks, setTasks] = useState<SyncTask[]>([]);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<{ error: unknown; fallback: string; retry?: () => void } | null>(null);
   const [busy, setBusy] = useState(false);
   const canUse = can('integration', 'use'); const canAdmin = can('integration', 'admin');
   const reload = async () => {
@@ -38,17 +38,17 @@ function IntegrationInner() {
     try {
       const [cs, cn, tb, tk] = await Promise.all([api.get<Connector[]>('/v1/integration/connectors'), api.get<Connection[]>('/v1/integration/connections'), api.get<ExtTable[]>('/v1/integration/tables'), api.get<SyncTask[]>('/v1/integration/sync-tasks')]);
       setConnectors(cs); setConns(cn); setTables(tb); setTasks(tk);
-    } catch (e) { setErr(errText(e, '讀取失敗')); }
+    } catch (e) { setErr({ error: e, fallback: '讀取失敗', retry: () => void reload() }); }
     api.get<OutputTask[]>('/v1/exports/tasks').then(setOutputs).catch(() => null);   // 數據輸出的數量只是頁籤提示，失敗不擋頁
   };
   useEffect(() => { void reload(); }, []);
-  const run = async (fn: () => Promise<void>, fallback: string) => { setBusy(true); setErr(null); try { await fn(); await reload(); } catch (e) { setErr(errText(e, fallback)); } finally { setBusy(false); } };
+  const run = async (fn: () => Promise<void>, fallback: string) => { setBusy(true); setErr(null); try { await fn(); await reload(); } catch (e) { setErr({ error: e, fallback, retry: () => void run(fn, fallback) }); } finally { setBusy(false); } };
   const warnTasks = tasks.filter((t) => t.status !== 'active').length;
   return (
     <div className="page">
       <PageHeader title="數據整合" lead="數據源管理 → 數據表管理 → 同步任務（目標：事件表／用戶表／維度表；全量／增量微批）→ 清洗與隔離 → 數據輸出（事件明細／用戶寬表／分群名單送 SFTP／物件儲存）。連線只存密鑰庫參照，畫面永遠看不到明文；任務是建模產物（模型 yaml）＋來源表＋排程，立即執行會寫入 ClickHouse 並三方對帳。" />
       <SegmentedControl mb="md" value={tab} onChange={(v) => setTab(v as Tab)} data={[opt('connections', `數據源 ${conns.length}`), opt('tables', `數據表 ${tables.length}`), opt('tasks', `同步任務 ${tasks.length}${warnTasks ? ` ⚠${warnTasks}` : ''}`), opt('wizard', '建立任務'), opt('output', `數據輸出 ${outputs.length}`)]} />
-      {err && <Alert color="red" variant="light" mb="md">{err}</Alert>}
+      {err && <Box mb="md"><ErrorAlert error={err.error} fallback={err.fallback} onRetry={err.retry} /></Box>}
       {tab === 'connections' && <ConnectionsTab connectors={connectors} conns={conns} busy={busy} canUse={canUse} canAdmin={canAdmin} run={run} />}
       {tab === 'tables' && <TablesTab conns={conns} tables={tables} busy={busy} canUse={canUse} run={run} />}
       {tab === 'tasks' && <TasksTab tasks={tasks} busy={busy} canUse={canUse} run={run} onNew={() => setTab('wizard')} />}
@@ -275,7 +275,7 @@ function TasksTab({ tasks, busy, canUse, run, onNew }: { tasks: SyncTask[]; busy
 function Wizard({ tables, tasks, canUse, onDone }: { tables: ExtTable[]; tasks: SyncTask[]; canUse: boolean; onDone: () => Promise<void> }) {
   const [step, setStep] = useState(1);
   const [d, setD] = useState({ id: '', cn: '', table_id: tables[0]?.id ?? '', model_path: 'backend/integration/models.example.yaml', mode: 'incremental' as 'full' | 'incremental', schedKind: 'interval' as 'interval' | 'cron', sched: '15', depends: '', schema_change: 'pause_and_notify' as SyncTaskCreate['schema_change'], retries: 3 });
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<SyncTask | null>(null);
   const [pv, setPv] = useState<Preview | null>(null);
@@ -289,7 +289,7 @@ function Wizard({ tables, tasks, canUse, onDone }: { tables: ExtTable[]; tasks: 
       const body: SyncTaskCreate = { id: d.id, cn: d.cn || d.id, model_path: d.model_path.trim(), source: { table_id: d.table_id }, schedule: sched ?? { interval_min: 15 }, mode: d.mode, depends_on: parseList(d.depends), schema_change: d.schema_change, retries: d.retries };
       const t = await api.post<SyncTask>('/v1/integration/sync-tasks', body); setCreated(t);
       setPv(await api.post<Preview>(`/v1/integration/sync-tasks/${t.id}/preview`, { limit: 1000 }));
-    } catch (e) { setErr(errText(e, '建立失敗')); } finally { setBusy(false); }
+    } catch (e) { setErr(e); } finally { setBusy(false); }
   };
   if (!canUse) return <Paper><Text size="sm" c="dimmed">你的角色只能查看數據整合，建立任務需要 integration.use（資訊管理）。</Text></Paper>;
   return (
@@ -297,18 +297,18 @@ function Wizard({ tables, tasks, canUse, onDone }: { tables: ExtTable[]; tasks: 
       <Stack gap="md">
         <SectionTitle title="建立同步任務"><Text size="xs" c="dimmed">數據表 → 模型 → 排程 → 建立並預覽 → 立即執行</Text></SectionTitle>
         <SegmentedControl value={String(step)} readOnly={!!created} onChange={(v) => { if (!created) setStep(Number(v)); }} data={steps.map((s, i) => opt(String(i + 1), `${i + 1}. ${s}`))} />
-        {err && <Alert color="red" variant="light">{err}</Alert>}
+        {err ? <ErrorAlert error={err} fallback="建立失敗" /> : null}
         {step === 1 && <Stack gap="sm">
           <SimpleGrid cols={{ base: 1, sm: 3 }}>
-            <TextInput label="任務 id" aria-label="任務 id" placeholder="sync_orders" value={d.id} onChange={(e) => setD({ ...d, id: e.target.value })} />
-            <TextInput label="名稱" aria-label="任務名稱" placeholder="委託事實表 → 委託／成交事件" value={d.cn} onChange={(e) => setD({ ...d, cn: e.target.value })} />
+            <TextInput label="任務 id" aria-label="任務 id" placeholder="sync_orders" value={d.id} error={fieldError(err, 'id')} onChange={(e) => setD({ ...d, id: e.target.value })} />
+            <TextInput label="名稱" aria-label="任務名稱" placeholder="委託事實表 → 委託／成交事件" value={d.cn} error={fieldError(err, 'cn')} onChange={(e) => setD({ ...d, cn: e.target.value })} />
             <NativeSelect label="來源數據表" aria-label="來源數據表" value={d.table_id} onChange={(e) => setD({ ...d, table_id: e.target.value })} data={tables.map((t) => opt(t.id, `${t.table}（${t.connection || '檔案'}）`))} />
           </SimpleGrid>
           {table ? <Text size="sm" c="dimmed">主鍵 {table.pk.join(', ') || '—'} · 增量欄位 {table.incremental_field ?? '—'} · {table.fields.length} 欄，其中 L4 {table.fields.filter((f) => f.sensitivity === 'L4').length} 欄不可映射</Text> : <Text size="sm" c="dimmed">先到「數據表」登記來源表。</Text>}
           {d.id && !idOk && <Text size="sm" c="dimmed">id 小寫英數底線 3–48 字且不可重複。</Text>}
         </Stack>}
         {step === 2 && <Stack gap="sm">
-          <TextInput label="模型檔（建模精靈產物，yaml）" aria-label="模型檔" value={d.model_path} onChange={(e) => setD({ ...d, model_path: e.target.value })} />
+          <TextInput label="模型檔（建模精靈產物，yaml）" aria-label="模型檔" value={d.model_path} error={fieldError(err, 'model_path')} onChange={(e) => setD({ ...d, model_path: e.target.value })} />
           <Text size="sm" c="dimmed">模型定義事件化（狀態機 → 事件名）、時間欄位、identities 代碼化（token_v1／fpe）、欄位映射與轉換、drop_fields（個資）、清洗規則（必填、枚舉、範圍、時間窗、個資掃描）、去重鍵。範例：<Mono>backend/integration/models.example.yaml</Mono>（委託事實表 → bond_order／bond_deal／order_cancelled／order_rejected）、<Mono>models.instrument.yaml</Mono>（商品主檔 → dim_instrument）。建立時會對語意層驗證：事件名要在字典裡、L4 不可映射、身分必須代碼化。</Text>
         </Stack>}
         {step === 3 && <Stack gap="sm">
