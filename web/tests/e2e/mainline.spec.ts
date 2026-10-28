@@ -110,4 +110,12 @@ test.describe('主線', () => {
       await expect(page.locator('.page h1').first()).toHaveText(/沒有權限|需要重新驗證/);
     }
   });
+
+  test('session 失效（UNAUTHENTICATED）→ 回登入頁並帶 return_to', async ({ page, context }) => {
+    await login(page, 'ops');
+    const path = new URL(page.url()).pathname;
+    await context.clearCookies({ name: 'dmp_sid' });                                         // 模擬逾時或被登出：瀏覽器沒有 session 了
+    await page.reload();
+    await page.waitForURL((u) => u.pathname === '/login' && (u.searchParams.get('return_to') ?? '').startsWith(path), { timeout: 15_000 });
+  });
 });

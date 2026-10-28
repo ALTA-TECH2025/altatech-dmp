@@ -108,7 +108,7 @@ function EventDrawer({ event, all, props, forbidden, canUse, onClose, onSaved }:
       else if (live) await api.patch(`/v1/meta/events/${encodeURIComponent(event.name)}`, { ...f, reason });
       else { await api.patch(`/v1/meta/events/${encodeURIComponent(event.name)}`, f); if (status === 'live') await api.post(`/v1/meta/events/${encodeURIComponent(event.name)}/status`, { to: 'live' }); }
       await onSaved();
-    } catch (e) { setErr(e instanceof ApiError ? (typeof e.body === 'object' && e.body && 'detail' in e.body && typeof (e.body as { detail: unknown }).detail === 'object' ? JSON.stringify((e.body as { detail: { errors?: string[] } }).detail.errors ?? e.message) : e.message) : '儲存失敗'); }
+    } catch (e) { setErr(e instanceof ApiError ? e.message : '儲存失敗'); }   // 後端 detail 已含前幾條原因（docs/46）
     finally { setBusy(false); }
   };
   const deprecate = async () => { if (!event || !confirm(`停用 ${event.name}？不再接收但保留歷史。`)) return; setBusy(true); try { await api.post(`/v1/meta/events/${encodeURIComponent(event.name)}/status`, { to: 'deprecated', reason }); await onSaved(); } catch (e) { setErr(e instanceof ApiError ? e.message : '失敗'); } finally { setBusy(false); } };
