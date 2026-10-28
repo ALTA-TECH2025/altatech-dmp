@@ -96,6 +96,8 @@ def _import_sqlite(src: str) -> int:
         s = Scheduler(PgSchedDB(pg), LocalRunner(None))
         try:
             n = import_sqlite(src, s)
+        except (ValueError, FileNotFoundError) as e:                     # 拿錯檔、缺表：非零退出，不當成功
+            print(f"匯入中止：{e}", file=sys.stderr); return 1
         finally:
             s.db.close()
     finally:

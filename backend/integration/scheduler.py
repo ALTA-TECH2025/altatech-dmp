@@ -478,13 +478,24 @@ def import_sqlite(src: str | Path, dst: Scheduler, base: Path | None = None) -> 
     """一次性把 quickstart 的 SQLite 排程搬進 PostgreSQL（規格 §3.7、驗收 9）：任務、水位、已知欄位、模型。
     - 執行紀錄與告警不搬（舊環境的紀錄，接手後重新累積）。
     - 目的端已有的同 id 不覆蓋，重跑只會全部算「已存在」。
+    - 先驗來源結構：tasks／watermarks／known_fields 必須齊全（只有 models 可以沒有，#87 之前的舊版），否則 ValueError、不寫任何資料。
     - 舊版畫面建的模型是 models.generated/<id>.yaml 檔：讀得到就入庫，任務改成 db:<id>；讀不到照原路徑搬並計入 missing_models。"""
     if not Path(src).is_file():
         raise FileNotFoundError(f"找不到 SQLite 排程檔：{src}")
     old = sqlite3.connect(f"file:{src}?mode=ro", uri=True); old.row_factory = sqlite3.Row
+    try:                                                                              # 先驗結構：拿錯檔或缺表不能當成空資料「成功」結束
+        have = {r["name"]: {c["name"] for c in old.execute(f"PRAGMA table_info({r['name']})").fetchall()}
+                for r in old.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    except sqlite3.DatabaseError as e:
+        old.close(); raise ValueError(f"{src} 不是可讀的 SQLite 排程檔：{e}") from None
+    need = {"tasks": set(TASK_COLS), "watermarks": {"task_id", "value", "updated_at"}, "known_fields": {"task_id", "fields", "version"}}
+    bad = [f"{t}（缺 {', '.join(sorted(cols - have[t]))}）" if t in have else f"{t}（沒有這張表）" for t, cols in need.items() if t not in have or not cols <= have[t]]
+    if "models" in have and not {"id", "yaml", "updated_at"} <= have["models"]:
+        bad.append("models（欄位不完整）")
+    if bad:
+        old.close(); raise ValueError(f"{src} 不是完整的排程檔，未匯入任何資料：" + "；".join(bad))
     def rows(table: str) -> list[sqlite3.Row]:
-        try: return old.execute(f"SELECT * FROM {table}").fetchall()
-        except sqlite3.OperationalError: return []                                    # 舊版沒有 models 表
+        return old.execute(f"SELECT * FROM {table}").fetchall() if table in have else []   # 只有 models 可以沒有（#87 之前的舊版）
     n = {"tasks": 0, "watermarks": 0, "known_fields": 0, "models": 0, "existing": 0, "missing_models": 0}
     def put(sql: str, args: tuple[Any, ...], key: str) -> None:
         hit = dst.db.execute(sql + " ON CONFLICT DO NOTHING RETURNING 1 AS ok", args).fetchone()
@@ -655,5 +666,17 @@ if __name__ == "__main__":
         assert dst.task("ui_x")["model_path"] == "db:ui_x" and "ui_x" in dst.model_text("db:ui_x") and dst.watermark("sync_orders") == s.watermark("sync_orders")
         assert dst.runs("sync_orders") == [] and dst.task("lost")["model_path"] == "models.generated/lost.yaml"
         again = import_sqlite(Path(d) / "sched.db", dst); assert again["tasks"] == again["models"] == 0 and again["existing"] >= 8, again
+        # 來源結構不對：拿錯檔、缺水位表 → ValueError、目的端一筆都不寫；#87 之前沒有 models 表的舊版照常匯入
+        def bad_src(name: str, ddl: str) -> Path:
+            f = Path(d) / name; c = sqlite3.connect(f); c.executescript(ddl); c.commit(); c.close(); return f
+        empty = Scheduler(Path(d) / "empty.db", fr)
+        for f in (bad_src("wrong.db", "CREATE TABLE unrelated(x);"), bad_src("nowm.db", DDL.replace("CREATE TABLE IF NOT EXISTS watermarks", "CREATE TABLE IF NOT EXISTS skipped_wm")), Path(d) / "notsqlite.db"):
+            if not f.exists(): f.write_text("not a database")
+            try: import_sqlite(f, empty); raise AssertionError(f"應拒絕 {f.name}")
+            except ValueError as e: assert "未匯入" in str(e) or "不是可讀" in str(e), e
+        assert empty.db.execute("SELECT COUNT(*) AS n FROM tasks").fetchone()["n"] == 0
+        legacy = bad_src("legacy.db", DDL.replace("CREATE TABLE IF NOT EXISTS models (id TEXT PRIMARY KEY, yaml TEXT NOT NULL, updated_at TEXT NOT NULL);", ""))
+        lc = sqlite3.connect(legacy); lc.execute("INSERT INTO tasks (id, model_path, interval_min, mode, created_at) VALUES ('leg', 'm.yaml', 60, 'full', '2026-10-01T00:00:00+00:00')"); lc.commit(); lc.close()
+        assert import_sqlite(legacy, empty)["tasks"] == 1 and empty.task("leg")["model_path"] == "m.yaml"
         print("scheduler ok; runs:", len(s.db.execute("SELECT * FROM runs").fetchall()), "alerts:", len(s.alerts()))
     pg_selftest(FakeRunner)
