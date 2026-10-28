@@ -32,11 +32,12 @@ docs/44 的驗收：API 建立任務 → worker 執行 → API 可下載產物�
 - `Scheduler` 的儲存抽成兩種實作，介面不變：
   - **SQLite**：沒有控制面 PostgreSQL 時使用（本機開發、CI 自測、quickstart 不設 DSN 時）。
   - **PostgreSQL**：設了 `DMP_PG_DSN_REF`／`DMP_PG_DSN` 時使用，跟控制面同一個連線池（asyncpg，已在 requirements，不加新套件）。
-- 資料表（schema `dmp`，與 store_pg 同庫）：
-  - `sched_tasks`、`sched_runs`、`sched_watermarks`、`sched_known_fields`、`sched_alerts`：欄位對應現有 SQLite 表。
-  - `sched_runs` 另加 `owner`、`generation`：執行時的主控租約持有者與世代。
-  - `sched_models (id PK, yaml TEXT, updated_at)`：畫面建的模型。
-- 時間一律 `timestamptz`（UTC）。
+- 資料表放在獨立 schema `<控制面 schema>_sched`（預設 `dmp_sched`），表名與現有 SQLite 相同，兩邊共用同一份 SQL：
+  - `tasks`、`runs`、`watermarks`、`known_fields`、`alerts`：欄位對應現有 SQLite 表。
+  - `runs` 另加 `owner`、`generation`：執行時的主控租約持有者與世代。
+  - `models (id PK, yaml TEXT, updated_at)`：畫面建的模型。
+- 時間沿用 ISO-8601 UTC 字串（與 SQLite 相同、可直接比大小），不另轉 `timestamptz`，避免兩種儲存的比較邏輯分岔。
+- 連線：控制面連線池裡一條專用連線；斷線（主備切換後 `pg-primary` 換主機）下一次存取自動重連，交易中途斷線則整筆失敗、由重試接手。
 - 設了 PostgreSQL 時，`DMP_SCHED_DB` 不再使用（啟動時若兩者都設，記警告）。
 
 ### 3.2 模型
@@ -47,7 +48,8 @@ docs/44 的驗收：API 建立任務 → worker 執行 → API 可下載產物�
 ### 3.3 執行只由主控 worker 做
 - `tick()` 只在持有主控租約（`ops/lease.py` 的 `dmp-tick`）的 worker 跑（現況已是如此）。
 - 「立即執行」改為插入一筆 `status='queued', trigger='manual'` 的執行紀錄，API 回 202：`{task_id, run_id, status: "queued"}`。
-- 同一任務已有 `queued` 或 `running` 時，不再新增，回同一筆（重按不會排兩次）。
+- 同一任務已有 `queued` 或 `running` 時，不再新增，回同一筆（重按不會排兩次）；部分唯一索引另外擋住兩個 API 同時排同一任務。
+- worker 必須在跑（API 容器 `DMP_TICK=1` 或另開 `DMP_ROLE=worker`），否則排隊的不會執行；quickstart 已開 `DMP_TICK=1`。
 - worker 每次 tick 先處理到期重試，再處理 `queued`，最後才是到點的排程。
 - 停用中的任務仍可手動執行（與現況相同）。
 
@@ -59,7 +61,7 @@ docs/44 的驗收：API 建立任務 → worker 執行 → API 可下載產物�
 
 ### 3.5 匯出檔
 - 程式已讀 `DMP_EXPORT_DIR`，不需要改。
-- 新增啟動檢查：設了控制面 PostgreSQL（正式部署）卻沒設 `DMP_EXPORT_DIR` 時，啟動失敗並說明原因，避免檔案寫進容器暫存區、重啟就不見。
+- 新增啟動檢查：設了控制面 PostgreSQL（正式部署）卻沒設 `DMP_EXPORT_DIR` 時，啟動失敗並說明原因，避免檔案寫進容器暫存區、重啟就不見。CI 的容器入口檢查（有設 PostgreSQL）同步補上這個變數。
 
 ### 3.6 保留
 - 每天一次（主控 worker）刪除 `scheduled_for` 早於 365 天前的執行紀錄與告警。
