@@ -14,7 +14,7 @@ K 匿名：每列（分組 × 步）人數 < K → NULL、suppressed=1。windowF
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from .catalog import TZ, Catalog, FieldRef
@@ -49,6 +49,7 @@ class FunnelQuery:
     raw: dict[str, Any] = field(default_factory=dict)
     behaviors: list[Any] = field(default_factory=list)   # [([Behavior], and|or)]：行為篩選組（只作用於進漏斗的用戶）
     cohorts: list[Any] = field(default_factory=list)     # [scope.Cohort]
+    restrict: bool = False                               # restrict_to_range：每一步都要在 time 內（否則 time 只限第一步）
 
     def as_query(self) -> Query:
         """給 Ctx／policy 用的最小 Query（只用到 time、filters、group_by、metrics 為空）。"""
@@ -114,7 +115,10 @@ def parse_funnel(raw: dict[str, Any], cat: Catalog | None = None) -> FunnelQuery
         sample = float(sample)
         if not 0 < sample < 1:
             raise ValueError("sample 必須在 (0,1)")
-    fq = FunnelQuery(str(raw.get("project") or "altatech_dmp"), steps, window_s, order, relation, metric, group, trend or None, filters, TimeRange(start, end, "day", now), sample, raw)
+    restrict = raw.get("restrict_to_range", False)
+    if not isinstance(restrict, bool):
+        raise ValueError("restrict_to_range 只能是 true／false")
+    fq = FunnelQuery(str(raw.get("project") or "altatech_dmp"), steps, window_s, order, relation, metric, group, trend or None, filters, TimeRange(start, end, "day", now), sample, raw, restrict=restrict)
     if raw.get("behaviors") or raw.get("cohorts"):
         from .scope import parse_behavior_group, parse_cohorts
         bg = parse_behavior_group(cat, raw, now, fq.time)
@@ -134,6 +138,11 @@ class FunnelBase:
     k: int
 
 
+def scan_end(fq: FunnelQuery) -> date:
+    """掃描的最後一天：勾選限制＝期間迄；否則延伸一個窗口（無條件進位到天）。"""
+    return fq.time.end if fq.restrict else fq.time.end + timedelta(days=-(-fq.window_s // 86400))
+
+
 def funnel_base(fq: FunnelQuery, cat: Catalog | None = None, decision: Any = None) -> FunnelBase:
     cat = cat or Catalog()
     ctx = Ctx(cat, fq.as_query(), "L0")
@@ -141,7 +150,10 @@ def funnel_base(fq: FunnelQuery, cat: Catalog | None = None, decision: Any = Non
     for s in fq.steps:
         parts = [f"e.event = {q(s.event)}"] + ([group_sql(s.filters, ctx)] if s.filters else [])
         conds.append("(" + " AND ".join(parts) + ")")
-    where = [f"e.project = {q(fq.project)}", f"e.event_date BETWEEN toDate({q(fq.time.start.isoformat())}) AND toDate({q(fq.time.end.isoformat())})",
+    end = q(fq.time.end.isoformat())
+    if not fq.restrict:      # 同神策：time 只限第一步；後續步驟可落在期間後、窗口期內 → 多掃一個窗口，第一步另限期間內
+        conds[0] = f"({conds[0]} AND e.event_date <= toDate({end}))"
+    where = [f"e.project = {q(fq.project)}", f"e.event_date BETWEEN toDate({q(fq.time.start.isoformat())}) AND toDate({q(scan_end(fq).isoformat())})",
              f"e.event IN ({', '.join(q(x) for x in sorted({s.event for s in fq.steps}))})"]
     if fq.filters:
         where.append(group_sql(fq.filters, ctx))
