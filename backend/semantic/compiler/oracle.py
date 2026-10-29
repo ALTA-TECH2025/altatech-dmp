@@ -16,7 +16,7 @@ from typing import Any
 from .attribution import AttributionQuery
 from .catalog import FieldRef
 from .funnel import FunnelQuery
-from .parser import Cond, Formula, Group, Metric, Query
+from .parser import LAST_YEAR_WEEK_DAYS, Cond, Formula, Group, Metric, Query, years_back
 from .path import EXIT, OTHER, PathQuery
 from .policy import bucket_label, parse_policy
 from .retention import RetentionQuery
@@ -265,6 +265,24 @@ class Oracle:
             vals = [m.alias for m in q.metrics] + [f.alias for f in q.formulas]
             for row in out:
                 key = (row.get("bucket"),) + tuple(row.get(c) for c in gcols)
+                p = prev.get(key) if not any(x is None for x in key[1:]) else None
+                for v in vals:
+                    row[v + "_prev"] = p[v] if p else None
+        if q.compare == "last_year":
+            week = q.time.grain == "week"
+            back = (lambda d: d - timedelta(days=LAST_YEAR_WEEK_DAYS)) if week else years_back
+            prev_q = Query(project=q.project, metrics=q.metrics, time=type(q.time)(back(q.time.start), back(q.time.end), q.time.grain, q.time.now),
+                           formulas=q.formulas, filters=q.filters, group_by=q.group_by, top_n=None, compare=None, sample=None, exact=q.exact, behaviors=q.behaviors)
+            prev = {}
+            for pr in self.run(prev_q, decision):
+                key = (pr.get("bucket"),) + tuple(pr.get(c) for c in gcols)
+                if any(x is None for x in key[1:]): continue
+                prev[key] = pr
+            vals = [m.alias for m in q.metrics] + [f.alias for f in q.formulas]
+            for row in out:
+                b = row.get("bucket")
+                lb = None if b is None else back(date.fromisoformat(b[:10])).isoformat() + b[10:]   # 今年桶往回推（閏年 2/29 → 2/28；按週 − 364 天）
+                key = (lb,) + tuple(row.get(c) for c in gcols)
                 p = prev.get(key) if not any(x is None for x in key[1:]) else None
                 for v in vals:
                     row[v + "_prev"] = p[v] if p else None
