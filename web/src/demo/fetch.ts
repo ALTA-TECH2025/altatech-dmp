@@ -41,7 +41,7 @@ export const demoFetch: typeof fetch = async (input, init) => {
   curQs = url.search;
   const local = overlay(method, path, init, fx);
   if (local) return json(local.body, local.status);
-  for (const k of candidates(method, path, url.search)) if (k in fx.routes) return json(fx.routes[k]);
+  for (const k of candidates(method, path, url.search)) if (k in fx.routes) return json(method === 'POST' && FIXED_NOTE.test(path) ? withFixedNote(fx.routes[k]) : fx.routes[k]);
   if (method === 'DELETE') return json({ ok: true, demo: true });
   if (method !== 'GET') { const b = parseBody(init?.body); return json({ ...b, id: typeof b.id === 'string' ? b.id : `demo_${Math.random().toString(36).slice(2, 8)}`, status: typeof b.status === 'string' ? b.status : 'draft', demo: true, message: '示範模式：已模擬成功，變更不會保存' }, method === 'POST' ? 201 : 200); }
   return json({ detail: `示範模式沒有這筆固定資料：${method} ${path}` }, 404);
@@ -54,6 +54,14 @@ const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj
 const now = () => new Date().toISOString().slice(0, 19) + 'Z';
 const me = (fx: Fixtures): string => String(((fx.roles[demoRole()] ?? fx.roles.admin) as { user: { id: string } }).user.id);
 const nid = (p: string) => `${p}_demo${Math.random().toString(36).slice(2, 7)}`;
+/** 這些查詢在示範站只有一份擷取結果，不會隨條件（期間、粒度、步驟、分組…）變化：回應加一條提示，避免被當成真的計算結果。 */
+const FIXED_NOTE = /^\/v1\/(analytics\/(funnel|retention|path|attribution)|users\/(list|estimate)|segments\/estimate|iam\/scope\/simulate|semantic\/compile)$/;
+export const FIXED_NOTE_TEXT = '示範模式：固定範例資料，不會隨查詢條件變化；實際計算請用本機或測試環境';
+function withFixedNote(body: unknown): unknown {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  const o = body as Obj; const w = Array.isArray(o.warnings) ? (o.warnings as unknown[]) : [];
+  return { ...o, warnings: [FIXED_NOTE_TEXT, ...w] };
+}
 /** 同一個查詢在擷取時跑過（範例儀表板的卡片或書籤）→ 用擷取的真實結果。 */
 function capturedFor(fx: Fixtures, query: Obj): Obj | null {
   const q = JSON.stringify(query);
@@ -79,23 +87,63 @@ function sampleData(fx: Fixtures, kind: string, query?: Obj): Obj | null {
   return null;
 }
 /** 事件分析卡片在示範模式的合成資料：依查詢的指標別名與分組產生每日數列（固定種子，重新整理也一樣）。 */
+/** 示範的事件分析：依查詢的期間、粒度、分組產生合成資料（每天一筆基礎值，再依粒度彙總）。 */
 function synthEvents(query: Obj): Obj {
   const metrics = (Array.isArray(query.metrics) ? query.metrics : []) as Obj[];
   const aliases = metrics.map((m, i) => String(m.alias || `m${i + 1}`));
+  const aggOf = (i: number) => String(metrics[i]?.agg ?? 'total');
   const time = (query.time ?? {}) as { from?: string; to?: string; grain?: string };
-  const from = new Date(time.from ?? '2026-10-01'); const to = new Date(time.to ?? '2026-10-16');
-  const groups = Array.isArray(query.group_by) && query.group_by.length ? ['iOS', 'Android', 'Web'] : [null];
-  const rows: Obj[] = []; let seed = 7;
+  const grain = time.grain ?? 'day';
+  const day = (s: string) => new Date(`${s.slice(0, 10)}T00:00:00Z`);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  let from = day(time.from ?? '2026-10-01'); const to = day(time.to ?? '2026-10-16');
+  const warnings = ['示範模式：合成資料'];
+  if ((grain === 'hour' || grain === 'minute') && from < to) { from = new Date(to); warnings.push('示範模式：小時／分鐘粒度只產生最後一天'); }
+  // 分組：每個維度一組示意值（平台、渠道等用真實值，其他用「維度名 1–3」），多維取笛卡兒積，每列帶 g1..gn
+  const POOL: Record<string, string[]> = { platform: ['iOS', 'Android', 'Web'], channel: ['app', 'web', 'agent'], utm_source: ['google', 'facebook', 'line'], market: ['TSE', 'OTC', 'US'], side: ['B', 'S'] };
+  const dims = (Array.isArray(query.group_by) ? query.group_by : []).slice(0, 3).map(String);
+  const groups: (string[] | null)[] = dims.length ? dims.reduce<string[][]>((acc, d) => acc.flatMap((p) => (POOL[d] ?? [1, 2, 3].map((i) => `${d.replace(/^.*\./, '')} ${i}`)).map((v) => [...p, v])), [[]]) : [null];
+  // 篩選、分群、行為條件、對照組在示範站不會真的套用：明說，避免被當成已生效（真實計算請用本機或測試環境）
+  const scoped = (Array.isArray(query.filters) ? query.filters.length > 0 : !!(query.filters && (query.filters as Obj).items && ((query.filters as Obj).items as unknown[]).length)) || !!query.segment || (Array.isArray(query.behaviors) && query.behaviors.length > 0) || (Array.isArray(query.cohorts) && query.cohorts.length > 0);
+  if (scoped) warnings.push('示範模式：篩選、分群、行為條件與對照組不會套用到合成資料（數字與未篩選相同）');
+  const key = (d: Date): string | null => {
+    if (grain === 'total') return null;
+    if (grain === 'week') { const w = new Date(d); w.setUTCDate(w.getUTCDate() - ((w.getUTCDay() + 6) % 7)); return iso(w); }   // 週一起（同編譯器 toMonday）
+    if (grain === 'month') return `${iso(d).slice(0, 8)}01`;
+    return iso(d);
+  };
+  const subs = grain === 'hour' ? 24 : grain === 'minute' ? 60 : 1;   // 小時：每天 24 桶；分鐘：只產生 60 桶（最後一天 00:00–00:59）
+  const buckets = new Map<string, { b: string | null; g: string[] | null; n: number; v: number[] }>();
+  let seed = 7;
   const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
-  for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
-    for (const g of groups) {
-      const r: Obj = { bucket: d.toISOString().slice(0, 10), suppressed: false, _k: 120 };
-      if (g) r.g1 = g;
-      for (const [i, a] of aliases.entries()) r[a] = Math.round((80 + 40 * Math.sin(d.getDate() / 3 + i) + rnd() * 30) * (g === 'Web' ? 0.4 : 1));
-      rows.push(r);
+  for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
+    for (let k = 0; k < subs; k++) {
+      const b = grain === 'hour' ? `${iso(d)} ${String(k).padStart(2, '0')}:00:00` : grain === 'minute' ? `${iso(d)} 00:${String(k).padStart(2, '0')}:00` : key(d);
+      for (const g of groups) {
+        const id = `${b ?? ''}|${g?.join('|') ?? ''}`;
+        const cur = buckets.get(id) ?? { b, g, n: 0, v: aliases.map(() => 0) };
+        aliases.forEach((_, i) => { cur.v[i] += Math.round(((80 + 40 * Math.sin(d.getUTCDate() / 3 + i) + rnd() * 30) * (g?.includes('Web') ? 0.4 : 1) / (g ? 1 + g.length - 1 : 1)) / subs); });
+        cur.n += 1; buckets.set(id, cur);
+      }
     }
   }
-  return { rows, columns: ['bucket', ...(groups[0] ? ['g1'] : []), ...aliases, '_k', 'suppressed'], chart_spec: { type: 'line', x: 'bucket', series: aliases, group: groups[0] ? ['g1'] : [], suppressed: true }, masked: {}, sql: '-- 示範模式：合成資料，未執行 SQL', lineage: ['dmp.events'], cost: { ms: 12, rows: rows.length, layer: 'L0' }, warnings: ['示範模式：合成資料'] };
+  const rows: Obj[] = [...buckets.values()].map(({ b, g, n, v }) => {
+    const r: Obj = { suppressed: false, _k: 120 };
+    if (b !== null) r.bucket = b;
+    g?.forEach((v, i) => { r[`g${i + 1}`] = v; });
+    aliases.forEach((a, i) => {               // 次數／金額加總；人數類多天去重後少於加總（示意）；平均、極值、分位數取平均
+      const agg = aggOf(i);
+      r[a] = /avg|min|max|^p\d+$/.test(agg) ? Math.round(v[i] / n) : /users|uniq/.test(agg) ? Math.round(v[i] / Math.sqrt(n)) : v[i];
+    });
+    return r;
+  });
+  const cmp = query.compare === 'previous_period' || query.compare === 'last_year' ? String(query.compare) : null;   // 示範：比較期 = 本期 × 固定比例（上一期 0.9、去年同期 0.8），只示意欄位與畫面
+  if (cmp) for (const r of rows) for (const a of aliases) r[`${a}_prev`] = Math.round(Number(r[a]) * (cmp === 'last_year' ? 0.8 : 0.9));
+  const gcols = dims.map((_, i) => `g${i + 1}`);
+  const cols = [...(grain === 'total' ? [] : ['bucket']), ...gcols, ...aliases, ...(cmp ? aliases.map((a) => `${a}_prev`) : []), '_k', 'suppressed'];
+  const chart = grain !== 'total' ? { type: 'line', x: 'bucket', series: aliases, group: gcols, suppressed: true }   // 與後端 analytics.chart_spec 同形狀
+    : groups[0] ? { type: 'bar', x: 'g1', series: aliases, suppressed: true } : { type: 'stat', series: aliases };
+  return { rows, columns: cols, chart_spec: chart, masked: {}, sql: '-- 示範模式：合成資料，未執行 SQL', lineage: ['dmp.events'], cost: { ms: 12, rows: rows.length, layer: 'L0' }, warnings };
 }
 function overlay(method: string, path: string, init: RequestInit | undefined, fx: Fixtures): { body: unknown; status?: number } | null {
   const b = parseBody(init?.body);
@@ -114,6 +162,7 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
     const count = (a: string) => rows.filter((r) => r.action === a).length;
     return { body: { kind, applied, total: rows.length, summary: { create: count('create'), update: 0, change_request: 0, unchanged: count('unchanged'), error: 0 }, rows, demo: true, message: applied ? '示範模式：已模擬套用，變更不會保存' : undefined } };
   }
+  if (seg[1] === 'analytics' && seg[2] === 'events' && !seg[3] && method === 'POST') return { body: sampleData(fx, 'events', b) };   // 示範：依粒度／期間／分組回應；固定資料不分粒度，不可直接回
   if (seg[1] === 'integration' && seg[2] === 'sync-tasks' && seg[4] === 'run' && method === 'POST') {          // 示範：立即執行只登記排隊（#87），不實際跑
     const t = ((fx.routes['GET /v1/integration/sync-tasks'] as Obj[] | undefined) ?? []).find((x) => x.id === seg[3]);
     return { body: { task_id: seg[3], cn: String(t?.cn ?? seg[3]), run_id: null, status: 'queued', scheduled_for: now(), demo: true }, status: 202 };
@@ -160,6 +209,11 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
     if (method === 'GET' && !id) { const fixed = (fx.routes['GET /v1/dashboards'] as Obj[] | undefined) ?? []; return { body: [...[...mem.dashboards.values()].map((x) => ({ ...x, cards: (x.cards as Obj[]).length })), ...fixed.filter((f) => !mem.dashboards.has(String(f.id)))] }; }
     if (method === 'POST' && !id) { const nd = newDash(String(b.name || '我的儀表板'), who, String((b.time as Obj | undefined)?.preset ?? '30d')); return { body: nd, status: 201 }; }
     if (!d) {
+      if (id && seg[3] === 'cards' && seg[5] === 'data' && method === 'POST' && b.time) {   // 固定範例看板的卡片臨時改期間／粒度：事件卡依新條件合成，其他照擷取結果
+        const fd = (fx.routes[`GET /v1/dashboards/${id}`] ?? fx.routes['GET /v1/dashboards/*']) as Obj | undefined;
+        const c = ((fd?.cards as Obj[] | undefined) ?? []).find((x) => x.id === seg[4]);
+        if (c && c.kind === 'events') { const q = { ...(c.query as Obj), time: { ...((c.query as Obj).time as Obj), ...(b.time as Obj) } }; return { body: { ...synthEvents(q), card: { id: c.id, kind: c.kind, chart: c.chart, title: c.title, bookmark: c.bookmark } } }; }
+      }
       if (id && seg[3] === 'cards' && seg.length === 4 && method === 'POST' && (fx.routes[`GET /v1/dashboards/${id}`] || fx.routes['GET /v1/dashboards/*'])) { const copy = seedCopy(fx, id); if (copy) { mem.dashboards.set(id, copy); return overlay(method, path, init, fx); } }
       return null;
     }
@@ -178,7 +232,8 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
       (d.cards as Obj[]).push(c); d.updated_at = now(); return { body: c, status: 201 };
     }
     if (seg[3] === 'cards' && seg.length === 5 && method === 'DELETE') { d.cards = (d.cards as Obj[]).filter((c) => c.id !== seg[4]); return { body: { ok: true } }; }
-    if (seg[3] === 'cards' && seg[5] === 'data' && method === 'POST') { const c = (d.cards as Obj[]).find((x) => x.id === seg[4]); const data = c ? sampleData(fx, String(c.kind), c.query as Obj) : null; return data && c ? { body: { ...data, card: { id: c.id, kind: c.kind, chart: c.chart, title: c.title, bookmark: c.bookmark }, warnings: c.bookmark_deleted ? ['書籤已刪除，顯示的是刪除前的查詢快照'] : (data.warnings as string[] | undefined) ?? [] } } : null; }
+    // 卡片臨時改期間／粒度（請求帶 time）→ 事件卡依新條件合成，不沿用擷取的原始結果
+    if (seg[3] === 'cards' && seg[5] === 'data' && method === 'POST') { const c = (d.cards as Obj[]).find((x) => x.id === seg[4]); const t = b.time as Obj | undefined; const q = c && t && c.kind === 'events' ? { ...(c.query as Obj), time: { ...((c.query as Obj).time as Obj), ...t } } : c?.query as Obj; const data = c ? sampleData(fx, String(c.kind), q) : null; return data && c ? { body: { ...data, card: { id: c.id, kind: c.kind, chart: c.chart, title: c.title, bookmark: c.bookmark }, warnings: c.bookmark_deleted ? ['書籤已刪除，顯示的是刪除前的查詢快照'] : (data.warnings as string[] | undefined) ?? [] } } : null; }
     return null;                                            // explain／render／schedules 等走固定資料（* 比對）
   }
   return null;
