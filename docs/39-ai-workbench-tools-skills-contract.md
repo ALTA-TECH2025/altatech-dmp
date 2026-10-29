@@ -4,7 +4,7 @@
 > - 2026-10-21 規格複審已通過；D1–D4 與 D5 技能庫基礎管理已由 Windy 確認、授權開發。
 > - 2026-10-28 依審查報告（必改 M1–M17）與 Windy 2026-10-28 的四項決定修訂（docs/41「2026-10-28 決定」）：受眾送審、錯誤碼照目錄、書籤以系統編號引用、部署用 Docker。
 > - 已合併的契約 PR：#60（工具與 run 契約 v1：§1–§5）、#61（技能庫 API 與 `ai_skills` 權限：§7.5）、#82（錯誤碼目錄 `backend/api/errors.yaml`）。本文不直接改契約檔；本文寫「需另開 contract PR」的地方，在契約 PR 合併前以現行契約為準。
-> - 仍待定（不得當正式預設）：模型供應商／端點／區域（D2）、模型投影的 K 值與金額區間（D3，§2.4）、D5 業務參數與技能庫權限分配、`trial` 版本規則（§7.5、§9），以及 docs/41「待確認」表列的各項。
+> - 仍待定（不得當正式預設）：模型供應商／端點／區域（D2）、模型投影的 K 值與金額區間（D3，§2.4）、D5 業務參數、含待確認參數的技能能否正式發布（Q38）、用量積分的算法與環境總上限（Q41），以及 docs/41「待確認」表列的各項。
 > 程式引用以 `main` @ `c8a87fa`（2026-10-28，#90 合併後）為準；行號可能隨 main 移動，以檔名與函式名為主。
 
 ## 1. 工具清單（MVP 需要的子集）
@@ -104,7 +104,7 @@ ToolResponse:
 
 **模型端點錯誤：** 模型端點回 5xx 用 `INTERNAL`、逾時用 `TIMEOUT`。目錄中語意較貼近的 `UPSTREAM_FAILED`（502）、`DEPENDENCY_UNAVAILABLE`（503）`scope` 只有 `api`，不能出現在 `ToolError`；若要改用它們，需另開 contract PR 把 `tool` 加進 scope 並同步 `ToolError` enum 與 `tools.yaml errors`。
 
-**模型拒答（A18）：** 目錄沒有拒答專用代碼（舊稿的 `MODEL_REFUSED` 不在目錄，不使用）；`model.py` 的 `ModelTurn.kind` 也只有 `tool_call | ask | final`，沒有「拒答」。拒答時 run 是 `failed` 還是降級成規則解析器候選，待確認 Q22；若選 `failed`，用目錄既有代碼還是另開 contract PR 新增代碼、以及 `ModelTurn` 怎麼表示拒答，待確認 Q31。兩題定案前，實作不得自訂代碼。
+**模型拒答（A18）：** 目錄沒有拒答專用代碼（舊稿的 `MODEL_REFUSED` 不在目錄，不使用）；`model.py` 的 `ModelTurn.kind` 也只有 `tool_call | ask | final`，沒有「拒答」。拒答時 run 是 `failed` 還是降級成規則解析器候選，待確認 Q22；若選 `failed`，用目錄既有代碼還是另開 contract PR 新增代碼、以及 `ModelTurn` 怎麼表示拒答，待確認 Q31。兩題定案前，實作不得自訂代碼。**Windy 2026-10-29（1029-1）：拒答由整個環境共用的內容審查模型統一把關**；審查模型選型（Q36）、擋下時的狀態與代碼和主模型自己拒答的處理（Q37）仍待確認。
 
 **REST 端的狀態類錯誤（非工具）：** 核可自己送出的申請一律 `FOUR_EYES_REQUIRED`（409，scope api），包含技能庫與 Agent 設定的 approve、分群核可（Windy 2026-10-28）。openapi 的 `/v1/agents/skills/{name}/drafts/{draft_id}/approve` 與 `/v1/agents/configs/{name}/drafts/{draft_id}/approve` 目前寫 `'403': 自己核可自己或無 ai_skills.approve`，**需另開 contract PR** 改成 403 只表示無權限、自核為 409 `FOUR_EYES_REQUIRED`；分群引擎自核目前丟 `Conflict`，經 `backend/api/errors.py` 依狀態對成通用 `CONFLICT`，後端 PR 要改回 `FOUR_EYES_REQUIRED`。（注意：分群引擎現行對 `admin` 角色不擋自核，這是既有分群規則，本 RFC 不改；要不要一併收緊另案處理。）
 
@@ -156,11 +156,11 @@ Evidence:
 | per_call_scan_bytes | 20 GB | `analysis.estimate` 後、執行前 |
 | per_run_scan_bytes | 100 GB | 同上，扣 run 累計 |
 | per_run_llm_tokens | 50,000 | 模型驅動器每次呼叫前 |
-| per_user_daily_scan_bytes | `null`（待定，契約註記「建議 500e9」）；契約寫未設定時不檢查、Gateway 啟動記 warning | run 建立時；可不可以未設定就上線，待確認 Q18 |
-| per_agent_daily_scan_bytes | 2 TB（`tools.yaml`） | 「agent」指什麼（服務身分已不代替使用者分析），待確認 Q18 |
+| 用量配額（依角色、依週期） | **Windy 2026-10-29（1029-6）**：平台權限設定裡的配置項，依角色、依時間週期設積分上限；未開啟＝不限。取代 `per_user_daily_scan_bytes`／`per_agent_daily_scan_bytes` 的固定值（契約欄位要另開 contract PR 改） | run 建立時；積分算法待確認 Q41 |
+| 環境總上限 | 1029-6：到達後全環境暫停使用 AI、通知管理員；數值與通知對象待確認 Q41 | run 建立時與執行中 |
 | max_steps | 20 | 控制器 |
-| max_wall_time | 10 分（互動）／30 分（排程） | 控制器；`waiting_input` 算不算進去，待確認 Q17 |
-| 每使用者同時 run | 2 | 建立 run 時（超過 → 429 `RATE_LIMITED`） |
+| max_wall_time | 10 分（互動）／30 分（排程） | 控制器；只算執行時間，`waiting_input` 不算（1029-5） |
+| 每使用者同時 run | 2 | 建立 run 時（超過 → 429 `RATE_LIMITED`）；等待回答中的 run 算不算，待確認 Q40 |
 | lease_s | 60 秒 | run 租約（§5） |
 
 ClickHouse settings（`budgets.yaml:2-26`）仍隨 SQL 送出作伺服器端兜底。
@@ -300,7 +300,7 @@ step:  pending → running → succeeded | failed | retry_wait
 - **取消：** 設 `cancel_requested`；控制器在每步之間檢查；執行中的 ClickHouse 查詢以 `KILL QUERY WHERE query_id` 結束。被取消的多半是 `analysis.run` 這類唯讀查詢，它們**沒有** `operation_id`（openapi `AgentStep.operation_id`：「寫入類工具由控制器產生」），所以 query_id 不能取自 `operation_id`。要另外定義步驟層的查詢 ID 送進 ClickHouse `query_id`（候選：`run_id + step_id + attempt`；其他做法亦可），取消與逾時重試都用它；`operation_id` 只保留寫入冪等的意思。定義待確認 Q28（研發）。
 - **重試（使用者觸發）：** 新 run，`retry_of: <run_id>`，沿用已成功步驟的證據（同權限指紋才沿用），寫入步驟沿用原 `operation_id`；參數不同依 §3.1 走 `CONFLICT` 或使用者確認的新操作。
 - **撤權：** 每步 `authorize()`；拒絕 → run `failed(AUTHZ_DENIED)`，已建草稿保留並標示。
-- **排程（P3）：** 每次觸發是新 run，身分 = 擁有者現在的角色；排程停用條件沿用看板定時寄送（授權失效即暫停，docs/30）。
+- **排程（P3）：** 每次觸發是新 run，身分 = 擁有者現在的角色；**產物沿用同一份**（Windy 2026-10-29，1029-4）：用最新資料更新同一個看板與受眾草稿，不新建，看板顯示資料更新時間（已送審或已生效的受眾怎麼處理，待確認 Q39）；排程停用條件沿用看板定時寄送（授權失效即暫停，docs/30）。
 
 ## 6. 權限矩陣（依 `rbac.yaml` 現況推導；標 ⚠ 為發現的落差）
 
@@ -322,7 +322,7 @@ step:  pending → running → succeeded | failed | retry_wait
 | run.status（全部） | ✗ | ✗ | ✓（`ai_admin.view`） | ✓ | ✓ | — |
 
 落差說明：
-1. **行銷不能建看板**：`dashboards.py:101-104` 以 `overview` 模組授權，建立需 `use`，`rbac.yaml:7` 行銷只有 `overview: [view]`。MVP 的「開戶主管週報」若由行銷發起會被拒。要嘛 MVP 看板由數據分析／數位經營發起，要嘛 contract PR 給行銷 `overview.use`（屬權限治理，需 Windy／永豐確認，docs/41 D4）。
+1. **行銷不能建看板**：`dashboards.py:101-104` 以 `overview` 模組授權，建立需 `use`，`rbac.yaml:7` 行銷只有 `overview: [view]`。MVP 的「開戶主管週報」若由行銷發起會被拒。**Windy 2026-10-29（1029-8）：由角色權限決定。** 內建行銷角色不改；需要的人由管理員指派含 `overview.use` 的自訂角色（權限取聯集、走雙人複核），沒有就照現行 403。
 2. **`svc_insight` 看不到資料**：`aggregate_only` 下事件 row filter 為 `1=0`（docs/38 §2.1）。本 RFC 不讓服務身分代使用者分析；`svc_insight` 只留給無發起人的系統檢查（例：data.readiness 例行巡檢），其權限要另外補 `events.view` 與 readiness 專用授權。
 3. **`agents.yaml` 的 `svc-insight-readonly` 與 RBAC 的 `svc_insight` 名稱不一致**（`agents.yaml:8` 等），contract PR 一併修。
 
@@ -361,7 +361,7 @@ frontmatter 只用 Agent Skills 標準欄位（`name`、`description`）加上�
 
 - 有實質口徑歧義才問：同一業務詞對到兩個以上契約定義（例：「開戶」→ `kh_apply`／`kh_review_pass`，docs/38 §0 第 4 點），或時間窗口與契約不符（S5 14 天 vs `window_days: 7`）。
 - 客戶已確認的口徑（寫在契約、帶版本）直接用，不問。
-- 一次最多問 1 題、給 2–3 個選項與預設；使用者 10 分鐘未答 → run 保持 `waiting_input`，不自行挑選。等待時間算不算進 `max_wall_time` 與同時 run 數、多久自動取消，待確認 Q17。
+- 一次最多問 1 題、給 2–3 個選項與預設；使用者沒回答 → run 保持 `waiting_input`，不自行挑選、不繼續輸出。**Windy 2026-10-29（1029-5）：等待沒有時間上限、不自動取消，等待時間不算進 `max_wall_time`**；等待中的 run 佔不佔同時 run 數、對話長度上限，待確認 Q40。
 
 ### 7.4 版本相容
 
@@ -422,7 +422,7 @@ AgentVersion:
 - 每個參數要有型別與允許範圍；超出 → 不能存。
 - 不能新增或移除工具、不能調整模型可見範圍（D3）或自動化界線（D4）：這些欄位**不在資料模型裡**，由控制器與 Gateway 依 SKILL.md 與 `rbac.yaml` 強制，Skill 參數與 `notes_md` 改不到。
 - `notes_md` 仍掃描明顯的越權指示（例如要求列出個人資料、直接送審），命中則退回並提示；**安全不靠這個掃描**，靠工具白名單與 Gateway。
-- 含 `pending_client` 或 `proposed` 參數的版本只能以 `trial` 發布：結果一律帶 `CONTRACT_PENDING`、不能設為預設版本、不能用在排程（P3）、分享看板或受眾送審。被擋時回目錄哪一個代碼（候選 `RULE_VIOLATION` 422、`NOT_APPROVED` 409；這是狀態規則，不是權限問題，不用 403），由契約 PR 決定，待確認 Q32；「預設版本」在 openapi 沒有對應欄位或端點、run 能不能用 trial 版本，見待確認 Q24。
+- 含 `pending_client` 或 `proposed` 參數的版本只能以 `trial` 發布：結果一律帶 `CONTRACT_PENDING`、不能設為預設版本、不能用在排程（P3）、分享看板或受眾送審。被擋時回目錄哪一個代碼（候選 `RULE_VIOLATION` 422、`NOT_APPROVED` 409；這是狀態規則，不是權限問題，不用 403），由契約 PR 決定，待確認 Q32。**Windy 2026-10-29（1029-2）：只有已發布（`published`）的版本才能選用，`trial` 不能拿來跑**；含待確認參數的技能能不能正式發布，待確認 Q38。
 
 **發布與版本**
 
@@ -461,10 +461,10 @@ AgentVersion:
 
 未決項目統一列在 docs/41「待確認」表（Q1–Q35），本節只列與本文直接相關的：
 
-- `per_user_daily_scan_bytes` 的數值與能否未設定上線、`per_agent_daily_scan_bytes` 的意義（Q18）。
-- 行銷是否給 `overview.use`（§6 落差 1，Q7）——權限治理，非工程決定。
+- 用量積分的算法、環境總上限數值與通知對象（Q41；Q18 已由 1029-6 決定方向）。
+- 已定：行銷看板依角色權限（1029-8，Q7）。
 - `svc_insight` 的新權限範圍（§6 落差 2）。
-- 技能庫的權限分配（Q8）與 `trial` 版本規則（Q24）。
+- 已定：技能庫權限在角色設定頁配置（1029-3，Q8）、只有已發布版本可選用（1029-2，Q24）；仍待確認含待確認參數的技能能否發布（Q38）。
 - 已定、不再列為未決：`agent_operations` 與 `agent_runs` 表與 `PostgresStore` 同一個 schema（`PostgresJournal` 已如此實作，#62）。
 
 需另開的 contract PR（本 PR 不改契約檔；合併前以現行契約為準）：
@@ -480,3 +480,5 @@ AgentVersion:
 | 技能庫引用 | `SkillVersion.refs` 可放書籤系統編號（Windy 2026-10-28）；書籤內容固定方式（Q34） | §7.5 |
 | 語意層版本 | `metrics.yaml` 版本、版本粒度、`contract_versions()` 鍵（Q35） | §4 |
 | 回補 | #74 合併後 `Readiness.backfill` 依 D-14 改欄位 | §3.3 |
+| 用量配額 | 依角色、依週期的積分上限與環境總上限（1029-6）；取代 `gateway.budgets` 的 `per_user_daily_scan_bytes`／`per_agent_daily_scan_bytes`；設定 API 與通知（Q41） | §2.6 |
+| 內容審查 | 全環境內容審查的設定與擋下時的代碼（1029-1，Q36、Q37） | §2.3 |
