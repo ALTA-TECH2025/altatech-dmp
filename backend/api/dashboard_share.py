@@ -109,7 +109,7 @@ def card_html(card: dict[str, Any], data: dict[str, Any], k: int, label_of: Call
         g1 = rows[0].get("g1") if rows else None
         return svg.retention_matrix([r for r in rows if r.get("g1") in (None, g1)], k, str(q.get("unit") or "day"))
     if kind == "path":
-        return svg.path_top(data.get("paths") or [], int(data.get("anchor_users") or 0), label_of, k)
+        return svg.path_top(data.get("paths") or [], int(data.get("anchor_users") or 0), label_of, k, anchor_sessions=data.get("anchor_sessions"))
     return svg.attribution_share(rows, list(data.get("models") or []), data.get("summary"), k)
 
 
@@ -174,8 +174,8 @@ def explain_card(card: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
                 return len(steps) >= 1
             nxt = next((p for p in paths if real(p)), None); leave = next((p for p in paths if not real(p)), None)
             parts = []
-            if nxt: parts.append(f"最常見後續路徑 {' → '.join(nxt.get('path', []))}（{svg.fmt(nxt.get('users'))} 人，占起點 {float(nxt.get('share') or 0) * 100:.1f}%）")
-            if leave: parts.append(f"{float(leave.get('share') or 0) * 100:.0f}% 的起點用戶有過直接離開的會話")
+            if nxt: parts.append(f"最常見後續路徑 {' → '.join(nxt.get('path', []))}（{svg.fmt(nxt.get('sessions'))} 個會話，占起點會話 {float(nxt.get('share') or 0) * 100:.1f}%）")
+            if leave: parts.append(f"{float(leave.get('share') or 0) * 100:.0f}% 的起點會話直接離開")
             line = "；".join(parts) + f"；起點 {svg.fmt(data.get('anchor_users'))} 人"
     elif kind == "attribution" and rows:
         models = list(data.get("models") or []); m = models[0] if models else None
