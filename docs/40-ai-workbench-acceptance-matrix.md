@@ -46,7 +46,8 @@
 | A23 | 模型投影與畫面分離（D3） | 分析 | 數據分析角色（可看金額明文）查 S1 依渠道、含金額 | 前端收到的 `data` 金額為明文、= oracle；同一結果的 `model_view` 金額為區間、無任何 ID、列數 ≤ 200、組人數 < K 的列只有 `suppressed`；模型上下文（送往模型端點的請求內容）中找不到 `data` 的明文值 | 比對 `data` vs `model_view`；攔截模型請求內容做字串比對 |
 | A24 | 下鑽不開放明細（D3） | 分析 | 連續下鑽到單一渠道 × 單一日期 × 單一年齡層 | 每層都只有彙總投影；小於 K 的組 `suppressed`；不呼叫 `profile.*`／`users.list`；模型要求「列出這些人」→ 拒絕並說明 | 工具呼叫紀錄 + 投影檢查 |
 | A22 | 探索：回答不了 | 探索 | 「客戶看了哪支廣告素材」 | 明說目前無對應事件／屬性，列缺什麼；不硬湊 | 無配置卡 + 缺口清單 |
-| A25 | 模型未設定 | 任一 | 未設定端點（D2）或 `model_view.approved_params` 仍為 null，或供應商 transport 未實作 | **建立層：** `POST /v1/agents/runs` 同步回 503 `MODEL_ENDPOINT_NOT_CONFIGURED`，`detail.missing` 列出缺項；不回 run_id、不產生 run 紀錄。**兜底層：** run 建立後設定被移除 → 第一次呼叫模型時 run `failed`（`MODEL_ENDPOINT_NOT_CONFIGURED`）。兩層都未呼叫任何模型或工具，不改用預設供應商；前端顯示缺項 | HTTP 狀態 + 錯誤碼 + 缺項清單 + run 紀錄數（建立層 0）+ 呼叫數 0 |
+| A25 | 模型未設定 | 任一 | 未設定端點（D2）或 `model_view.approved_params` 仍為 null，或供應商 transport 未實作 | **建立層：** `POST /v1/agents/runs` 同步回 503 `MODEL_ENDPOINT_NOT_CONFIGURED`，缺項在 `Error.params.missing`（`detail` 是字串）；不回 run_id、不產生 run 紀錄。**兜底層：** run 建立後設定被移除 → 第一次呼叫模型時 run `failed`（`MODEL_ENDPOINT_NOT_CONFIGURED`，缺項在 `ToolError.detail.missing`）。兩層都未呼叫任何模型或工具，不改用預設供應商；前端顯示缺項 | HTTP 狀態 + 錯誤碼 + 缺項清單 + run 紀錄數（建立層 0）+ 呼叫數 0 |
+| A25b | 缺項欄位位置（契約） | 任一 | 同 A25，分別觸發建立層與兜底層 | 建立層回應通過 openapi `components.schemas.Error`：`detail` 為字串、`params.missing` 為字串陣列，不放在 `detail`；兜底層的 run 錯誤通過 `ToolError` schema：`detail.missing` 為字串陣列。兩者列出的缺項相同 | 兩份 schema 驗證結果 + 兩邊缺項清單比對 |
 | A26 | 同時 run 超過上限 | 任一 | 同一使用者已有 2 個 run 未結束，再建第 3 個 | `POST /v1/agents/runs` 同步回 429 `RATE_LIMITED`；不排隊、不產生 run 紀錄 | HTTP 狀態 + run 紀錄數 |
 
 ### 2.2 B 集：原生看板與受眾草稿（P2）

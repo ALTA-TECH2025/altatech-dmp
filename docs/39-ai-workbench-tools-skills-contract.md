@@ -99,7 +99,7 @@ ToolResponse:
 | `CONFLICT` | 409 | api, tool | 否 | 步驟；REST（技能庫 If-Match 不符等，§7.5） | 同 `operation_id` 不同 `args_digest`；`dashboard.update` 的產物已被改過（版本欄位待定，§3.1） | step failed；要改參數須使用者確認、發新 `operation_id`（§3.1） |
 | `NOT_FOUND` | 404 | api, tool | 否 | 步驟 | 草稿／證據／書籤不存在或無權看 | — |
 | `RATE_LIMITED` | 429 | api, tool | 是 | **建立** | 每使用者同時 run 數（2）或每日額度 | 建立層回 429，**不排隊**、不建立 run；run 執行中額度用完怎麼處理併入待確認 Q18 |
-| `MODEL_ENDPOINT_NOT_CONFIGURED` | 503 | api, tool | 否 | **建立**（預檢）；步驟（兜底） | 模型端點設定（D2）、模型投影參數（D3 `approved_params`）或供應商 transport 任一未設定；`detail.missing` 列出缺項 | 建立層：回 503，不建立 run、不呼叫任何模型或工具；兜底：run 建立後設定被移除，`ApiDriver.next()` 丟 `ModelNotConfigured` → run `failed`。前端顯示「AI 工作台尚未設定模型」與缺項，不改用其他模型或預設值 |
+| `MODEL_ENDPOINT_NOT_CONFIGURED` | 503 | api, tool | 否 | **建立**（預檢）；步驟（兜底） | 模型端點設定（D2）、模型投影參數（D3 `approved_params`）或供應商 transport 任一未設定。缺項位置依層級不同：REST 建立層放 `Error.params.missing`（openapi `Error.detail` 是字串，不能放物件）；步驟兜底放 `ToolError.detail.missing` | 建立層：回 503，不建立 run、不呼叫任何模型或工具；兜底：run 建立後設定被移除，`ApiDriver.next()` 丟 `ModelNotConfigured` → run `failed`。前端顯示「AI 工作台尚未設定模型」與缺項，不改用其他模型或預設值 |
 | `INTERNAL` | 500 | api, tool | 是（最多 2 次、指數退避） | 步驟 | 其他；**含模型端點回 5xx**（見下） | 重試用完 → run failed；只回目錄訊息與 request_id（docs/46 §4.3） |
 
 **模型端點錯誤：** 模型端點回 5xx 用 `INTERNAL`、逾時用 `TIMEOUT`。目錄中語意較貼近的 `UPSTREAM_FAILED`（502）、`DEPENDENCY_UNAVAILABLE`（503）`scope` 只有 `api`，不能出現在 `ToolError`；若要改用它們，需另開 contract PR 把 `tool` 加進 scope 並同步 `ToolError` enum 與 `tools.yaml errors`。
@@ -116,7 +116,7 @@ K 值與金額區間分三件事，不可混用：
 
 - **現行安全下限**（已在契約，所有查詢都適用）：`rbac.yaml` `k_anonymity.min_group_size: 20`、`masking.yaml` 的 `bucket` 邊界。模型投影只能比它嚴，不能比它鬆。
 - **合成測試設定**：自測與驗收用測試替身模型（`provider: test-double`）時，投影直接套現行下限；只出現在標示為合成的 fixture，不是正式配置。
-- **正式模型投影的啟用條件**：模型投影專屬的 K 值與金額區間邊界**尚未核定**（`tools.yaml` `model_view.approved_params: null`）。正式環境要同時有已核定的端點（D2）與投影參數才會呼叫模型；缺任一項，Gateway 回 `MODEL_ENDPOINT_NOT_CONFIGURED`，`detail.missing` 列出缺的設定。工程不得把現行下限直接填成已核定的投影參數。
+- **正式模型投影的啟用條件**：模型投影專屬的 K 值與金額區間邊界**尚未核定**（`tools.yaml` `model_view.approved_params: null`）。正式環境要同時有已核定的端點（D2）與投影參數才會呼叫模型；缺任一項時：建立 run 同步回 REST 503 `MODEL_ENDPOINT_NOT_CONFIGURED`，缺的設定放在 `Error.params.missing`；run 進行中才被移除時，Gateway 兜底回 ToolError，缺項放在 `ToolError.detail.missing`。兩者都沿用已合併契約，不需要改 `Error.detail` 型別。工程不得把現行下限直接填成已核定的投影參數。
 
 投影規則：
 

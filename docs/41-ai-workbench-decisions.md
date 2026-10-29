@@ -89,7 +89,7 @@ K 值與金額區間分三件事，不可混用：
 
 - **現行安全下限**（已在契約，所有查詢都適用）：`rbac.yaml` `k_anonymity.min_group_size: 20`、`masking.yaml` 的 `bucket` 邊界。模型投影只能比它嚴，不能比它鬆。
 - **合成測試設定**：自測與驗收用測試替身模型（`provider: test-double`）時，投影直接套現行下限；只出現在標示為合成的 fixture，不是正式配置。
-- **正式模型投影的啟用條件**：模型投影專屬的 K 值與金額區間邊界**尚未核定**（`tools.yaml` `model_view.approved_params: null`）。正式環境要同時有已核定的端點（D2）與投影參數才會呼叫模型；缺任一項，建立 run 時同步回 503 `MODEL_ENDPOINT_NOT_CONFIGURED`（不建立 run），`detail.missing` 列出缺的設定。工程不得把現行下限直接填成已核定的投影參數。
+- **正式模型投影的啟用條件**：模型投影專屬的 K 值與金額區間邊界**尚未核定**（`tools.yaml` `model_view.approved_params: null`）。正式環境要同時有已核定的端點（D2）與投影參數才會呼叫模型；缺任一項，建立 run 時同步回 503 `MODEL_ENDPOINT_NOT_CONFIGURED`（不建立 run），缺的設定放在 `Error.params.missing`；run 進行中才被移除時，工具兜底回 ToolError，缺項放在 `ToolError.detail.missing`。工程不得把現行下限直接填成已核定的投影參數。
 
 **2026-10-28 補：送往模型的還有一條路徑——使用者的問題文字。** 舊稿只列了目錄與彙總結果，但模型實際也會收到使用者在工作台輸入的問題、畫面上下文，以及技能說明（docs/38 §5.2）。使用者可能在問題裡打客戶姓名、身分證或帳號；現有的 `narrative_regex_block` 只管模型輸出、而且還沒有程式使用。問題文字能不能出境、送出前要不要遮掉或拒收，**仍待確認（Q12）**，不視為 D3 已涵蓋。
 
