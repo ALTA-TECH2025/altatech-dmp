@@ -2,7 +2,7 @@
 // 結果：轉化步驟（總轉化率、每步到達／流失、最大流失標記、明細表）與轉化趨勢（總轉化率折線＋每桶明細）；每步可加多條件篩選；SQL 可展開；K 匿名抑制列以「< K」顯示。設計系統元件組合。
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ActionIcon, Alert, Badge, Button, Code, Group, List, NativeSelect, Paper, SegmentedControl, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Alert, Badge, Button, Checkbox, Code, Group, List, NativeSelect, Paper, SegmentedControl, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { api, ApiError } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
@@ -115,6 +115,7 @@ function FunnelInner() {
                 <DateRangeInput label="期間" value={q.time} onChange={(r) => setQ({ ...q, time: { ...q.time, ...r } })} />
                 {segments.length > 0 ? <NativeSelect label="用戶屬於分群" aria-label="分群" value={q.segment ?? ''} data={[opt('', '全體用戶'), ...segments.map((s) => opt(s.id, s.name))]} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} /> : <TextInput label="分群" placeholder="segment id（選填）" value={q.segment ?? ''} onChange={(e) => setQ({ ...q, segment: e.target.value || undefined })} />}
               </SimpleGrid>
+              <Checkbox label="限制後續事件在時間區間內" description="不勾：期間只限第一步，後續步驟在窗口內即可（可落在期間之後）；勾選：每一步都要在期間內" checked={!!q.restrict_to_range} onChange={(e) => setQ({ ...q, restrict_to_range: e.currentTarget.checked || undefined })} />
               <ScopeEditor value={q} onChange={(s) => setQ({ ...q, ...s })} cat={cat} fields={scopeFields} segments={segments} note="只作用於進漏斗的用戶" />
               <Group gap="xs">
                 <Button variant="filled" disabled={!ready || busy} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</Button>
@@ -127,6 +128,7 @@ function FunnelInner() {
           <Paper><SectionTitle title="說明" />
             <List size="sm" spacing="xs" c="dimmed">
               <List.Item>每步人數 = 在窗口內依序完成到該步的用戶數（ClickHouse windowFunnel）；分組值取自該用戶第一步事件。</List.Item>
+              <List.Item>期間是第一步發生的範圍；後續步驟只要在窗口內，期間結束後才發生也算（同神策）。勾選「限制後續事件在時間區間內」則每一步都要在期間內。</List.Item>
               <List.Item>關聯屬性指定後，同一用戶不同業務 ID 的事件各算一條流程；「流程數」口徑數流程條數，「用戶數」仍去重。</List.Item>
               <List.Item>線下事件由數據中台批次導入後與 App／Web 事件同表，可直接作為任一步。</List.Item>
               <List.Item>結果附 SQL、血緣與成本；所有查詢寫審計。</List.Item>

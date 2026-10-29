@@ -14,6 +14,8 @@ export interface FunnelQuery extends Scope {
   steps: FunnelStep[];
   window: { value: number; unit: 'minute' | 'hour' | 'day' };
   order: 'loose' | 'strict';
+  /** 限制後續事件在時間區間內（同神策）；不帶＝time 只限第一步，後續步驟可落在期間後、窗口期內 */
+  restrict_to_range?: boolean;
   relation?: string;
   metric: 'users' | 'times';
   group_by?: string[];
