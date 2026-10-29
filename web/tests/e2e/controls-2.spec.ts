@@ -120,18 +120,25 @@ test.describe.serial('控制項：漏斗、路徑、歸因', () => {
     await page.selectOption('select[aria-label="起點事件"]', 'app_login_success');
     await setRange(page, '2026-10-01', '2026-10-16');
     const dir = page.locator('select[aria-label="方向"]'); const sess = page.locator('select[aria-label="會話切割"]'); const smp = page.locator('select[aria-label="抽樣"]');
+    await smp.selectOption('null');   // 組合測試用精確（不抽樣），黃金資料量小，抽樣後人數多半低於 K
     for (const d of await optionsOf(dir)) for (const s of await optionsOf(sess)) {
       await dir.selectOption(d); await sess.selectOption(s);
       if (d === 'before') await page.selectOption('select[aria-label="起點事件"]', 'bond_deal');
       const r = await query(page, '/v1/analytics/path');
       expect(r.status, `路徑 ${d}／${s}：${r.body.detail ?? ''}`).toBe(200);
       expect([r.req.direction, r.req.session?.mode ?? 'gap']).toEqual([d, s]);
-      expect(JSON.stringify(r.body).length, `路徑 ${d}／${s} 應有結果`).toBeGreaterThan(50);
+      expect(Number(r.body.anchor_users), `路徑 ${d}／${s}：起點人數 > 0`).toBeGreaterThan(0);
+      // 要嘛有節點與連線；要嘛每條路徑都因 K 匿名被抑制（例：沒有 session_id 時整段期間算一條會話，路徑分散、每條人數 < K）——不可兩者皆非
+      const paths = r.body.paths as { suppressed?: boolean }[];
+      if (r.body.nodes.length === 0) expect(paths.length > 0 && paths.every((x) => x.suppressed), `路徑 ${d}／${s}：沒有節點時，所有路徑都應是 K 匿名抑制`).toBe(true);
+      else expect(r.body.links.length, `路徑 ${d}／${s} 有節點就應有連線`).toBeGreaterThan(0);
     }
     for (const v of await optionsOf(smp)) {
       await smp.selectOption(v);
       const r = await query(page, '/v1/analytics/path');
       expect(r.status, `抽樣 ${v}：${r.body.detail ?? ''}`).toBe(200);
+      expect(String(r.req.sample), '送出的抽樣值 = 畫面選的').toBe(v);
+      expect(r.body.sampled ?? null, '回應標示的抽樣 = 送出的').toEqual(v === 'null' ? null : Number(v));
     }
     const steps = await optionsOf(page.locator('select[aria-label="步數"]'));
     for (const n of [steps[0], steps[steps.length - 1]]) {
