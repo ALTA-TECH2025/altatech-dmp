@@ -29,9 +29,11 @@ deploy/quickstart/run_local.sh code admin                  # 沒有手機驗證�
 | 登入 | 本機帳號（`DMP_LOCAL_ACCOUNTS`，scrypt + TOTP），`DMP_LOCAL_ALLOWED_ROLES='*'` 放開全部角色 | Keycloak／Entra ID／AD；本機帳號只給外包且只能 `custom_*` 角色（`backend/auth/idp.yaml › local_accounts`） |
 | Cookie | `DMP_COOKIE_SECURE=0`（沒有 TLS） | 一律 TLS，cookie Secure |
 | 控制面 | JSON 檔（`DMP_STORE_PATH`，單一寫入者：`seed` 會先停 API 再寫） | PostgreSQL（`DMP_PG_DSN_REF`） |
-| 排程 | API 內背景執行緒（`DMP_TICK=1`：同步任務每分鐘、分群每 10 分鐘） | 排程系統呼叫 `python3 -m backend.segments tick` 與 scheduler |
+| 排程 | API 內背景執行緒（`DMP_TICK=1`：同步任務每分鐘、分群每 10 分鐘）；同步排程存 SQLite（`DMP_SCHED_DB`） | worker（`DMP_ROLE=worker`）持主控租約執行；同步排程與畫面建的模型存控制面 PostgreSQL，「立即執行」排隊由 worker 跑 |
 | 密鑰 | `secrets.json` 空檔、代碼化金鑰用環境變數明文 | 密鑰庫 secret_ref |
 | 前端 | API 同源提供 `web/dist`（`DMP_WEB_DIST`） | nginx／Ingress 在前面（快取、壓縮、TLS） |
+
+這台機器之後改接 PostgreSQL 控制面時，舊的同步排程（任務、水位、已知欄位、模型）用一次性指令搬過去，重跑不會重複：`DMP_PG_DSN=… python3 -m backend.integration.cli sched import-sqlite --from ~/dmp-local/sched.db`（`DMP_WORK` 預設目錄；執行紀錄與告警不搬）。
 
 給團隊共用的 VM：`DMP_BIND=0.0.0.0 deploy/quickstart/run_local.sh up`，前面放 TLS（Caddy／nginx）後把 `DMP_COOKIE_SECURE` 拿掉；VM 的好處是常駐、網路能到客戶內網（客戶的舊平台是私有化，只有內網或 VPN 能到）。
 
