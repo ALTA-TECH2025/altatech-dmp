@@ -1144,7 +1144,7 @@ components:
         behaviors: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/UsersBehavior' }, description: '行為篩選「用戶做過／未做過」：與用戶列表 behaviors 同一套（事件 × 指標 × 比較 × 期間 × 事件屬性條件）；行為的 time 未給時以查詢的 time 為期間（last_days 以 time.now 回推）；只算符合的用戶的事件，一律走明細層' }
         behaviors_op: { type: string, enum: [and, or], default: and, description: 多條行為之間的組合 }
         cohorts: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/Cohort' }, description: '對照組（最多 10 組）：每組一套篩選（filters／segment／behaviors），與全局篩選取交集後各算一次；結果每列多一欄 cohort（組名），rows 依組名順序串接；與 compare 可並用（每組各自比上期）' }
-        compare: { type: string, enum: [previous_period, segment] }
+        compare: { type: string, enum: [previous_period, last_year, segment], description: 'previous_period＝上一期（緊接在前、等長）；last_year＝去年同期（Windy 2026-10-29：日／小時／分鐘／月／合計取「同一日期」，閏年 2/29 對去年 2/28；週取 52 週前、週一對週一）。結果每個指標多一欄 <別名>_prev；看板卡片的事件查詢同樣適用' }
         exact: { type: boolean, default: false, description: 'true＝一律走明細、不用日聚合層（次數／金額在聚合層本來就精確，這個開關用於對帳）' }
         estimate: { type: boolean, default: false, description: '快速估算（docs/04 §1.3）：true 時人數可走日聚合層（uniqMerge，近似值），回應 warnings 標示；預設 false＝人數精確去重。與 exact 同時為 true 時以 exact 為準' }
     Cohort:
