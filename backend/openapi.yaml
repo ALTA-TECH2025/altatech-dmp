@@ -1226,6 +1226,7 @@ components:
         steps: { type: array, minItems: 2, maxItems: 32, description: '最多 32 步（Windy 2026-10-29；ClickHouse windowFunnel 條件上限 32，超過需另做演算法）', items: { type: object, required: [event], properties: { event: { type: string }, alias: { type: string }, filters: { type: array, items: { type: object } } } } }
         window: { type: object, required: [value, unit], properties: { value: { type: integer, minimum: 1 }, unit: { type: string, enum: [minute, hour, day] } }, description: '最長 365 天（Windy 2026-10-29）；分鐘／小時／天可自訂' }
         order: { type: string, enum: [loose, strict], default: loose }
+        restrict_to_range: { type: boolean, default: false, description: '限制後續事件在時間區間內（同神策）。false＝time 只限第一步，後續步驟可落在期間結束之後、窗口期之內；true＝每一步都要落在 time 內' }
         relation: { type: string, description: 關聯屬性（業務 ID）：entity_id 或 props.<key>；同一值的事件才算同一流程 }
         metric: { type: string, enum: [users, times], default: users, description: times 需指定 relation（計算流程數） }
         group_by: { type: array, maxItems: 1, items: { type: string }, description: 分組值取自第一步事件 }
@@ -1236,7 +1237,7 @@ components:
         behaviors_op: { type: string, enum: [and, or], default: and }
         cohorts: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/Cohort' }, description: 對照組（同 SemanticQuery.cohorts；每列多一欄 cohort） }
         sample: { type: number, description: 按用戶抽樣比例 (0,1) }
-        time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string }, now: { type: string } } }
+        time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string }, now: { type: string } }, description: '第一步發生的時間範圍；後續步驟是否也限在範圍內看 restrict_to_range' }
     RetentionQuery:
       type: object
       required: [initial, time]

@@ -330,7 +330,9 @@ class Oracle:
         now = fq.time.now or date.today()
         step_events = {s.event for s in fq.steps}
         allowed = self._behaviors_ok(fq, decision, now)
-        rows = [r for r in self.events if r["project"] == fq.project and fq.time.start <= r["event_date"] <= fq.time.end and r["event"] in step_events
+        from .funnel import scan_end
+        last = scan_end(fq)
+        rows = [r for r in self.events if r["project"] == fq.project and fq.time.start <= r["event_date"] <= last and r["event"] in step_events
                 and self.group(fq.filters, r, now) and self._row_filters_ok(decision, r, now) and (allowed is None or r["one_id"] in allowed)]
         if fq.sample:
             raise ValueError("oracle 不做抽樣")
@@ -341,6 +343,8 @@ class Oracle:
             key = (r["one_id"], self.value(fq.relation, r) if fq.relation else None)
             sec = int((r["time"] - timedelta(hours=8)).replace(tzinfo=UTC).timestamp())
             for i, s in enumerate(fq.steps):
+                if i == 0 and r["event_date"] > fq.time.end:      # 第一步只看期間內（延伸區只給後續步驟）
+                    continue
                 if r["event"] == s.event and self.group(s.filters, r, now):
                     chains[key].append((sec, i))
                     if i == 0 and (key not in first_ev or r["time"] < first_ev[key][0]):
