@@ -1,5 +1,5 @@
 // 行為路徑：起點／終點事件（可加條件）、方向、步數、會話切割、節點設定（只留哪些事件／折成其他／依屬性拆分／合併重複／離開節點）、篩選、分群、抽樣、時間
-// → POST /v1/analytics/path → 桑基圖（節點可設為新起點、下鑽用戶列表）+ Top N 路徑表（人數、占比、路徑數、平均耗時；K 匿名抑制）。設計系統元件組合。
+// → POST /v1/analytics/path → 桑基圖（節點可設為新起點、下鑽用戶列表）+ Top N 路徑表（人數、會話數、占起點會話比例、平均耗時；K 匿名抑制）。桑基圖數字是會話數（同神策）。設計系統元件組合。
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ActionIcon, Alert, Badge, Button, Checkbox, Code, Group, List, NativeSelect, Paper, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
@@ -105,7 +105,7 @@ function PathInner() {
           </Paper>
           <Paper><SectionTitle title="說明" />
             <List size="sm" spacing="xs" c="dimmed">
-              <List.Item>每次出現起點就切一條「起點 + N 步」路徑；同一用戶同會話多次出現各算一條，人數去重。</List.Item>
+              <List.Item>每個會話只切一條路徑（同神策）：起點取會話中第一次出現、終點取最後一次。桑基圖的數字是會話數，不是人數；人數（去重）看下方路徑表，點節點可看用戶列表。</List.Item>
               <List.Item>「離開」= `$AppEnd` 事件或會話結束（間隔逾時）；終點可直接選「離開」看哪些路徑最常以離開收尾。</List.Item>
               <List.Item>桑基圖節點點一下可設為新起點或下鑽用戶列表；抑制的路徑不畫進圖。</List.Item>
               <List.Item>抽樣按用戶分桶：同一用戶的事件全在或全不在；人數為抽樣後實數。</List.Item>
@@ -115,7 +115,7 @@ function PathInner() {
           <>
             {res.warnings.length > 0 && <Text size="sm" c="dimmed">{res.warnings.join('；')}</Text>}
             <Paper>
-              <SectionTitle title="路徑圖"><Text size="xs" c="dimmed">{q.direction === 'after' ? '起點' : '終點'}用戶 {fmtNum(res.anchor_users)}{res.sampled ? `（抽樣 ${res.sampled}，推估 ≈ ${fmtNum(Math.round(res.anchor_users / res.sampled))}）` : ''} · {res.cost.ms} ms · {res.paths.length} 條路徑{res.paths.some((p) => p.suppressed) ? `，${res.paths.filter((p) => p.suppressed).length} 條少於 ${k} 人已抑制` : ''}</Text></SectionTitle>
+              <SectionTitle title="路徑圖"><Text size="xs" c="dimmed">{q.direction === 'after' ? '起點' : '終點'}用戶 {fmtNum(res.anchor_users)}{res.anchor_sessions != null ? `、會話 ${fmtNum(res.anchor_sessions)}` : ''}{res.sampled ? `（抽樣 ${res.sampled}，推估 ≈ ${fmtNum(Math.round(res.anchor_users / res.sampled))}）` : ''} · {res.cost.ms} ms · {res.paths.length} 條路徑{res.paths.some((p) => p.suppressed) ? `，${res.paths.filter((p) => p.suppressed).length} 條少於 ${k} 人已抑制` : ''}</Text></SectionTitle>
               <PathChart nodes={res.nodes} links={res.links} labelOf={evCn} onNode={(n, action) => {
                 if (action === 'anchor') void run({ anchor: { event: n.node }, direction: 'after' });
                 else if (can('users', 'use')) nav('/users', { state: { source: { type: 'path', query: q, node: n.node, level: n.level, label: `路徑「${evCn(q.anchor.event)}」第 ${n.level} 步 ${evCn(n.node)}` } } });
@@ -124,7 +124,7 @@ function PathInner() {
             <Paper p={0} style={{ overflow: 'hidden' }}>
               <Table.ScrollContainer minWidth={640}>
                 <Table>
-                  <Table.Thead><Table.Tr><Table.Th>#</Table.Th><Table.Th>路徑</Table.Th><Table.Th ta="right">人數</Table.Th><Table.Th ta="right">占比</Table.Th><Table.Th ta="right">路徑數</Table.Th><Table.Th ta="right">平均耗時</Table.Th></Table.Tr></Table.Thead>
+                  <Table.Thead><Table.Tr><Table.Th>#</Table.Th><Table.Th>路徑</Table.Th><Table.Th ta="right">人數</Table.Th><Table.Th ta="right">會話占比</Table.Th><Table.Th ta="right">會話數</Table.Th><Table.Th ta="right">平均耗時</Table.Th></Table.Tr></Table.Thead>
                   <Table.Tbody>{res.paths.map((p, i) => <Table.Tr key={i} bg={p.suppressed ? WARN_ROW_BG : undefined}><Table.Td><Text size="xs" c="dimmed">{i + 1}</Text></Table.Td><Table.Td>{p.path.map((n, j) => <span key={j}>{j > 0 && <Text component="span" size="xs" c="dimmed" mx={4}>→</Text>}{evCn(n)}</span>)}</Table.Td>
                     <Table.Td ta="right"><Mono>{p.suppressed ? `< ${k}` : fmtNum(p.users)}</Mono></Table.Td><Table.Td ta="right"><Mono>{p.share === null ? '—' : `${(p.share * 100).toFixed(1)}%`}</Mono></Table.Td><Table.Td ta="right"><Mono>{p.suppressed ? '—' : fmtNum(p.sessions)}</Mono></Table.Td><Table.Td ta="right"><Mono>{fmtMs(p.avg_ms)}</Mono></Table.Td></Table.Tr>)}</Table.Tbody>
                 </Table>

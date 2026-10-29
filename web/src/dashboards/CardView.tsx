@@ -111,7 +111,7 @@ function CardBody({ card, data, k, labelOf }: { card: DashboardCard; data: CardD
   }
   if (card.kind === 'path') {
     return <>
-      <Text size="xs" c="dimmed">起點用戶 {fmtNum(data.anchor_users ?? 0)}{data.sampled ? `（抽樣 ${data.sampled}）` : ''}</Text>
+      <Text size="xs" c="dimmed">起點用戶 {fmtNum(data.anchor_users ?? 0)}{data.anchor_sessions != null ? `、會話 ${fmtNum(data.anchor_sessions)}` : ''}（圖中數字為會話數）{data.sampled ? `（抽樣 ${data.sampled}）` : ''}</Text>
       <PathChart nodes={data.nodes ?? []} links={data.links ?? []} labelOf={labelOf} />
     </>;
   }
