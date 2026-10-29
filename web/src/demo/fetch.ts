@@ -99,7 +99,13 @@ function synthEvents(query: Obj): Obj {
   let from = day(time.from ?? '2026-10-01'); const to = day(time.to ?? '2026-10-16');
   const warnings = ['示範模式：合成資料'];
   if ((grain === 'hour' || grain === 'minute') && from < to) { from = new Date(to); warnings.push('示範模式：小時／分鐘粒度只產生最後一天'); }
-  const groups = Array.isArray(query.group_by) && query.group_by.length ? ['iOS', 'Android', 'Web'] : [null];
+  // 分組：每個維度一組示意值（平台、渠道等用真實值，其他用「維度名 1–3」），多維取笛卡兒積，每列帶 g1..gn
+  const POOL: Record<string, string[]> = { platform: ['iOS', 'Android', 'Web'], channel: ['app', 'web', 'agent'], utm_source: ['google', 'facebook', 'line'], market: ['TSE', 'OTC', 'US'], side: ['B', 'S'] };
+  const dims = (Array.isArray(query.group_by) ? query.group_by : []).slice(0, 3).map(String);
+  const groups: (string[] | null)[] = dims.length ? dims.reduce<string[][]>((acc, d) => acc.flatMap((p) => (POOL[d] ?? [1, 2, 3].map((i) => `${d.replace(/^.*\./, '')} ${i}`)).map((v) => [...p, v])), [[]]) : [null];
+  // 篩選、分群、行為條件、對照組在示範站不會真的套用：明說，避免被當成已生效（真實計算請用本機或測試環境）
+  const scoped = (Array.isArray(query.filters) ? query.filters.length > 0 : !!(query.filters && (query.filters as Obj).items && ((query.filters as Obj).items as unknown[]).length)) || !!query.segment || (Array.isArray(query.behaviors) && query.behaviors.length > 0) || (Array.isArray(query.cohorts) && query.cohorts.length > 0);
+  if (scoped) warnings.push('示範模式：篩選、分群、行為條件與對照組不會套用到合成資料（數字與未篩選相同）');
   const key = (d: Date): string | null => {
     if (grain === 'total') return null;
     if (grain === 'week') { const w = new Date(d); w.setUTCDate(w.getUTCDate() - ((w.getUTCDay() + 6) % 7)); return iso(w); }   // 週一起（同編譯器 toMonday）
@@ -107,16 +113,16 @@ function synthEvents(query: Obj): Obj {
     return iso(d);
   };
   const subs = grain === 'hour' ? 24 : grain === 'minute' ? 60 : 1;   // 小時：每天 24 桶；分鐘：只產生 60 桶（最後一天 00:00–00:59）
-  const buckets = new Map<string, { b: string | null; g: string | null; n: number; v: number[] }>();
+  const buckets = new Map<string, { b: string | null; g: string[] | null; n: number; v: number[] }>();
   let seed = 7;
   const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
   for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
     for (let k = 0; k < subs; k++) {
       const b = grain === 'hour' ? `${iso(d)} ${String(k).padStart(2, '0')}:00:00` : grain === 'minute' ? `${iso(d)} 00:${String(k).padStart(2, '0')}:00` : key(d);
       for (const g of groups) {
-        const id = `${b ?? ''}|${g ?? ''}`;
+        const id = `${b ?? ''}|${g?.join('|') ?? ''}`;
         const cur = buckets.get(id) ?? { b, g, n: 0, v: aliases.map(() => 0) };
-        aliases.forEach((_, i) => { cur.v[i] += Math.round(((80 + 40 * Math.sin(d.getUTCDate() / 3 + i) + rnd() * 30) * (g === 'Web' ? 0.4 : 1)) / subs); });
+        aliases.forEach((_, i) => { cur.v[i] += Math.round(((80 + 40 * Math.sin(d.getUTCDate() / 3 + i) + rnd() * 30) * (g?.includes('Web') ? 0.4 : 1) / (g ? 1 + g.length - 1 : 1)) / subs); });
         cur.n += 1; buckets.set(id, cur);
       }
     }
@@ -124,7 +130,7 @@ function synthEvents(query: Obj): Obj {
   const rows: Obj[] = [...buckets.values()].map(({ b, g, n, v }) => {
     const r: Obj = { suppressed: false, _k: 120 };
     if (b !== null) r.bucket = b;
-    if (g) r.g1 = g;
+    g?.forEach((v, i) => { r[`g${i + 1}`] = v; });
     aliases.forEach((a, i) => {               // 次數／金額加總；人數類多天去重後少於加總（示意）；平均、極值、分位數取平均
       const agg = aggOf(i);
       r[a] = /avg|min|max|^p\d+$/.test(agg) ? Math.round(v[i] / n) : /users|uniq/.test(agg) ? Math.round(v[i] / Math.sqrt(n)) : v[i];
@@ -133,8 +139,9 @@ function synthEvents(query: Obj): Obj {
   });
   const cmp = query.compare === 'previous_period' || query.compare === 'last_year' ? String(query.compare) : null;   // 示範：比較期 = 本期 × 固定比例（上一期 0.9、去年同期 0.8），只示意欄位與畫面
   if (cmp) for (const r of rows) for (const a of aliases) r[`${a}_prev`] = Math.round(Number(r[a]) * (cmp === 'last_year' ? 0.8 : 0.9));
-  const cols = [...(grain === 'total' ? [] : ['bucket']), ...(groups[0] ? ['g1'] : []), ...aliases, ...(cmp ? aliases.map((a) => `${a}_prev`) : []), '_k', 'suppressed'];
-  const chart = grain !== 'total' ? { type: 'line', x: 'bucket', series: aliases, group: groups[0] ? ['g1'] : [], suppressed: true }   // 與後端 analytics.chart_spec 同形狀
+  const gcols = dims.map((_, i) => `g${i + 1}`);
+  const cols = [...(grain === 'total' ? [] : ['bucket']), ...gcols, ...aliases, ...(cmp ? aliases.map((a) => `${a}_prev`) : []), '_k', 'suppressed'];
+  const chart = grain !== 'total' ? { type: 'line', x: 'bucket', series: aliases, group: gcols, suppressed: true }   // 與後端 analytics.chart_spec 同形狀
     : groups[0] ? { type: 'bar', x: 'g1', series: aliases, suppressed: true } : { type: 'stat', series: aliases };
   return { rows, columns: cols, chart_spec: chart, masked: {}, sql: '-- 示範模式：合成資料，未執行 SQL', lineage: ['dmp.events'], cost: { ms: 12, rows: rows.length, layer: 'L0' }, warnings };
 }

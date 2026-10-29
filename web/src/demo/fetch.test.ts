@@ -99,3 +99,24 @@ describe('示範：事件分析對比', () => {
     expect((await q()).columns).not.toContain('deals_prev');
   });
 });
+
+describe('示範：未支援的條件要明說；多維分組帶齊 g1..gn（#96 審查）', () => {
+  const ask = async (extra: Record<string, unknown>) => (await (await demoFetch('/v1/analytics/events', { method: 'POST', body: JSON.stringify({ metrics: [{ event: 'bond_order', agg: 'total', alias: 'orders' }], time: { from: '2026-10-01', to: '2026-10-16', grain: 'total' }, ...extra }) })).json()) as { rows: Record<string, unknown>[]; columns: string[]; warnings: string[] };
+  it('互斥篩選、分群、行為條件：回應明說不會套用', async () => {
+    const plain = await ask({});
+    expect(plain.warnings.some((w) => w.includes('不會套用'))).toBe(false);
+    for (const extra of [
+      { filters: { op: 'and', items: [{ field: 'platform', op: 'eq', value: 'iOS' }, { field: 'platform', op: 'eq', value: 'Android' }] } },
+      { filters: [{ field: 'platform', op: 'eq', value: 'iOS' }] },
+      { segment: 'sg_1' },
+      { behaviors: [{ event: 'bond_deal' }] },
+    ]) expect((await ask(extra)).warnings.some((w) => w.includes('不會套用')), JSON.stringify(extra)).toBe(true);
+  });
+  it('雙維分組（渠道 × 平台）：每列有 g1、g2，值分別取自各自的維度', async () => {
+    const r = await ask({ group_by: ['channel', 'platform'] });
+    expect(r.columns).toEqual(expect.arrayContaining(['g1', 'g2']));
+    expect(r.rows).toHaveLength(9);
+    expect(new Set(r.rows.map((x) => x.g1))).toEqual(new Set(['app', 'web', 'agent']));
+    expect(new Set(r.rows.map((x) => x.g2))).toEqual(new Set(['iOS', 'Android', 'Web']));
+  });
+});
