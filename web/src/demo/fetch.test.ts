@@ -87,3 +87,15 @@ describe('示範：還沒依條件合成的查詢要標示固定資料', () => {
     expect(e.warnings).not.toContain(FIXED_NOTE_TEXT);
   });
 });
+
+describe('示範：事件分析對比', () => {
+  it('上一期與去年同期都帶 _prev 欄；不對比就沒有', async () => {
+    const q = (compare?: string) => demoFetch('/v1/analytics/events', { method: 'POST', body: JSON.stringify({ metrics: [{ event: 'deal', agg: 'total', alias: 'deals' }], time: { from: '2026-10-01', to: '2026-10-03', grain: 'day' }, ...(compare ? { compare } : {}) }) }).then((r) => r.json() as Promise<{ columns: string[]; rows: Record<string, number>[] }>);
+    for (const c of ['previous_period', 'last_year']) {
+      const r = await q(c);
+      expect(r.columns).toContain('deals_prev');
+      expect(r.rows.every((x) => typeof x.deals_prev === 'number')).toBe(true);
+    }
+    expect((await q()).columns).not.toContain('deals_prev');
+  });
+});

@@ -131,7 +131,9 @@ function synthEvents(query: Obj): Obj {
     });
     return r;
   });
-  const cols = [...(grain === 'total' ? [] : ['bucket']), ...(groups[0] ? ['g1'] : []), ...aliases, '_k', 'suppressed'];
+  const cmp = query.compare === 'previous_period' || query.compare === 'last_year' ? String(query.compare) : null;   // 示範：比較期 = 本期 × 固定比例（上一期 0.9、去年同期 0.8），只示意欄位與畫面
+  if (cmp) for (const r of rows) for (const a of aliases) r[`${a}_prev`] = Math.round(Number(r[a]) * (cmp === 'last_year' ? 0.8 : 0.9));
+  const cols = [...(grain === 'total' ? [] : ['bucket']), ...(groups[0] ? ['g1'] : []), ...aliases, ...(cmp ? aliases.map((a) => `${a}_prev`) : []), '_k', 'suppressed'];
   const chart = grain !== 'total' ? { type: 'line', x: 'bucket', series: aliases, group: groups[0] ? ['g1'] : [], suppressed: true }   // 與後端 analytics.chart_spec 同形狀
     : groups[0] ? { type: 'bar', x: 'g1', series: aliases, suppressed: true } : { type: 'stat', series: aliases };
   return { rows, columns: cols, chart_spec: chart, masked: {}, sql: '-- 示範模式：合成資料，未執行 SQL', lineage: ['dmp.events'], cost: { ms: 12, rows: rows.length, layer: 'L0' }, warnings };
