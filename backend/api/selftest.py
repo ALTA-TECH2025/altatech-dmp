@@ -391,6 +391,16 @@ def main(store: Any | None = None) -> None:
     other = c.post("/v1/bookmarks", json={"name": "成交金額（平台別）", "kind": "events", "query": {**q, "project": "other_proj"}})
     assert other.status_code in (201, 400, 403), other.text                                                                       # 別的專案不受限（該專案能否查詢由權限決定）
     assert other.status_code != 409, other.text
+    # 寫入當下的唯一限制：模擬兩個請求同時存同名（先查時都還看不到對方）→ 儲存層擋下，只成功一個
+    orig_items = store.items
+    store.items = lambda k: [] if k == "bookmark" else orig_items(k)   # type: ignore[method-assign]
+    try:
+        race = c.post("/v1/bookmarks", json={"name": "成交金額（平台別）", "kind": "events", "query": q})
+    finally:
+        store.items = orig_items   # type: ignore[method-assign]
+    assert race.status_code == 409 and race.json()["code"] == "CONFLICT" and bmj["id"] not in race.text, race.text
+    # 大小寫、全形／半形不同不算重名（Windy 2026-10-28）
+    assert [c.post("/v1/bookmarks", json={"name": n, "kind": "events", "query": q}).status_code for n in ("Deal Amount", "deal amount", "Ｄｅａｌ Amount")] == [201, 201, 201]
     login(c, sm, ["data_analyst"], "ana")
     # 存書籤順手加進看板：目標去重、24 張上限、width 驗證都在寫入前完成，失敗不留書籤也不留部分卡片（#94 審查）
     d23, d2 = (c.post("/v1/dashboards", json={"name": n}).json()["id"] for n in ("滿 23 張的看板", "另一個看板"))

@@ -19,6 +19,8 @@ from typing import Any
 
 import asyncpg
 
+from .store import Conflict
+
 DDL = """
 CREATE TABLE IF NOT EXISTS {s}.iam_roles       (key TEXT PRIMARY KEY, doc JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS {s}.iam_assignments (id  TEXT PRIMARY KEY, doc JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
@@ -59,6 +61,11 @@ class PostgresStore:
         async with self.pool.acquire() as c:
             await c.execute(f"CREATE SCHEMA IF NOT EXISTS {self.schema}")
             await c.execute(DDL.format(s=self.schema))
+            try:                                                             # 書籤同專案不可同名（store.bookmark_key 同規則）：兩個請求同時存同名，資料庫只讓一個成功
+                await c.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS items_bookmark_name ON {self.t('items')} "
+                                "((COALESCE(doc->'query'->>'project', '')), (doc->>'name')) WHERE kind = 'bookmark'")
+            except asyncpg.UniqueViolationError:                             # 加索引前已有重名：照常啟動（程式層仍擋新的重名），請先改名再重啟
+                print(f"[dmp] 警告：{self.schema}.items 已有同專案同名的書籤，唯一索引未建立；改名後重啟即會補上", flush=True)
 
     def t(self, name: str) -> str:
         return f"{self.schema}.{name}"
@@ -129,7 +136,10 @@ class PostgresStore:
         return self._all("items", "WHERE kind = $1", kind)
 
     def put_item(self, kind: str, obj: dict[str, Any]) -> None:
-        self._put("items", "id", obj["id"], obj, {"kind": kind})
+        try:
+            self._put("items", "id", obj["id"], obj, {"kind": kind})
+        except asyncpg.UniqueViolationError as e:
+            raise Conflict(f"{kind} 唯一鍵重複") from e
 
     def delete_item(self, kind: str, id_: str) -> None:
         self._del("items", "kind = $1 AND id = $2", kind, id_)
@@ -163,6 +173,30 @@ def selftest(dsn: str) -> None:
         assert any(x["id"] == f"ap_{tag}" for x in st.items("approvals")) and not any(x["id"] == f"ap_{tag}" for x in st.items("exports"))
         for i in range(3): st.audit("t.event", {"user": f"u-{tag}", "i": i, "中文": "可以"})
         tail = st.audit_tail(3); assert [x["i"] for x in tail] == [0, 1, 2] and tail[-1]["中文"] == "可以" and tail[-1]["event"] == "t.event"
+        # 1b. 書籤唯一索引：同專案同名由資料庫擋（兩個執行緒同時寫只成功一個）；大小寫不同、別的專案可以；改同一筆其他欄位不算重名
+        bm = lambda i, n, p="golden": {"id": f"bm_{tag}{i}", "name": n, "kind": "events", "query": {"project": p}}
+        st.put_item("bookmark", bm(0, "同名"))
+        def try_put(i: int) -> str:
+            try: st.put_item("bookmark", bm(10 + i, "併發同名")); return "ok"
+            except Conflict: return "conflict"
+        with ThreadPoolExecutor(8) as ex:
+            outcomes = list(ex.map(try_put, range(8)))
+        assert outcomes.count("ok") == 1 and outcomes.count("conflict") == 7, outcomes
+        try: st.put_item("bookmark", bm(90, "同名")); raise AssertionError("同專案同名應被擋")
+        except Conflict: pass
+        st.put_item("bookmark", bm(91, "同名", "other")); st.put_item("bookmark", {**bm(0, "同名"), "description": "改說明"})
+        st.put_item("bookmark", bm(92, "deal")); st.put_item("bookmark", bm(93, "DEAL"))
+        assert sum(1 for x in st.items("bookmark") if x["name"] in ("同名", "併發同名")) == 3
+        # 1c. 加索引前已有重名：照常啟動（只印警告），舊資料不動
+        tag2 = uuid.uuid4().hex[:6]; s2 = f"selftest_{tag2}"
+        async def seed_dups() -> None:
+            async with st.pool.acquire() as c:
+                await c.execute(f"CREATE SCHEMA {s2}; CREATE TABLE {s2}.items (kind TEXT NOT NULL, id TEXT NOT NULL, doc JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (kind, id))")
+                for i in (1, 2): await c.execute(f"INSERT INTO {s2}.items (kind, id, doc) VALUES ('bookmark', $1, $2)", f"bm_d{i}", json.dumps({"id": f"bm_d{i}", "name": "舊重名", "query": {"project": "p"}}))
+        st._loop.run(seed_dups())
+        old = PostgresStore(dsn, schema=s2)
+        try: assert len(old.items("bookmark")) == 2
+        finally: old.drop_schema(); old.close()
         # 2. 併發寫入（threadpool 模擬 FastAPI sync handler）
         with ThreadPoolExecutor(8) as ex:
             list(ex.map(lambda i: st.audit("t.concurrent", {"user": f"u-{tag}", "i": i}), range(40)))

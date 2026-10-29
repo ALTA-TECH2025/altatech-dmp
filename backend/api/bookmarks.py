@@ -13,7 +13,7 @@ from ..semantic.compiler import Catalog
 from .analytics import RUNNERS, Executor, compile_kind, execute_kind
 from .dashboards import CHARTS, _format, _shared, apply_time, editable, visible
 from .errors import ApiError
-from .store import Store
+from .store import Conflict, Store
 
 KIND = "bookmark"
 
@@ -50,6 +50,13 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
         me = cur["id"] if cur else None
         if any(x["id"] != me and x.get("name") == b["name"] and project_of(x) == project_of(b) for x in store.items(KIND)):
             raise ApiError("CONFLICT", f"書籤名稱「{b['name']}」在這個專案已被使用，請換一個名稱", params={"name": b["name"]})
+
+    def save(b: dict[str, Any]) -> None:
+        """寫入時由儲存層的唯一限制再擋一次：兩個請求同時存同名，先查都沒撞到，也只會成功一個。"""
+        try:
+            store.put_item(KIND, b)
+        except Conflict:
+            raise ApiError("CONFLICT", f"書籤名稱「{b['name']}」在這個專案已被使用，請換一個名稱", params={"name": b["name"]}) from None
 
     def validate(body: dict[str, Any], s: Subject, cur: dict[str, Any] | None = None) -> dict[str, Any]:
         b = dict(cur or {})
@@ -102,7 +109,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
             if len(d.get("cards") or []) >= 24:
                 raise HTTPException(400, f"看板 {d['name']} 已達 24 張卡片")
         b.update({"id": "bm_" + secrets.token_hex(5), "owner": subject.user_id, "created_at": _now(), "updated_at": _now()})
-        store.put_item(KIND, b)
+        save(b)
         store.audit("bookmark.created", {"user": subject.user_id, "bookmark": b["id"], "kind": b["kind"], "name": b["name"]})
         added: list[dict[str, str]] = []
         if body.get("new_dashboard"):
@@ -122,7 +129,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
     @r.put("/v1/bookmarks/{id_}")
     def update(id_: str, body: dict[str, Any], subject: Subject = Depends(get_subject)) -> dict[str, Any]:
         cur = load(id_, subject, edit=True)
-        b = validate(body, subject, cur); b["updated_at"] = _now(); store.put_item(KIND, b)
+        b = validate(body, subject, cur); b["updated_at"] = _now(); save(b)
         for d in store.items("dashboard"):                                     # 引用它的卡片同步（標題跟著名稱，除非卡片改過名）
             changed = False
             for c in d.get("cards") or []:
