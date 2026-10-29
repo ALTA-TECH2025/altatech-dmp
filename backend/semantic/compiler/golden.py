@@ -21,9 +21,11 @@ from typing import Any
 from ...security.policy import Decision, Subject, authorize
 from . import Catalog, compile_events, parse
 from .oracle import Oracle
+from .parser import LAST_YEAR_WEEK_DAYS, years_back
 from .policy import BUDGETS
 
 PROJECT = "golden"
+PROJECT_LY = "golden_ly"     # 去年同期專用：今年 9/20～10/16 取樣一份＋去年同期平移一份（不混進 golden，既有案例與 seed 不受影響）
 SEED = 20261016
 DAY0, DAYS = date(2026, 9, 20), 27                       # 2026-09-20 … 2026-10-16（跨月、跨週）
 NOW = date(2026, 10, 16)
@@ -41,6 +43,7 @@ class Dataset:
     events: list[dict[str, Any]]          # oracle 用：time 為台北時間（naive）
     segments: dict[str, set[str]]
     edges: list[dict[str, Any]] = field(default_factory=list)     # id_edges（身分圖；用戶細查用）
+    ly_events: list[dict[str, Any]] = field(default_factory=list)  # PROJECT_LY 的事件（去年同期黃金案例用；只在 compiler_stage 寫入）
 
 
 def build(n_users: int = 400, n_events: int = 24_000, seed: int = SEED) -> Dataset:
@@ -90,7 +93,20 @@ def build(n_users: int = 400, n_events: int = 24_000, seed: int = SEED) -> Datas
             "amount": amount, "props": props, "event_id": hashlib.sha256(f"golden|{i}".encode()).hexdigest()[:32],
         })
     events += scenario_events(rng, ids)
-    return Dataset(users, events, segments, edges)
+    return Dataset(users, events, segments, edges, last_year_events(events))
+
+
+def last_year_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """PROJECT_LY：今年的事件取樣一半（event_id 雜湊），再取另一個樣本平移到去年同一日期（years_back），兩年數量不同、比較才有意義。"""
+    out: list[dict[str, Any]] = []
+    for r in events:
+        h = int(r["event_id"][:8], 16)
+        if h % 2 == 0:
+            out.append({**r, "project": PROJECT_LY, "event_id": "ly-cur-" + r["event_id"][:24]})
+        if h % 3 != 0:
+            d = years_back(r["event_date"]); t = r["time"]
+            out.append({**r, "project": PROJECT_LY, "event_date": d, "time": datetime(d.year, d.month, d.day, t.hour, t.minute, t.second, t.microsecond), "event_id": "ly-prev-" + r["event_id"][:23]})
+    return out
 
 
 def scenario_events(rng: random.Random, ids: list[str]) -> list[dict[str, Any]]:
@@ -164,15 +180,21 @@ def scenario_events(rng: random.Random, ids: list[str]) -> list[dict[str, Any]]:
     return out
 
 
-def ch_rows(ds: Dataset) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    """oracle 列 → ClickHouse JSONEachRow 列（時間轉 UTC 字串，見 modeling.ms_to_dt 的教訓）。"""
+def ev_rows(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """oracle 事件列 → ClickHouse JSONEachRow 列（時間轉 UTC 字串，見 modeling.ms_to_dt 的教訓）；project 沿用每列自己的。"""
     ing = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.000")
     ev = []
-    for r in ds.events:
+    for r in events:
         tu = r["time"] - TPE
-        ev.append({"project": PROJECT, "time": tu.strftime("%Y-%m-%d %H:%M:%S.") + f"{tu.microsecond // 1000:03d}", "event": r["event"], "source": "golden",
+        ev.append({"project": r.get("project", PROJECT), "time": tu.strftime("%Y-%m-%d %H:%M:%S.") + f"{tu.microsecond // 1000:03d}", "event": r["event"], "source": "golden",
                    "one_id": r["one_id"], "distinct_id": r["one_id"], "event_id": r["event_id"], "platform": r["platform"], "channel": r["channel"],
                    "utm_source": r["utm_source"], "utm_campaign": r.get("utm_campaign", ""), "symbol": r["symbol"], "amount": r["amount"], "props": r["props"], "ingest_time": ing, "schema_version": 1, "batch_id": "golden"})
+    return ev
+
+
+def ch_rows(ds: Dataset) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """oracle 列 → ClickHouse JSONEachRow 列（只含 PROJECT；去年同期的 ly_events 由 compiler_stage 另外寫）。"""
+    ev = ev_rows(ds.events)
     us = []
     for u in ds.users.values():
         row = dict(u); row["signup_date"] = u["signup_date"].isoformat(); row["last_active_at"] = "2026-10-15 12:00:00.000"
@@ -365,6 +387,17 @@ def decision_of(spec: Decision | str | None) -> Decision | None:
     return _subject(spec)
 
 
+# 去年同期（Windy 2026-10-29）：同一日期；按週 52 週前。資料在 PROJECT_LY（今年＋去年各一份取樣）。
+LY_QUERIES: list[tuple[str, dict[str, Any], Decision | str | None]] = [
+    ("LY1 去年同期×日", {"metrics": [{"event": "bond_order", "agg": "total"}, {"event": "bond_order", "agg": "users"}], "compare": "last_year", "time": T}, "admin"),
+    ("LY2 去年同期×週（52 週前，週一對週一）×平台", {"metrics": [{"event": "bond_deal", "agg": "sum", "field": "amount"}], "group_by": ["platform"], "compare": "last_year", "time": {**T_ALL, "grain": "week"}}, "data_analyst"),
+    ("LY3 去年同期×月（跨月）", {"metrics": [{"event": None, "agg": "total"}], "compare": "last_year", "time": {**T_ALL, "grain": "month"}}, "admin"),
+    ("LY4 去年同期×合計 + 公式", {"metrics": [{"event": "bond_order", "agg": "total"}, {"event": "bond_deal", "agg": "total"}], "formulas": [{"alias": "rate", "expr": "m2 / m1 * 100"}], "compare": "last_year", "time": {**T, "grain": "total"}}, "admin"),
+    ("LY5 去年同期×小時（單日，全部事件：每小時人數才過 K）", {"metrics": [{"event": None, "agg": "total"}], "compare": "last_year", "time": {"from": "2026-10-14", "to": "2026-10-14", "grain": "hour", "now": NOW.isoformat()}}, "admin"),
+    ("LY6 去年同期×日，行銷（K 匿名與遮罩照套）", {"metrics": [{"event": "bond_deal", "agg": "sum", "field": "amount"}], "group_by": ["platform"], "compare": "last_year", "time": T}, "marketing"),
+]
+
+
 def parse_g(raw: dict[str, Any], cat: Catalog) -> Any:
     return parse({**raw, "project": PROJECT}, cat)
 
@@ -428,7 +461,11 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
     ch.query("CREATE TABLE IF NOT EXISTS dmp.segment_members (segment_id LowCardinality(String), version UInt32, one_id String, one_id_uint UInt64 DEFAULT cityHash64(one_id), computed_at DateTime) ENGINE = MergeTree ORDER BY (segment_id, version, one_id_uint)")
     ch.query("CREATE TABLE IF NOT EXISTS dmp.id_edges (id_type_a LowCardinality(String), id_a String, id_type_b LowCardinality(String), id_b String, source LowCardinality(String), evidence_event_id String, first_seen DateTime64(3, 'UTC'), last_seen DateTime64(3, 'UTC'), seen_count UInt32, confidence Float32, status LowCardinality(String), one_id String, version UInt64) ENGINE = ReplacingMergeTree(version) ORDER BY (id_type_a, id_a, id_type_b, id_b)")
     ch.insert_json("dmp.id_edges", edges)
-    ch.query(f"ALTER TABLE dmp.events DELETE WHERE project = '{PROJECT}'", settings={"mutations_sync": 2})
+    ch.query(f"ALTER TABLE dmp.events DELETE WHERE project IN ('{PROJECT}', '{PROJECT_LY}')", settings={"mutations_sync": 2})
+    ly = ev_rows(ds.ly_events); ly.sort(key=lambda r: str(r["time"]))
+    for i in range(0, len(ly), 20_000):
+        ch.insert_json("dmp.events", ly[i:i + 20_000])
+    assert ch.scalar(f"SELECT count() FROM dmp.events WHERE project = '{PROJECT_LY}'") == len(ly)
     ev.sort(key=lambda r: str(r["time"]))                           # 依時間寫入：每個 part 的日期範圍連續，EXPLAIN ESTIMATE 的邊界顆粒才不會隨情境事件增加而膨脹
     for i in range(0, len(ev), 20_000):
         ch.insert_json("dmp.events", ev[i:i + 20_000])
@@ -454,6 +491,14 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
         assert scanned <= scans * (ratio * in_range + slack), f"{name}: EXPLAIN ESTIMATE rows={scanned} > {scans}×({ratio}×{in_range}+{slack})（分區／主鍵沒裁剪？）"
         layers[c.layer] = layers.get(c.layer, 0) + 1
         report.append(f"  {name:<44} {c.layer} rows={len(got):<4} est={scanned:<7} k={c.k_anonymity} masked={list(c.masked) or '-'}")
+    # 去年同期：PROJECT_LY，oracle（獨立實作：今年桶往回推）vs SQL 逐列
+    oracle_ly = Oracle(ds.events + ds.ly_events, ds.users, ds.segments)
+    for name, raw, spec in LY_QUERIES:
+        d = decision_of(spec); qr = parse({**raw, "project": PROJECT_LY}, cat); c = compile_events(qr, cat, d)
+        expect = oracle_ly.run(qr, d); got = run_sql(ch, c.sql, c.settings)
+        assert any(r.get(c.columns[-1]) is not None for r in expect) or name.startswith("LY6"), f"{name}: 去年同期全是空值，資料沒對上"
+        compare(name, c.columns, expect, got, (1 if qr.time.grain != "total" else 0) + len(qr.group_by))
+        report.append(f"  {name:<44} {c.layer} rows={len(got):<4} k={c.k_anonymity}")
     # MV 與明細一致：Q28（exact）vs 同查詢走 MV
     q28 = next(x for x in QUERIES if x[0].startswith("Q28"))
     raw_mv = {k: v for k, v in q28[1].items() if k != "exact"}
@@ -623,6 +668,15 @@ def users_stage(ch: Any, ds: Dataset, oracle: Oracle, cat: Catalog, report: list
 
 def dry_run() -> None:
     cat = Catalog(); ds = build(); oracle = Oracle(ds.events, ds.users, ds.segments)
+    # 去年同期對齊規則（Windy 2026-10-29）：同一日期，閏年 2/29 → 2/28；按週 52 週前仍是週一
+    assert years_back(date(2028, 2, 29)) == years_back(date(2028, 2, 28)) == date(2027, 2, 28) and years_back(date(2026, 10, 29)) == date(2025, 10, 29)
+    assert (date(2026, 10, 5) - timedelta(days=LAST_YEAR_WEEK_DAYS)).weekday() == 0
+    oracle_ly = Oracle(ds.events + ds.ly_events, ds.users, ds.segments)
+    for name, raw, spec in LY_QUERIES:
+        qr = parse({**raw, "project": PROJECT_LY}, cat); c = compile_events(qr, cat, decision_of(spec))
+        rows = oracle_ly.run(qr, decision_of(spec))
+        assert rows and all(c.columns[-1] in r for r in rows), name
+        assert c.sql.count("(") == c.sql.count(")") and ("_lyb" in c.sql) == (qr.time.grain != "total"), name
     h = hashlib.sha256()
     for name, qr, c, d in compile_all(cat):
         rows = oracle.run(qr, d)
