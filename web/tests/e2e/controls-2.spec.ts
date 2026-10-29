@@ -50,7 +50,7 @@ test.describe.serial('控制項：漏斗、路徑、歸因', () => {
 
     // 轉換窗口：選項由短到長，完成最後一步的人只會變多或不變
     let prev = -1;
-    for (const w of await optionsOf(labeled(page, '轉換窗口'))) {
+    for (const w of (await optionsOf(labeled(page, '轉換窗口'))).filter((x) => x !== 'custom')) {
       await labeled(page, '轉換窗口').selectOption(w);
       const r = await query(page, '/v1/analytics/funnel');
       expect(r.status, `窗口 ${w}：${r.body.detail ?? ''}`).toBe(200);
@@ -59,7 +59,23 @@ test.describe.serial('控制項：漏斗、路徑、歸因', () => {
       expect(last(r.body.rows), `窗口 ${w} 不應比更短的窗口少`).toBeGreaterThanOrEqual(prev);
       prev = last(r.body.rows);
     }
+    expect(prev, '最長預設窗口（365 天）應有結果').toBeGreaterThan(0);
+    // 自訂窗口：45 天能查；366 天在畫面上就擋下（查詢按鈕不能按）
+    await labeled(page, '轉換窗口').selectOption('custom');
+    await page.getByLabel('窗口數值').fill('45'); await page.getByLabel('窗口單位').selectOption('day');
+    const cw = await query(page, '/v1/analytics/funnel');
+    expect(cw.status, cw.body.detail).toBe(200);
+    expect(cw.req.window).toEqual({ value: 45, unit: 'day' });
+    await page.getByLabel('窗口數值').fill('366');
+    await expect(page.getByRole('button', { name: '查詢', exact: true })).toBeDisabled();
+    await expect(page.getByText('最長 365 天')).toBeVisible();
     await labeled(page, '轉換窗口').selectOption('7:day');
+
+    // 步數上限（目錄 max_steps = 32）：一直加到「＋ 步驟」消失，正好 32 步
+    for (let i = 0; i < 40 && await page.getByRole('button', { name: '＋ 步驟' }).isVisible(); i++) await page.getByRole('button', { name: '＋ 步驟' }).click();
+    await expect(page.locator('select[aria-label^="第 "][aria-label$=" 步事件"]')).toHaveCount(32);
+    for (let i = 32; i > 2; i--) await page.getByRole('button', { name: `刪除第 ${i} 步` }).click();
+    await expect(page.locator('select[aria-label^="第 "][aria-label$=" 步事件"]')).toHaveCount(2);
 
     // 順序：嚴格不會比寬鬆多
     const res: Record<string, number> = {};
