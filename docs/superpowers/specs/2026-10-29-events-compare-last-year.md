@@ -18,7 +18,7 @@
 
 ## 契約
 
-- `EventsQuery.compare` 加 `last_year`（openapi，本 contract PR）。
+- `SemanticQuery.compare`（openapi；前端型別名為 EventsQuery）加 `last_year`（本 contract PR）。
 - 回應不變：每個指標、公式多一欄 `<別名>_prev`（與 `previous_period` 相同）。
 
 ## 實作要點（後端 PR）
