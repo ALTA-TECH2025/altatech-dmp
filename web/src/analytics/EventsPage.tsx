@@ -14,7 +14,7 @@ import { GroupEditor } from '@/users/RuleBuilder';
 import { countConds, emptyCond, eventFields, groupOk, pruneGroup, toGroup, type FieldOpt } from '@/users/rule';
 import type { CondGroup } from '@/users/types';
 import type { Segment } from '@/users/types';
-import { CHART_CN, FORMAT_CN, aliasOk, chartAvailable, fmtValue, formulaError, growthOf, shareOf, tableCsv, transpose, type ChartKind, type NumFormat } from './events';
+import { CHART_CN, COMPARE_OPTS, FORMAT_CN, aliasOk, compareCn, chartAvailable, fmtValue, formulaError, growthOf, shareOf, tableCsv, transpose, type ChartKind, type NumFormat } from './events';
 import { dedupe } from './FunnelPage';
 import { LineChart } from './LineChart';
 import { ScopeEditor, cleanScope, scopeOk } from './ScopeEditor';
@@ -108,7 +108,7 @@ function EventsInner() {
   const grouped = !!q.group_by?.length;
   const effective: ChartKind | 'stat' = view !== 'auto' ? view : isTotal ? (grouped ? 'bar' : 'stat') : 'line';
   const shownCols = res ? res.columns.filter((c) => c !== '_k' && c !== 'suppressed') : [];
-  const colCn = (c: string) => (c === 'bucket' ? '時間' : c === 'cohort' ? '對照組' : c.startsWith('g') && c.length === 2 ? (q.group_by?.[Number(c[1]) - 1] ?? c) : labels[c] ?? (c.endsWith('_prev') ? `${labels[c.slice(0, -5)] ?? c}（上期）` : c));
+  const colCn = (c: string) => (c === 'bucket' ? '時間' : c === 'cohort' ? '對照組' : c.startsWith('g') && c.length === 2 ? (q.group_by?.[Number(c[1]) - 1] ?? c) : labels[c] ?? (c.endsWith('_prev') ? `${labels[c.slice(0, -5)] ?? c}（${compareCn(sent?.compare)}）` : c));
   const rowLabel = (r: EventsResult['rows'][number]) => [r.bucket != null ? String(r.bucket) : '', grouped ? groupLabel(r) : ''].filter(Boolean).join(' · ') || '合計';
   const growth = useMemo(() => (res && tbl.growth ? growthOf(res.rows, allAliases, hasBucket) : null), [res, tbl.growth]);   // eslint-disable-line react-hooks/exhaustive-deps
   const share = useMemo(() => (res && tbl.share ? shareOf(res.rows, allAliases, grouped) : null), [res, tbl.share]);         // eslint-disable-line react-hooks/exhaustive-deps
@@ -182,7 +182,7 @@ function EventsInner() {
           <Group gap="sm" wrap="wrap" align="flex-end">
             <NativeSelect label="粒度" w={110} value={q.time.grain} data={GRAINS.map(([v, cn]) => opt(v, cn))} onChange={(e) => setQ({ ...q, time: { ...q.time, grain: e.target.value as EventsQuery['time']['grain'] } })} />
             <div style={{ minWidth: 300 }}><DateRangeInput label="期間" value={q.time} onChange={(r) => setQ({ ...q, time: { ...q.time, ...r } })} /></div>
-            <NativeSelect label="添加對比" w={140} value={q.compare ?? ''} data={[opt('', '無'), opt('previous_period', '上一期')]} onChange={(e) => setQ({ ...q, compare: (e.target.value || undefined) as EventsQuery['compare'] })} />
+            <NativeSelect label="添加對比" w={140} value={q.compare ?? ''} data={COMPARE_OPTS.map(([v, cn]) => opt(v, cn))} onChange={(e) => setQ({ ...q, compare: (e.target.value || undefined) as EventsQuery['compare'] })} />
             <Button variant="filled" disabled={busy || !ready} onClick={() => void run()}>{busy ? '查詢中…' : '查詢'}</Button>
             {res && <Button onClick={() => setShowSql((v) => !v)}>{showSql ? '隱藏 SQL' : '看 SQL'}</Button>}
             {res && <SaveCardButton kind="events" query={sent as Record<string, unknown> | null} />}
@@ -201,7 +201,7 @@ function EventsInner() {
                 <Text size="xs" c="dimmed">{res.cost.ms} ms · {res.cost.layer === 'L1' ? '日聚合（物化視圖）' : '明細'}{q.sample ? ` · 抽樣 ${q.sample}` : ' · 不抽樣'} · {res.rows.length} 列</Text>
               </SectionTitle>
               {effective === 'stat' ? (
-                <SimpleGrid cols={{ base: 2, sm: 4 }}>{allAliases.map((a) => { const r = res.rows[0]; return <StatTile key={a} label={labels[a]} value={r?.suppressed ? `< ${k}` : fmtValue(r?.[a], fmt)} hint={q.compare ? `上期 ${fmtValue(r?.[`${a}_prev`], fmt)}` : undefined} />; })}</SimpleGrid>
+                <SimpleGrid cols={{ base: 2, sm: 4 }}>{allAliases.map((a) => { const r = res.rows[0]; return <StatTile key={a} label={labels[a]} value={r?.suppressed ? `< ${k}` : fmtValue(r?.[a], fmt)} hint={sent?.compare ? `${compareCn(sent.compare)} ${fmtValue(r?.[`${a}_prev`], fmt)}` : undefined} />; })}</SimpleGrid>
               ) : effective === 'table' ? <Text size="sm" c="dimmed">明細見下表。</Text> : <LineChart series={series} kind={effective} format={fmt} />}
             </Paper>
             <Paper p={0} style={{ overflow: 'hidden' }}>
