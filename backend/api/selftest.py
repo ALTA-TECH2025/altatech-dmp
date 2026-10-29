@@ -211,7 +211,7 @@ def main(store: Any | None = None) -> None:
     rows = fr.json()["rows"]
     assert [r["alias"] for r in rows] == ["hq_stockdetail_view", "bond_order", "成交"] and rows[1]["rate_prev"] == 0.4 and rows[1]["rate_first"] == 0.4 and rows[2]["users"] is None and rows[2]["rate_prev"] is None and rows[2]["suppressed"] is True, rows
     assert "windowFunnel(604800)" in ch.sqls[-1] and fr.json()["chart_spec"]["type"] == "funnel"
-    assert c.post("/v1/analytics/funnel", json={**fq, "window": {"value": 91, "unit": "day"}}).status_code == 400
+    assert c.post("/v1/analytics/funnel", json={**fq, "window": {"value": 366, "unit": "day"}}).status_code == 400 and c.post("/v1/analytics/funnel", json={**fq, "window": {"value": 365, "unit": "day"}}).status_code == 200
     assert c.post("/v1/analytics/funnel", json={**fq, "metric": "times"}).status_code == 400
     pq = {"anchor": {"event": "app_login_success"}, "steps": 3, "time": q["time"]}
     pr = c.post("/v1/analytics/path", json=pq); assert pr.status_code == 200, pr.text
@@ -233,7 +233,7 @@ def main(store: Any | None = None) -> None:
     rrows = rr.json()["rows"]; assert rrows[0]["complete"] is True and rrows[2]["complete"] is False and rrows[2]["suppressed"] is True and rr.json()["chart_spec"]["type"] == "retention_matrix", rrows
     assert c.post("/v1/analytics/retention", json={**rq, "periods": 0}).status_code == 400
     catl = c.get("/v1/semantic/catalog").json()
-    assert any(e["name"] == "bond_deal" for e in catl["events"]) and not any(u["key"] == "agent_id" for u in catl["user_props"]) and catl["funnel"]["max_window_days"] == 90 and "between" in catl["ops"]["number"]
+    assert any(e["name"] == "bond_deal" for e in catl["events"]) and not any(u["key"] == "agent_id" for u in catl["user_props"]) and catl["funnel"]["max_window_days"] == 365 and catl["funnel"]["max_steps"] == 32 and "between" in catl["ops"]["number"]
     # 5c. 用戶列表：行銷估數／列表（one_id、流失分遮罩）；資訊管理 403；分頁參數檢查；細查需理由（行銷 403、數據分析遮罩、不存在 404、props 去 L4 鍵、身分圖遮罩）
     uq = {"filters": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}], "behaviors": [{"event": "bond_deal", "count": {"op": "gte", "value": 3}, "time": q["time"]}]}
     est = c.post("/v1/users/estimate", json=uq); assert est.status_code == 200 and est.json()["users"] == 123 and "bitmapCardinality(bm)" in est.json()["sql"], est.text

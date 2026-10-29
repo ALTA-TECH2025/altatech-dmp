@@ -22,7 +22,8 @@ from .events import Compiled, Ctx, group_sql, q
 from .parser import Group, Query, TimeRange, parse_filters
 
 UNIT_S = {"minute": 60, "hour": 3600, "day": 86400}
-MAX_WINDOW_S = 90 * 86400
+MAX_WINDOW_S = 365 * 86400   # Windy 2026-10-29：窗口期最長 365 天
+MAX_STEPS = 32               # Windy 2026-10-29：ClickHouse windowFunnel 條件上限 32（原要 50，超過需另做演算法）
 
 
 @dataclass
@@ -57,8 +58,8 @@ class FunnelQuery:
 def parse_funnel(raw: dict[str, Any], cat: Catalog | None = None) -> FunnelQuery:
     cat = cat or Catalog()
     steps_raw = list(raw.get("steps") or [])
-    if not 2 <= len(steps_raw) <= 10:
-        raise ValueError("漏斗需要 2–10 步")
+    if not 2 <= len(steps_raw) <= MAX_STEPS:
+        raise ValueError(f"漏斗需要 2–{MAX_STEPS} 步")
     steps: list[Step] = []
     for i, s in enumerate(steps_raw):
         ev = cat.canonical_event(str(s.get("event") or ""))
@@ -70,7 +71,7 @@ def parse_funnel(raw: dict[str, Any], cat: Catalog | None = None) -> FunnelQuery
         raise ValueError("window 需要 value ≥ 1 與 unit ∈ minute/hour/day")
     window_s = int(w["value"]) * UNIT_S[w["unit"]]
     if window_s > MAX_WINDOW_S:
-        raise ValueError("窗口最長 90 天")
+        raise ValueError("窗口最長 365 天")
     order = str(raw.get("order") or "loose")
     if order not in ("loose", "strict"):
         raise ValueError("order 只能是 loose／strict")
