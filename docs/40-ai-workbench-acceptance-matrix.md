@@ -49,6 +49,7 @@
 | A25 | 模型未設定 | 任一 | 未設定端點（D2）或 `model_view.approved_params` 仍為 null，或供應商 transport 未實作 | **建立層：** `POST /v1/agents/runs` 同步回 503 `MODEL_ENDPOINT_NOT_CONFIGURED`，缺項在 `Error.params.missing`（`detail` 是字串）；不回 run_id、不產生 run 紀錄。**兜底層：** run 建立後設定被移除 → 第一次呼叫模型時 run `failed`（`MODEL_ENDPOINT_NOT_CONFIGURED`，缺項在 `ToolError.detail.missing`）。兩層都未呼叫任何模型或工具，不改用預設供應商；前端顯示缺項 | HTTP 狀態 + 錯誤碼 + 缺項清單 + run 紀錄數（建立層 0）+ 呼叫數 0 |
 | A25b | 缺項欄位位置（契約） | 任一 | 同 A25，分別觸發建立層與兜底層 | 建立層回應通過 openapi `components.schemas.Error`：`detail` 為字串、`params.missing` 為字串陣列，不放在 `detail`；兜底層的 run 錯誤通過 `ToolError` schema：`detail.missing` 為字串陣列。兩者列出的缺項相同 | 兩份 schema 驗證結果 + 兩邊缺項清單比對 |
 | A26 | 同時 run 超過上限 | 任一 | 同一使用者已有 2 個 run 未結束，再建第 3 個 | `POST /v1/agents/runs` 同步回 429 `RATE_LIMITED`；不排隊、不產生 run 紀錄 | HTTP 狀態 + run 紀錄數 |
+| A27 | 模型未設定時的規則模式（1029-1） | 分析 | 未設定模型端點；使用者問「上週開戶漏斗」 | 畫面標明「規則模式（非 AI）」；只列候選配置（例：「開戶」對到 `kh_apply`／`kh_review_pass` 時兩個都列，不替使用者選），使用者確認前不送查詢；確認後結果 = oracle；不產生「可能原因」等診斷文字；不建立 AI run。相依：規則解析器改讀語意層同義詞（docs/38 W5，未完成）與「開戶」口徑（Q1） | 標示存在 + 確認前 ClickHouse query_log 無查詢 + oracle + 結論分類只有資料觀察 |
 
 ### 2.2 B 集：原生看板與受眾草稿（P2）
 

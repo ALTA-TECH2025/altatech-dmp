@@ -104,7 +104,7 @@ ToolResponse:
 
 **模型端點錯誤：** 模型端點回 5xx 用 `INTERNAL`、逾時用 `TIMEOUT`。目錄中語意較貼近的 `UPSTREAM_FAILED`（502）、`DEPENDENCY_UNAVAILABLE`（503）`scope` 只有 `api`，不能出現在 `ToolError`；若要改用它們，需另開 contract PR 把 `tool` 加進 scope 並同步 `ToolError` enum 與 `tools.yaml errors`。
 
-**模型拒答（A18）：** 目錄沒有拒答專用代碼（舊稿的 `MODEL_REFUSED` 不在目錄，不使用）；`model.py` 的 `ModelTurn.kind` 也只有 `tool_call | ask | final`，沒有「拒答」。拒答時 run 是 `failed` 還是降級成規則解析器候選，待確認 Q22；若選 `failed`，用目錄既有代碼還是另開 contract PR 新增代碼、以及 `ModelTurn` 怎麼表示拒答，待確認 Q31。兩題定案前，實作不得自訂代碼。**Windy 2026-10-29（1029-1）：拒答由整個環境共用的內容審查模型統一把關**；審查模型選型（Q36）、擋下時的狀態與代碼和主模型自己拒答的處理（Q37）仍待確認。
+**模型拒答（A18）：** 目錄沒有拒答專用代碼（舊稿的 `MODEL_REFUSED` 不在目錄，不使用）；`model.py` 的 `ModelTurn.kind` 也只有 `tool_call | ask | final`，沒有「拒答」。拒答時 run 是 `failed` 還是降級成規則解析器候選，待確認 Q22；若選 `failed`，用目錄既有代碼還是另開 contract PR 新增代碼、以及 `ModelTurn` 怎麼表示拒答，待確認 Q31。兩題定案前，實作不得自訂代碼。**Windy 2026-10-29（1029-1）：拒答由整個環境共用的內容審查模型統一把關**；審查模型選型（Q36）、擋下時的狀態與代碼和主模型自己拒答的處理（Q37）仍待確認。**模型還沒設定時開放規則模式（1029-1）**：畫面標明「規則模式（非 AI）」；規則解析器只給候選配置，使用者確認後才執行查詢，不產生診斷結論（只回數字與證據）；AI run 的建立仍照 A25 回 503 `MODEL_ENDPOINT_NOT_CONFIGURED`，規則模式走既有問數路徑，不建立 AI run。
 
 **REST 端的狀態類錯誤（非工具）：** 核可自己送出的申請一律 `FOUR_EYES_REQUIRED`（409，scope api），包含技能庫與 Agent 設定的 approve、分群核可（Windy 2026-10-28）。openapi 的 `/v1/agents/skills/{name}/drafts/{draft_id}/approve` 與 `/v1/agents/configs/{name}/drafts/{draft_id}/approve` 目前寫 `'403': 自己核可自己或無 ai_skills.approve`，**需另開 contract PR** 改成 403 只表示無權限、自核為 409 `FOUR_EYES_REQUIRED`；分群引擎自核目前丟 `Conflict`，經 `backend/api/errors.py` 依狀態對成通用 `CONFLICT`，後端 PR 要改回 `FOUR_EYES_REQUIRED`。（注意：分群引擎現行對 `admin` 角色不擋自核，這是既有分群規則，本 RFC 不改；要不要一併收緊另案處理。）
 
