@@ -1223,8 +1223,8 @@ components:
       required: [steps, window, time]
       properties:
         project: { type: string }
-        steps: { type: array, minItems: 2, maxItems: 10, items: { type: object, required: [event], properties: { event: { type: string }, alias: { type: string }, filters: { type: array, items: { type: object } } } } }
-        window: { type: object, required: [value, unit], properties: { value: { type: integer, minimum: 1 }, unit: { type: string, enum: [minute, hour, day] } }, description: 最長 90 天 }
+        steps: { type: array, minItems: 2, maxItems: 32, description: '最多 32 步（Windy 2026-10-29；ClickHouse windowFunnel 條件上限 32，超過需另做演算法）', items: { type: object, required: [event], properties: { event: { type: string }, alias: { type: string }, filters: { type: array, items: { type: object } } } } }
+        window: { type: object, required: [value, unit], properties: { value: { type: integer, minimum: 1 }, unit: { type: string, enum: [minute, hour, day] } }, description: '最長 365 天（Windy 2026-10-29）；分鐘／小時／天可自訂' }
         order: { type: string, enum: [loose, strict], default: loose }
         relation: { type: string, description: 關聯屬性（業務 ID）：entity_id 或 props.<key>；同一值的事件才算同一流程 }
         metric: { type: string, enum: [users, times], default: users, description: times 需指定 relation（計算流程數） }
