@@ -493,8 +493,12 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
         got = run_sql(ch, c.sql, c.settings); expect = oracle.run_path(pq, d)
         compare(name, c.columns, expect, got, 1)
         assert [tuple(r["path"]) for r in got] == [tuple(r["path"]) for r in expect], (name, "Top N 順序")
-        sk = sankey(got, pq); assert sk["anchor_users"] == (got[0]["anchor_users"] if got else 0) and all(n["users"] > 0 for n in sk["nodes"])
-        report.append(f"  {name:<44} L0 paths={len(got):<4} anchor_users={sk['anchor_users']} nodes={len(sk['nodes'])} links={len(sk['links'])} suppressed={sum(1 for r in got if r.get('suppressed'))}")
+        sk = sankey(got, pq); assert sk["anchor_users"] == (got[0]["anchor_users"] if got else 0) and all(n["sessions"] > 0 for n in sk["nodes"])
+        # 會話口徑（同神策）：每會話一條路徑 → 第 0 層會話加總 = 未抑制路徑會話加總 ≤ 起點會話；任一連線 ≤ 起點會話
+        lv0 = sum(n["sessions"] for n in sk["nodes"] if n["level"] == (0 if pq.direction == "after" else pq.steps))
+        assert lv0 == sum(p["sessions"] for p in sk["paths"] if not p["suppressed"]) <= sk["anchor_sessions"] and all(l["sessions"] <= sk["anchor_sessions"] for l in sk["links"]), (name, lv0, sk["anchor_sessions"])
+        if len(got) < pq.top_n and not any(r.get("suppressed") for r in got): assert lv0 == sk["anchor_sessions"], (name, lv0, sk["anchor_sessions"])
+        report.append(f"  {name:<44} L0 paths={len(got):<4} anchor_users={sk['anchor_users']} anchor_sessions={sk['anchor_sessions']} nodes={len(sk['nodes'])} links={len(sk['links'])} suppressed={sum(1 for r in got if r.get('suppressed'))}")
     for name, raw, kw in PATH_REJECTED:
         try:
             parse_path({**raw, "project": PROJECT}, cat)
@@ -621,6 +625,24 @@ def users_stage(ch: Any, ds: Dataset, oracle: Oracle, cat: Catalog, report: list
     report.append(f"  {'細查 profile/summary/timeline/identities':<44} L0 events={len(all_rows)} edges={len(mine_e)} summary30d={exp_n}")
 
 
+def sensors_path_example(cat: Catalog) -> None:
+    """神策手冊「計算口徑」範例：會話 E-A-B-A／D-F-E／A-F-C-F／D；起點 A → A-B-A、A-F-C-F；終點 F → D-F、A-F-C-F（截到最後一個 F）。"""
+    from .path import parse_path, sankey
+    A, B, C, D, E, F = "app_login_success", "hq_stockdetail_view", "bond_order", "bond_deal", "$pageview", "search_submit"
+    t0 = datetime(2026, 10, 5, 9, 0, 0); evs = []
+    for si, seq in enumerate([[E, A, B, A], [D, F, E], [A, F, C, F], [D]]):
+        for j, ev in enumerate(seq):
+            t = t0 + timedelta(hours=2 * si, minutes=j)                # 會話之間隔 2 小時（> 30 分）
+            evs.append({"project": "sx", "one_id": "u1", "event": ev, "time": t, "event_date": t.date(), "platform": "iOS", "channel": "app", "utm_source": "", "utm_campaign": "",
+                        "symbol": "", "amount": None, "props": {}, "event_id": f"sx{si}{j}"})
+    o = Oracle(evs, {"u1": {}})
+    base = {"project": "sx", "steps": 5, "sample": None, "nodes": {"events": [A, B, C, D, E, F], "merge_repeats": False, "exit_node": False}, "time": {"from": "2026-10-05", "to": "2026-10-05", "now": NOW.isoformat()}}
+    for raw, want in [({**base, "anchor": {"event": A}}, {(A, B, A), (A, F, C, F)}), ({**base, "anchor": {"event": F}, "direction": "before"}, {(D, F), (A, F, C, F)})]:
+        pq = parse_path(raw, cat); rows = o.run_path(pq)
+        assert {tuple(r["path"]) for r in rows} == want and rows[0]["anchor_sessions"] == 2 and rows[0]["anchor_users"] == 1, rows
+        sk = sankey(rows, pq); assert all(l["sessions"] <= 2 for l in sk["links"]), sk
+
+
 def dry_run() -> None:
     cat = Catalog(); ds = build(); oracle = Oracle(ds.events, ds.users, ds.segments)
     h = hashlib.sha256()
@@ -681,13 +703,14 @@ def dry_run() -> None:
     from .path import compile_path, parse_path, sankey
     for name, raw, spec in PATHS:
         pq = parse_path({**raw, "project": PROJECT}, cat); d = decision_of(spec); c = compile_path(pq, cat, d)
-        rows = oracle.run_path(pq, d); assert rows and "ARRAY JOIN arrayEnumerate(seq3)" in c.sql and c.columns[0] == "path" and c.sql.count("(") == c.sql.count(")"), name
+        rows = oracle.run_path(pq, d); assert rows and ("arrayFirstIndex" if pq.direction == "after" else "arrayLastIndex") in c.sql and "arrayEnumerate(seq3)" not in c.sql and c.columns[0] == "path" and c.sql.count("(") == c.sql.count(")"), name
         assert all(r["path"][0 if pq.direction == "after" else -1] == pq.anchor for r in rows) and all(len(r["path"]) <= pq.steps + 1 for r in rows), name
         sk = sankey(rows, pq); assert sk["paths"][0]["share"] is None or 0 < sk["paths"][0]["share"] <= 1, name
         h.update(c.sql.encode())
     for name, raw, kw in PATH_REJECTED:
         try: parse_path({**raw, "project": PROJECT}, cat); raise AssertionError(name)
         except ValueError as e: assert kw in str(e), (name, e)
+    sensors_path_example(cat)
     from .attribution import SCAN_WINDOW_DAYS, compile_attribution, parse_attribution, shape
     aqm = parse_attribution({**ATTRIBUTIONS[1][1], "project": PROJECT}, cat); cm = compile_attribution(aqm, cat, decision_of("marketing"))      # 行銷看金額價值：模型金額與 total_value 都區間化
     assert set(cm.masked) == {"position_val", "decay_val", "custom_val", "total_value"} and all(v.startswith("bucket") for v in cm.masked.values()) and cm.sql.count("multiIf(") >= 4 and "區間" in " ".join(cm.warnings), (cm.masked, cm.warnings)
