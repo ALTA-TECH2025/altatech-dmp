@@ -14,13 +14,13 @@ import { GroupEditor } from '@/users/RuleBuilder';
 import { emptyCond, eventFields, groupOk, pruneGroup, toGroup } from '@/users/rule';
 import type { CondGroup, Segment } from '@/users/types';
 import { filterFieldsOf } from './EventsPage';
-import { funnelCsv, pct, summarize, trend } from './funnel';
+import { funnelCsv, pct, summarize, trend, windowError } from './funnel';
 import { FunnelChart } from './FunnelChart';
 import { LineChart } from './LineChart';
 import { ScopeEditor, cleanScope, scopeOk } from './ScopeEditor';
 import type { Catalog, FunnelQuery, FunnelResult, FunnelStep } from './types';
 
-const WINDOW_PRESETS: [number, 'minute' | 'hour' | 'day', string][] = [[30, 'minute', '30 分鐘'], [1, 'day', '1 天'], [3, 'day', '3 天'], [7, 'day', '7 天'], [14, 'day', '14 天'], [30, 'day', '30 天'], [90, 'day', '90 天']];
+const WINDOW_PRESETS: [number, 'minute' | 'hour' | 'day', string][] = [[30, 'minute', '30 分鐘'], [1, 'day', '1 天'], [3, 'day', '3 天'], [7, 'day', '7 天'], [14, 'day', '14 天'], [30, 'day', '30 天'], [90, 'day', '90 天'], [180, 'day', '180 天'], [365, 'day', '365 天']];
 
 export function FunnelPage() {
   return <RequireGrant module="funnel" action="use"><FunnelInner /></RequireGrant>;
@@ -42,6 +42,7 @@ function FunnelInner() {
   const bm = useBookmarkOpen<typeof q>('funnel', setQ);
   const [segments, setSegments] = useState<{ id: string; name: string }[]>([]);
   const [view, setView] = useState<'steps' | 'trend'>('steps');
+  const [customWin, setCustomWin] = useState(false);
   const evFields = useMemo(() => eventFields(cat), [cat]);
   useEffect(() => { api.get<Catalog>('/v1/semantic/catalog').then(setCat).catch((e: Error) => setErr(e.message)); }, []);
   useEffect(() => { if (can('segments', 'view')) api.get<Segment[]>('/v1/segments').then((s) => setSegments(s.filter((x) => x.status === 'active' || x.status === 'draft').map((x) => ({ id: x.id, name: x.name })))).catch(() => setSegments([])); }, [can]);
@@ -56,7 +57,9 @@ function FunnelInner() {
   };
   useEffect(() => { if (bm.pending && cat) { bm.done(); void run(); } // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bm.pending, cat]);
-  const ready = q.steps.length >= 2 && q.steps.every((s) => s.event && groupOk(toGroup(s.filters as CondGroup | undefined))) && scopeOk(q);
+  const maxSteps = cat?.funnel.max_steps ?? 10; const maxWinDays = cat?.funnel.max_window_days ?? 90;   // 上限以後端目錄為準（32 步、365 天）
+  const winErr = windowError(q.window, maxWinDays);
+  const ready = !winErr && q.steps.length >= 2 && q.steps.every((s) => s.event && groupOk(toGroup(s.filters as CondGroup | undefined))) && scopeOk(q);
   const summaries = useMemo(() => (res ? summarize(res.rows) : []), [res]);
   const trendRows = useMemo(() => (res && sent?.trend ? trend(res.rows) : []), [res, sent]);
   const trendSeries = useMemo(() => Array.from(new Set(trendRows.map((t) => t.key))).map((key) => ({ key: key || 'all', label: key || '總轉化率', metric: 'rate', group: key, points: trendRows.filter((t) => t.key === key).map((t) => ({ x: t.bucket, y: t.total_rate === null ? null : t.total_rate * 100, suppressed: t.total_rate === null })) })), [trendRows]);
@@ -79,7 +82,7 @@ function FunnelInner() {
           <Paper>
             <Stack gap="md">
               <div>
-                <SectionTitle title="步驟" right={q.steps.length < 10 && <Button size="compact-sm" variant="subtle" onClick={() => setQ({ ...q, steps: [...q.steps, { event: '' }] })}>＋ 步驟</Button>} />
+                <SectionTitle title="步驟" right={q.steps.length < maxSteps && <Button size="compact-sm" variant="subtle" onClick={() => setQ({ ...q, steps: [...q.steps, { event: '' }] })}>＋ 步驟</Button>} />
                 <Stack gap="xs">
                   {q.steps.map((s, i) => (
                     <Stack gap={4} key={i}>
@@ -96,7 +99,14 @@ function FunnelInner() {
                 </Stack>
               </div>
               <SimpleGrid cols={{ base: 1, sm: 3 }}>
-                <NativeSelect label="轉換窗口" value={`${q.window.value}:${q.window.unit}`} data={WINDOW_PRESETS.map(([v, u, cn]) => opt(`${v}:${u}`, cn))} onChange={(e) => { const [v, u] = e.target.value.split(':'); setQ({ ...q, window: { value: Number(v), unit: u as FunnelQuery['window']['unit'] } }); }} />
+                <Stack gap={4}>
+                  <NativeSelect label="轉換窗口" value={customWin || !WINDOW_PRESETS.some(([v, u]) => v === q.window.value && u === q.window.unit) ? 'custom' : `${q.window.value}:${q.window.unit}`} data={[...WINDOW_PRESETS.map(([v, u, cn]) => opt(`${v}:${u}`, cn)), opt('custom', '自訂…')]} onChange={(e) => { if (e.target.value === 'custom') { setCustomWin(true); return; } setCustomWin(false); const [v, u] = e.target.value.split(':'); setQ({ ...q, window: { value: Number(v), unit: u as FunnelQuery['window']['unit'] } }); }} />
+                  {(customWin || !WINDOW_PRESETS.some(([v, u]) => v === q.window.value && u === q.window.unit)) && (
+                    <Group gap={6} wrap="nowrap">
+                      <TextInput w={100} type="number" min={1} aria-label="窗口數值" value={q.window.value} error={winErr ?? undefined} onChange={(e) => setQ({ ...q, window: { ...q.window, value: Number(e.target.value) } })} />
+                      <NativeSelect w={90} aria-label="窗口單位" value={q.window.unit} data={[opt('minute', '分鐘'), opt('hour', '小時'), opt('day', '天')]} onChange={(e) => setQ({ ...q, window: { ...q.window, unit: e.target.value as FunnelQuery['window']['unit'] } })} />
+                    </Group>)}
+                </Stack>
                 <NativeSelect label="順序" value={q.order} data={[opt('loose', '寬鬆（中間可有其他事件）'), opt('strict', '嚴格（其他步驟事件介入即中斷）')]} onChange={(e) => setQ({ ...q, order: e.target.value as 'loose' | 'strict' })} />
                 <NativeSelect label="關聯屬性（業務 ID）" value={q.relation ?? ''} data={[opt('', '不串接（同一用戶即可）'), opt('entity_id', '業務 ID（entity_id）'), opt('props.order_no', '訂單編號（props.order_no）'), opt('symbol', '商品代號')]} onChange={(e) => setQ({ ...q, relation: e.target.value || undefined, metric: e.target.value ? q.metric : 'users' })} />
                 <NativeSelect label="口徑" value={q.metric} disabled={!q.relation} data={[opt('users', '用戶數'), opt('times', '流程數（需關聯屬性）')]} onChange={(e) => setQ({ ...q, metric: e.target.value as 'users' | 'times' })} />

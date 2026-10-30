@@ -87,3 +87,7 @@ export function tableCsv(head: string[], body: string[][]): string {
   const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
   return '﻿' + [head.map(esc).join(','), ...body.slice(0, 500).map((r) => r.map(esc).join(','))].join('\r\n');
 }
+
+/** 添加對比的選項與比較期欄位（<別名>_prev）的稱呼。去年同期：同一日期、按週 52 週前（Windy 2026-10-29）。 */
+export const COMPARE_OPTS: [string, string][] = [['', '無'], ['previous_period', '上一期'], ['last_year', '去年同期']];
+export function compareCn(c: string | undefined): string { return c === 'last_year' ? '去年同期' : '上期'; }

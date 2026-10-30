@@ -16,7 +16,7 @@ from typing import Any
 from .attribution import AttributionQuery
 from .catalog import FieldRef
 from .funnel import FunnelQuery
-from .parser import Cond, Formula, Group, Metric, Query
+from .parser import LAST_YEAR_WEEK_DAYS, Cond, Formula, Group, Metric, Query, years_back
 from .path import EXIT, OTHER, PathQuery
 from .policy import bucket_label, parse_policy
 from .retention import RetentionQuery
@@ -265,6 +265,24 @@ class Oracle:
             vals = [m.alias for m in q.metrics] + [f.alias for f in q.formulas]
             for row in out:
                 key = (row.get("bucket"),) + tuple(row.get(c) for c in gcols)
+                p = prev.get(key) if not any(x is None for x in key[1:]) else None
+                for v in vals:
+                    row[v + "_prev"] = p[v] if p else None
+        if q.compare == "last_year":
+            week = q.time.grain == "week"
+            back = (lambda d: d - timedelta(days=LAST_YEAR_WEEK_DAYS)) if week else years_back
+            prev_q = Query(project=q.project, metrics=q.metrics, time=type(q.time)(back(q.time.start), back(q.time.end), q.time.grain, q.time.now),
+                           formulas=q.formulas, filters=q.filters, group_by=q.group_by, top_n=None, compare=None, sample=None, exact=q.exact, behaviors=q.behaviors)
+            prev = {}
+            for pr in self.run(prev_q, decision):
+                key = (pr.get("bucket"),) + tuple(pr.get(c) for c in gcols)
+                if any(x is None for x in key[1:]): continue
+                prev[key] = pr
+            vals = [m.alias for m in q.metrics] + [f.alias for f in q.formulas]
+            for row in out:
+                b = row.get("bucket")
+                lb = None if b is None else back(date.fromisoformat(b[:10])).isoformat() + b[10:]   # 今年桶往回推（閏年 2/29 → 2/28；按週 − 364 天）
+                key = (lb,) + tuple(row.get(c) for c in gcols)
                 p = prev.get(key) if not any(x is None for x in key[1:]) else None
                 for v in vals:
                     row[v + "_prev"] = p[v] if p else None
@@ -572,7 +590,7 @@ class Oracle:
 
     # ---- 路徑 ----
     def _path_slices(self, pq: PathQuery, decision: Any = None) -> list[tuple[str, tuple[str, ...], float]]:
-        """每個起點（終點）出現 → (one_id, path, 耗時 ms)；與 SQL 的 ev→會話→合併→離開→切片同口徑。"""
+        """每會話一條 → (one_id, path, 耗時 ms)：起點取會話第一次出現、終點取最後一次（同神策）；與 SQL 的 ev→會話→合併→離開→切片同口徑。"""
         now = pq.time.now or date.today()
         if pq.sample:
             raise ValueError("oracle 不做抽樣")
@@ -611,8 +629,9 @@ class Oracle:
                     seq = [x for i, x in enumerate(seq) if i == 0 or x[1] != seq[i - 1][1]]
                 if pq.exit_node and seq[-1][1] != EXIT:
                     seq.append((seq[-1][0], EXIT, pq.anchor == EXIT, seq[-1][3]))
-                for i, x in enumerate(seq):
-                    if not x[2]: continue
+                hits = [i for i, x in enumerate(seq) if x[2]]
+                if not hits: continue
+                for i in ([hits[0]] if pq.direction == "after" else [hits[-1]]):
                     sl = seq[i: i + pq.steps + 1] if pq.direction == "after" else seq[max(0, i - pq.steps): i + 1]
                     ms = (sl[-1][0].replace(microsecond=sl[-1][0].microsecond // 1000 * 1000) - sl[0][0].replace(microsecond=sl[0][0].microsecond // 1000 * 1000)).total_seconds() * 1000
                     out.append((oid, tuple(y[1] for y in sl), ms))
@@ -621,14 +640,14 @@ class Oracle:
     def run_path(self, pq: PathQuery, decision: Any = None) -> list[dict[str, Any]]:
         k = int(getattr(decision, "k_anonymity", 0) or 0)
         slices = self._path_slices(pq, decision)
-        anchor_users = len({o for o, _, _ in slices})
+        anchor_users = len({o for o, _, _ in slices}); anchor_sessions = len(slices)
         agg: dict[tuple[str, ...], tuple[set[str], int, float]] = {}
         for oid, path, ms in slices:
             u, n, t = agg.get(path, (set(), 0, 0.0)); u.add(oid); agg[path] = (u, n + 1, t + ms)
         rows = []
         for path, (u, n, t) in agg.items():
             users = len(u); sup = bool(k and users < k)
-            row: dict[str, Any] = {"path": list(path), "users": None if sup else users, "sessions": None if sup else n, "avg_ms": None if sup else t / n, "anchor_users": anchor_users, "_k": users}
+            row: dict[str, Any] = {"path": list(path), "users": None if sup else users, "sessions": None if sup else n, "avg_ms": None if sup else t / n, "anchor_users": anchor_users, "anchor_sessions": anchor_sessions, "_k": users}
             if k: row["suppressed"] = sup
             rows.append(row)
         rows.sort(key=lambda r: (-r["_k"], -(r["sessions"] if r["sessions"] is not None else agg[tuple(r["path"])][1]), r["path"]))

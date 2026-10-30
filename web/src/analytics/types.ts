@@ -64,7 +64,7 @@ export interface EventsQuery extends Scope {
   group_by?: string[];
   top_n?: number;
   time: { from: string; to: string; grain: 'minute' | 'hour' | 'day' | 'week' | 'month' | 'total'; now?: string };
-  compare?: 'previous_period';
+  compare?: 'previous_period' | 'last_year';
   sample?: number;
   segment?: string;
   exact?: boolean;                                                   // true＝一律走明細（對帳用）
@@ -87,7 +87,7 @@ export interface PathQuery {
   time: { from: string; to: string; now?: string };
 }
 export interface PathRow { path: string[]; users: number | null; sessions: number | null; share: number | null; avg_ms: number | null; suppressed: boolean }
-export interface PathResult { paths: PathRow[]; anchor_users: number; nodes: { level: number; node: string; users: number }[]; links: { level: number; from: string; to: string; users: number }[]; sampled: number | null; sql: string; lineage: string[]; cost: { ms: number; rows: number; layer: string }; warnings: string[]; chart_spec: Record<string, unknown> }
+export interface PathResult { paths: PathRow[]; anchor_users: number; anchor_sessions?: number; nodes: { level: number; node: string; sessions?: number; users?: number }[]; links: { level: number; from: string; to: string; sessions?: number; users?: number }[]; sampled: number | null; sql: string; lineage: string[]; cost: { ms: number; rows: number; layer: string }; warnings: string[]; chart_spec: Record<string, unknown> }
 
 export type AttributionModel = 'first' | 'last' | 'linear' | 'position' | 'decay' | 'custom';
 export interface AttributionTouch { event: string; alias?: string; filters?: Cond[]; weight?: number }
