@@ -1162,7 +1162,7 @@ components:
       required: [anchor, time]
       properties:
         project: { type: string }
-        anchor: { type: object, required: [event], properties: { event: { type: string, description: '事件名或拆分後節點（event:值）' }, filters: { type: array, items: { type: object } } }, description: 起點（direction=after）或終點（before） }
+        anchor: { type: object, required: [event], properties: { event: { type: string, description: '事件名或拆分後節點（event:值）' }, filters: { type: array, items: { type: object } } }, description: '起點（direction=after）或終點（before）。同神策：每個會話只取一次，起點取會話中第一次出現、終點取最後一次出現；會話裡沒有這個事件就不進路徑' }
         direction: { type: string, enum: [after, before], default: after }
         steps: { type: integer, minimum: 1, maximum: 10, default: 5 }
         session: { type: object, properties: { mode: { type: string, enum: [gap, id, cross], default: gap, description: 'gap = 依間隔切會話；id = 用 session_id；cross = 期間內整個用戶一條序列' }, gap_minutes: { type: integer, default: 30 }, max_events: { type: integer, default: 200, description: 每會話最多保留的事件數 } } }
@@ -1183,10 +1183,11 @@ components:
     PathResult:
       type: object
       properties:
-        paths: { type: array, items: { type: object, properties: { path: { type: array, items: { type: string } }, users: { type: integer, nullable: true }, sessions: { type: integer, nullable: true }, share: { type: number, nullable: true, description: 占起點用戶比例 }, avg_ms: { type: number, nullable: true }, suppressed: { type: boolean } } } }
-        anchor_users: { type: integer, description: 經過起點的用戶數（抽樣後） }
-        nodes: { type: array, items: { type: object, properties: { level: { type: integer }, node: { type: string }, users: { type: integer } } }, description: 桑基節點（由未抑制的路徑彙總） }
-        links: { type: array, items: { type: object, properties: { level: { type: integer }, from: { type: string }, to: { type: string }, users: { type: integer } } } }
+        paths: { type: array, items: { type: object, properties: { path: { type: array, items: { type: string } }, users: { type: integer, nullable: true }, sessions: { type: integer, nullable: true }, share: { type: number, nullable: true, description: 占起點會話比例（sessions ÷ anchor_sessions） }, avg_ms: { type: number, nullable: true }, suppressed: { type: boolean } } } }
+        anchor_users: { type: integer, description: 經過起點的用戶數（抽樣後，去重） }
+        anchor_sessions: { type: integer, description: 經過起點的會話數（抽樣後）；每會話一條路徑 }
+        nodes: { type: array, items: { type: object, properties: { level: { type: integer }, node: { type: string }, sessions: { type: integer } } }, description: '桑基節點（由未抑制的路徑彙總）。數值是會話數不是用戶數（同神策）；每會話只有一條路徑，所以加總不會重複計算' }
+        links: { type: array, items: { type: object, properties: { level: { type: integer }, from: { type: string }, to: { type: string }, sessions: { type: integer } } }, description: 桑基連線，數值同 nodes 為會話數 }
         sampled: { type: number, nullable: true }
         sql: { type: string }
         lineage: { type: array, items: { type: string } }
