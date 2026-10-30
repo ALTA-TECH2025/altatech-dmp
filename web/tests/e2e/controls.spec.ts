@@ -79,15 +79,20 @@ test.describe.serial('控制項：事件分析與留存', () => {
     }
   });
 
-  test('對比上一期：送出 compare，結果多一組上期欄位', async () => {
+  test('對比：每個選項都送得出去、後端接受，有對比時結果多一組 _prev 欄位', async () => {
     await setRange(page, '2026-10-09', '2026-10-16');
     await grainSelect(page).selectOption('day');
-    await page.locator('.mantine-InputWrapper-root', { hasText: '添加對比' }).locator('select').selectOption('previous_period');
-    const r = await run(page);
-    expect(r.status, r.body.detail).toBe(200);
-    expect(r.req.compare).toBe('previous_period');
-    expect(r.body.columns.some((c) => c.endsWith('_prev')), `欄位：${r.body.columns.join(',')}`).toBe(true);
-    await page.locator('.mantine-InputWrapper-root', { hasText: '添加對比' }).locator('select').selectOption('');
+    const cmpSel = page.locator('.mantine-InputWrapper-root', { hasText: '添加對比' }).locator('select');
+    const opts = await optionsOf(page, cmpSel);
+    expect(opts).toEqual(expect.arrayContaining(['', 'previous_period', 'last_year']));
+    for (const c of opts) {
+      await cmpSel.selectOption(c);
+      const r = await run(page);
+      expect(r.status, `對比 ${c || '無'}：${r.body.detail ?? ''}`).toBe(200);
+      expect(r.req.compare ?? '').toBe(c);
+      expect(r.body.columns.some((x) => x.endsWith('_prev')), `對比 ${c || '無'} 欄位：${r.body.columns.join(',')}`).toBe(!!c);
+    }
+    await cmpSel.selectOption('');
   });
 
   test('分組：送出 group_by，結果每列帶分組值，各組加總 = 不分組', async () => {

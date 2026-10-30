@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { fmtMs, layout, nodeColors } from './sankey';
+import { fmtMs, fmtUnit, layout, nodeColors, pathUnit, skLinks, skNodes } from './sankey';
 
-const nodes = [{ level: 0, node: 'login', users: 100 }, { level: 1, node: 'view', users: 60 }, { level: 1, node: '離開', users: 40 }, { level: 2, node: 'order', users: 30 }, { level: 2, node: '離開', users: 30 }];
-const links = [{ level: 0, from: 'login', to: 'view', users: 60 }, { level: 0, from: 'login', to: '離開', users: 40 }, { level: 1, from: 'view', to: 'order', users: 30 }, { level: 1, from: 'view', to: '離開', users: 30 }];
+const nodes = [{ level: 0, node: 'login', value: 100 }, { level: 1, node: 'view', value: 60 }, { level: 1, node: '離開', value: 40 }, { level: 2, node: 'order', value: 30 }, { level: 2, node: '離開', value: 30 }];
+const links = [{ level: 0, from: 'login', to: 'view', value: 60 }, { level: 0, from: 'login', to: '離開', value: 40 }, { level: 1, from: 'view', to: 'order', value: 30 }, { level: 1, from: 'view', to: '離開', value: 30 }];
 
 describe('sankey layout', () => {
-  it('assigns fixed categorical colors by total users and gray for exit/other', () => {
+  it('assigns fixed categorical colors by total value and gray for exit/other', () => {
     const c = nodeColors(nodes);
     expect(c.login).toBe('var(--s1)'); expect(c.view).toBe('var(--s2)'); expect(c.order).toBe('var(--s3)'); expect(c['離開']).toBe('var(--axis)');
   });
@@ -28,5 +28,21 @@ describe('sankey layout', () => {
   it('empty input and fmtMs', () => {
     expect(layout([], []).levels).toBe(0);
     expect(fmtMs(null)).toBe('—'); expect(fmtMs(850)).toBe('850 ms'); expect(fmtMs(84000.5)).toBe('1.4 分'); expect(fmtMs(7200000)).toBe('2.0 時');
+  });
+});
+
+describe('會話／人數單位（新舊格式不混用）', () => {
+  const legacy = { anchor_users: 3, nodes: [{ level: 0, node: 'A', users: 3 }, { level: 1, node: 'B', users: 3 }], links: [{ level: 0, from: 'A', to: 'B', users: 3 }] };
+  const fresh = { anchor_users: 3, anchor_sessions: 7, nodes: [{ level: 0, node: 'A', sessions: 7, users: 3 }], links: [{ level: 0, from: 'A', to: 'B', sessions: 7 }] };
+  it('pathUnit：有 anchor_sessions 或任一節點有 sessions 才是會話，否則是人數', () => {
+    expect(pathUnit(fresh)).toBe('sessions'); expect(pathUnit(legacy)).toBe('users');
+    expect(pathUnit({ nodes: [{ level: 0, node: 'A', sessions: 1 }] })).toBe('sessions'); expect(pathUnit({})).toBe('users');
+  });
+  it('舊格式取 users、標「人」；新格式取 sessions、標「個會話」；不把 users 當會話', () => {
+    expect(skLinks(legacy.links, pathUnit(legacy))).toEqual([{ level: 0, from: 'A', to: 'B', value: 3 }]);
+    expect(fmtUnit(skLinks(legacy.links, pathUnit(legacy))[0].value, pathUnit(legacy))).toBe('3 人');
+    expect(skNodes(fresh.nodes, pathUnit(fresh))).toEqual([{ level: 0, node: 'A', value: 7 }]);
+    expect(fmtUnit(skLinks(fresh.links, pathUnit(fresh))[0].value, pathUnit(fresh))).toBe('7 個會話');
+    expect(skNodes([{ level: 0, node: 'A', users: 3 }], 'sessions')).toEqual([{ level: 0, node: 'A', value: 0 }]);   // 會話口徑下沒有 sessions 不拿 users 充數
   });
 });

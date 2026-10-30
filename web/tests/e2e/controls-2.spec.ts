@@ -163,6 +163,12 @@ test.describe.serial('控制項：漏斗、路徑、歸因', () => {
       const paths = r.body.paths as { suppressed?: boolean }[];
       if (r.body.nodes.length === 0) expect(paths.length > 0 && paths.every((x) => x.suppressed), `路徑 ${d}／${s}：沒有節點時，所有路徑都應是 K 匿名抑制`).toBe(true);
       else expect(r.body.links.length, `路徑 ${d}／${s} 有節點就應有連線`).toBeGreaterThan(0);
+      // 桑基圖是會話數（同神策，每會話一條路徑）：任一連線、錨點層節點加總都不超過起點會話數
+      const as = Number(r.body.anchor_sessions);
+      expect(as, `路徑 ${d}／${s}：起點會話數 ≥ 起點人數`).toBeGreaterThanOrEqual(Number(r.body.anchor_users));
+      for (const l of r.body.links as { sessions: number }[]) expect(l.sessions, `路徑 ${d}／${s}：連線會話 ≤ 起點會話`).toBeLessThanOrEqual(as);
+      const lv = d === 'after' ? 0 : Math.max(0, ...(r.body.nodes as { level: number }[]).map((n) => n.level));
+      expect((r.body.nodes as { level: number; sessions: number }[]).filter((n) => n.level === lv).reduce((t, n) => t + n.sessions, 0), `路徑 ${d}／${s}：錨點層會話加總 ≤ 起點會話`).toBeLessThanOrEqual(as);
     }
     for (const v of await optionsOf(smp)) {
       await smp.selectOption(v);

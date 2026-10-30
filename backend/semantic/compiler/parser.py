@@ -7,7 +7,7 @@
   filters:  {op: and|or, items: [...]} 或 條件陣列（= and）；條件 = {field, op, value, type?}
   group_by: ["platform", {field: "props.market", type: string}]；top_n: N（依第一個指標取前 N 個分組值）
   time:     {from, to, grain: minute|hour|day|week|month|total, now?}   # 台北日期，含兩端
-  compare:  previous_period；sample: 0.1（按用戶抽樣）；exact: true（不走 MV）；estimate: true（快速估算：人數可走 MV 近似）
+  compare:  previous_period（上一期）／last_year（去年同期：同一日期，按週取 52 週前）；sample: 0.1（按用戶抽樣）；exact: true（不走 MV）；estimate: true（快速估算：人數可走 MV 近似）
   behaviors: [UsersBehavior]（用戶做過／未做過，與用戶列表同一套）＋ behaviors_op；cohorts: [{name, filters?, segment?, behaviors?}]（對照組 ≤10，結果多一欄 cohort）
 """
 from __future__ import annotations
@@ -103,6 +103,17 @@ class Query:
             rec(m.filters)
             if m.field and metric_fields: out.append(m.field)
         return out
+
+
+def years_back(d: date, n: int = 1) -> date:
+    """同一日期的 n 年前；去年沒有的日期（閏年 2/29）回當月最後一天 2/28。與 ClickHouse subtractYears 相同（Windy 2026-10-29 去年同期規則）。"""
+    try:
+        return d.replace(year=d.year - n)
+    except ValueError:
+        return d.replace(year=d.year - n, day=28)
+
+
+LAST_YEAR_WEEK_DAYS = 364   # 去年同期按週：52 週前，週一對週一（Windy 2026-10-29）
 
 
 def _date(s: Any, what: str) -> date:
@@ -275,8 +286,8 @@ def parse(raw: dict[str, Any], cat: Catalog | None = None) -> Query:
         if top_n < 1 or not gb:
             raise ValueError("top_n 需要 ≥ 1 且有分組")
     compare = raw.get("compare")
-    if compare not in (None, "", "previous_period"):
-        raise ValueError("compare 目前只支援 previous_period")
+    if compare not in (None, "", "previous_period", "last_year"):
+        raise ValueError("compare 只支援 previous_period（上一期）或 last_year（去年同期）")
     sample = raw.get("sample")
     if sample is not None:
         sample = float(sample)

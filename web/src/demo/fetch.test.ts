@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { candidates, demoFetch } from './fetch';
+import { FIXED_NOTE_TEXT, candidates, demoFetch } from './fetch';
 
 describe('demo fetch 候選鍵', () => {
   it('動態 id 換成 *，字面子資源保留', () => {
@@ -39,5 +39,84 @@ describe('示範：同步任務立即執行只排隊', () => {
     expect(res.status).toBe(202);
     expect(b).toMatchObject({ task_id: 'sync_orders', status: 'queued', run_id: null, demo: true });
     expect(b.cn).not.toBe('');
+  });
+});
+
+describe('示範：事件分析依粒度彙總', () => {
+  type R = { rows: Record<string, unknown>[]; columns: string[]; chart_spec: { type: string } };
+  const ask = async (grain: string, extra: Record<string, unknown> = {}) => (await (await demoFetch('/v1/analytics/events', { method: 'POST', body: JSON.stringify({ metrics: [{ event: 'deal', agg: 'total', alias: 'deals' }, { event: 'deal', agg: 'users', alias: 'deal_users' }], time: { from: '2026-01-01', to: '2026-10-30', grain }, ...extra }) })).json()) as R;
+  it('按月：每月一列、bucket 是月初，不再回按天的固定資料', async () => {
+    const r = await ask('month');
+    expect(r.rows.map((x) => x.bucket)).toEqual(['2026-01-01', '2026-02-01', '2026-03-01', '2026-04-01', '2026-05-01', '2026-06-01', '2026-07-01', '2026-08-01', '2026-09-01', '2026-10-01']);
+    expect(r.columns).not.toContain('g1');
+  });
+  it('按週：bucket 都是週一；按日：每天一列', async () => {
+    const w = await ask('week');
+    expect(w.rows.every((x) => new Date(`${String(x.bucket)}T00:00:00Z`).getUTCDay() === 1)).toBe(true);
+    expect((await ask('day')).rows).toHaveLength(303);
+  });
+  it('合計：一列、沒有 bucket、數字卡（同後端）；人數類不超過次數加總', async () => {
+    const t = await ask('total');
+    expect(t.rows).toHaveLength(1);
+    expect(t.rows[0]).not.toHaveProperty('bucket');
+    expect(t.chart_spec.type).toBe('stat');
+    expect(Number(t.rows[0].deal_users)).toBeLessThan(Number(t.rows[0].deals));
+  });
+  it('有分組才有 g1，每個桶三組', async () => {
+    const g = await ask('month', { group_by: [{ field: '$platform' }] });
+    expect(g.columns).toContain('g1');
+    expect(g.rows).toHaveLength(30);
+  });
+});
+
+describe('示範：看板卡片臨時改粒度', () => {
+  it('事件卡改成按月 → 依月彙總，不沿用擷取的按天結果', async () => {
+    const dash = await (await demoFetch('/v1/dashboards/d_seed_bond')).json() as { cards: { id: string; kind: string; query: { time: { from: string; to: string } } }[] };
+    const card = dash.cards.find((c) => c.kind === 'events');
+    expect(card).toBeTruthy();
+    const d = await (await demoFetch(`/v1/dashboards/d_seed_bond/cards/${card!.id}/data`, { method: 'POST', body: JSON.stringify({ time: { from: '2026-08-01', to: '2026-10-15', grain: 'month' } }) })).json() as { rows: { bucket?: string }[] };
+    expect([...new Set(d.rows.map((r) => r.bucket))]).toEqual(['2026-08-01', '2026-09-01', '2026-10-01']);
+  });
+});
+
+describe('示範：還沒依條件合成的查詢要標示固定資料', () => {
+  it('漏斗回應帶「固定範例資料」提示；事件分析不帶', async () => {
+    const f = await (await demoFetch('/v1/analytics/funnel', { method: 'POST', body: JSON.stringify({ steps: [] }) })).json() as { warnings?: string[] };
+    expect(f.warnings?.[0]).toBe(FIXED_NOTE_TEXT);
+    const e = await (await demoFetch('/v1/analytics/events', { method: 'POST', body: JSON.stringify({ metrics: [{ event: 'deal', agg: 'total' }], time: { from: '2026-10-01', to: '2026-10-02', grain: 'day' } }) })).json() as { warnings: string[] };
+    expect(e.warnings).not.toContain(FIXED_NOTE_TEXT);
+  });
+});
+
+describe('示範：事件分析對比', () => {
+  it('上一期與去年同期都帶 _prev 欄；不對比就沒有', async () => {
+    const q = (compare?: string) => demoFetch('/v1/analytics/events', { method: 'POST', body: JSON.stringify({ metrics: [{ event: 'deal', agg: 'total', alias: 'deals' }], time: { from: '2026-10-01', to: '2026-10-03', grain: 'day' }, ...(compare ? { compare } : {}) }) }).then((r) => r.json() as Promise<{ columns: string[]; rows: Record<string, number>[] }>);
+    for (const c of ['previous_period', 'last_year']) {
+      const r = await q(c);
+      expect(r.columns).toContain('deals_prev');
+      expect(r.rows.every((x) => typeof x.deals_prev === 'number')).toBe(true);
+    }
+    expect((await q()).columns).not.toContain('deals_prev');
+  });
+});
+
+describe('示範：未支援的條件要明說；多維分組帶齊 g1..gn（#96 審查）', () => {
+  const ask = async (extra: Record<string, unknown>) => (await (await demoFetch('/v1/analytics/events', { method: 'POST', body: JSON.stringify({ metrics: [{ event: 'bond_order', agg: 'total', alias: 'orders' }], time: { from: '2026-10-01', to: '2026-10-16', grain: 'total' }, ...extra }) })).json()) as { rows: Record<string, unknown>[]; columns: string[]; warnings: string[] };
+  it('互斥篩選、分群、行為條件：回應明說不會套用', async () => {
+    const plain = await ask({});
+    expect(plain.warnings.some((w) => w.includes('不會套用'))).toBe(false);
+    for (const extra of [
+      { filters: { op: 'and', items: [{ field: 'platform', op: 'eq', value: 'iOS' }, { field: 'platform', op: 'eq', value: 'Android' }] } },
+      { filters: [{ field: 'platform', op: 'eq', value: 'iOS' }] },
+      { segment: 'sg_1' },
+      { behaviors: [{ event: 'bond_deal' }] },
+    ]) expect((await ask(extra)).warnings.some((w) => w.includes('不會套用')), JSON.stringify(extra)).toBe(true);
+  });
+  it('雙維分組（渠道 × 平台）：每列有 g1、g2，值分別取自各自的維度', async () => {
+    const r = await ask({ group_by: ['channel', 'platform'] });
+    expect(r.columns).toEqual(expect.arrayContaining(['g1', 'g2']));
+    expect(r.rows).toHaveLength(9);
+    expect(new Set(r.rows.map((x) => x.g1))).toEqual(new Set(['app', 'web', 'agent']));
+    expect(new Set(r.rows.map((x) => x.g2))).toEqual(new Set(['iOS', 'Android', 'Web']));
   });
 });
