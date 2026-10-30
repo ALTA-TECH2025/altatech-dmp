@@ -211,6 +211,7 @@ def _subject(role: str) -> Decision:
 
 T = {"from": "2026-10-01", "to": "2026-10-16", "grain": "day", "now": NOW.isoformat()}
 T_ALL = {"from": DAY0.isoformat(), "to": "2026-10-16", "grain": "day", "now": NOW.isoformat()}
+T_EARLY = {"from": "2026-10-05", "to": "2026-10-09", "grain": "day", "now": NOW.isoformat()}   # 期間後還有資料：驗證漏斗後續步驟延伸
 QUERIES: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("Q01 委託次數×日（走 MV）", {"metrics": [{"event": "bond_order", "agg": "total"}], "time": T}, "admin"),
     ("Q02 委託用戶數×日", {"metrics": [{"event": "bond_order", "agg": "users"}], "time": T}, "admin"),
@@ -270,6 +271,8 @@ FUNNELS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("F08 分群 vip + 行銷（K 匿名）", {"steps": [{"event": "app_login_success"}, {"event": "bond_deal"}], "window": W7, "segment": "vip", "group_by": ["user.tier"], "time": T_ALL}, "marketing"),
     ("F11 32 步（ClickHouse windowFunnel 上限；事件 × 平台互斥，條件不重疊）", {"steps": [{"event": e, "filters": [{"field": "platform", "op": "eq", "value": p}]} for e in ["app_login_success", "hq_stockdetail_view", "$pageview", "search_submit", "bond_order", "bond_deal", "push_click", "act_click", "kh_entry_khpg_pv", "kh_apply", "stock_order_submit"] for p in ["iOS", "Android", "Web"]][:32], "window": {"value": 30, "unit": "day"}, "time": T_ALL}, "admin"),
     ("F12 365 天窗口（月趨勢）", {"steps": [{"event": "app_login_success"}, {"event": "bond_order"}, {"event": "bond_deal"}], "window": {"value": 365, "unit": "day"}, "trend": "month", "time": T_ALL}, "admin"),
+    ("F13 期間 10-05～10-09、窗口 3 天：後續步驟可落在期間後（神策預設）", {"steps": [{"event": "app_login_success"}, {"event": "bond_order"}, {"event": "bond_deal"}], "window": {"value": 3, "unit": "day"}, "time": T_EARLY}, "admin"),
+    ("F14 同 F13 ＋ 限制後續事件在時間區間內", {"steps": [{"event": "app_login_success"}, {"event": "bond_order"}, {"event": "bond_deal"}], "window": {"value": 3, "unit": "day"}, "restrict_to_range": True, "time": T_EARLY}, "admin"),
     ("F09 90 天窗口、月趨勢、分群 market", {"steps": [{"event": "hq_stockdetail_view"}, {"event": "bond_deal"}], "window": {"value": 90, "unit": "day"}, "trend": "month", "group_by": ["market"], "time": T_ALL}, "admin"),
     ("F10 行為篩選（曾登入 ≥ 1 次）＋ 對照組 iOS／全體", {"steps": [{"event": "hq_stockdetail_view"}, {"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "behaviors": [{"event": "app_login_success"}],
         "cohorts": [{"name": "iOS", "filters": [{"field": "platform", "op": "eq", "value": "iOS"}]}, {"name": "全體"}], "time": T_ALL}, "admin"),
@@ -299,6 +302,7 @@ FUNNEL_REJECTED: list[tuple[str, dict[str, Any], str]] = [
     ("FR2b 33 步", {"steps": [{"event": "bond_order"}] * 33, "window": {"value": 1, "unit": "day"}, "time": T}, "2–32"),
     ("FR3 次數口徑沒關聯屬性", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "metric": "times", "time": T}, "關聯屬性"),
     ("FR4 關聯屬性是用戶屬性", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "relation": "user.tier", "time": T}, "業務 ID"),
+    ("FR6 restrict_to_range 不是布林", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "restrict_to_range": "yes", "time": T}, "true／false"),
     ("FR5 未登記事件", {"steps": [{"event": "bond_order"}, {"event": "nope"}], "window": W7, "time": T}, "事件字典"),
 ]
 PATHS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
@@ -381,6 +385,10 @@ REJECTED: list[tuple[str, dict[str, Any], str, str]] = [   # 必須被拒絕的�
     ("R09 漏斗型指標走錯樣板", {"metric": "open_to_fund_rate", "time": T}, "admin", "樣板"),
     ("R10 AI 服務身份不可細查（authorize 拒絕）", {"metrics": [{"event": None, "agg": "total"}], "time": T}, "svc_insight_profile", "not granted"),
 ]
+
+
+def _funnel(prefix: str) -> dict[str, Any]:
+    return next(r for n, r, _ in FUNNELS if n.startswith(prefix))
 
 
 def decision_of(spec: Decision | str | None) -> Decision | None:
@@ -519,6 +527,9 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
         got = run_sql(ch, c.sql, c.settings); expect = oracle.run_funnel(fq, d)
         compare(name, c.columns, expect, got, (1 if fq.trend else 0) + (1 if fq.group_by else 0) + 1 + (1 if fq.cohorts else 0))
         report.append(f"  {name:<44} L0 rows={len(got):<4} step1={next((r['users'] for r in got if r['step'] == 1), None)}")
+    # 限制後續事件在時間區間內：第一步人數相同、後續步驟只會變少，且資料裡確實有期間後才完成的人
+    ext, lim = (run_sql(ch, compile_funnel(parse_funnel({**r, "project": PROJECT}, cat), cat, _subject("admin")).sql, {}) for r in (_funnel("F13"), _funnel("F14")))
+    assert ext[0]["users"] == lim[0]["users"] and all(b["users"] <= a["users"] for a, b in zip(ext, lim)) and ext[-1]["users"] > lim[-1]["users"], (ext, lim)
     fs = parse_funnel({**FUNNELS[0][1], "project": PROJECT, "order": "strict"}, cat); cs = compile_funnel(fs, cat, _subject("admin"))
     strict = run_sql(ch, cs.sql, cs.settings); loose = run_sql(ch, compile_funnel(parse_funnel({**FUNNELS[0][1], "project": PROJECT}, cat), cat, _subject("admin")).sql, cs.settings)
     assert [r["users"] for r in strict] == sorted([r["users"] for r in strict], reverse=True) and all(a["users"] <= b["users"] for a, b in zip(strict, loose)), (strict, loose)
@@ -747,6 +758,11 @@ def dry_run() -> None:
     for name, raw, kw in FUNNEL_REJECTED:
         try: parse_funnel({**raw, "project": PROJECT}, cat); raise AssertionError(name)
         except ValueError as e: assert kw in str(e), (name, e)
+    f13, f14 = (parse_funnel({**_funnel(x), "project": PROJECT}, cat) for x in ("F13", "F14"))
+    s13, s14 = compile_funnel(f13, cat).sql, compile_funnel(f14, cat).sql
+    assert "toDate('2026-10-12')" in s13 and "e.event_date <= toDate('2026-10-09')" in s13 and "toDate('2026-10-12')" not in s14 and "e.event_date <= toDate" not in s14, (s13, s14)
+    o13, o14 = oracle.run_funnel(f13), oracle.run_funnel(f14)
+    assert o13[0]["users"] == o14[0]["users"] and o13[-1]["users"] > o14[-1]["users"], (o13, o14)
     from .retention import compile_retention, parse_retention, with_complete
     for name, raw, spec in RETENTIONS:
         rq = parse_retention({**raw, "project": PROJECT}, cat); c = compile_retention(rq, cat, decision_of(spec))
