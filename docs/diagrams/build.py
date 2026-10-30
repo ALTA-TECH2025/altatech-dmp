@@ -23,13 +23,13 @@ STATUS: list[tuple[str, str]] = [
     ("Flink", "phase2"), ("flink", "phase2"), ("normalize", "partial"), ("eventize", "partial"), ("oneid-resolve", "partial"), ("session", "phase2"), ("rules", "phase2"), ("CEP", "phase2"),
     ("dbt + ClickHouse SQL", "partial"), ("Spark", "planned"), ("Airflow", "partial"), ("Checkpoint", "phase2"),
     # 儲存
-    ("Kafka", "planned"), ("ClickHouse", "done"), ("PostgreSQL + pgvector", "partial"), ("Valkey", "planned"), ("Memorystore", "planned"), ("物件儲存", "planned"), ("Cloud Storage", "planned"), ("冷層", "planned"), ("Iceberg", "planned"),
+    ("Kafka", "planned"), ("ClickHouse", "done"), ("PostgreSQL + pgvector", "partial"), ("Valkey", "planned"), ("Redis", "planned"), ("Memorystore", "planned"), ("物件儲存", "planned"), ("Cloud Storage", "planned"), ("冷層", "planned"), ("Iceberg", "planned"),
     ("L0 events", "done"), ("MV：L1", "done"), ("L3 touchpoints", "partial"), ("users / items / id_map", "done"), ("audit_log", "partial"), ("events（L0 明細）", "done"), ("users ／ dim_*", "done"), ("user_tags Bitmap ／ segments", "partial"),
     # 接入
     ("Collector", "planned"), ("GA360 Importer", "done"), ("BigQuery Importer", "done"), ("CDC", "partial"), ("CDC：Debezium", "planned"), ("用戶列表人數預估", "confirm"), ("KafkaConnect", "planned"), ("數據中台批次導入", "confirm"), ("dlt / SeaTunnel", "planned"), ("舊平台導出", "done"), ("舊平台歷史匯入", "done"), ("舊平台", "done"),
     # 橫切
     ("身分與權限", "done"), ("資料保護", "partial"), ("審計與法遵", "partial"), ("審計與觀測", "partial"), ("Prometheus", "partial"), ("Grafana", "partial"), ("Keycloak", "partial"),
-    ("Docker 部署套件", "done"), ("Helm umbrella", "partial"), ("GKE", "confirm"), ("全部 OSI", "partial"), ("Ingress", "planned"), ("NetworkPolicy", "partial"), ("Cloud SQL", "partial"), ("Cloud KMS", "partial"), ("Secret Manager", "partial"), ("Cloud Logging", "planned"), ("Cloud Armor", "planned"),
+    ("Docker 部署套件", "done"), ("Helm umbrella", "partial"), ("GKE", "confirm"), ("全部 OSI", "partial"), ("Ingress", "planned"), ("NetworkPolicy", "partial"), ("Cloud SQL", "partial"), ("Cloud KMS", "partial"), ("Secret Manager", "partial"), ("Cloud Logging", "planned"), ("Docker Compose", "planned"), ("Docker Engine", "planned"), ("Cloud Armor", "planned"),
     # 元件組成
     ("dmp-ingest", "planned"), ("dmp-batch", "partial"), ("dmp-core", "done"), ("dmp-agent", "phase2"), ("dmp-web", "done"),
     ("內部系統 Webhook", "partial"), ("GCS Parquet", "planned"), ("數倉", "planned"),
@@ -126,7 +126,7 @@ def system_architecture():
         s.box(L + 14 + i * 300, 505, 285, 68, t, ls, c)
     # 儲存層
     s.group(L, 600, W, 110, "儲存層  Storage（五個有狀態服務）")
-    for i, (t, ls, c) in enumerate([("Kafka（KRaft）", ["raw.* 原文、dmp.events、dmp.triggers", "dmp.audit、dmp.insights"], "yellow"), ("ClickHouse（熱 13 個月）", ["events / users / items / id_map", "user_tags Bitmap、MV L1–L3、audit_log"], "yellow"), ("PostgreSQL + pgvector", ["控制面、字典、角色、審批", "Insight Store、Knowledge Pack"], "yellow"), ("Valkey ＋ GCS / 物件儲存", ["OneID 快取、即時標籤、結果快取", "Iceberg 冷層、原始事件、備份、WORM"], "yellow")]):
+    for i, (t, ls, c) in enumerate([("Kafka（KRaft）", ["raw.* 原文、dmp.events、dmp.triggers", "dmp.audit、dmp.insights"], "yellow"), ("ClickHouse（熱 13 個月）", ["events / users / items / id_map", "user_tags Bitmap、MV L1–L3、audit_log"], "yellow"), ("PostgreSQL + pgvector", ["控制面、字典、角色、審批", "Insight Store、Knowledge Pack"], "yellow"), ("Redis ＋ GCS / 物件儲存", ["登入狀態、結果快取、輕量佇列", "Iceberg 冷層、原始事件、備份、WORM"], "yellow")]):
         s.box(L + 14 + i * 300, 630, 285, 68, t, ls, c)
     # 接入層
     s.group(L, 725, W, 110, "接入層  Ingestion（docs/06 可視化建模）")
@@ -150,11 +150,11 @@ def system_architecture():
     s.box(X + 12, 246, GW - 24, 60, "審計與法遵", ["audit_log → WORM、日誌統計", "DSAR、金管會委外／個資法"], "red")
     s.group(X, 385, GW, 200, "觀測  Observability")
     s.box(X + 12, 415, GW - 24, 60, "Prometheus + OpenTelemetry", ["指標、追蹤、資料源延遲", "查詢 P95、agent 預算"], "gray")
-    s.box(X + 12, 483, GW - 24, 60, "Grafana OSS 看板 / 告警", ["平台、資料品質、審計統計", "Cloud Logging / OpenSearch 日誌"], "gray")
+    s.box(X + 12, 483, GW - 24, 60, "Grafana OSS 看板 / 告警", ["平台、資料品質、審計統計", "Loki 日誌（Alloy 收集）"], "gray")
     s.group(X, 600, GW, 230, "部署  Delivery（docs/07）")
     s.box(X + 12, 630, GW - 24, 56, "Docker 部署套件", ["UBI 9 / distroless 映像", "cosign 簽章、SBOM、Trivy"], "gray")
-    s.box(X + 12, 694, GW - 24, 56, "Helm umbrella + Operators", ["Strimzi、Flink、ClickHouse、CNPG", "values：機房／GCP／PoC"], "gray")
-    s.box(X + 12, 758, GW - 24, 56, "GKE（asia-east1）/ RKE2", ["OpenTofu：VPC、GKE、Cloud SQL、GCS", "Workload Identity、Binary Auth"], "gray")
+    s.box(X + 12, 694, GW - 24, 56, "Docker Compose（每台一份）", ["2026-10 決議：不用 K8s／Operators", "主機角色 compose ＋ .env（docs/44）"], "gray")
+    s.box(X + 12, 758, GW - 24, 56, "Docker Engine：GCE VM / 機房", ["OpenTofu：VPC、VM、Cloud SQL、GCS", "RHEL／Rocky 9、SELinux"], "gray")
     s.group(X, 845, GW, 115, "供應鏈  Supply chain（docs/11）")
     s.box(X + 12, 875, GW - 24, 70, "全部 OSI 寬鬆授權 + LTS", ["Renovate、Semgrep、gitleaks", "Syft / Grype、授權白名單 CI", "修補 SLA：Critical 7 天"], "gray")
     s.legend(L + 14, 990 - 2, [("brand", "體驗／服務"), ("purple", "AI agent"), ("teal", "計算"), ("yellow", "儲存"), ("green", "接入"), ("red", "安全"), ("gray", "來源／支撐")])
@@ -284,7 +284,7 @@ def module_map():
                                      ("元事件管理", ["事件字典、屬性字典、虛擬事件、隔離區", "上線檢查、變更單、L4 拒絕"], "green"),
                                      ("用戶表管理 ／ 維度表與字典", ["用戶屬性（來源／更新／敏感／可篩選）、OneID 歸戶規則", "維度表以屬性關聯補充分析維度；維度字典給枚舉顯示名"], "green")]):
         s.box(42, 112 + i * 86, 432, 76, t, ls, c, small=True)
-    s.group(516, 80, 560, 300, "核心資料  Core Data（ClickHouse / PostgreSQL / Valkey）", fill="#FBFCFE")
+    s.group(516, 80, 560, 300, "核心資料  Core Data（ClickHouse / PostgreSQL / Redis）", fill="#FBFCFE")
     for i, (t, ls, c) in enumerate([("events（L0 明細）+ MV L1–L3", ["project／event_date／event／one_id／time 排序", "日彙總、常用分組、cohort 預聚合；13 個月熱／冷層"], "yellow"),
                                      ("users ／ dim_* ／ id_map", ["用戶屬性 JSON、維度表（dictGet 關聯屬性）、OneID 映射", "touchpoints（歸因日批）、session 序列（路徑）"], "yellow"),
                                      ("user_tags Bitmap ／ segments ／ insights", ["標籤值 RoaringBitmap 版本 7 份；分群交並差", "Insight Store（pgvector）、audit_log（WORM）"], "yellow")]):

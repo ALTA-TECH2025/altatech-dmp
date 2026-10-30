@@ -25,7 +25,7 @@ export function AppShell() {
       <header className="topnav">
         <div className="tn-in">
           <button className="icon-btn hamb" aria-label="選單" onClick={() => setOpen(true)}>☰</button>
-          <NavLink className="brand" to="/overview"><img className="logo" src="/favicon.svg" alt="" /><b>ALTA TECH<sup>LTD</sup></b><span className="prod">DMP</span></NavLink>
+          <NavLink className="brand" to="/overview"><img className="logo" src="/favicon.svg" alt="" /><b>ALTA TECH</b><span className="prod">DMP</span></NavLink>
           <nav className="tn-nav" aria-label="主選單">
             {groups.map((g) => <button key={g.id} className={g.id === active?.id ? 'on' : ''} onClick={() => nav(g.items[0].path)}>{g.cn}{g.id === 'ai' && <span className="badge">二期</span>}</button>)}
           </nav>

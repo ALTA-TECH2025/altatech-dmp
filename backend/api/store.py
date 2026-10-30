@@ -9,6 +9,19 @@ from pathlib import Path
 from typing import Any, Protocol
 
 
+class Conflict(Exception):
+    """寫入違反唯一限制（例：同專案書籤同名）。兩種儲存都在寫入當下擋，不靠先查再寫，兩個請求同時存也只會成功一個。"""
+
+
+def bookmark_key(doc: dict[str, Any]) -> tuple[str, str]:
+    """書籤唯一鍵：同專案（query.project）＋名稱完全相同（Windy 2026-10-28：大小寫、全形／半形不同不算重名；前後空白在建立時已去掉）。"""
+    q = doc.get("query")
+    return (str(q.get("project") or "") if isinstance(q, dict) else "", str(doc.get("name") or ""))
+
+
+UNIQUE: dict[str, Any] = {"bookmark": bookmark_key}   # kind → 唯一鍵；PostgreSQL 有對應的部分唯一索引（store_pg）
+
+
 class Store(Protocol):
     def roles(self) -> list[dict[str, Any]]: ...
     def put_role(self, role: dict[str, Any]) -> None: ...
@@ -85,7 +98,13 @@ class MemoryStore:
 
     def put_item(self, kind: str, obj: dict[str, Any]) -> None:
         with self.lock:
-            self.d.setdefault(kind, {})[obj["id"]] = obj; self._save()
+            bucket = self.d.setdefault(kind, {})
+            key_of = UNIQUE.get(kind)
+            if key_of:                                                       # 與 PostgreSQL 唯一索引同規則；既有的重複（索引建立前留下的）改其他欄位不擋
+                k, old = key_of(obj), bucket.get(obj["id"])
+                if (old is None or key_of(old) != k) and any(i != obj["id"] and key_of(x) == k for i, x in bucket.items()):
+                    raise Conflict(f"{kind} 唯一鍵重複：{k}")
+            bucket[obj["id"]] = obj; self._save()
 
     def delete_item(self, kind: str, id_: str) -> None:
         with self.lock:
