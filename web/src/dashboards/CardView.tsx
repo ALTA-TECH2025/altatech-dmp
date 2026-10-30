@@ -8,6 +8,7 @@ import { FunnelChart } from '@/analytics/FunnelChart';
 import { summarize } from '@/analytics/funnel';
 import { LineChart } from '@/analytics/LineChart';
 import { PathChart } from '@/analytics/PathChart';
+import { pathUnit } from '@/analytics/sankey';
 import { RetentionMatrix } from '@/analytics/RetentionPage';
 import { fmtValue, type NumFormat } from '@/analytics/events';
 import { fmtNum, groupLabel, toSeries } from '@/analytics/series';
@@ -111,8 +112,8 @@ function CardBody({ card, data, k, labelOf }: { card: DashboardCard; data: CardD
   }
   if (card.kind === 'path') {
     return <>
-      <Text size="xs" c="dimmed">起點用戶 {fmtNum(data.anchor_users ?? 0)}{data.anchor_sessions != null ? `、會話 ${fmtNum(data.anchor_sessions)}` : ''}（圖中數字為會話數）{data.sampled ? `（抽樣 ${data.sampled}）` : ''}</Text>
-      <PathChart nodes={data.nodes ?? []} links={data.links ?? []} labelOf={labelOf} />
+      <Text size="xs" c="dimmed">起點用戶 {fmtNum(data.anchor_users ?? 0)}{data.anchor_sessions != null ? `、會話 ${fmtNum(data.anchor_sessions)}` : ''}{pathUnit(data) === 'sessions' ? '（圖中數字為會話數）' : '（舊格式：圖中數字為人數，重新整理可取得會話口徑）'}{data.sampled ? `（抽樣 ${data.sampled}）` : ''}</Text>
+      <PathChart nodes={data.nodes ?? []} links={data.links ?? []} unit={pathUnit(data)} labelOf={labelOf} />
     </>;
   }
   const res = data as unknown as AttributionResult;

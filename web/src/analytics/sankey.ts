@@ -1,4 +1,4 @@
-// 桑基圖版面（純函式，有單元測試）：層 = 步數，節點高度 ∝ 會話數，連線寬度 ∝ 會話數；顏色跟著節點名（固定順序類別色，離開／其他用灰）。
+// 桑基圖版面（純函式，有單元測試）：層 = 步數，節點高度與連線寬度 ∝ 數值（新格式為會話數；舊格式為人數，見 pathUnit）；顏色跟著節點名（固定順序類別色，離開／其他用灰）。
 export interface SkNode { level: number; node: string; value: number }
 export interface SkLink { level: number; from: string; to: string; value: number }
 export interface LaidNode extends SkNode { x: number; y: number; h: number; color: string }
@@ -7,11 +7,18 @@ export interface Layout { nodes: LaidNode[]; links: LaidLink[]; levels: number; 
 
 export const GRAY_NODES = new Set(['離開', '其他']);
 
-/** 後端節點／連線 → 版面用的 value：會話數（同神策）；舊資料（示範固定資料、舊看板快取）只有 users 時退回 users。 */
+/** 後端節點／連線。新格式帶 sessions（會話數，同神策）；舊格式（示範固定資料、舊看板快取）只有 users（各路徑人數相加，可能重複）。
+ *  兩種單位不混用：整份結果判定一個單位，畫面文字跟著單位走，不把 users 當成會話。 */
 export interface RawNode { level: number; node: string; sessions?: number; users?: number }
 export interface RawLink { level: number; from: string; to: string; sessions?: number; users?: number }
-export const skNodes = (ns: RawNode[]): SkNode[] => ns.map(({ level, node, sessions, users }) => ({ level, node, value: sessions ?? users ?? 0 }));
-export const skLinks = (ls: RawLink[]): SkLink[] => ls.map(({ level, from, to, sessions, users }) => ({ level, from, to, value: sessions ?? users ?? 0 }));
+export type SkUnit = 'sessions' | 'users';
+export function pathUnit(r: { anchor_sessions?: number | null; nodes?: RawNode[] | null }): SkUnit {
+  return r.anchor_sessions != null || (r.nodes ?? []).some((n) => n.sessions != null) ? 'sessions' : 'users';
+}
+export const unitCn = (u: SkUnit) => (u === 'sessions' ? '個會話' : '人');
+export const fmtUnit = (v: number, u: SkUnit, fmt: (n: number) => string = String) => `${fmt(v)} ${unitCn(u)}`;
+export const skNodes = (ns: RawNode[], u: SkUnit): SkNode[] => ns.map(({ level, node, sessions, users }) => ({ level, node, value: (u === 'sessions' ? sessions : users) ?? 0 }));
+export const skLinks = (ls: RawLink[], u: SkUnit): SkLink[] => ls.map(({ level, from, to, sessions, users }) => ({ level, from, to, value: (u === 'sessions' ? sessions : users) ?? 0 }));
 
 /** 節點名 → 顏色 token：依「跨層總會話數」排序取前 8 個類別色，其餘與離開／其他用灰。 */
 export function nodeColors(nodes: SkNode[]): Record<string, string> {

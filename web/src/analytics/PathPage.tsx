@@ -13,7 +13,7 @@ import { DateRangeInput } from '@/ds/DateRange';
 import { FilterRow, MULTI_STYLES, WARN_ROW_BG, opt } from './EventsPage';
 import { dedupe } from './FunnelPage';
 import { PathChart } from './PathChart';
-import { fmtMs } from './sankey';
+import { fmtMs, pathUnit } from './sankey';
 import { fmtNum } from './series';
 import type { Catalog, PathQuery, PathResult } from './types';
 
@@ -116,7 +116,8 @@ function PathInner() {
             {res.warnings.length > 0 && <Text size="sm" c="dimmed">{res.warnings.join('；')}</Text>}
             <Paper>
               <SectionTitle title="路徑圖"><Text size="xs" c="dimmed">{q.direction === 'after' ? '起點' : '終點'}用戶 {fmtNum(res.anchor_users)}{res.anchor_sessions != null ? `、會話 ${fmtNum(res.anchor_sessions)}` : ''}{res.sampled ? `（抽樣 ${res.sampled}，推估 ≈ ${fmtNum(Math.round(res.anchor_users / res.sampled))}）` : ''} · {res.cost.ms} ms · {res.paths.length} 條路徑{res.paths.some((p) => p.suppressed) ? `，${res.paths.filter((p) => p.suppressed).length} 條少於 ${k} 人已抑制` : ''}</Text></SectionTitle>
-              <PathChart nodes={res.nodes} links={res.links} labelOf={evCn} onNode={(n, action) => {
+              {pathUnit(res) === 'users' && <Text size="xs" c="orange">舊格式結果：圖中數字為各路徑人數相加（同一人可能重複），不是會話數；重新查詢可取得會話口徑。</Text>}
+              <PathChart nodes={res.nodes} links={res.links} unit={pathUnit(res)} labelOf={evCn} onNode={(n, action) => {
                 if (action === 'anchor') void run({ anchor: { event: n.node }, direction: 'after' });
                 else if (can('users', 'use')) nav('/users', { state: { source: { type: 'path', query: q, node: n.node, level: n.level, label: `路徑「${evCn(q.anchor.event)}」第 ${n.level} 步 ${evCn(n.node)}` } } });
               }} />
@@ -124,7 +125,7 @@ function PathInner() {
             <Paper p={0} style={{ overflow: 'hidden' }}>
               <Table.ScrollContainer minWidth={640}>
                 <Table>
-                  <Table.Thead><Table.Tr><Table.Th>#</Table.Th><Table.Th>路徑</Table.Th><Table.Th ta="right">人數</Table.Th><Table.Th ta="right">會話占比</Table.Th><Table.Th ta="right">會話數</Table.Th><Table.Th ta="right">平均耗時</Table.Th></Table.Tr></Table.Thead>
+                  <Table.Thead><Table.Tr><Table.Th>#</Table.Th><Table.Th>路徑</Table.Th><Table.Th ta="right">人數</Table.Th><Table.Th ta="right">{pathUnit(res) === 'sessions' ? '會話占比' : '人數占比'}</Table.Th><Table.Th ta="right">{pathUnit(res) === 'sessions' ? '會話數' : '路徑數'}</Table.Th><Table.Th ta="right">平均耗時</Table.Th></Table.Tr></Table.Thead>
                   <Table.Tbody>{res.paths.map((p, i) => <Table.Tr key={i} bg={p.suppressed ? WARN_ROW_BG : undefined}><Table.Td><Text size="xs" c="dimmed">{i + 1}</Text></Table.Td><Table.Td>{p.path.map((n, j) => <span key={j}>{j > 0 && <Text component="span" size="xs" c="dimmed" mx={4}>→</Text>}{evCn(n)}</span>)}</Table.Td>
                     <Table.Td ta="right"><Mono>{p.suppressed ? `< ${k}` : fmtNum(p.users)}</Mono></Table.Td><Table.Td ta="right"><Mono>{p.share === null ? '—' : `${(p.share * 100).toFixed(1)}%`}</Mono></Table.Td><Table.Td ta="right"><Mono>{p.suppressed ? '—' : fmtNum(p.sessions)}</Mono></Table.Td><Table.Td ta="right"><Mono>{fmtMs(p.avg_ms)}</Mono></Table.Td></Table.Tr>)}</Table.Tbody>
                 </Table>
