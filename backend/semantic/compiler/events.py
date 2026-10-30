@@ -18,7 +18,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from .catalog import TZ, Catalog, FieldRef
-from .parser import Cond, Formula, Group, Metric, Query
+from .parser import LAST_YEAR_WEEK_DAYS, Cond, Formula, Group, Metric, Query, years_back
 
 MV_AGGS = {"total", "sum", "users"}
 APPROX_WARNING = "人數為快速估算（日聚合層近似值，誤差約 1–2%；剛登入合併的匿名訪客可能重複計）；要精確請關閉「快速估算」"
@@ -290,6 +290,23 @@ def compile_events(qr: Query, cat: Catalog | None = None, decision: Any = None, 
         prev_sel = ", ".join([f"{shift} AS bucket" if c == "bucket" else c for c in cols] + [f"{v} AS {v}_prev" for v in vals])
         psql = f"SELECT {prev_sel} FROM ({pc.sql})"
         sql = (f"SELECT {', '.join(['cur.' + c + ' AS ' + c for c in out_cols] + ['prev.' + v + '_prev AS ' + v + '_prev' for v in vals])} FROM ({sql}) AS cur"
+               f" LEFT JOIN ({psql}) AS prev ON {join_on or '1 = 1'}")
+        out_cols = out_cols + [v + "_prev" for v in vals]
+        warnings += [w for w in pc.warnings if w not in warnings]
+    elif qr.compare == "last_year":
+        # 去年同期（Windy 2026-10-29）：同一日期（閏年 2/29 → 2/28）；按週取 52 週前（週一對週一）。
+        # 用「今年桶往回推 = 去年桶」對接（_lyb），而不是把去年桶往前推：2/28 與 2/29 都要對到去年 2/28。
+        week = qr.time.grain == "week"
+        back = (lambda d: d - timedelta(days=LAST_YEAR_WEEK_DAYS)) if week else years_back
+        prev = Query(project=qr.project, metrics=qr.metrics, time=type(qr.time)(back(qr.time.start), back(qr.time.end), qr.time.grain, qr.time.now),
+                     formulas=qr.formulas, filters=qr.filters, group_by=qr.group_by, top_n=None, compare=None, sample=qr.sample, exact=qr.exact, estimate=qr.estimate, behaviors=qr.behaviors)
+        pc = compile_events(prev, cat, decision, profile)
+        vals = [m.alias for m in qr.metrics] + [f.alias for f in qr.formulas]
+        lyb = f"bucket - INTERVAL {LAST_YEAR_WEEK_DAYS} DAY" if week else "subtractYears(bucket, 1)"
+        cur_sql = f"SELECT *, {lyb} AS _lyb FROM ({sql})" if bucket else sql
+        join_on = " AND ".join([f"cur.{c} = prev.{c}" for c in cols[1 if bucket else 0:]] + (["cur._lyb = prev.bucket"] if bucket else []))
+        psql = f"SELECT {', '.join(cols + [f'{v} AS {v}_prev' for v in vals])} FROM ({pc.sql})"
+        sql = (f"SELECT {', '.join(['cur.' + c + ' AS ' + c for c in out_cols] + ['prev.' + v + '_prev AS ' + v + '_prev' for v in vals])} FROM ({cur_sql}) AS cur"
                f" LEFT JOIN ({psql}) AS prev ON {join_on or '1 = 1'}")
         out_cols = out_cols + [v + "_prev" for v in vals]
         warnings += [w for w in pc.warnings if w not in warnings]

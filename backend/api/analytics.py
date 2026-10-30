@@ -223,7 +223,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
             "event_columns": [{"name": "platform", "cn": "平台"}, {"name": "channel", "cn": "渠道"}, {"name": "utm_source", "cn": "流量來源"}, {"name": "symbol", "cn": "商品代號"}, {"name": "side", "cn": "買賣別"}, {"name": "amount", "cn": "金額", "type": "number"}, {"name": "entity_id", "cn": "業務 ID（entity_id）"}, {"name": "$event_hour", "cn": "時段", "type": "number"}],
             "user_props": [{"key": k, "cn": x.get("cn", k), "type": x.get("type", "string"), "values": x.get("values", []), "filterable": bool(x.get("filterable")), "groupable": bool(x.get("groupable"))} for k, x in cat.user_props.items() if k in cat.stored_props],
             "aggs": sorted(AGGS), "ops": {k: sorted(v) for k, v in OPS.items()},
-            "funnel": {"window_units": ["minute", "hour", "day"], "max_window_days": 90, "max_steps": 10, "orders": ["loose", "strict"], "metrics": ["users", "times"]},
+            "funnel": {"window_units": ["minute", "hour", "day"], "max_window_days": 365, "max_steps": 32, "orders": ["loose", "strict"], "metrics": ["users", "times"]},
             "path": {"max_steps": 10, "session_modes": ["gap", "id", "cross"], "default_sample": 0.1, "max_days": 92, "exit_node": "離開"},
             "attribution": {"models": ["first", "last", "linear", "position", "decay", "custom"], "max_touches": 10, "max_window_days": 90, "value_fields": ["amount"]},
         }
