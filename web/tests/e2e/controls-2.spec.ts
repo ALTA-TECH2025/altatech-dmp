@@ -129,6 +129,21 @@ test.describe.serial('控制項：漏斗、路徑、歸因', () => {
       }
     }
     await labeled(page, '關聯屬性').selectOption('');
+
+    // 限制後續事件在時間區間內（同神策）：期間 10-05～10-09（之後還有資料）、窗口 3 天；勾選後第 1 步一樣、第 2 步只會變少
+    await setRange(page, '2026-10-05', '2026-10-09'); await labeled(page, '轉換窗口').selectOption('3:day');
+    const box = page.getByLabel('限制後續事件在時間區間內');
+    await expect(box).not.toBeChecked();
+    const open = await query(page, '/v1/analytics/funnel');
+    expect(open.status, open.body.detail).toBe(200);
+    expect(open.req.restrict_to_range, '預設不帶（後續步驟可落在期間後）').toBeUndefined();
+    await box.check();
+    const lim = await query(page, '/v1/analytics/funnel');
+    expect(lim.status, lim.body.detail).toBe(200);
+    expect(lim.req.restrict_to_range).toBe(true);
+    expect(first(lim.body.rows), '第 1 步人數不受限制影響').toBe(first(open.body.rows));
+    expect(last(lim.body.rows), '勾選限制後第 2 步 ≤ 不勾').toBeLessThanOrEqual(last(open.body.rows));
+    await box.uncheck();
   });
 
   test('路徑：每個方向 × 會話切割 × 抽樣都能查，有節點', async () => {
