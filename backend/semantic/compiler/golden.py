@@ -268,6 +268,8 @@ FUNNELS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("F07 每步篩選 + 全局篩選 + 用戶屬性", {"steps": [{"event": "hq_stockdetail_view", "filters": [{"field": "symbol", "op": "set"}]}, {"event": "bond_order", "filters": [{"field": "amount", "op": "gte", "value": 100000}]}, {"event": "bond_deal"}],
         "window": W7, "filters": [{"field": "platform", "op": "in", "value": ["iOS", "Android"]}, {"field": "user.has_margin", "op": "true"}], "time": T_ALL}, "admin"),
     ("F08 分群 vip + 行銷（K 匿名）", {"steps": [{"event": "app_login_success"}, {"event": "bond_deal"}], "window": W7, "segment": "vip", "group_by": ["user.tier"], "time": T_ALL}, "marketing"),
+    ("F11 32 步（ClickHouse windowFunnel 上限；事件 × 平台互斥，條件不重疊）", {"steps": [{"event": e, "filters": [{"field": "platform", "op": "eq", "value": p}]} for e in ["app_login_success", "hq_stockdetail_view", "$pageview", "search_submit", "bond_order", "bond_deal", "push_click", "act_click", "kh_entry_khpg_pv", "kh_apply", "stock_order_submit"] for p in ["iOS", "Android", "Web"]][:32], "window": {"value": 30, "unit": "day"}, "time": T_ALL}, "admin"),
+    ("F12 365 天窗口（月趨勢）", {"steps": [{"event": "app_login_success"}, {"event": "bond_order"}, {"event": "bond_deal"}], "window": {"value": 365, "unit": "day"}, "trend": "month", "time": T_ALL}, "admin"),
     ("F09 90 天窗口、月趨勢、分群 market", {"steps": [{"event": "hq_stockdetail_view"}, {"event": "bond_deal"}], "window": {"value": 90, "unit": "day"}, "trend": "month", "group_by": ["market"], "time": T_ALL}, "admin"),
     ("F10 行為篩選（曾登入 ≥ 1 次）＋ 對照組 iOS／全體", {"steps": [{"event": "hq_stockdetail_view"}, {"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "behaviors": [{"event": "app_login_success"}],
         "cohorts": [{"name": "iOS", "filters": [{"field": "platform", "op": "eq", "value": "iOS"}]}, {"name": "全體"}], "time": T_ALL}, "admin"),
@@ -292,8 +294,9 @@ RETENTION_REJECTED: list[tuple[str, dict[str, Any], str]] = [
     ("RR4 未登記回訪事件", {"initial": {"event": "bond_order"}, "return": {"event": "nope"}, "time": T}, "事件字典"),
 ]
 FUNNEL_REJECTED: list[tuple[str, dict[str, Any], str]] = [
-    ("FR1 一步", {"steps": [{"event": "bond_order"}], "window": W7, "time": T}, "2–10 步"),
-    ("FR2 窗口 91 天", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": {"value": 91, "unit": "day"}, "time": T}, "90 天"),
+    ("FR1 一步", {"steps": [{"event": "bond_order"}], "window": W7, "time": T}, "2–32 步"),
+    ("FR2 窗口 366 天", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": {"value": 366, "unit": "day"}, "time": T}, "365 天"),
+    ("FR2b 33 步", {"steps": [{"event": "bond_order"}] * 33, "window": {"value": 1, "unit": "day"}, "time": T}, "2–32"),
     ("FR3 次數口徑沒關聯屬性", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "metric": "times", "time": T}, "關聯屬性"),
     ("FR4 關聯屬性是用戶屬性", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "relation": "user.tier", "time": T}, "業務 ID"),
     ("FR5 未登記事件", {"steps": [{"event": "bond_order"}, {"event": "nope"}], "window": W7, "time": T}, "事件字典"),
