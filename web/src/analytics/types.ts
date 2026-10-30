@@ -64,7 +64,7 @@ export interface EventsQuery extends Scope {
   group_by?: string[];
   top_n?: number;
   time: { from: string; to: string; grain: 'minute' | 'hour' | 'day' | 'week' | 'month' | 'total'; now?: string };
-  compare?: 'previous_period';
+  compare?: 'previous_period' | 'last_year';
   sample?: number;
   segment?: string;
   exact?: boolean;                                                   // true＝一律走明細（對帳用）

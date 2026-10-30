@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chartAvailable, fmtValue, formulaError, growthOf, pieSlices, pieTop, shareOf, transpose } from './events';
+import { COMPARE_OPTS, chartAvailable, compareCn, fmtValue, formulaError, growthOf, pieSlices, pieTop, shareOf, transpose } from './events';
 import type { Series } from './series';
 
 describe('事件分析純函式', () => {
@@ -33,5 +33,13 @@ describe('事件分析純函式', () => {
     const thirteen = Array.from({ length: 13 }, (_, i) => ({ name: `c${i}`, value: 1 }));
     const top = pieTop(thirteen, 12); expect(top).toHaveLength(12); expect(top[11]).toEqual({ name: '其他（2 類）', value: 2 }); expect(top.reduce((n, x) => n + x.value, 0)).toBe(13);
     expect(pieTop(thirteen.slice(0, 12), 12)).toHaveLength(12);
+  });
+});
+
+describe('compareCn', () => {
+  it('去年同期與上一期的稱呼、選項順序', () => {
+    expect(compareCn('last_year')).toBe('去年同期');
+    expect(compareCn('previous_period')).toBe('上期');
+    expect(COMPARE_OPTS.map(([v]) => v)).toEqual(['', 'previous_period', 'last_year']);
   });
 });

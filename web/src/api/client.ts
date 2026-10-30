@@ -1,8 +1,34 @@
 // HTTP 用戶端（BFF）：同源 cookie session；非 GET 一律帶 X-CSRF-Token（double-submit，值來自可讀 cookie dmp_csrf）；
-// 401 → 回登入頁（帶 return_to）；403 → 丟 ForbiddenError 給頁面顯示「需要權限／需要 step-up」。沒有 token 存在 localStorage。
+// 錯誤依 Error 結構（docs/46、openapi components.schemas.Error）讀 code：UNAUTHENTICATED／TOKEN_INVALID → 回登入頁（帶 return_to）；
+// 其他 401（驗證碼錯、帳密錯）留在原頁顯示訊息；403 → ForbiddenError。沒有 token 存在 localStorage。
+
+/** 後端錯誤的欄位層級原因（參數驗證、規則檢查）。 */
+export interface FieldError { field: string; message: string; code?: string }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public body?: unknown) { super(message); }
+  /** 錯誤碼（backend/api/errors.yaml）；舊後端或非 JSON 回應時為 null。 */
+  code: string | null = null;
+  /** 同樣的請求稍後重送是否可能成功。 */
+  retryable = false;
+  /** 回報代碼：給客服查日誌（X-Request-Id）。 */
+  requestId: string | null = null;
+  fieldErrors: FieldError[] = [];
+  params: Record<string, unknown> = {};
+  /** 後端的 detail 原文（message 在 5xx 時另外附回報代碼）。 */
+  detail: string;
+  constructor(public status: number, message: string, public body?: unknown) {
+    super(message);
+    this.detail = message;
+    if (body && typeof body === 'object') {
+      const b = body as Record<string, unknown>;
+      if (typeof b.code === 'string') this.code = b.code;
+      this.retryable = b.retryable === true;
+      if (typeof b.request_id === 'string') this.requestId = b.request_id;
+      if (Array.isArray(b.errors)) this.fieldErrors = b.errors.filter((x): x is FieldError => !!x && typeof x === 'object' && typeof (x as FieldError).message === 'string');
+      if (b.params && typeof b.params === 'object') this.params = b.params as Record<string, unknown>;
+    }
+    if (status >= 500 && this.requestId) this.message = `${message}（回報代碼：${this.requestId}）`;   // 只顯示 message 的頁面也帶得到編號（docs/46 §4.4）
+  }
 }
 export class ForbiddenError extends ApiError {}
 
@@ -36,9 +62,13 @@ export function createClient(opts: ClientOptions = {}) {
       if (csrf) headers['X-CSRF-Token'] = csrf;
     }
     const res = await fetchImpl(url, { ...init, method, headers, credentials: 'same-origin', body: body === undefined ? undefined : JSON.stringify(body) });
-    if (res.status === 401) { onUnauthorized(currentPath()); throw new ApiError(401, '未登入或 session 已逾時'); }
     const text = await res.text();
     const data = text ? safeJson(text) : null;
+    if (res.status === 401) {
+      const e = new ApiError(401, detail(data) ?? '未登入或 session 已逾時', data);
+      if (e.code === null || SESSION_GONE.has(e.code)) onUnauthorized(currentPath());   // 驗證碼錯（OTP_INVALID）等不是登出，留在原頁
+      throw e;
+    }
     if (res.status === 403) throw new ForbiddenError(403, detail(data) ?? '沒有權限', data);
     if (!res.ok) throw new ApiError(res.status, detail(data) ?? `HTTP ${res.status}`, data);
     return data as T;
@@ -52,6 +82,8 @@ export function createClient(opts: ClientOptions = {}) {
   };
 }
 export type Client = ReturnType<typeof createClient>;
+
+const SESSION_GONE = new Set(['UNAUTHENTICATED', 'TOKEN_INVALID']);
 
 function safeJson(t: string): unknown { try { return JSON.parse(t); } catch { return t; } }
 function detail(d: unknown): string | undefined {

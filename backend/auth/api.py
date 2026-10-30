@@ -12,12 +12,14 @@ from urllib.parse import urlencode
 import yaml  # type: ignore
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from ..api.errors import ApiError
 from ..security.policy import Subject, authorize
 from .ldap import LdapError, LdapProvider
 from .local import LocalError, LocalProvider
 from .mapping import base_roles, map_roles, me_payload
-from .oidc import LoginState, OIDCError, OIDCProvider
+from .oidc import OIDCError, OIDCProvider
 from .session import ApiTokens, Session, SessionManager
+from .session_pg import sid_key
 
 LOGIN_COOKIE = "dmp_login"
 
@@ -29,7 +31,7 @@ class AuthService:
     sessions: SessionManager
     tokens: ApiTokens | None = None
     assignments: Callable[[], list[dict[str, Any]]] = lambda: []
-    login_states: dict[str, LoginState] = field(default_factory=dict)     # 登入前狀態（正式環境：Valkey，TTL 10 分鐘）
+    login_states: Any = field(default_factory=dict)     # 登入前狀態：單機用 dict；多個 API 實例用 session_pg.PgLoginStates（共用、TTL 10 分鐘、只能取用一次）
 
     @property
     def mode(self) -> str:
@@ -46,6 +48,11 @@ class AuthService:
                                     roles=roles, groups=ident.groups, amr=ident.amr, auth_time=ident.auth_time, scope=scope, ip=ip, base_roles=base_roles(ident, self.cfg["role_mapping"]))
 
 
+
+def _login_code(why: str) -> str:
+    """帳密登入失敗分類：鎖定 → ACCOUNT_LOCKED；速率限制 → RATE_LIMITED；其餘（帳密錯、到期）→ UNAUTHENTICATED。"""
+    return "ACCOUNT_LOCKED" if "鎖定" in why else "RATE_LIMITED" if ("頻繁" in why or "次數過多" in why) else "UNAUTHENTICATED"
+
 def _set(resp: Response, headers: list[tuple[str, str]]) -> None:
     for k, v in headers:
         resp.headers.append(k, v)
@@ -55,9 +62,9 @@ def current_session(svc: AuthService, req: Request) -> Session:
     sid = req.cookies.get(svc.cfg["session"]["cookie"]["name"])
     s = svc.sessions.resolve(sid, req.client.host if req.client else "")
     if not s:
-        raise HTTPException(401, "未登入或 session 已逾時")
+        raise ApiError("UNAUTHENTICATED", "未登入或 session 已逾時")
     if req.method not in ("GET", "HEAD", "OPTIONS") and not svc.sessions.check_csrf(s, req.headers.get(svc.cfg["session"]["csrf"]["header"])):
-        raise HTTPException(403, "CSRF token 不符")
+        raise ApiError("CSRF_INVALID")
     return s
 
 
@@ -110,7 +117,7 @@ def build_router(svc: AuthService) -> APIRouter:
             ident = p.authenticate(username, str(body.get("password", "")), ip)
         except (LdapError, LocalError) as e:
             svc.sessions.audit("auth.login.failed", {"provider": key, "user": username[:64], "why": str(e)})
-            raise HTTPException(401, str(e)) from None
+            raise ApiError(_login_code(str(e)), str(e)) from None
         if p.cfg.get("mfa") == "totp":
             code = str(body.get("totp") or "")
             if not code:
@@ -118,7 +125,7 @@ def build_router(svc: AuthService) -> APIRouter:
             check = getattr(p, "check_totp", None)                               # AD 直連的 TOTP 需另接驗證器服務；沒有實作時這裡不放行 mfa
             if check is None or not check(username, code):
                 svc.sessions.audit("auth.login.failed", {"provider": key, "user": username[:64], "why": "totp"})
-                raise HTTPException(401, "驗證碼錯誤或已使用" if check else "此環境尚未接上 TOTP 驗證器")
+                raise ApiError("OTP_INVALID", "驗證碼錯誤或已使用" if check else "此環境尚未接上 TOTP 驗證器")
             ident.amr = ["pwd", "mfa"]
         s = svc.finish_login(ident, ip)
         _set(resp, svc.sessions.cookie_headers(s))
@@ -134,7 +141,7 @@ def build_router(svc: AuthService) -> APIRouter:
             raise HTTPException(400, "此登入方式的 step-up 由身分提供者處理，請重新登入")
         if not check(s.username, str(body.get("totp") or "")):
             svc.sessions.audit("auth.step_up.failed", {"user": s.user_id})
-            raise HTTPException(401, "驗證碼錯誤或已使用")
+            raise ApiError("OTP_INVALID", "驗證碼錯誤或已使用")
         s.step_up_at = int(svc.sessions.now())
         if "mfa" not in s.amr:
             s.amr = [*s.amr, "mfa"]
@@ -171,7 +178,7 @@ def build_router(svc: AuthService) -> APIRouter:
 
     def _row(x: Session, me: Session) -> dict[str, Any]:
         return {"sid": x.sid[:8], "user": x.user_id, "username": x.username, "name": x.name, "provider": x.provider, "roles": x.roles, "amr": x.amr, "created_at": x.created_at, "last_seen": x.last_seen,
-                "ip_masked": x.attrs.get("ip", "")[:7] + "…", "current": x.sid == me.sid}
+                "ip_masked": x.attrs.get("ip", "")[:7] + "…", "current": sid_key(x.sid) == sid_key(me.sid)}   # 共用儲存列出的 sid 是雜湊值
 
     @r.get("/v1/iam/sessions")
     def sessions(req: Request, scope: str = "me") -> list[dict[str, Any]]:
@@ -202,7 +209,7 @@ def build_router(svc: AuthService) -> APIRouter:
             target = next((x for x in (lister() if lister else []) if x.sid.startswith(sid)), None)
             if target is None:
                 raise HTTPException(404, "session 不存在")
-        svc.sessions.logout(target.sid)
+        svc.sessions.revoke(target)
         svc.sessions.audit("auth.session.revoked", {"user": s.user_id, "target": target.user_id, "sid": target.sid[:8], "self": target.user_id == s.user_id})
         return Response(status_code=204)
 
@@ -216,13 +223,33 @@ def subject_from_request(svc: AuthService, req: Request) -> Subject:
         try:
             return svc.tokens.verify(auth[7:])
         except Exception:
-            raise HTTPException(401, "API token 無效或過期") from None
+            raise ApiError("TOKEN_INVALID", "API token 無效或過期") from None
     return svc.sessions.subject(current_session(svc, req))
 
 
 def load_cfg() -> dict[str, Any]:
     from pathlib import Path
     return yaml.safe_load((Path(__file__).resolve().parent / "idp.yaml").read_text(encoding="utf-8"))
+
+
+def apply_env_overrides(cfg: dict[str, Any], env: Any) -> dict[str, Any]:
+    """部署環境覆寫 SSO 網址（idp.yaml 只放範例網域）：
+    DMP_IDP_MODE → mode；DMP_OIDC_ISSUER → keycloak.issuer；DMP_PUBLIC_URL → 各 OIDC 提供者的 redirect_uri 與登出後網址。"""
+    if env.get("DMP_IDP_MODE"):
+        if env["DMP_IDP_MODE"] not in ("broker", "direct"):
+            raise ValueError("DMP_IDP_MODE 只能是 broker 或 direct")
+        cfg["mode"] = env["DMP_IDP_MODE"]
+    if env.get("DMP_OIDC_ISSUER"):
+        cfg["providers"]["keycloak"]["issuer"] = env["DMP_OIDC_ISSUER"]
+    base = (env.get("DMP_PUBLIC_URL") or "").rstrip("/")
+    if base:
+        if not base.startswith(("https://", "http://")):
+            raise ValueError("DMP_PUBLIC_URL 要是完整網址（https://…）")
+        for p in cfg["providers"].values():
+            if p.get("kind") == "oidc":
+                p["redirect_uri"] = base + "/auth/callback"
+                p["post_logout_redirect_uri"] = base + "/login"
+    return cfg
 
 
 def login_redirect(return_to: str) -> str:
