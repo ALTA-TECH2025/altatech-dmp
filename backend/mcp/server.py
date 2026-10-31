@@ -268,6 +268,7 @@ class Gateway:
         meta.update(sql_hash=hashlib.sha256(c.sql.encode()).hexdigest()[:16],          # 讀取者這次重算的 SQL 摘要；本文不回
                     subject_fingerprint=hashlib.sha256(json.dumps([ctx.subject.user_id, sorted(ctx.subject.roles), d.row_filters, sorted(c.masked.items())], ensure_ascii=False).encode()).hexdigest()[:16])
         warns = data.pop("_warnings", [])
+        meta["recomputed_digest"] = args_digest(data)[:16]                         # 本次重算的摘要，與 run 步驟的 result_digest 同一演算法、同一輸入（去掉 _warnings 的 data）
         return {**meta, "data": data, "_warnings": warns}, {**meta, "data": mv}, use
 
     def _readiness(self, ctx: ToolContext, args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
