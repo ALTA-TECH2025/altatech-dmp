@@ -82,6 +82,7 @@ class RunService:
         if clock is not time.time:
             self.j.clock = clock                           # 租約判斷與控制器同一個時鐘（測試用合成時鐘時兩邊一致）
         self.gw = gateway or Gateway(store, ch, today=today)
+        self.gw.evidence_of = self._evidence_of            # evidence.get 從 run 紀錄找證據
         self.model_missing = model_missing or missing_config
         self.skills = skills or skill_loader.load
         self.project = os.environ.get("DMP_PROJECT", "")
@@ -190,15 +191,22 @@ class RunService:
                "request_digest": r.get("request_digest"), "created_ts": now, "created_at": datetime.fromtimestamp(now, UTC).isoformat()}
         return self.view(self._admit(lambda: self.j.create_run(doc, None, self.limit)))
 
+    def _evidence_of(self, rid: str, eid: str) -> tuple[str, dict[str, Any]] | None:
+        try:
+            r = self.j.get_run(rid) if rid.startswith("run_") else {}
+        except KeyError:
+            return None
+        ev = (r.get("evidence") or {}).get(eid)
+        return (str((r.get("initiator") or {}).get("user_id") or ""), ev) if ev else None
+
     def evidence(self, s: Subject, rid: str, eid: str) -> dict[str, Any]:
-        ev = (self._own(s, rid).get("evidence") or {}).get(eid)
-        if not ev:
-            raise ApiError("NOT_FOUND")
-        env = self.gw.call(ToolContext(s, rid, "evidence"), "analysis.run", {"config": {"model": ev["kind"], "params": ev["query"]}})   # 依讀取者現在的權限重算
+        """REST 入口與 Gateway evidence.get 同一份實作：依讀取者現在的權限重算，不給快取結果。"""
+        self._own(s, rid)
+        env = self.gw.call(ToolContext(s, rid, "evidence"), "evidence.get", {"evidence_id": eid})
         if not env["ok"]:
             code = env["error"]["code"]
-            raise ApiError(code if code in ("AUTHZ_DENIED", "TIMEOUT", "BUDGET_EXCEEDED", "DATA_NOT_READY") else "INTERNAL")
-        return {**ev, "data": tidy(env["data"]), "subject_fingerprint": digest([s.user_id, sorted(s.roles)])[:16]}
+            raise ApiError(code if code in ("NOT_FOUND", "AUTHZ_DENIED", "TIMEOUT", "BUDGET_EXCEEDED", "DATA_NOT_READY") else "INTERNAL")
+        return {**env["data"], "data": tidy(env["data"]["data"])}
 
     # ---------- 控制器 ----------
     def tick(self, worker: str = "local", limit: int = 5) -> int:
@@ -400,5 +408,5 @@ def build_router(svc: RunService, get_subject: Any) -> APIRouter:
 
 
 if __name__ == "__main__":
-    from . import draft_selftest, runs_selftest
-    runs_selftest.selftest(); draft_selftest.main()
+    from . import draft_selftest, evidence_selftest, runs_selftest
+    runs_selftest.selftest(); draft_selftest.main(); evidence_selftest.selftest()
