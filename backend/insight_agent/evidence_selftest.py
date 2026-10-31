@@ -84,6 +84,10 @@ def selftest() -> None:
     assert untraced("共有1.2百萬人", big) == [] and untraced("共有1萬人", big) == ["1萬"]
     assert untraced("共有120萬人", [{"users": 120}]) == ["120萬"] and untraced("共有120億人", [{"users": 120}]) == ["120億"]
     assert untraced("共有1.2M人、3k筆", big) == ["1.2M", "3k"]                # 英文量級不解析，一律不放行
+    for sp in (" ", "\u3000", "\u00a0"):                                     # 數字與量級間有半形／全形／不換行空白
+        assert untraced(f"共有120{sp}萬人", [{"users": 120}]) == [f"120{sp}萬"] and untraced(f"共有120{sp}億人", [{"users": 120}]) == [f"120{sp}億"]
+        assert untraced(f"共有120{sp}萬人，交易額3.5{sp}億", big) == [] and untraced(f"共有1.2{sp}M人", big) == [f"1.2{sp}M"]
+    assert untraced("共有 120 人，轉換率 37.5 %", [{"users": 120, "rate": 0.375}]) == [] and untraced("共有 120 人", big) == ["120"]
 
     # data.readiness：依來源新鮮度、依日期是否到齊；backfill（#74）、identity（#33）回 null + READINESS_PARTIAL
     ch.src = [{"source": "sdk", "t": "2026-10-27 17:55:00.000"},                  # 5 分鐘前 → ok

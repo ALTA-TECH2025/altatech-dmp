@@ -7,8 +7,9 @@ from typing import Any
 
 _DATES = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}/\d{1,2}")          # 日期、期間不是結果數字
 _UNIT = {"十": 10, "百": 100, "千": 1e3, "萬": 1e4, "万": 1e4, "億": 1e8, "亿": 1e8, "兆": 1e12}
-# 數字後面緊接的量級字（可連用，如「百萬」「千億」）一起擷取；緊接英文字母（3k、1.2M、10ms）不解析，整個當成無法追溯
-_NUM = re.compile(r"-?\d[\d,]*(?:\.\d+)?(?:[十百千萬万億亿兆]+|[A-Za-z]+)?%?")
+# 數字後的量級字（可連用，如「百萬」「千億」；中間可有半形／全形／不換行空白）一起擷取；
+# 緊接英文字母（3k、1.2M、10ms）或空白後的單一英文量級（3 k、1.2 M）不解析，整個當成無法追溯
+_NUM = re.compile(r"-?\d[\d,]*(?:\.\d+)?(?:\s*[十百千萬万億亿兆]+|[A-Za-z]+|\s+[kKmMbBwW](?![A-Za-z]))?(?:\s*%)?")
 
 
 def numbers_in(text: str) -> list[str]:
@@ -17,7 +18,7 @@ def numbers_in(text: str) -> list[str]:
 
 def _parse(raw: str) -> tuple[float, float] | None:
     """回傳 (數值, 容許誤差)；量級字換算後，誤差照敘述寫出的位數四捨五入再乘上量級。不支援的格式回 None。"""
-    m = re.fullmatch(r"(-?[\d,]+(?:\.\d+)?)([十百千萬万億亿兆]*)([A-Za-z]*)%?", raw)
+    m = re.fullmatch(r"(-?[\d,]+(?:\.\d+)?)([十百千萬万億亿兆]*)([A-Za-z]*)%?", re.sub(r"\s+", "", raw))
     if not m or m.group(3):
         return None
     s, mult = m.group(1).replace(",", ""), 1.0
@@ -49,7 +50,7 @@ def untraced(text: str, evidence_data: list[Any]) -> list[str]:
             bad.append(raw)
             continue
         x, tol = p
-        cands = [(x, tol), (x / 100, tol / 100)] if raw.endswith("%") else [(x, tol)]   # 百分比可能對到比率（0.375）或百分數（37.5）
+        cands = [(x, tol), (x / 100, tol / 100)] if raw.rstrip().endswith("%") else [(x, tol)]   # 百分比可能對到比率（0.375）或百分數（37.5）
         if not any(abs(c - v) <= t for c, t in cands for v in vals):
             bad.append(raw)
     return bad
