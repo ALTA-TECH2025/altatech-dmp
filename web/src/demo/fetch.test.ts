@@ -120,3 +120,27 @@ describe('示範：未支援的條件要明說；多維分組帶齊 g1..gn（#96
     expect(new Set(r.rows.map((x) => x.g2))).toEqual(new Set(['iOS', 'Android', 'Web']));
   });
 });
+
+describe('示範：來源新鮮度設定（記憶體）', () => {
+  it('初始都未設定；資訊管理可設定、整筆取代、清除；行銷不可改', async () => {
+    const store = new Map<string, string>();                                  // 測試環境沒有 localStorage：給一個最小的替身，角色切換才有效
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) } });
+    const { setDemoRole } = await import('./mode');
+    type Row = { source: string; configured: boolean; mode: string | null; ready_at: string | null; max_lag_minutes: number | null };
+    const list = async () => (await (await demoFetch('/v1/integration/source-freshness')).json()) as Row[];
+    const put = (s: string, b: unknown) => demoFetch(`/v1/integration/source-freshness/${s}`, { method: 'PUT', body: JSON.stringify(b) });
+    expect((await list()).every((r) => !r.configured)).toBe(true);
+    setDemoRole('marketing');
+    expect((await put('ga360_daily', { mode: 'daily_batch', ready_at: '07:00', covers_days_back: 1 })).status).toBe(403);
+    setDemoRole('it');
+    expect((await put('ga360_daily', { mode: 'daily_batch', ready_at: '07:00', covers_days_back: 1 })).status).toBe(200);
+    expect((await put('ga360_daily', { mode: 'realtime', max_lag_minutes: 30 })).status).toBe(200);
+    const g = (await list()).find((r) => r.source === 'ga360_daily')!;
+    expect([g.configured, g.mode, g.ready_at, g.max_lag_minutes]).toEqual([true, 'realtime', null, 30]);
+    expect((await put('ga360_daily', { mode: 'hourly' })).status).toBe(400);
+    expect((await demoFetch('/v1/integration/source-freshness/ga360_daily', { method: 'DELETE' })).status).toBe(200);
+    expect((await demoFetch('/v1/integration/source-freshness/ga360_daily', { method: 'DELETE' })).status).toBe(404);
+    setDemoRole('admin');
+    Reflect.deleteProperty(globalThis, 'localStorage');
+  });
+});

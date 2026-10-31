@@ -8,11 +8,12 @@ import { useAuth } from '@/auth/AuthContext';
 import { RequireGrant } from '@/auth/RequireGrant';
 import { EmptyState, ErrorAlert, KeyValue, Mono, PageHeader, SectionTitle, StatTile, StatusBadge } from '@/ds';
 import { isSecretRef, looksLikeSecret, parseList, rotationText, runPill, runText, RUN_STATUS_CN, scheduleBody, SENS_PILL, STEP_CN, TASK_STATUS, watchQueuedRun } from './integration';
+import { FreshnessTab } from './FreshnessTab';
 import { OutputTab } from './OutputTab';
 import type { Connection, ConnectionCreate, ConnectionTest, Connector, ExtTable, Preview, Privileges, RunNow, SyncRun, SyncTask, SyncTaskCreate, TableCreate } from './types';
 import type { OutputTask } from './output';
 
-type Tab = 'connections' | 'tables' | 'tasks' | 'wizard' | 'output';
+type Tab = 'connections' | 'freshness' | 'tables' | 'tasks' | 'wizard' | 'output';
 const opt = (value: string, label: string) => ({ value, label });
 const WARN_BG = 'var(--mantine-color-orange-light)';   // 需要注意的列（最近失敗）底色，跟著深淺色走
 
@@ -26,6 +27,7 @@ function IntegrationInner() {
   const tab = (sp.get('tab') as Tab) || 'connections';
   const setTab = (t: Tab) => setSp(t === 'connections' ? {} : { tab: t });
   const [outputs, setOutputs] = useState<OutputTask[]>([]);
+  const [unsetFresh, setUnsetFresh] = useState(0);   // 未設定新鮮度的來源數（頁籤提示）
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [conns, setConns] = useState<Connection[]>([]);
   const [tables, setTables] = useState<ExtTable[]>([]);
@@ -40,6 +42,7 @@ function IntegrationInner() {
       setConnectors(cs); setConns(cn); setTables(tb); setTasks(tk);
     } catch (e) { setErr({ error: e, fallback: '讀取失敗', retry: () => void reload() }); }
     api.get<OutputTask[]>('/v1/exports/tasks').then(setOutputs).catch(() => null);   // 數據輸出的數量只是頁籤提示，失敗不擋頁
+    api.get<{ configured: boolean }[]>('/v1/integration/source-freshness').then((r) => setUnsetFresh(r.filter((x) => !x.configured).length)).catch(() => null);
   };
   useEffect(() => { void reload(); }, []);
   const run = async (fn: () => Promise<void>, fallback: string) => { setBusy(true); setErr(null); try { await fn(); await reload(); } catch (e) { setErr({ error: e, fallback, retry: () => void run(fn, fallback) }); } finally { setBusy(false); } };
@@ -47,9 +50,10 @@ function IntegrationInner() {
   return (
     <div className="page">
       <PageHeader title="數據整合" lead="數據源管理 → 數據表管理 → 同步任務（目標：事件表／用戶表／維度表；全量／增量微批）→ 清洗與隔離 → 數據輸出（事件明細／用戶寬表／分群名單送 SFTP／物件儲存）。連線只存密鑰庫參照，畫面永遠看不到明文；任務是建模產物（模型 yaml）＋來源表＋排程，立即執行會寫入 ClickHouse 並三方對帳。" />
-      <SegmentedControl mb="md" value={tab} onChange={(v) => setTab(v as Tab)} data={[opt('connections', `數據源 ${conns.length}`), opt('tables', `數據表 ${tables.length}`), opt('tasks', `同步任務 ${tasks.length}${warnTasks ? ` ⚠${warnTasks}` : ''}`), opt('wizard', '建立任務'), opt('output', `數據輸出 ${outputs.length}`)]} />
+      <SegmentedControl mb="md" value={tab} onChange={(v) => setTab(v as Tab)} data={[opt('connections', `數據源 ${conns.length}`), opt('freshness', `來源新鮮度${unsetFresh ? ` ⚠${unsetFresh}` : ''}`), opt('tables', `數據表 ${tables.length}`), opt('tasks', `同步任務 ${tasks.length}${warnTasks ? ` ⚠${warnTasks}` : ''}`), opt('wizard', '建立任務'), opt('output', `數據輸出 ${outputs.length}`)]} />
       {err && <Box mb="md"><ErrorAlert error={err.error} fallback={err.fallback} onRetry={err.retry} /></Box>}
       {tab === 'connections' && <ConnectionsTab connectors={connectors} conns={conns} busy={busy} canUse={canUse} canAdmin={canAdmin} run={run} />}
+      {tab === 'freshness' && <FreshnessTab onCount={setUnsetFresh} />}
       {tab === 'tables' && <TablesTab conns={conns} tables={tables} busy={busy} canUse={canUse} run={run} />}
       {tab === 'tasks' && <TasksTab tasks={tasks} busy={busy} canUse={canUse} run={run} onNew={() => setTab('wizard')} reload={reload} />}
       {tab === 'wizard' && <Wizard tables={tables} tasks={tasks} canUse={canUse} onDone={async () => { await reload(); setTab('tasks'); }} />}
