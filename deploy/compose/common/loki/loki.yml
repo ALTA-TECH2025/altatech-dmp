@@ -1,0 +1,17 @@
+# Loki（VM3）單機模式；日誌存本機資料碟，保留 30 天；AGPLv3 內部使用例外（docs/07 §1.3）
+auth_enabled: false
+server: { http_listen_port: 3100 }
+common:
+  path_prefix: /loki
+  storage: { filesystem: { chunks_directory: /loki/chunks, rules_directory: /loki/rules } }
+  replication_factor: 1
+  ring: { kvstore: { store: inmemory } }
+schema_config:
+  configs:
+    - from: "2026-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index: { prefix: index_, period: 24h }
+limits_config: { retention_period: 720h }
+compactor: { working_directory: /loki/compactor, retention_enabled: true, delete_request_store: filesystem }

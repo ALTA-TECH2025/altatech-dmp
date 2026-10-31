@@ -1,0 +1,33 @@
+groups:
+  - name: dmp-phase1
+    rules:
+      - alert: HostDown
+        expr: up{job="node"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "VM {{ $labels.instance }} 無回應" }
+      - alert: ClickHouseReplicaDown
+        expr: up{job="clickhouse"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "ClickHouse 副本 {{ $labels.instance }} 停止" }
+      - alert: ClickHouseReplicationLag
+        expr: ClickHouseAsyncMetrics_ReplicasMaxAbsoluteDelay > 300
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "ClickHouse 副本落後超過 5 分鐘" }
+      - alert: KeeperQuorumLost
+        expr: count(up{job="keeper"} == 1) < 2
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "Keeper 少於 2 台，寫入會停" }
+      - alert: DiskAlmostFull
+        expr: (node_filesystem_avail_bytes{mountpoint="/data"} / node_filesystem_size_bytes{mountpoint="/data"}) < 0.15
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "{{ $labels.instance }} 資料碟剩不到 15%" }
+      - alert: ApiDown
+        expr: up{job="dmp-api"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "dmp-api {{ $labels.instance }} 無回應" }

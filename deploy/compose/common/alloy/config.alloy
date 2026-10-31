@@ -1,0 +1,25 @@
+// Grafana Alloy（Apache-2.0）：每台 VM 一個，收 Docker 容器 stdout 送 VM3 的 Loki；標籤 host、container（docs/44 §4）
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+}
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+  rule {
+    replacement  = sys.env("VM_HOST")
+    target_label = "host"
+  }
+}
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.containers.output
+  forward_to = [loki.write.vm3.receiver]
+}
+loki.write "vm3" {
+  endpoint { url = "http://" + sys.env("VM3_HOST") + ":3100/loki/api/v1/push" }
+}

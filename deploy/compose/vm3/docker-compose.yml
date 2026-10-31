@@ -1,0 +1,185 @@
+# VM-3：dmp-ingest（選配）、Keeper 3、Redis Sentinel 3、SeaweedFS master/volume/filer(S3)、Keycloak、Prometheus＋Grafana、Loki、備份作業、node-exporter、cAdvisor、Alloy（docs/44 §2）
+# 啟動：cd deploy/compose && ./dmp.sh vm3 up    （.env 的 VM_HOST=VM3、KEEPER_ID=3）
+name: dmp-vm3
+
+x-logging: &logging
+  logging: { driver: json-file, options: { max-size: "100m", max-file: "5" } }
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  keeper:
+    <<: [*logging, *restart]
+    image: ${KEEPER_IMAGE}
+    network_mode: host
+    environment: { KEEPER_ID: "${KEEPER_ID}", VM1_HOST: "${VM1_HOST}", VM2_HOST: "${VM2_HOST}", VM3_HOST: "${VM3_HOST}" }
+    volumes:
+      - ../common/keeper/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+      - ${DATA_ROOT}/keeper:/var/lib/clickhouse-keeper
+    ulimits: { nofile: { soft: 262144, hard: 262144 } }
+
+  seaweedfs-master:
+    <<: [*logging, *restart]
+    image: ${SEAWEEDFS_IMAGE}
+    network_mode: host
+    command: ["master", "-ip=${VM_HOST}", "-port=9333", "-peers=${VM1_HOST}:9333,${VM2_HOST}:9333,${VM3_HOST}:9333", "-mdir=/data/master", "-defaultReplication=001"]
+    volumes: ["${DATA_ROOT}/seaweedfs:/data"]
+
+  seaweedfs-volume:
+    <<: [*logging, *restart]
+    image: ${SEAWEEDFS_IMAGE}
+    network_mode: host
+    depends_on: [seaweedfs-master]
+    command: ["volume", "-ip=${VM_HOST}", "-port=8380", "-mserver=${VM1_HOST}:9333,${VM2_HOST}:9333,${VM3_HOST}:9333", "-dir=/data/volume", "-max=0", "-dataCenter=sinopac", "-rack=${VM_HOST}"]
+    volumes: ["${DATA_ROOT}/seaweedfs:/data"]
+
+  seaweedfs-filer:
+    <<: [*logging, *restart]
+    image: ${SEAWEEDFS_IMAGE}
+    network_mode: host
+    depends_on: [seaweedfs-volume]
+    command: ["filer", "-ip=${VM_HOST}", "-port=8888", "-master=${VM1_HOST}:9333,${VM2_HOST}:9333,${VM3_HOST}:9333", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json"]
+    volumes:
+      - ${DATA_ROOT}/seaweedfs:/data
+      - ./rendered/s3.json:/etc/seaweedfs/s3.json:ro
+
+  sentinel:
+    <<: [*logging, *restart]
+    image: ${REDIS_IMAGE}
+    network_mode: host
+    command: ["sh", "-c", "cp /etc/redis/sentinel.conf.tmpl /data/sentinel.conf && sed -i \"s/__MASTER__/${VM1_HOST}/; s/__PASS__/${REDIS_PASSWORD}/\" /data/sentinel.conf && redis-sentinel /data/sentinel.conf"]
+    volumes:
+      - ../common/redis/sentinel.conf.tmpl:/etc/redis/sentinel.conf.tmpl:ro
+      - ${DATA_ROOT}/sentinel:/data
+
+  keycloak:
+    <<: [*logging, *restart]
+    image: ${KEYCLOAK_IMAGE}
+    command: ["start", "--http-port=8180", "--hostname=${DMP_PUBLIC_URL}/sso", "--http-relative-path=/sso", "--proxy-headers=xforwarded", "--http-enabled=true"]
+    ports: ["8180:8180"]                 # F5／HAProxy 只把 /sso/* 轉到這裡（/auth/* 是 DMP 自己的登入路由，留給 core API）；TLS 在 LB 終結
+    extra_hosts: ["pg-primary:${PG_PRIMARY_HOST}"]   # 主庫切換時只改 .env 的 PG_PRIMARY_HOST（docs/44 §5.1）
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: "jdbc:postgresql://pg-primary:5432/keycloak"
+      KC_DB_USERNAME: "${PG_USER}"
+      KC_DB_PASSWORD: "${PG_PASSWORD}"
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD}"
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+    deploy: { resources: { limits: { cpus: "2", memory: 2g } } }
+
+  prometheus:
+    <<: [*logging, *restart]
+    image: ${PROMETHEUS_IMAGE}
+    network_mode: host
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=30d", "--web.listen-address=0.0.0.0:9090"]
+    volumes:
+      - ./rendered/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../common/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ${DATA_ROOT}/prometheus:/prometheus
+
+  loki:
+    <<: [*logging, *restart]
+    image: ${LOKI_IMAGE}
+    network_mode: host
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ../common/loki/loki.yml:/etc/loki/loki.yml:ro
+      - ${DATA_ROOT}/loki:/loki
+
+  grafana:
+    <<: [*logging, *restart]
+    image: ${GRAFANA_IMAGE}
+    network_mode: host                   # 直接用 localhost 連 Prometheus／Loki；只開給內網維運（3000）
+    environment:
+      GF_SERVER_HTTP_PORT: "3000"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD}"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ../common/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../helm/altatech-dmp/dashboards:/var/lib/grafana/dashboards:ro
+      - ${DATA_ROOT}/grafana:/var/lib/grafana
+
+  ingest:
+    <<: [*logging, *restart]
+    image: ${REGISTRY}/dmp-ingest:${DMP_TAG}
+    group_add: ["${DMP_SECRETS_GID}"]   # 讀密鑰檔用（主機上檔案 root:DMP_SECRETS_GID 0440；映像 UID 不同也讀得到，其他人讀不到）
+    profiles: [ingest]                   # 選配：MA／LINE 直送 /v1/events 時才啟用（COMPOSE_PROFILES=ingest ./dmp.sh vm3 up ingest）
+    ports: ["8081:8081"]
+    # CORE_URL 指平常接流量的 VM1；切到 VM2 時改這裡或改指 F5 內部位址
+    environment: { CORE_URL: "http://${VM1_HOST}:8080", DMP_SECRETS_JSON: /run/secrets/dmp-secrets.json }
+    volumes: ["/run/secrets/dmp-secrets.json:/run/secrets/dmp-secrets.json:ro"]
+    read_only: true
+
+  backup:
+    <<: [*logging]
+    image: ${CLICKHOUSE_IMAGE}           # 只用它的 clickhouse-client；由 VM3 主機 cron 以 one-shot 方式呼叫（common/scripts/crontab.vm3）
+    profiles: [backup]
+    network_mode: host
+    entrypoint: ["/bin/bash"]
+    environment:
+      CH_HOST: "${VM1_HOST}"
+      CH_USER: "${CH_USER}"
+      CH_PASSWORD: "${CH_PASSWORD}"
+      PG_HOST: "${PG_PRIMARY_HOST}"      # 跟著主庫走，切換後不用改
+      PG_USER: "${PG_USER}"
+      PGPASSWORD: "${PG_PASSWORD}"
+      S3_ENDPOINT: "http://${VM1_HOST}:8333"
+      S3_ACCESS_KEY: "${S3_ACCESS_KEY}"
+      S3_SECRET_KEY: "${S3_SECRET_KEY}"
+      NAS_BACKUP: /nas
+    volumes:
+      - ../common/scripts:/scripts:ro
+      - ${NAS_BACKUP}:/nas
+
+  rclone:
+    <<: [*logging]
+    image: ${RCLONE_IMAGE}               # SeaweedFS S3 → 永豐 NAS 同步；同樣由主機 cron 呼叫
+    profiles: [backup]
+    network_mode: host
+    environment:
+      RCLONE_CONFIG_SW_TYPE: s3
+      RCLONE_CONFIG_SW_PROVIDER: Other
+      RCLONE_CONFIG_SW_ENDPOINT: "http://${VM1_HOST}:8333"
+      RCLONE_CONFIG_SW_ACCESS_KEY_ID: "${S3_ACCESS_KEY}"
+      RCLONE_CONFIG_SW_SECRET_ACCESS_KEY: "${S3_SECRET_KEY}"
+    volumes: ["${NAS_BACKUP}:/nas"]
+
+  node-exporter:
+    <<: [*logging, *restart]
+    image: ${NODE_EXPORTER_IMAGE}
+    network_mode: host
+    pid: host
+    command: ["--path.rootfs=/host", "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"]
+    volumes: ["/:/host:ro,rslave"]
+
+  alloy:
+    <<: [*logging, *restart]
+    image: ${ALLOY_IMAGE}
+    network_mode: host
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
+    environment: { VM_HOST: "${VM_HOST}", VM3_HOST: "${VM3_HOST}" }
+    volumes:
+      - ../common/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${DATA_ROOT}/alloy:/var/lib/alloy/data
+
+  cadvisor:
+    <<: [*logging, *restart]
+    image: ${CADVISOR_IMAGE}
+    network_mode: host
+    command: ["--port=9101", "--docker_only=true", "--housekeeping_interval=30s"]
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+
+networks:
+  default:
+    ipam:
+      config: [{ subnet: "${APP_SUBNET}" }]   # 固定網段，users.xml／pg_hba.conf 只放行這段（不放寬成 0.0.0.0/0）
