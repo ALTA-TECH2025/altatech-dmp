@@ -123,7 +123,7 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     app.include_router(output.build_router(store, get_subject, out_svc))   # 先掛：/v1/exports/tasks 不能被 /v1/exports/{id} 吃掉
     app.include_router(exports.build_router(store, get_subject, approvals, exp, reveals))
     sched = scheduler or Scheduler(Path(tempfile.gettempdir()) / "dmp-sched.db", LocalRunner(ch if hasattr(ch, "insert_json") and not ch.__class__.__name__.startswith("Fake") else None))
-    app.include_router(integration.build_router(store, get_subject, sched, secret_writer))
+    app.include_router(integration.build_router(store, get_subject, sched, secret_writer, ch=ch))
     app.state.scheduler = sched
     ops_svc = OpsService(store, ch, sched, grafana_url=grafana_url)            # 資料流與效能：排程器＋審計＋程序內指標＋ClickHouse 系統表
     notifier = Notifier(store, secret_of=secret_of, mailer=mailer, transport=transport or _httpx_transport, recipients=share.recipients, base_url=base_url)   # 告警通知：Email／LINE，與看板寄送共用 mailer 與成員目錄
