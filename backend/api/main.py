@@ -1,7 +1,7 @@
 """正式啟動：uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
 
 環境變數：
-  DMP_IDP_MODE          broker | direct（覆寫 idp.yaml；其他值啟動即報錯）
+  DMP_IDP_MODE          broker | direct（覆寫 idp.yaml；其他值啟動即報錯）；AD 一律經 Keycloak 接入，API 不直連 AD
   DMP_OIDC_ISSUER       Keycloak realm 的 issuer（覆寫 idp.yaml，例：https://dmp.internal/auth/realms/dmp）
   DMP_PUBLIC_URL        對外網址；OIDC 回呼與登出後網址改成 <此網址>/auth/callback、/login
   DMP_SECRETS_JSON      secret_ref → 明文 的 JSON 檔路徑（只在執行節點，由密鑰庫掛載）；沒有時所有 secret_ref 解析失敗
@@ -34,7 +34,6 @@ from typing import Any
 import httpx
 
 from ..auth.api import AuthService, apply_env_overrides, load_cfg
-from ..auth.ldap import LdapProvider
 from ..auth.local import LocalAccounts, LocalProvider
 from ..auth.oidc import OIDCProvider
 from ..auth.session import ApiTokens, SessionManager
@@ -78,10 +77,9 @@ def build() -> Any:
                     resolver(v)
             if p["kind"] == "oidc":
                 providers[key] = OIDCProvider(key, p, _http, resolver)
-            elif p["kind"] == "ldap" and cfg["mode"] == "direct":
-                from ..auth.ldap import PythonLdapClient
-                providers[key] = LdapProvider(key, p, PythonLdapClient(p["url"], resolver(p["ca_bundle_ref"])), resolver)
-        except (KeyError, ImportError) as e:                     # 密鑰沒掛載／驅動沒裝 → 這個提供者不啟用（單機環境常見），不要讓整個 API 起不來
+            else:
+                print(f"[auth] provider {key} 未啟用：不支援 kind={p['kind']}（AD 請掛在 Keycloak User Federation）")
+        except KeyError as e:                                    # 密鑰沒掛載 → 這個提供者不啟用（單機環境常見），不要讓整個 API 起不來
             print(f"[auth] provider {key} 未啟用：{type(e).__name__} {e}")
     la_cfg = cfg.get("local_accounts") or {}
     if os.environ.get("DMP_LOCAL_ACCOUNTS") and la_cfg.get("enabled") and cfg["mode"] == "direct":

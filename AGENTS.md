@@ -14,7 +14,7 @@ AltaTech DMP：數位軌跡／客戶數據中台。`docs/` 是設計文件，`pr
 | 原型頁面 | `prototype/js/app.js`（頁面函式 `pageXxx`）、`js/data.js`（模擬資料）、`css/app.css` | 不要加建置工具；保持純 ES module |
 | 正式前端 | `web/src/`（app 路由、auth、shell、iam、lib/policy），設計見 docs/24 | 資料存取只走 `api` 客戶端；權限只讀 `/v1/iam/me`，不得自行判斷 |
 | REST 端點 | `backend/api/`（app、iam、analytics、store） | router 不寫 SQL：驗證 → authorize() → 服務（compiler／auth）→ 審計 |
-| 登入／session | `backend/auth/`（idp.yaml、oidc.py、ldap.py、session.py、mapping.py、api.py） | 密鑰只能 secret_ref；不把 IdP token 交給瀏覽器 |
+| 登入／session | `backend/auth/`（idp.yaml、oidc.py、local.py、session.py、mapping.py、api.py；AD 只經 Keycloak，不直連） | 密鑰只能 secret_ref；不把 IdP token 交給瀏覽器 |
 | 部署 | `deploy/helm/altatech-dmp/values*.yaml`、`deploy/tofu/gcp` | 不要引入非白名單授權元件（見 `LICENSES.md`） |
 
 ## 怎麼驗證
@@ -24,7 +24,7 @@ python3 backend/oneid/attribution.py          # OneID 歸戶 20 個情境（含 
 python3 -m backend.api                        # REST API 自測：角色 CRUD、指派、行級模擬、/v1/semantic/compile、/v1/analytics/events（假 ClickHouse）、審計、CSRF
 python3 -m backend.api.store_pg               # 控制面 PostgreSQL 儲存自測（需 DMP_PG_DSN；沒有就略過）：CRUD、併發審計、整套 API 自測改用 PostgresStore
 python3 -m backend.segments                   # 分群引擎自測：建立／審批／計算（版本保留）／例行 tick／編輯限制／回收站／成員列表／權限（假 ClickHouse）
-python3 -m backend.auth                       # 登入整合自測：假 Entra ID（PKCE／JWKS／amr／overage）、假 AD（bind／巢狀群組／限流）、session／CSRF／step-up、API token、FastAPI 路由
+python3 -m backend.auth                       # 登入整合自測：假 Entra ID（PKCE／JWKS／amr／overage）、假 Keycloak（AD 群組經 Federation → 角色；provider=ad 拒絕）、session／CSRF／step-up、API token、FastAPI 路由
 python3 backend/integration/transforms.py     # 轉換函式自測
 python3 -m backend.integration.modeling       # 建模引擎自測（映射、清洗、SQL 編譯）
 python3 -m backend.integration.scheduler      # 排程器自測（模擬時鐘）

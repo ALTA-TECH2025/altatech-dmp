@@ -1,4 +1,4 @@
-"""登入整合自測（不連網）：假 Entra ID（JWKS + token endpoint）、假 AD 目錄、session／CSRF／逾時、群組 → 角色、admin step-up、API token、FastAPI 路由。
+"""登入整合自測（不連網）：假 Entra ID 與假 Keycloak（JWKS + token endpoint；AD 經 Keycloak User Federation）、session／CSRF／逾時、群組 → 角色、admin step-up、API token、FastAPI 路由。
 
 用法：python3 -m backend.auth
 """
@@ -15,7 +15,6 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from ..security.policy import authorize
-from .ldap import FakeLdap, LdapError, LdapProvider
 from .mapping import grants_of, map_roles, masking_of
 from .oidc import OIDCError, OIDCProvider
 from .session import ApiTokens, MemoryStore, SessionManager
@@ -23,7 +22,7 @@ from .session import ApiTokens, MemoryStore, SessionManager
 CFG = yaml.safe_load((Path(__file__).resolve().parent / "idp.yaml").read_text(encoding="utf-8"))
 TENANT = "11111111-2222-3333-4444-555555555555"
 SECRETS = {"kv/data/dmp/auth/entra#tenant_id": TENANT, "kv/data/dmp/auth/entra#client_id": "app-dmp", "kv/data/dmp/auth/entra#client_secret": "s3cret",
-           "kv/data/dmp/auth/keycloak#client_secret": "kc-secret", "kv/data/dmp/auth/ad#bind_password": "svc-pw"}
+           "kv/data/dmp/auth/keycloak#client_secret": "kc-secret"}
 
 
 class Clock:
@@ -40,9 +39,10 @@ def rsa_pair() -> tuple[str, str, dict[str, Any]]:
 
 
 class FakeEntra:
-    """假 IdP：發現文件、JWKS、token endpoint（依 code 決定 claims）。"""
-    def __init__(self, issuer: str, priv: str, jwk: dict[str, Any], clock: Clock):
+    """假 IdP：發現文件、JWKS、token endpoint（依 code 決定 claims）。keycloak=True 時發 Keycloak 形狀的 claims（sub、群組名，無 oid／tid）。"""
+    def __init__(self, issuer: str, priv: str, jwk: dict[str, Any], clock: Clock, client_id: str = "app-dmp", client_secret: str = "s3cret", keycloak: bool = False):
         self.issuer, self.priv, self.jwk, self.clock = issuer, priv, jwk, clock
+        self.client_id, self.client_secret, self.keycloak = client_id, client_secret, keycloak
         self.codes: dict[str, dict[str, Any]] = {}
         self.calls: list[str] = []
 
@@ -53,11 +53,13 @@ class FakeEntra:
         if url.endswith("/keys"):
             return {"keys": [self.jwk]}
         if url.endswith("/token"):
-            assert data and data["grant_type"] == "authorization_code" and data["code_verifier"] and data["client_secret"] == "s3cret"
+            assert data and data["grant_type"] == "authorization_code" and data["code_verifier"] and data["client_secret"] == self.client_secret
             spec = self.codes[data["code"]]
             t = int(self.clock())
-            claims = {"iss": self.issuer, "aud": "app-dmp", "sub": "sub-" + spec["oid"], "oid": spec["oid"], "tid": TENANT, "preferred_username": spec["upn"], "name": spec["name"],
+            claims = {"iss": self.issuer, "aud": self.client_id, "sub": "sub-" + spec["oid"], "oid": spec["oid"], "tid": TENANT, "preferred_username": spec["upn"], "name": spec["name"],
                       "email": spec["upn"], "groups": spec.get("groups", []), "amr": spec.get("amr", ["pwd", "mfa"]), "iat": t, "exp": t + 3600, "auth_time": t, "nonce": spec["nonce"]}
+            if self.keycloak:
+                claims.pop("oid"); claims.pop("tid")
             if spec.get("overage"):
                 claims.pop("groups"); claims["_claim_names"] = {"groups": "src1"}
             return {"id_token": jwt.encode(claims, self.priv, algorithm="RS256", headers={"kid": "k1"}), "access_token": "at-" + spec["oid"], "token_type": "Bearer"}
@@ -114,27 +116,20 @@ def main() -> None:
            {"id": "a3", "user_id": "entra:oid-ana", "roles": ["data_analyst"], "deny": True}]
     roles4, scope4, applied4 = map_roles(ident4, CFG["role_mapping"], asg, now=clock())
     assert roles4 == ["custom_vendor_analyst"] and scope4["lookback_days"] == 180 and applied4 == ["DMP-Analysts", "assign:a1", "deny:a3"], (roles4, applied4)
-    # 4. 直連 AD：搜尋 → 使用者 bind → 巢狀群組；錯密碼／停用帳號／注入／速率限制
-    base = "OU=Users,DC=corp,DC=internal"; gbase = "OU=Groups,DC=corp,DC=internal"
-    ldap = FakeLdap({
-        f"CN=吳建宏,{base}": {"sAMAccountName": ["wuch"], "mail": ["it@corp.internal"], "displayName": ["吳建宏"], "memberOf": [f"CN=IT-Staff,{gbase}"], "objectGUID": ["guid-wu"], "userPrincipalName": ["wuch@corp.internal"]},
-        f"CN=離職者,{base}": {"sAMAccountName": ["gone"], "userAccountControl_disabled": ["2"], "objectGUID": ["guid-gone"]},
-        f"CN=IT-Staff,{gbase}": {"cn": ["IT-Staff"], "member": [f"CN=吳建宏,{base}"]},
-        f"CN=DMP-IT,{gbase}": {"cn": ["DMP-IT"], "member": [f"CN=IT-Staff,{gbase}"]},            # 巢狀：IT-Staff ∈ DMP-IT
-    }, {CFG["providers"]["ad"]["bind_dn"]: "svc-pw", f"CN=吳建宏,{base}": "Passw0rd!"})
-    ad = LdapProvider("ad", CFG["providers"]["ad"], ldap, SECRETS.__getitem__, now=clock)
-    idw = ad.authenticate("wuch", "Passw0rd!", "10.0.0.9")
-    assert idw.subject == "guid-wu" and idw.groups == ["DMP-IT", "IT-Staff"] and map_roles(idw, CFG["role_mapping"])[0] == ["it_admin"], idw
-    assert ldap.binds[-1] == f"CN=吳建宏,{base}"
-    for u, pw, why in (("wuch", "wrong", "錯密碼"), ("gone", "x", "停用"), ("wuch)(|(sAMAccountName=*", "x", "注入"), ("nobody", "x", "不存在")):
-        try: ad.authenticate(u, pw, "10.0.0.9"); raise AssertionError(why)
-        except LdapError as e: assert str(e) in ("帳號或密碼錯誤", "嘗試次數過多，請稍後再試"), (why, e)
-    got = ""
-    for _ in range(8):                                     # 連續錯密碼 → 同帳號每分鐘 5 次後鎖住（AD 端鎖定策略另計）
-        try: ad.authenticate("wuch", "wrong", "10.0.0.7")
-        except LdapError as e: got = str(e)
-        if "過多" in got: break
-    assert "過多" in got, got
+    # 4. broker：AD 經 Keycloak User Federation 接入（API → Keycloak → AD）。API 只對 Keycloak 講 OIDC，AD 群組（含巢狀，由 Keycloak group-ldap-mapper 展開）以群組名進 groups claim
+    kc_iss = CFG["providers"]["keycloak"]["issuer"]
+    kc_idp = FakeEntra(kc_iss, priv, jwk, clock, client_id=CFG["providers"]["keycloak"]["client_id"], client_secret="kc-secret", keycloak=True)
+    kc = OIDCProvider("keycloak", CFG["providers"]["keycloak"], kc_idp.http, SECRETS.__getitem__, now=clock)
+    url_kc, st_kc = kc.begin("/integration")
+    assert url_kc.startswith(kc_iss + "/authorize?") and "code_challenge=" in url_kc and "response_mode" not in url_kc, url_kc
+    kc_idp.codes["k1"] = {"oid": "kc-wuch", "upn": "wuch", "name": "吳建宏", "groups": ["DMP-IT", "IT-Staff"], "amr": ["pwd"], "nonce": st_kc.nonce}
+    idw = kc.callback({"code": "k1", "state": st_kc.state}, st_kc)
+    assert idw.provider == "keycloak" and idw.subject == "sub-kc-wuch" and idw.groups == ["DMP-IT", "IT-Staff"] and map_roles(idw, CFG["role_mapping"])[0] == ["it_admin"], idw
+    assert not any("graph.microsoft.com" in x for x in kc_idp.calls)                    # broker 模式不碰 Graph、也不碰 AD
+    url_kc2, st_kc2 = kc.begin()
+    kc_idp.codes["k2"] = {"oid": "kc-x", "upn": "x", "name": "X", "groups": ["DMP-IT"], "nonce": "wrong"}
+    try: kc.callback({"code": "k2", "state": st_kc2.state}, st_kc2); raise AssertionError("Keycloak nonce 應被擋")
+    except OIDCError: pass
     # 5. session：閒置逾時、絕對逾時、CSRF、同時 session 上限、admin step-up（認證太舊 → admin 暫時拿掉）
     s = sm.resolve(s_admin.sid, "10.1.2.3"); assert s and s.user_id == "entra:oid-admin"
     assert "admin" in sm.subject(s).roles and authorize(sm.subject(s), "admin", "iam").allowed
@@ -189,26 +184,32 @@ def main() -> None:
     import copy
 
     from .api import AuthService, apply_env_overrides, build_router
+    svc_b = AuthService(dict(CFG), {"keycloak": kc, "entra": entra}, sm, tokens, lambda: asg)     # broker：登入頁只有 Keycloak；帳密端點不開
+    app_b = FastAPI(); app_b.include_router(build_router(svc_b))
+    cb = TestClient(app_b, base_url="https://dmp.internal")
+    assert cb.get("/auth/providers").json() == {"mode": "broker", "providers": [{"key": "keycloak", "cn": CFG["providers"]["keycloak"]["cn"], "kind": "oidc"}]}
+    assert cb.get("/auth/login", params={"provider": "entra"}, follow_redirects=False).status_code == 400
+    r = cb.post("/auth/ldap", json={"provider": "ad", "username": "wuch", "password": "Passw0rd!"}); assert r.status_code == 400 and "Keycloak" in r.json()["detail"], r.text
     # 部署覆寫：broker 模式列 Keycloak；issuer、回呼網址跟著環境變數；打錯模式（例：oidc）啟動就報錯，不會默默沒有登入入口
     ov = apply_env_overrides(copy.deepcopy(CFG), {"DMP_IDP_MODE": "broker", "DMP_OIDC_ISSUER": "https://dmp.example.test/auth/realms/dmp", "DMP_PUBLIC_URL": "https://dmp.example.test/"})
-    kc = ov["providers"]["keycloak"]
-    assert ov["mode"] == "broker" and kc["issuer"] == "https://dmp.example.test/auth/realms/dmp", kc
-    assert kc["redirect_uri"] == "https://dmp.example.test/auth/callback" and kc["post_logout_redirect_uri"] == "https://dmp.example.test/login", kc
-    assert CFG["providers"]["keycloak"]["redirect_uri"] != kc["redirect_uri"]       # 不改到共用設定
+    kc_ov = ov["providers"]["keycloak"]
+    assert ov["mode"] == "broker" and kc_ov["issuer"] == "https://dmp.example.test/auth/realms/dmp", kc_ov
+    assert kc_ov["redirect_uri"] == "https://dmp.example.test/auth/callback" and kc_ov["post_logout_redirect_uri"] == "https://dmp.example.test/login", kc_ov
+    assert CFG["providers"]["keycloak"]["redirect_uri"] != kc_ov["redirect_uri"]       # 不改到共用設定
     for bad in ({"DMP_IDP_MODE": "oidc"}, {"DMP_PUBLIC_URL": "dmp.example.test"}):
         try:
             apply_env_overrides(copy.deepcopy(CFG), bad); raise AssertionError(bad)
         except ValueError:
             pass
-    stub = type("P", (), {"cfg": kc})()
+    stub = type("P", (), {"cfg": kc_ov})()
     assert [p["key"] for p in AuthService(ov, {"keycloak": stub}, sm).visible_providers()] == ["keycloak"]
     cfg = dict(CFG); cfg["mode"] = "direct"
-    svc = AuthService(cfg, {"entra": entra, "ad": ad}, sm, tokens, lambda: asg)
+    svc = AuthService(cfg, {"entra": entra}, sm, tokens, lambda: asg)
     from ..api import errors as api_errors
     app = FastAPI(); app.include_router(build_router(svc))
     api_errors.install(app, type("Sink", (), {"audit": lambda self, e, d: None})())   # 與正式 API 同一套錯誤輸出；302 不能被改成 Error
     c = TestClient(app, base_url="https://dmp.internal")
-    assert [p["key"] for p in c.get("/auth/providers").json()["providers"]] == ["entra", "ad"]
+    assert [p["key"] for p in c.get("/auth/providers").json()["providers"]] == ["entra"]
     assert c.get("/v1/iam/me").json()["code"] == "UNAUTHENTICATED"
     r = c.get("/auth/login", params={"provider": "entra", "return_to": "/users"}, follow_redirects=False)
     assert r.status_code == 302 and "code_challenge" in r.headers["location"] and "dmp_login" in r.headers.get("set-cookie", "") and not r.content and r.headers.get("x-request-id")
@@ -223,8 +224,8 @@ def main() -> None:
     assert c.post("/auth/logout").json()["code"] == "CSRF_INVALID"                    # 沒帶 CSRF → 403
     tk2 = c.post("/auth/token", headers={"X-CSRF-Token": c.cookies["dmp_csrf"]}).json()["access_token"]
     assert tokens.verify(tk2).roles == ["marketing", "digital_ops"]
-    r = c.post("/auth/ldap", json={"username": "wuch", "password": "Passw0rd!"}); assert r.json()["next"] == "totp"
-    r = c.post("/auth/ldap", json={"username": "wuch", "password": "Passw0rd!", "totp": "123456"}); assert r.status_code == 401 and "驗證器" in r.json()["detail"] and r.json()["code"] == "OTP_INVALID"   # AD 直連尚未接 TOTP 驗證器 → 不放行
+    r = c.post("/auth/ldap", json={"provider": "ad", "username": "wuch", "password": "Passw0rd!"}); assert r.status_code == 400 and "Keycloak" in r.json()["detail"]   # direct 模式也不直連 AD
+    assert c.post("/auth/ldap", json={"username": "wuch", "password": "Passw0rd!"}).status_code == 400                                                            # 預設 provider=local，未啟用 → 400
     r = c.post("/auth/logout", headers={"X-CSRF-Token": c.cookies["dmp_csrf"]}); assert r.status_code == 200 and "logout" in (r.json()["idp_logout"] or "")
     assert c.get("/v1/iam/me").status_code == 401
     # 9. 本機帳號（provider=local）：密碼 → next=totp → 錯碼 401 → 正確碼登入（amr pwd+mfa，角色來自帳號）→ 15 分鐘後 admin 降級 → step-up 回復 → 不允許的角色被濾掉
@@ -236,7 +237,7 @@ def main() -> None:
     la.add("ops.local", "local-admin-password-1", ["admin", "data_analyst"], name="本機管理員")
     la.data["accounts"]["ops.local"]["roles"].append("digital_ops")        # 模擬帳號檔被改／政策收緊：登入時仍過白名單
     svc.providers["local"] = LocalProvider(la, now=clock)
-    assert [p["key"] for p in c.get("/auth/providers").json()["providers"]] == ["entra", "ad", "local"]
+    assert [p["key"] for p in c.get("/auth/providers").json()["providers"]] == ["entra", "local"]
     r = c.post("/auth/ldap", json={"provider": "local", "username": "ops.local", "password": "local-admin-password-1"}); assert r.json()["next"] == "totp", r.text
     assert c.post("/auth/ldap", json={"provider": "local", "username": "ops.local", "password": "local-admin-password-1", "totp": "000000"}).status_code == 401
     assert c.post("/auth/ldap", json={"provider": "local", "username": "ops.local", "password": "nope-nope-nope-nope"}).status_code == 401
@@ -258,7 +259,7 @@ def main() -> None:
     assert {x["event"] for x in audit} >= {"auth.login.failed", "auth.step_up.failed", "auth.step_up"}
     c.post("/auth/logout", headers={"X-CSRF-Token": c.cookies["dmp_csrf"]})
     shared = _shared_two_nodes(cfg, entra, idp, clock, asg)
-    print(f"auth self-test ok: oidc(entra pkce/jwks/amr/overage) ldap(bind/nested/limits) local(scrypt/totp/step-up) session(idle/absolute/csrf/evict/step-up) api-token routes; audit events={len(audit)}; {shared}")
+    print(f"auth self-test ok: oidc(entra pkce/jwks/amr/overage) broker(keycloak→ad groups, ad direct rejected) local(scrypt/totp/step-up) session(idle/absolute/csrf/evict/step-up) api-token routes; audit events={len(audit)}; {shared}")
 
 
 def _shared_two_nodes(cfg: dict[str, Any], entra: OIDCProvider, idp: FakeEntra, clock: Clock, asg: list[dict[str, Any]]) -> str:

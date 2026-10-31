@@ -34,7 +34,6 @@
 | D3（d3-scale / d3-shape）/ Plotly.js（備選） | 7.x / 2.x | ISC / MIT | 圖表 | 自繪 SVG 的分析圖仍用；互動大圖才用 Plotly.js | Observable（美）／Plotly（加） |
 | mcp（官方 SDK）/ LangGraph | — | MIT / MIT | Agent | — | Anthropic／LangChain（美） |
 | PyJWT / cryptography | 2.x / 4x | MIT / Apache-2.0 或 BSD-3 | 登入（OIDC ID token 驗證、API token） | — | 個人（美）／PyCA（美） |
-| python-ldap | 3.x | PSF 式（permissive） | 直連 AD（direct 模式才需要；broker 模式不裝） | 需 libldap | python-ldap 社群（德） |
 | Vitest | 5.0.5 | MIT | 前端測試 | — | Vitest team／VoidZero（美；維護者大陸出生） |
 | RoaringBitmap（Java）/ pyroaring | — | Apache-2.0 / MIT | Bitmap | — | 個人（加）／個人（法） |
 | franz-go | — | BSD-3 | Go Kafka 客戶端 | — | 個人（美） |
