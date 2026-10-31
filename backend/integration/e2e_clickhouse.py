@@ -271,13 +271,18 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
     v1 = ch.query(f"SELECT {_LL.V1_ID} FROM (SELECT '{tok}' AS distinct_id, toInt64({first['time']}) AS time, '{first['event']}' AS event, '{pj}' AS properties) FORMAT TSV").strip()
     assert len(v1) == 32 and not v1.startswith("e2_"), v1
     ch.insert_json("dmp.events", [{"project": "altatech_dmp", "time": modeling.ms_to_dt(first["time"]), "event": first_event, "source": "legacy_format", "one_id": tok,
-                                   "entity_type": "", "entity_id": "", "distinct_id": tok, "session_id": "", "event_id": v1, "platform": "iOS", "app_id": "", "symbol": "", "side": "", "channel": "",
-                                   "amount": None, "utm_source": "", "utm_campaign": "", "props": first_props, "ingest_time": "2026-10-15 00:00:00.000", "schema_version": 1, "late": 0, "batch_id": "pre_v1"}])
+                                   "entity_type": "", "entity_id": "", "distinct_id": tok, "session_id": "", "event_id": v1, "platform": "iOS", "app_id": "", "symbol": first_props.get("symbol", ""), "side": first_props.get("side", ""), "channel": first_props.get("channel", ""),
+                                   "amount": first_props.get("amount"), "utm_source": "", "utm_campaign": "", "props": first_props, "ingest_time": "2026-10-15 00:00:00.000", "schema_version": 1, "late": 0, "batch_id": "pre_v1"}])
+    # 上面這筆的物化欄位與 props 一致（舊 normalize 也這樣寫）；校驗工具會連「已在倉中」的舊列一起核物化欄位與金額
     loader = LegacyLoader(ch, local=True)
     t0 = _t.perf_counter(); r = loader.run_file(src, work / "user_files", "sa_20261016", "k_idm", via_http=via_http); dt = _t.perf_counter() - t0
     st = r["stage"]
     assert r["recon_ok"], r
     assert st["bad"] == st["lines"] - st["ok"] and st["bad"] > 0
+    from ..migration.validate import validate as migration_validate  # #53：獨立參考實作逐行核對去處（L1）與丟棄報告（L5）
+    vr = migration_validate(src, st, "sa_20261016", modeling.KEYS["k_idm"], ch=ch, batch_id="sa_20261016")                         # L3／L4：預期 vs ClickHouse 實際
+    assert all(vr["layers"][L]["status"] == s for L, s in (("L1", "pass"), ("L3", "pass"), ("L4", "pass"), ("L5", "partial"))), [(L, vr["layers"][L]) for L in ("L1", "L3", "L4", "L5")]
+    assert vr["layers"]["L3"]["counts"]["already_loaded"] == 1, vr["layers"]["L3"]["counts"]                                          # 改版前已入倉的那筆：在倉中、不算漏寫
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND event IN ('order_submit','order_filled','quote_view','search_symbol')") == 0    # 別名已轉正式名
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND one_id LIKE 'C0%'") == 0                                                     # 登入 ID 全部代碼化
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND one_id LIKE 'ck-%'") == ch.scalar("SELECT count() FROM dmp.raw_legacy WHERE batch_id='sa_20261016' AND type='track' AND is_login=0")  # 匿名保留
@@ -310,6 +315,8 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
     print("  events by name:", by_ev)
     legacy_v1_collision(ch, loader, work, via_http)
     legacy_bigint(ch, loader, work, via_http)
+    from ..migration.validate_ch import selftest_ch as migration_validate_ch
+    migration_validate_ch(ch, work)
 
 
 def legacy_v1_collision(ch: ClickHouseHTTP, loader: Any, work: Path, via_http: bool) -> None:
