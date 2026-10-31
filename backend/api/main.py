@@ -224,6 +224,18 @@ def start_ticker(app: Any, store: Any, ch: Any) -> Any:
         if lease is not None:
             lease.stop()                                                     # 正常停止就釋放租約，別份 worker 不必等過期
     threading.Thread(target=loop, name="dmp-tick", daemon=True).start()
+
+    def runs_loop() -> None:
+        """AI 工作台 run 控制器（Q25：core-worker、沿用同一把主控租約）：互動 run 不能等每分鐘一輪，另以短間隔撈 queued。"""
+        runs, every = getattr(app.state, "agent_runs", None), float(os.environ.get("DMP_AGENT_TICK_S", "2"))
+        while runs is not None and not stop.wait(every):
+            if lease is not None and not lease.valid():
+                continue
+            try:
+                runs.tick(worker=lease.owner if lease is not None else "local")
+            except Exception as e:
+                store.audit("agent.runs.tick_failed", {"error": str(e)[:300]})
+    threading.Thread(target=runs_loop, name="dmp-agent-runs", daemon=True).start()
     return stop                                                              # 測試用：set() 後下一輪結束迴圈
 
 

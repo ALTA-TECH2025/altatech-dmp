@@ -49,7 +49,8 @@ def _yaml_text(text: str) -> Any:
 def contract_versions() -> dict[str, str]:
     """現行契約版本；run 紀錄的 contracts 欄位也存這份。"""
     y = lambda p: _yaml_text((BACKEND / p).read_text(encoding="utf-8"))
-    return {"semantic": str(y("semantic/events.yaml")["version"]), "tools": str(y("mcp/tools.yaml")["contract_version"]), "oneid_rules": str(y("semantic/oneid_rules.yaml")["version"])}
+    return {"semantic": str(y("semantic/events.yaml")["version"]), "tools": str(y("mcp/tools.yaml")["contract_version"]), "oneid_rules": str(y("semantic/oneid_rules.yaml")["version"]),
+            "preset_properties": str(y("semantic/preset_properties.yaml")["version"])}   # C8：整檔版本，單一物件版本之後再定
 
 
 def _ver(v: str) -> tuple[int, ...] | None:

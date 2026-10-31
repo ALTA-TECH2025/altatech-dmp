@@ -137,7 +137,7 @@ jobs:
           python3 -m backend.integration.modeling && python3 -m backend.integration.scheduler && python3 -m backend.integration.legacy_format && python3 -m backend.integration.ga4_source && python3 -m backend.integration.legacy_api && python3 -m backend.semantic.compiler.golden && python3 -m backend.integration.e2e_clickhouse && python3 -m backend.streaming.parity
           python3 backend/migration/bridge.py --check && python3 backend/migration/properties.py --check && python3 backend/migration/legacy_specific.py --check && python3 backend/migration/presets.py && python3 -m backend.migration.validate selftest
       - name: Tool Gateway 自測
-        run: python3 -m backend.mcp.server
+        run: python3 -m backend.mcp.server && python3 -m backend.insight_agent.runs
       - name: 容器入口（backend.entry）自測與啟動前檢查
         env: { DMP_EXPORT_DIR: '${{ runner.temp }}/dmp-exports' }    # 控制面是 PostgreSQL（同正式部署）時必填，否則啟動失敗（#87）
         run: python3 -m backend.entry --selftest && python3 -m backend.entry --check && DMP_ROLE=worker python3 -m backend.entry --check

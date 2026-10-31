@@ -129,6 +129,10 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     notifier = Notifier(store, secret_of=secret_of, mailer=mailer, transport=transport or _httpx_transport, recipients=share.recipients, base_url=base_url)   # 告警通知：Email／LINE，與看板寄送共用 mailer 與成員目錄
     app.include_router(ops.build_router(store, get_subject, ops_svc, metrics_token, notifier))
     app.state.ops = ops_svc; app.state.notifier = notifier
+    from ..insight_agent.runs import RunService
+    from ..insight_agent.runs import build_router as runs_router
+    app.state.agent_runs = RunService(store, ch, roles_of=owner_roles)     # worker 每次工具呼叫前以帳號與指派的現況重讀身分                           # AI 工作台 run（第一階段；控制器由 core-worker 的背景例行呼叫 tick）
+    app.include_router(runs_router(app.state.agent_runs, get_subject))
 
     errors.install(app, store)                                             # X-Request-Id、統一 Error 輸出、403 審計（docs/46）
 
