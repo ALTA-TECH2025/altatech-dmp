@@ -10,7 +10,6 @@
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import threading
@@ -22,7 +21,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, Header
 
 from ..api.errors import ApiError
-from ..mcp.server import GW, Gateway, ToolContext, ToolError
+from ..mcp.server import GW, Gateway, ToolContext, ToolError, args_digest
 from ..security.policy import Subject, authorize
 from . import skill_loader
 from .journal import TERMINAL, Conflict, Fenced, LimitReached, MemoryJournal
@@ -36,8 +35,7 @@ IDEM_TTL, RETRY, UNSET = 86400, {"INTERNAL": 2, "TIMEOUT": 1}, "（未設定）"
 HIDDEN = {"generation", "lease_owner", "lease_until", "request_digest", "idem_key", "created_ts", "exec_s", "candidates_raw"}
 
 
-def digest(o: Any) -> str:
-    return hashlib.sha256(json.dumps(o, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+digest = args_digest                                                           # 與 Gateway 同一個摘要函式：result_digest 與證據的 recomputed_digest 才能直接比對
 
 
 def last_weeks(today: date) -> tuple[dict[str, str], dict[str, str]]:
