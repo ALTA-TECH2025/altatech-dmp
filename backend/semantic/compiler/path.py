@@ -2,14 +2,15 @@
 
 口徑：節點 = 事件字典裡的事件（可依屬性拆成 event:值；可只保留指定事件、其餘折成「其他」）；會話 = 依間隔切（gap）／session_id／跨會話整段；
   每會話最多 max_events 個事件；連續重複節點可合併；會話結束補「離開」節點（$AppEnd 事件或會話逾時都成為「離開」）。
-  起點（after）：每次出現起點就切一條「起點 + N 步」；終點（before）：切「N 步 + 終點」。路徑數 = 切片數（同一用戶同會話多次出現各算一條）。
+  同神策：每會話只切一條。起點（after）取會話中第一次出現 → 「起點 + N 步」；終點（before）取最後一次出現 → 「N 步 + 終點」。
+  桑基節點／連線的數值 = 會話數（各路徑 sessions 加總，每會話一條路徑所以不重複）；每條路徑另給去重用戶數（K 匿名與下鑽用）。
 SQL 形狀：
   ev  每筆事件 → (one_id, time, node, is_anchor)
   p/q 依間隔切會話：lagInFrame + 累計 sum（window function）
   s   每會話排序後的序列（arraySort by (time, event_id)，截到 max_events）
   m   合併重複；x 補「離開」
-  r   ARRAY JOIN 找起點位置 → arraySlice → path 陣列 + 耗時
-  SELECT path, uniqExact(one_id) AS users, count() AS sessions, avg(dur) AS avg_ms, (SELECT uniqExact(one_id) FROM r) AS anchor_users … ORDER BY users DESC, sessions DESC, path LIMIT top_n
+  r   arrayFirstIndex／arrayLastIndex 找起點（終點）位置 → arraySlice → path 陣列 + 耗時（每會話至多一列）
+  SELECT path, uniqExact(one_id) AS users, count() AS sessions, avg(dur) AS avg_ms, (SELECT uniqExact(one_id) FROM r) AS anchor_users, (SELECT count() FROM r) AS anchor_sessions … ORDER BY users DESC, sessions DESC, path LIMIT top_n
 K 匿名：users < K 的路徑 users／sessions／avg_ms 為 NULL。抽樣：SAMPLE（按用戶分桶），預設由 API 層給 0.1。
 """
 from __future__ import annotations
@@ -191,19 +192,20 @@ def path_parts(pq: PathQuery, cat: Catalog | None = None, decision: Any = None) 
     else:
         ctes.append("x AS (SELECT one_id, sid, seq2 AS seq3 FROM m)")
     sl = f"arraySlice(seq3, idx, {pq.steps + 1})" if pq.direction == "after" else f"arraySlice(seq3, greatest(1, idx - {pq.steps}), idx - greatest(1, idx - {pq.steps}) + 1)"
-    ctes.append(f"r AS (SELECT one_id, sid, arrayMap(y -> y.2, sl) AS path, dateDiff('millisecond', sl[1].1, sl[-1].1) AS dur FROM (SELECT one_id, sid, {sl} AS sl FROM x ARRAY JOIN arrayEnumerate(seq3) AS idx WHERE seq3[idx].3))")
+    pick = "arrayFirstIndex" if pq.direction == "after" else "arrayLastIndex"      # 同神策：起點取會話第一次、終點取最後一次
+    ctes.append(f"r AS (SELECT one_id, sid, arrayMap(y -> y.2, sl) AS path, dateDiff('millisecond', sl[1].1, sl[-1].1) AS dur FROM (SELECT one_id, sid, {sl} AS sl FROM (SELECT one_id, sid, seq3, {pick}(y -> y.3 = 1, seq3) AS idx FROM x) WHERE idx > 0))")
     return PathParts(", ".join(ctes), ctx, warnings, row_filters, k)
 
 
 def compile_path(pq: PathQuery, cat: Catalog | None = None, decision: Any = None, profile: str = "human") -> Compiled:
     cat = cat or Catalog()
     parts = path_parts(pq, cat, decision); k = parts.k
-    inner = "SELECT path, uniqExact(one_id) AS _k, count() AS _n, avg(dur) AS _ms, (SELECT uniqExact(one_id) FROM r) AS anchor_users FROM r GROUP BY path"
+    inner = "SELECT path, uniqExact(one_id) AS _k, count() AS _n, avg(dur) AS _ms, (SELECT uniqExact(one_id) FROM r) AS anchor_users, (SELECT count() FROM r) AS anchor_sessions FROM r GROUP BY path"
     # 外層別名不可與內層欄位同名（ClickHouse 會把同名別名代入所有出現處，抑制條件就會用到已經變 NULL 的值）
-    sel = ["path"] + ([f"if(_k < {k}, NULL, _k) AS users", f"if(_k < {k}, NULL, _n) AS sessions", f"if(_k < {k}, NULL, _ms) AS avg_ms", "anchor_users", "_k", f"_k < {k} AS suppressed"] if k else ["_k AS users", "_n AS sessions", "_ms AS avg_ms", "anchor_users", "_k"])
+    sel = ["path"] + ([f"if(_k < {k}, NULL, _k) AS users", f"if(_k < {k}, NULL, _n) AS sessions", f"if(_k < {k}, NULL, _ms) AS avg_ms", "anchor_users", "anchor_sessions", "_k", f"_k < {k} AS suppressed"] if k else ["_k AS users", "_n AS sessions", "_ms AS avg_ms", "anchor_users", "anchor_sessions", "_k"])
     sql = f"WITH {parts.with_sql} SELECT {', '.join(sel)} FROM ({inner}) ORDER BY _k DESC, _n DESC, path LIMIT {pq.top_n}"
     from .policy import budget
-    cols = ["path", "users", "sessions", "avg_ms", "anchor_users", "_k"] + (["suppressed"] if k else [])
+    cols = ["path", "users", "sessions", "avg_ms", "anchor_users", "anchor_sessions", "_k"] + (["suppressed"] if k else [])
     fields = _fields(pq)
     lineage = ["dmp.events", f"event:{pq.anchor_event}"] + [f"event:{e}" for e in pq.node_events] + (["dmp.users_dict"] if any(f.kind == "user_hot" for f in fields) else []) \
         + (["dmp.users"] if parts.ctx.cold else []) + (["dmp.segment_members"] if any(f.kind == "segment" for f in fields) else [])
@@ -225,21 +227,23 @@ def _fields(pq: PathQuery) -> list[FieldRef]:
 
 
 def sankey(rows: list[dict[str, Any]], pq: PathQuery) -> dict[str, Any]:
-    """路徑列 → paths（含 share）＋桑基 nodes／links（只用未抑制的路徑；before 方向以終點為最後一層）。"""
+    """路徑列 → paths（含 share）＋桑基 nodes／links（只用未抑制的路徑；before 方向以終點為最後一層）。
+    數值是會話數（同神策）：每會話只有一條路徑，各路徑 sessions 加總不重複；share = 路徑會話 ÷ 起點會話。"""
     anchor_users = int(rows[0]["anchor_users"]) if rows else 0
+    anchor_sessions = int(rows[0]["anchor_sessions"]) if rows else 0
     paths = []
     nodes: dict[tuple[int, str], int] = {}; links: dict[tuple[int, str, str], int] = {}
     for r in rows:
         sup = bool(r.get("suppressed"))
         paths.append({"path": list(r["path"]), "users": None if sup else int(r["users"]), "sessions": None if sup else int(r["sessions"]),
-                      "share": None if sup or not anchor_users else round(int(r["users"]) / anchor_users, 4), "avg_ms": None if sup or r["avg_ms"] is None else float(r["avg_ms"]), "suppressed": sup})
+                      "share": None if sup or not anchor_sessions else round(int(r["sessions"]) / anchor_sessions, 4), "avg_ms": None if sup or r["avg_ms"] is None else float(r["avg_ms"]), "suppressed": sup})
         if sup: continue
-        p = list(r["path"]); u = int(r["users"])
+        p = list(r["path"]); n_s = int(r["sessions"])
         off = (pq.steps + 1 - len(p)) if pq.direction == "before" else 0        # before：對齊到右邊，終點在第 steps 層
         for i, n in enumerate(p):
-            nodes[(i + off, n)] = nodes.get((i + off, n), 0) + u
+            nodes[(i + off, n)] = nodes.get((i + off, n), 0) + n_s
             if i > 0:
-                key = (i - 1 + off, p[i - 1], n); links[key] = links.get(key, 0) + u
-    return {"paths": paths, "anchor_users": anchor_users,
-            "nodes": [{"level": lv, "node": n, "users": u} for (lv, n), u in sorted(nodes.items(), key=lambda kv: (kv[0][0], -kv[1], kv[0][1]))],
-            "links": [{"level": lv, "from": a, "to": b, "users": u} for (lv, a, b), u in sorted(links.items(), key=lambda kv: (kv[0][0], -kv[1], kv[0][1], kv[0][2]))]}
+                key = (i - 1 + off, p[i - 1], n); links[key] = links.get(key, 0) + n_s
+    return {"paths": paths, "anchor_users": anchor_users, "anchor_sessions": anchor_sessions,
+            "nodes": [{"level": lv, "node": n, "sessions": v} for (lv, n), v in sorted(nodes.items(), key=lambda kv: (kv[0][0], -kv[1], kv[0][1]))],
+            "links": [{"level": lv, "from": a, "to": b, "sessions": v} for (lv, a, b), v in sorted(links.items(), key=lambda kv: (kv[0][0], -kv[1], kv[0][1], kv[0][2]))]}

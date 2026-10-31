@@ -14,7 +14,9 @@ jobs:
         uses: semgrep/semgrep-action@v1
         with: { config: "p/default" }
       - name: Python deps audit
-        run: pipx run pip-audit -r backend/requirements.txt || true
+        run: |
+          pipx run pip-audit -r backend/requirements.txt || true
+          pipx run pip-audit --no-deps --disable-pip -r backend/streaming/requirements-flink.txt || true   # 完整釘選；Grype 掃 SBOM 時同一份檔會擋高風險
       - name: SBOM (Syft)
         uses: anchore/sbom-action@v0
         with: { path: ., format: spdx-json, output-file: sbom.spdx.json }

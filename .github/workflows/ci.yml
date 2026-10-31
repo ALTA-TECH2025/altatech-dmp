@@ -1,5 +1,6 @@
 name: ci
 on:
+  workflow_dispatch:
   pull_request:
   push: { branches: [main] }
 concurrency:
@@ -13,6 +14,7 @@ jobs:
       web: "${{ steps.f.outputs.web }}"
       deploy: "${{ steps.f.outputs.deploy }}"
       contract: "${{ steps.f.outputs.contract }}"
+      streaming: "${{ steps.f.outputs.streaming }}"
     steps:
       - uses: actions/checkout@v4
       - id: f
@@ -22,7 +24,8 @@ jobs:
             backend: ['backend/**']
             web: ['prototype/**', 'web/**']
             deploy: ['deploy/**', '.github/**']
-            contract: ['backend/openapi.yaml', 'backend/semantic/*.yaml', 'backend/mcp/tools.yaml', 'backend/security/*.yaml']   # 契約 = 語意層 yaml（CLAUDE.md）；compiler/ 的程式不是契約
+            streaming: ['backend/streaming/**', 'backend/integration/modeling.py', 'backend/integration/transforms.py', 'backend/integration/models.example.yaml', 'backend/semantic/user_properties.yaml']   # 批流一致性會用到的規則
+            contract: ['backend/openapi.yaml', 'backend/api/errors.yaml', 'backend/semantic/*.yaml', 'backend/mcp/tools.yaml', 'backend/security/*.yaml']   # 契約 = 語意層 yaml（CLAUDE.md）；compiler/ 的程式不是契約
   contract:
     needs: changes
     runs-on: ubuntu-latest
@@ -50,6 +53,55 @@ jobs:
               for r in rejects:
                   assert not v.is_valid(r), (name, r)
               print(name, "ok: 正例通過、", len(rejects), "個負例被拒")
+          PY
+      - name: 錯誤碼目錄與 OpenAPI／工具錯誤碼一致
+        # docs/46：REST 與 AI 工具共用 backend/api/errors.yaml；三處不一致時擋下
+        run: |
+          python3 - <<'PY'
+          import re, yaml, jsonschema
+          cat = yaml.safe_load(open("backend/api/errors.yaml", encoding="utf-8"))
+          api = yaml.safe_load(open("backend/openapi.yaml", encoding="utf-8"))
+          tools = yaml.safe_load(open("backend/mcp/tools.yaml", encoding="utf-8"))
+          codes, seen = cat["codes"], set()
+          for c in codes:
+              k = c["code"]; assert re.fullmatch(r"[A-Z][A-Z0-9_]+", k), k
+              assert k not in seen, f"重複代碼 {k}"; seen.add(k)
+              assert 400 <= c["http"] <= 599 and c["category"] in cat["categories"], k
+              assert isinstance(c["retryable"], bool) and c["scope"] and set(c["scope"]) <= {"api", "tool"}, k
+              assert c["message"].strip() and c["hint"].strip() and c["log"] in {"info", "warn", "error"}, k
+          api_codes = [c["code"] for c in codes if "api" in c["scope"]]
+          S = api["components"]["schemas"]
+          assert S["Error"]["properties"]["code"]["enum"] == api_codes, "openapi Error.code enum 要和 errors.yaml（scope 含 api）一致"
+          tool_cat = {c["code"]: c["retryable"] for c in codes if "tool" in c["scope"]}
+          tool_yaml = {e["code"]: e["retryable"] for e in tools["errors"]}
+          assert tool_yaml == tool_cat, f"tools.yaml errors 與 errors.yaml（scope 含 tool）不一致：{tool_yaml} vs {tool_cat}"
+          assert set(S["ToolError"]["properties"]["code"]["enum"]) == set(tool_cat), "openapi ToolError.code enum 要和 tool 代碼一致"
+          for k in cat["mapping"].values():
+              assert k in seen, f"mapping 指向不存在的代碼 {k}"
+          v = jsonschema.Draft202012Validator(S["Error"])
+          ok = {"detail": "你沒有執行這個操作的權限", "code": "AUTHZ_DENIED", "retryable": False, "request_id": "req-01HZX3", "params": {"permission": "events.export"}}
+          v.validate(ok)
+          for bad in [{**ok, "code": "NOPE"}, {k: ok[k] for k in ok if k != "request_id"}, {**ok, "sql": "SELECT 1"}, {**ok, "request_id": "a b"}]:
+              assert not v.is_valid(bad), bad
+          # 每個 operation 都要以 4XX／5XX 引用共用 Error；另列的 4xx／5xx 也要引用 Error；1xx–3xx（例 SSO 302）不得套用 Error
+          ERR, http_of, ops = {"$ref": "#/components/responses/Error"}, {c["code"]: c["http"] for c in codes if "api" in c["scope"]}, 0
+          assert api["components"]["responses"]["Error"]["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/Error"}
+          for path, item in api["paths"].items():
+              for m, op in item.items():
+                  if m not in {"get", "put", "post", "delete", "patch", "options", "head", "trace"}:
+                      continue
+                  ops += 1; r, where = op["responses"], f"{m.upper()} {path}"
+                  assert r.get("4XX") == ERR and r.get("5XX") == ERR, f"{where} 缺 4XX／5XX → components/responses/Error"
+                  for st, v in r.items():
+                      st = str(st)
+                      if st[0] in "45":
+                          assert v.get("$ref") == ERR["$ref"], f"{where} {st} 要引用 components/responses/Error"
+                          k = re.match(r"[A-Z][A-Z0-9_]{2,}", str(v.get("description", "")))
+                          if k and k.group(0) in seen:
+                              assert http_of.get(k.group(0)) == int(st), f"{where} {st} 寫 {k.group(0)}，但目錄的 HTTP 狀態是 {http_of.get(k.group(0))}"
+                      else:
+                          assert v.get("$ref") != ERR["$ref"], f"{where} {st} 不是錯誤，不可套用 Error"
+          print(f"errors.yaml ok：{len(codes)} 個代碼（API {len(api_codes)}、工具 {len(tool_cat)}），Error 結構正例通過、4 個負例被拒；{ops} 個 operation 都接上 4XX／5XX Error")
           PY
       - name: 契約變更需要 contract 標籤
         # 讀 PR 目前的標籤而不是事件快照：開 PR 後才補標籤，重跑這個 job 就能過，不必再推一個 commit
@@ -79,10 +131,11 @@ jobs:
       - run: ruff check backend
       - name: 骨架自測
         run: |
-          python3 backend/security/policy.py && python3 backend/integration/transforms.py && python3 backend/integration/auth.py && python3 backend/insight_agent/runtime.py && python3 -m backend.insight_agent.model && python3 -m backend.insight_agent.skill_loader && python3 backend/oneid/attribution.py && python3 -m backend.auth && python3 -m backend.auth.local selftest && python3 -m backend.api && python3 -m backend.segments && python3 -m backend.api.store_pg && python3 -m backend.insight_agent.journal
-          python3 -m backend.integration.modeling && python3 -m backend.integration.scheduler && python3 -m backend.integration.legacy_format && python3 -m backend.integration.ga4_source && python3 -m backend.integration.legacy_api && python3 -m backend.semantic.compiler.golden && python3 -m backend.integration.e2e_clickhouse
+          python3 backend/security/policy.py && python3 backend/integration/transforms.py && python3 backend/integration/auth.py && python3 backend/insight_agent/runtime.py && python3 -m backend.insight_agent.model && python3 -m backend.insight_agent.skill_loader && python3 backend/oneid/attribution.py && python3 -m backend.auth && python3 -m backend.auth.local selftest && python3 -m backend.api && python3 -m backend.segments && python3 -m backend.api.store_pg && python3 -m backend.insight_agent.journal && python3 -m backend.ops.lease
+          python3 -m backend.integration.modeling && python3 -m backend.integration.scheduler && python3 -m backend.integration.legacy_format && python3 -m backend.integration.ga4_source && python3 -m backend.integration.legacy_api && python3 -m backend.semantic.compiler.golden && python3 -m backend.integration.e2e_clickhouse && python3 -m backend.streaming.parity
           python3 backend/migration/bridge.py --check && python3 backend/migration/properties.py --check && python3 backend/migration/legacy_specific.py --check && python3 backend/migration/presets.py
       - name: 容器入口（backend.entry）自測與啟動前檢查
+        env: { DMP_EXPORT_DIR: '${{ runner.temp }}/dmp-exports' }    # 控制面是 PostgreSQL（同正式部署）時必填，否則啟動失敗（#87）
         run: python3 -m backend.entry --selftest && python3 -m backend.entry --check && DMP_ROLE=worker python3 -m backend.entry --check
       - name: pytest（若有 tests/）
         run: |
@@ -90,6 +143,21 @@ jobs:
       - name: 守門：工作流裡不准再出現「test … && 測試 || echo」把失敗吞掉的寫法
         run: |
           if grep -nE 'test -[fd] [^&]+ && [^|]+ \|\| echo' .github/workflows/*.yml; then echo "::error::上面的步驟會把測試失敗當成略過（R13）"; exit 1; fi
+  flink-parity:   # Flink 第一階段不交付、程式保留（docs/45 D-04）：只在相關規則變動、合併進 main 或手動時跑，不擋無關 PR
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.streaming == 'true' || (github.event_name == 'push' && needs.changes.outputs.backend == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12', cache: pip, cache-dependency-path: backend/streaming/requirements-flink.txt }
+      - name: 安裝 PyFlink（完整釘選、不解相依；刻意覆蓋的兩項見檔頭）
+        run: pip install --no-deps -r backend/streaming/requirements-flink.txt
+      - name: 批流一致性（docs/43 §3.6）：批次 apply() 與 Flink Table UDF（process／thread）、DataStream 逐列相同
+        run: python3 -m backend.streaming.parity --require-flink
   e2e-clickhouse:
     needs: changes
     if: needs.changes.outputs.backend == 'true'

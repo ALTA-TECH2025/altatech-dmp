@@ -1,41 +1,11 @@
 // 主線端到端（斷言型，對真後端）：登入（本機帳號＋TOTP）→ 事件分析查詢 → 存為書籤並建新看板 → 看板有這張卡 → 推送單（既有分群 × CRM 目的地）→ 執行 → 交付成功。
 // 前置：seed（五個帳號、黃金資料、範例看板）、demo_fill（分群「高價值活躍交易客」已計算、目的地「CRM 客戶系統」指向本機接收端）。
-import { createHmac } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { expect, test, type Page } from '@playwright/test';
-
-const ACCOUNTS = process.env.E2E_ACCOUNTS || '';
-const PASSWORD = process.env.E2E_PASSWORD || '';
-
-function totp(secretB32: string, at = Date.now()): string {
-  const a = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'; let bits = '';
-  for (const c of secretB32.replace(/=+$/, '').toUpperCase()) bits += a.indexOf(c).toString(2).padStart(5, '0');
-  const key = Buffer.from((bits.match(/.{8}/g) ?? []).map((b) => parseInt(b, 2)));
-  const ctr = Buffer.alloc(8); ctr.writeUInt32BE(Math.floor(at / 30000), 4);
-  const h = createHmac('sha1', key).update(ctr).digest(); const o = h[h.length - 1] & 15;
-  return (((h.readUInt32BE(o) & 0x7fffffff) % 1e6)).toString().padStart(6, '0');
-}
-function secretOf(user: string): string {
-  const j = JSON.parse(readFileSync(ACCOUNTS, 'utf8')) as { accounts: Record<string, { totp_secret: string }> };
-  return j.accounts[user].totp_secret;
-}
-/** 登入：密碼 → TOTP；同一個 30 秒窗口的碼不能重用（防重放），被擋就等下一個窗口再試。 */
-async function login(page: Page, user: string): Promise<void> {
-  for (let i = 0; i < 4; i++) {
-    await page.goto('/login');
-    await page.fill('input[autocomplete="username"]', user); await page.fill('input[type="password"]', PASSWORD);
-    await page.click('form[aria-label="帳密登入"] button[type="submit"]');
-    await page.waitForSelector('input[inputmode="numeric"]', { timeout: 15_000 });
-    await page.fill('input[inputmode="numeric"]', totp(secretOf(user)));
-    await page.click('form[aria-label="帳密登入"] button[type="submit"]');
-    try { await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 8_000 }); return; }
-    catch { await page.waitForTimeout(31_000 - (Date.now() % 30_000)); }
-  }
-  throw new Error(`login failed: ${user}`);
-}
+import { expect, test } from '@playwright/test';
+import { ACCOUNTS, PASSWORD, login } from './helpers';
 
 test.describe('主線', () => {
   test.skip(!ACCOUNTS || !PASSWORD, '需要 E2E_ACCOUNTS 與 E2E_PASSWORD');
+  test.slow();   // 登入被擋時每次重試要等 61 秒，逾時放寬為 3 倍
 
   test('登入 → 事件分析 → 書籤 → 看板 → 推送 → 交付成功', async ({ page }) => {
     const errors: string[] = [];
@@ -107,5 +77,13 @@ test.describe('主線', () => {
       await page.goto(path);
       await expect(page.locator('.page h1').first()).toHaveText(/沒有權限|需要重新驗證/);
     }
+  });
+
+  test('session 失效（UNAUTHENTICATED）→ 回登入頁並帶 return_to', async ({ page, context }) => {
+    await login(page, 'ops');
+    const path = new URL(page.url()).pathname;
+    await context.clearCookies({ name: 'dmp_sid' });                                         // 模擬逾時或被登出：瀏覽器沒有 session 了
+    await page.reload();
+    await page.waitForURL((u) => u.pathname === '/login' && (u.searchParams.get('return_to') ?? '').startsWith(path), { timeout: 15_000 });
   });
 });

@@ -1,4 +1,4 @@
-"""本機帳號（idp.yaml › local_accounts）：沒有 AD／Keycloak 的單機、外包或測試環境用。
+"""本機帳號（idp.yaml › local_accounts）：沒有 Keycloak 的單機、外包或測試環境用（AD 帳號一律經 Keycloak，不走這裡）。
 
 - 密碼 scrypt（標準庫，不加套件；n=2^14 r=8 p=1），密碼政策（長度、鎖定）照 idp.yaml。
 - 第二因子 TOTP（RFC 6238：HMAC-SHA1、30 秒、6 位、容忍前後一格；同一格不可重放）。
@@ -21,12 +21,12 @@ import secrets
 import struct
 import sys
 import time
+from collections import defaultdict, deque
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from .ldap import RateLimiter
 from .oidc import Identity
 
 ISSUER = "AltaTech DMP"
@@ -35,6 +35,18 @@ SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1, "dklen": 32}
 
 class LocalError(Exception):
     pass
+
+
+class RateLimiter:
+    def __init__(self, per_min: int, now: Callable[[], float] = time.time):
+        self.per_min, self.now = per_min, now
+        self.hits: dict[str, deque[float]] = defaultdict(deque)
+
+    def allow(self, key: str) -> bool:
+        t = self.now(); q = self.hits[key]
+        while q and t - q[0] > 60: q.popleft()
+        if len(q) >= self.per_min: return False
+        q.append(t); return True
 
 
 # ---- TOTP ----
@@ -215,7 +227,7 @@ class LocalAccounts:
 
 
 class LocalProvider:
-    """與 LdapProvider 同介面（cfg、authenticate）→ Identity(provider='local')；roles 放 raw['roles'] 由 mapping.map_roles 採用。"""
+    """帳密提供者介面（cfg、authenticate、check_totp）→ Identity(provider='local')；roles 放 raw['roles'] 由 mapping.map_roles 採用。"""
 
     def __init__(self, accounts: LocalAccounts, cfg: dict[str, Any] | None = None, now: Callable[[], float] = time.time):
         self.key = "local"

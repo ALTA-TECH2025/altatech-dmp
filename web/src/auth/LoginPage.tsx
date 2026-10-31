@@ -1,6 +1,6 @@
 // 登入頁：GET /auth/providers 決定顯示哪些入口。
 //   broker 模式：一顆「公司帳號登入」→ 整頁跳 /auth/login?provider=keycloak（Keycloak 再分流到 Entra ID 或 AD）
-//   direct 模式：「Microsoft Entra ID」按鈕（OIDC 跳轉）＋「網域帳號」表單（POST /auth/ldap，第二步 TOTP）
+//   direct 模式：「Microsoft Entra ID」按鈕（OIDC 跳轉）＋本機帳號表單（POST /auth/ldap provider=local，第二步 TOTP）；AD 帳號只經 Keycloak
 //   置中版面沿用 .gate／.gate-card；表單與按鈕用設計系統元件。
 import { useEffect, useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Divider, NativeSelect, Paper, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core';

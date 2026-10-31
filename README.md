@@ -30,7 +30,7 @@ docs/
   23-phase1-backend-design-and-staffing.md         第一階段後端代碼設計規劃與分工：必留／簡化／延後功能清單、微批架構（第一階段不上 Flink／Kafka）、代碼結構、十個模組設計要點與人日、六人分工 × 里程碑、沒有 ClickHouse／Flink 專家的克服方式、驗收門檻
   26-vendor-questionnaire-analysis-and-conflicts.md   客戶評分表「分析功能」逐項回覆（可直接填入）與規格衝突檢查（精確去重預設、間隔／分佈升第一階段、熱圖錄影不在範圍、看板共享待補、MCP 閘道保留）
   25-component-origin-review.md                    元件原產地與治理單位盤點（供客戶供應商評分表）：移除 SeaTunnel／Flink CDC、ECharts 改自繪 SVG + D3、ClickHouse 俄羅斯起源與大陸籍作者元件揭露
-  24-frontend-framework-and-identity.md           前端大框架（React + Vite + TS、BFF）、權限與資料管理頁、Keycloak 代理或直連 Entra ID／AD、session／CSRF／step-up、威脅對照
+  24-frontend-framework-and-identity.md           前端大框架（React + Vite + TS、BFF）、權限與資料管理頁、Keycloak 代理（AD 經 Keycloak）或直連 Entra ID、session／CSRF／step-up、威脅對照
   17-product-spec.md                               產品規格書 v0.7（總規格：架構圖、元件模組圖、數據流圖、資料模型、18 個模組規格、非功能、開發測試計畫、待確認索引；同步原型 v0.7.0；第一階段不含 AI）
   18-demo-audit-findings.md                        Demo 全面檢查：數據流／效能／建模／數據權限／元事件／用戶表／維度表／角色權限的問題、漏洞、優化與每模組待確認細節
   16-github-collaboration-with-claude.md          6 人分工（目錄即邊界）、Claude 兩種用法與邊界、GitHub 協同（trunk-based、squash、branch protection、CODEOWNERS、CI 分層）
@@ -41,7 +41,7 @@ prototype/                                          可直接開啟的前端原�
 web/                                                正式前端（React + Vite + TypeScript）：大框架、登入（SSO／AD）、路由守門、權限中心；設計見 docs/24
 backend/                                            後端骨架（可讀、可跑的最小實作與設定）
   api/app.py  main.py  iam.py  analytics.py  store.py  e2e_stage.py   REST API（FastAPI）：auth + 權限中心（角色／指派／行級模擬）+ 查詢編譯 dry-run + 事件分析執行與審計；自測與端到端
-  auth/idp.yaml  oidc.py  ldap.py  session.py  mapping.py  api.py   登入整合：Keycloak 代理或直連 Entra ID（OIDC+PKCE）／AD（LDAPS）、群組 → 角色、session／CSRF／API token、FastAPI 路由（自測）
+  auth/idp.yaml  oidc.py  local.py  session.py  mapping.py  api.py   登入整合：Keycloak 代理（AD 經 User Federation）或直連 Entra ID（OIDC+PKCE）、本機帳號、群組 → 角色、session／CSRF／API token、FastAPI 路由（自測）
   openapi.yaml                                     人與 agent 共用的 API
   semantic/{events,metrics,dimensions,dimension_tables,user_properties,oneid_rules,ga4_mapping}.yaml   語意層定義（事件、指標、維度、維度表／字典／虛擬屬性、用戶表、OneID 規則；agent 的資料地圖）
   mcp/tools.yaml  mcp/server.py                    Agent Tool Gateway（工具目錄 + 權限/預算/脫敏/審計骨架）

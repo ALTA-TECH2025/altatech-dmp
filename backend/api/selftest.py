@@ -17,6 +17,7 @@ from ..auth.api import AuthService, load_cfg
 from ..auth.session import MemoryStore as SessionMemory
 from ..auth.session import SessionManager
 from ..security.policy import RBAC, Subject
+from . import errors_selftest
 from .app import create_app
 from .store import MemoryStore
 
@@ -78,8 +79,8 @@ class FakeClickHouse:
             return '{"cohort":"2026-10-01","period":1,"users":300,"retained":120,"rate":0.4,"suppressed":false}\n{"cohort":"2026-10-01","period":2,"users":300,"retained":90,"rate":0.3,"suppressed":false}\n{"cohort":"2026-10-15","period":1,"users":5,"retained":null,"rate":null,"suppressed":true}\n'
         if "GROUPING SETS" in sql or "ARRAY JOIN touches AS t" in sql:     # 歸因（一次掃描版）／歸因落點名單
             return '{"ti":0,"first_conv":60,"first_val":6000000,"linear_conv":45.5,"linear_val":4200000,"_k":58,"conversions":100,"converters":80,"touched":70,"total_value":9000000,"avg_touches":1.8,"suppressed":false}\n{"ti":1,"first_conv":10,"first_val":900000,"linear_conv":24.5,"linear_val":2100000,"_k":30,"conversions":100,"converters":80,"touched":70,"total_value":9000000,"avg_touches":1.8,"suppressed":false}\n{"ti":2,"first_conv":null,"first_val":null,"linear_conv":null,"linear_val":null,"_k":5,"conversions":100,"converters":80,"touched":70,"total_value":9000000,"avg_touches":1.8,"suppressed":true}\n'
-        if "arrayEnumerate(seq3)" in sql:
-            return '{"path":["app_login_success","hq_stockdetail_view","bond_order","離開"],"users":120,"sessions":131,"avg_ms":84000.5,"anchor_users":300,"_k":120,"suppressed":false}\n{"path":["app_login_success","離開"],"users":90,"sessions":95,"avg_ms":0,"anchor_users":300,"_k":90,"suppressed":false}\n{"path":["app_login_success","bond_deal","離開"],"users":null,"sessions":null,"avg_ms":null,"anchor_users":300,"_k":7,"suppressed":true}\n'
+        if "AS anchor_sessions" in sql:
+            return '{"path":["app_login_success","hq_stockdetail_view","bond_order","離開"],"users":120,"sessions":131,"avg_ms":84000.5,"anchor_users":300,"anchor_sessions":262,"_k":120,"suppressed":false}\n{"path":["app_login_success","離開"],"users":90,"sessions":95,"avg_ms":0,"anchor_users":300,"anchor_sessions":262,"_k":90,"suppressed":false}\n{"path":["app_login_success","bond_deal","離開"],"users":null,"sessions":null,"avg_ms":null,"anchor_users":300,"anchor_sessions":262,"_k":7,"suppressed":true}\n'
         if "windowFunnel" in sql:
             return '{"step":1,"users":200,"_k":200,"suppressed":false}\n{"step":2,"users":80,"_k":80,"suppressed":false}\n{"step":3,"users":null,"_k":10,"suppressed":true}\n'
         return '{"bucket":"2026-10-01","m1":120,"m2":35,"_k":35,"suppressed":false}\n{"bucket":"2026-10-02","m1":5,"m2":4,"_k":4,"suppressed":true}\n'
@@ -210,12 +211,12 @@ def main(store: Any | None = None) -> None:
     rows = fr.json()["rows"]
     assert [r["alias"] for r in rows] == ["hq_stockdetail_view", "bond_order", "成交"] and rows[1]["rate_prev"] == 0.4 and rows[1]["rate_first"] == 0.4 and rows[2]["users"] is None and rows[2]["rate_prev"] is None and rows[2]["suppressed"] is True, rows
     assert "windowFunnel(604800)" in ch.sqls[-1] and fr.json()["chart_spec"]["type"] == "funnel"
-    assert c.post("/v1/analytics/funnel", json={**fq, "window": {"value": 91, "unit": "day"}}).status_code == 400
+    assert c.post("/v1/analytics/funnel", json={**fq, "window": {"value": 366, "unit": "day"}}).status_code == 400 and c.post("/v1/analytics/funnel", json={**fq, "window": {"value": 365, "unit": "day"}}).status_code == 200
     assert c.post("/v1/analytics/funnel", json={**fq, "metric": "times"}).status_code == 400
     pq = {"anchor": {"event": "app_login_success"}, "steps": 3, "time": q["time"]}
     pr = c.post("/v1/analytics/path", json=pq); assert pr.status_code == 200, pr.text
-    pb = pr.json(); assert pb["sampled"] == 0.1 and "SAMPLE 0.1" in ch.sqls[-1] and pb["anchor_users"] == 300 and pb["paths"][0]["share"] == 0.4 and pb["paths"][2]["suppressed"] is True and pb["paths"][2]["users"] is None, pb["paths"]
-    assert [n["node"] for n in pb["nodes"] if n["level"] == 0] == ["app_login_success"] and {(l["level"], l["from"], l["to"], l["users"]) for l in pb["links"] if l["level"] == 0} == {(0, "app_login_success", "hq_stockdetail_view", 120), (0, "app_login_success", "離開", 90)}, pb["links"]
+    pb = pr.json(); assert pb["sampled"] == 0.1 and "SAMPLE 0.1" in ch.sqls[-1] and pb["anchor_users"] == 300 and pb["anchor_sessions"] == 262 and pb["paths"][0]["share"] == 0.5 and pb["nodes"][0]["sessions"] == 131 + 95 and pb["paths"][2]["suppressed"] is True and pb["paths"][2]["users"] is None, pb["paths"]
+    assert [n["node"] for n in pb["nodes"] if n["level"] == 0] == ["app_login_success"] and {(l["level"], l["from"], l["to"], l["sessions"]) for l in pb["links"] if l["level"] == 0} == {(0, "app_login_success", "hq_stockdetail_view", 131), (0, "app_login_success", "離開", 95)}, pb["links"]
     assert pb["chart_spec"]["type"] == "sankey" and any("抽樣" in w for w in pb["warnings"])
     assert "SAMPLE" not in c.post("/v1/analytics/path", json={**pq, "sample": None}).json()["sql"]
     assert c.post("/v1/analytics/path", json={**pq, "steps": 11}).status_code == 400
@@ -232,7 +233,7 @@ def main(store: Any | None = None) -> None:
     rrows = rr.json()["rows"]; assert rrows[0]["complete"] is True and rrows[2]["complete"] is False and rrows[2]["suppressed"] is True and rr.json()["chart_spec"]["type"] == "retention_matrix", rrows
     assert c.post("/v1/analytics/retention", json={**rq, "periods": 0}).status_code == 400
     catl = c.get("/v1/semantic/catalog").json()
-    assert any(e["name"] == "bond_deal" for e in catl["events"]) and not any(u["key"] == "agent_id" for u in catl["user_props"]) and catl["funnel"]["max_window_days"] == 90 and "between" in catl["ops"]["number"]
+    assert any(e["name"] == "bond_deal" for e in catl["events"]) and not any(u["key"] == "agent_id" for u in catl["user_props"]) and catl["funnel"]["max_window_days"] == 365 and catl["funnel"]["max_steps"] == 32 and "between" in catl["ops"]["number"]
     # 5c. 用戶列表：行銷估數／列表（one_id、流失分遮罩）；資訊管理 403；分頁參數檢查；細查需理由（行銷 403、數據分析遮罩、不存在 404、props 去 L4 鍵、身分圖遮罩）
     uq = {"filters": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}], "behaviors": [{"event": "bond_deal", "count": {"op": "gte", "value": 3}, "time": q["time"]}]}
     est = c.post("/v1/users/estimate", json=uq); assert est.status_code == 200 and est.json()["users"] == 123 and "bitmapCardinality(bm)" in est.json()["sql"], est.text
@@ -254,7 +255,7 @@ def main(store: Any | None = None) -> None:
     assert c.get("/v1/profiles/v1_abcdef1234?reason=客訴調查").status_code == 403          # 行銷不可細查
     login(c, sm, ["it_admin"], "it"); assert c.post("/v1/users/estimate", json=uq).status_code == 403
     login(c, sm, ["data_analyst"], "ana")
-    assert c.get("/v1/profiles/v1_abcdef1234").status_code == 422 and c.get("/v1/profiles/v1_abcdef1234?reason=x").status_code == 400
+    assert c.get("/v1/profiles/v1_abcdef1234").status_code == 400 and c.get("/v1/profiles/v1_abcdef1234?reason=x").status_code == 400
     pr = c.get("/v1/profiles/v1_abcdef1234?reason=客訴單 C-1001&now=2026-10-16"); assert pr.status_code == 200, pr.text
     pb = pr.json(); assert pb["one_id"] == "v1_abc****" and pb["props"]["aum"] == 1500000 and pb["segments"] == ["vip"] and pb["summary"]["total"] == 10 and pb["summary"]["events"][0]["cn"] and pb["masked"] == {"one_id": "mask_tail(4)"}, pb
     assert c.get("/v1/profiles/nope?reason=客訴單 C-1001").status_code == 404
@@ -300,12 +301,14 @@ def main(store: Any | None = None) -> None:
     lst2 = c.post("/v1/users/list", json={**uq, "columns": ["aum", "churn_score"]}).json(); assert "aum" not in lst2["masked"] and lst2["masked"]["churn_score"], lst2["masked"]
     # 5b. 數據整合：連線（secret_ref 才收）→ 測試 → 輪替 → 數據表探索（L4 標記）→ 同步任務（模型驗證、排程）→ 預覽 → 立即執行（乾跑）→ 執行紀錄；權限：資訊管理可建、行銷不可
     import tempfile
+    from datetime import date as _date
+    from datetime import timedelta as _td
     from pathlib import Path as _P
 
     from ..integration import modeling as _m
     from ..integration.e2e_clickhouse import synth as _synth
     _m.set_key("k_idm", b"test-key-idm"); _m.set_key("k_acct", b"test-key-acct")
-    work = _P(tempfile.mkdtemp(prefix="dmp-integ-")); files = _synth(work, 300, 11)
+    work = _P(tempfile.mkdtemp(prefix="dmp-integ-")); files = _synth(work, 300, 11, day=_date.today() - _td(days=1))   # 預覽與立即執行走真實時鐘：樣本放昨天，避免 time_window（7 天）過期後全數隔離
     login(c, sm, ["marketing"], "mkt"); assert c.get("/v1/integration/connections").status_code == 403
     login(c, sm, ["it_admin"], "it")
     cons = c.get("/v1/integration/connectors").json(); assert {x["type"] for x in cons} >= {"mssql", "bigquery", "dwh"} and "kerberos" in cons[[x["type"] for x in cons].index("mssql")]["auth_methods"]
@@ -338,8 +341,11 @@ def main(store: Any | None = None) -> None:
     assert c.delete("/v1/integration/connections/dwh_trade").status_code == 409                 # 有任務使用
     pv = c.post("/v1/integration/sync-tasks/sync_orders/preview", json={"limit": 200}).json(); assert pv["summary"]["in"] == 200 and pv["summary"]["ok"] > 150 and pv["pii_hits"] == 0 and pv["events"], pv["summary"]
     assert all("王小明" not in json.dumps(x, ensure_ascii=False) for x in pv["sample_ok"])      # 個資欄位 drop_fields 不進輸出
-    run = c.post("/v1/integration/sync-tasks/sync_orders/run").json(); assert run["status"] == "success" and run["rows_in"] == 300 and run["rows_loaded"] == run["rows_ok"] > 0, run
-    runs = c.get("/v1/integration/sync-tasks/sync_orders/runs").json(); assert runs[0]["trigger"] == "manual" and runs[0]["status"] == "success" and isinstance(runs[0]["log"], list)
+    run_resp = c.post("/v1/integration/sync-tasks/sync_orders/run"); run = run_resp.json(); assert run_resp.status_code == 202 and run["status"] == "queued" and run["run_id"], run   # 交給主控 worker 排隊（#87）
+    assert c.post("/v1/integration/sync-tasks/sync_orders/run").json()["run_id"] == run["run_id"]                   # 重按不會排兩次
+    app.state.scheduler.tick()                                                                                       # worker 下一次 tick 執行
+    runs = c.get("/v1/integration/sync-tasks/sync_orders/runs").json(); assert runs[0]["id"] == run["run_id"] and runs[0]["trigger"] == "manual" and runs[0]["status"] == "success" and isinstance(runs[0]["log"], list), runs[0]
+    assert runs[0]["rows_in"] == 300 and runs[0]["rows_loaded"] == runs[0]["rows_ok"] > 0, runs[0]
     lst = c.get("/v1/integration/sync-tasks").json(); assert lst[0]["last"]["status"] == "success" and lst[0]["watermark"], lst[0]
     assert c.get("/v1/integration/tables").json()[0]["used_by"] == ["sync_orders"]
     login(c, sm, ["marketing"], "mkt"); assert c.post("/v1/integration/sync-tasks/sync_orders/run").status_code == 403
@@ -378,7 +384,37 @@ def main(store: Any | None = None) -> None:
     assert c.post(f"/v1/bookmarks/{bmj['id']}/data").json()["masked"] and c.put(f"/v1/bookmarks/{bmj['id']}", json={"name": "x"}).status_code == 403
     assert c.post("/v1/bookmarks", json={"name": "行銷的", "kind": "events", "query": q, "new_dashboard": "行銷看板"}).status_code == 403   # 行銷 overview 只有 view：可存書籤、不能建看板
     mb = c.post("/v1/bookmarks", json={"name": "行銷的", "kind": "events", "query": q}); assert mb.status_code == 201 and mb.json()["added_to"] == []
+    dup = c.post("/v1/bookmarks", json={"name": "成交金額（平台別）", "kind": "events", "query": q})          # 同專案重名：不分擁有者與類型、看不到的也算（Windy 2026-10-28）
+    assert dup.status_code == 409 and dup.json()["code"] == "CONFLICT" and bmj["id"] not in dup.text, dup.text
+    assert c.put(f"/v1/bookmarks/{mb.json()['id']}", json={"name": " 成交金額（平台別） "}).status_code == 409                       # 改名撞名也擋（前後空白不算不同）
+    assert c.put(f"/v1/bookmarks/{mb.json()['id']}", json={"name": "行銷的", "description": "同名存回自己不算重名"}).status_code == 200
+    other = c.post("/v1/bookmarks", json={"name": "成交金額（平台別）", "kind": "events", "query": {**q, "project": "other_proj"}})
+    assert other.status_code in (201, 400, 403), other.text                                                                       # 別的專案不受限（該專案能否查詢由權限決定）
+    assert other.status_code != 409, other.text
+    # 寫入當下的唯一限制：模擬兩個請求同時存同名（先查時都還看不到對方）→ 儲存層擋下，只成功一個
+    orig_items = store.items
+    store.items = lambda k: [] if k == "bookmark" else orig_items(k)   # type: ignore[method-assign]
+    try:
+        race = c.post("/v1/bookmarks", json={"name": "成交金額（平台別）", "kind": "events", "query": q})
+    finally:
+        store.items = orig_items   # type: ignore[method-assign]
+    assert race.status_code == 409 and race.json()["code"] == "CONFLICT" and bmj["id"] not in race.text, race.text
+    # 大小寫、全形／半形不同不算重名（Windy 2026-10-28）
+    assert [c.post("/v1/bookmarks", json={"name": n, "kind": "events", "query": q}).status_code for n in ("Deal Amount", "deal amount", "Ｄｅａｌ Amount")] == [201, 201, 201]
     login(c, sm, ["data_analyst"], "ana")
+    # 存書籤順手加進看板：目標去重、24 張上限、width 驗證都在寫入前完成，失敗不留書籤也不留部分卡片（#94 審查）
+    d23, d2 = (c.post("/v1/dashboards", json={"name": n}).json()["id"] for n in ("滿 23 張的看板", "另一個看板"))
+    dd = next(x for x in store.items("dashboard") if x["id"] == d23); dd["cards"] = [{**cards[0], "id": f"c_fill{i}"} for i in range(23)]; store.put_item("dashboard", dd)
+    ncards = lambda did_: len(next(x for x in store.items("dashboard") if x["id"] == did_)["cards"])
+    nbm = len(store.items("bookmark"))
+    r = c.post("/v1/bookmarks", json={"name": "重複目標", "kind": "events", "query": q, "add_to": [d23, d23, d2]})
+    assert r.status_code == 201 and [x["dashboard"] for x in r.json()["added_to"]] == [d23, d2] and ncards(d23) == 24 and ncards(d2) == 1, r.text
+    full = c.post("/v1/bookmarks", json={"name": "第 25 張", "kind": "events", "query": q, "add_to": [d2, d23]})
+    assert full.status_code == 400 and len(store.items("bookmark")) == nbm + 1 and ncards(d2) == 1 and ncards(d23) == 24, full.text
+    bad_w = c.post("/v1/bookmarks", json={"name": "寬度錯", "kind": "events", "query": q, "add_to": [d2], "width": "not-an-int"})
+    assert bad_w.status_code == 400 and len(store.items("bookmark")) == nbm + 1 and ncards(d2) == 1, bad_w.text
+    assert c.post("/v1/bookmarks", json={"name": "第 25 張", "kind": "events", "query": q}).status_code == 201   # 失敗那次沒留下同名書籤
+    for x in (d23, d2): assert c.delete(f"/v1/dashboards/{x}").status_code == 200
     assert c.delete(f"/v1/bookmarks/{bmj['id']}").status_code == 204
     cd3 = c.post(f"/v1/dashboards/{did}/cards/{bc['id']}/data").json(); assert any("書籤已刪除" in w for w in cd3["warnings"]) and cd3["rows"]
     assert next(x for x in c.get(f"/v1/dashboards/{did}").json()["cards"] if x["id"] == bc["id"])["bookmark_deleted"] is True
@@ -510,6 +546,11 @@ def main(store: Any | None = None) -> None:
     r1 = r1.json(); assert r1 == {**r1, "version": 2, "added": 3, "removed": 0, "batches": 2, "ok": 2, "failed": 0} and r1["destinations"][crm["id"]] == "ok", r1
     assert [h["headers"]["X-DMP-Event"] for h in hooks[n0:]] == ["audience.full", "audience.complete"] and hooks[n0]["body"]["members"][0]["tags"] == {"tier_grade": "P1"} and hooks[n0]["body"]["members"][2]["tags"] == {"tier_grade": "P2"} and hooks[n0 + 1]["body"]["total"] == 3, hooks[n0:]
     assert c.post(f"/v1/segments/{sg['id']}/compute", json={"basetime": "2026-10-17"}).json()["version"] == 3
+    _act = app.state.activation; n1 = len(hooks)                                                                          # 送出前一刻已不是主控（ops/lease.py）→ 不呼叫 webhook，留成待重試給接手的 worker
+    dx = _act._new_delivery(None, sg["id"], crm["id"], 2, "full", "audience.full", {"index": 1, "total": 1, "size": 0}, {"members": []})
+    _act.fence = __import__("types").SimpleNamespace(verify=lambda: False); _act._attempt(dx, _act.destination(crm["id"])); _act.fence = None
+    assert len(hooks) == n1 and dx["status"] == "retrying" and dx["attempts"] == 0 and dx["next_retry_at"] and "payload" in dx, dx
+    store.delete_item("delivery", dx["id"])
     tk = app.state.activation.tick(Subject("system:scheduler", ["admin"])); assert tk["ran"][0]["push"] == ps["id"] and tk["ran"][0]["added"] == 1 and tk["ran"][0]["removed"] == 1, tk
     assert hooks[-1]["headers"]["X-DMP-Event"] == "audience.delta" and [(m["one_id"], m["action"]) for m in hooks[-1]["body"]["members"]] == [("u5", "add"), ("u2", "remove")], hooks[-1]["body"]
     pd = c.get(f"/v1/pushes/{ps['id']}").json(); assert pd["last_delivered_version"] == 3 and len(pd["deliveries"]) == 3 and all(d["status"] == "ok" and "payload" not in d for d in pd["deliveries"]), pd
@@ -590,6 +631,19 @@ def main(store: Any | None = None) -> None:
     from datetime import datetime as _dt2
     from zoneinfo import ZoneInfo as _ZI2
     share_svc = app.state.dashboard_share
+    claims: list[str] = []                                                                                               # 多份 worker（ops/lease.py）：已不是主控 → claim 失敗 → 不寄
+    from types import SimpleNamespace
+    share_svc.fence = SimpleNamespace(claim=lambda k: claims.append(k) or False)
+    assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 12, 8, 5, tzinfo=_ZI2("Asia/Taipei"))) == [] and claims == [f"dashboard_share:{sch['id']}:2026-10-12"], claims
+    sent_f: list[Any] = []; fin: list[str] = []; _rcp = share_svc.recipients                                          # 認領成功、但寄信前一刻已不是主控（begin 失敗）→ 不寄、不寫 last_run、不 finish
+    share_svc.mailer = lambda to, subj, html: sent_f.append(to); share_svc.recipients = lambda roles: ["mkt@corp.internal"]
+    share_svc.fence = SimpleNamespace(claim=lambda k: True, begin=lambda k: False, finish=lambda k: fin.append(k))
+    lr_before = next(x for x in store.items("dashboard_schedule") if x["id"] == sch["id"]).get("last_run")
+    r_f = share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 12, 8, 5, tzinfo=_ZI2("Asia/Taipei")))
+    assert [x["status"] for x in r_f] == ["fenced"] and sent_f == [] and fin == [], (r_f, sent_f, fin)
+    assert next(x for x in store.items("dashboard_schedule") if x["id"] == sch["id"]).get("last_run") == lr_before                  # 不寫 last_run：接手的 worker 同一時段仍會寄
+    share_svc.mailer = None; share_svc.recipients = _rcp
+    share_svc.fence = None
     assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 12, 8, 5, tzinfo=_ZI2("Asia/Taipei")))[0]["status"] == "rendered_no_transport"   # 週一 08:05 到點
     assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 12, 8, 30, tzinfo=_ZI2("Asia/Taipei"))) == []                             # 同一天不重跑
     assert share_svc.tick(__import__("backend.api.dashboards", fromlist=["apply_time"]).apply_time, 20, now=_dt2(2026, 10, 13, 8, 5, tzinfo=_ZI2("Asia/Taipei"))) == []                             # 週二不跑
@@ -618,7 +672,7 @@ def main(store: Any | None = None) -> None:
     assert c.post("/v1/meta/events", json={"name": "x", "cn": "x", "entity": "user", "source": "GA360", "kind": "behavior", "owner": "a"}).status_code == 403   # 分析師只能看
     login(c, sm, ["it_admin"], "it")
     bad = c.post("/v1/meta/events", json={"name": "fund_redeem", "cn": "基金贖回", "entity": "user", "source": "基金平台", "kind": "business", "owner": "財富", "status": "live", "properties": [{"key": "mobile", "type": "string", "sensitivity": "L4"}]})
-    assert bad.status_code == 422 and any("L4" in x for x in bad.json()["detail"]["errors"]), bad.json()
+    assert bad.status_code == 422 and any("L4" in x for x in [e["message"] for e in bad.json()["errors"]]), bad.json()
     dr = c.post("/v1/meta/events", json={"name": "fund_redeem", "cn": "基金贖回", "entity": "user", "source": "基金平台", "kind": "business", "owner": "", "status": "draft", "properties": [{"key": "fund_code", "type": "string", "sensitivity": "L1"}]}).json()
     assert dr["status"] == "draft" and dr["errors"] and not dr["catalog_synced"]
     assert c.post("/v1/meta/events/fund_redeem/status", json={"to": "live"}).status_code == 422                       # 缺負責人
@@ -802,6 +856,9 @@ def main(store: Any | None = None) -> None:
     txt = _gz.decompress(outbox.read_bytes()).decode("utf-8"); assert txt.splitlines()[0] == "customer_code,event,time,platform,amount,props.market,_wm" and rn["watermark"] in txt and "v1_abcdef1234" not in txt, txt
     man = json.loads((outbox.parent / "manifest.json").read_text(encoding="utf-8")); assert man["rows"] == 2 and man["masked"] == {"amount": "bucket"} and man["approval"] == ot["approval_id"], man
     assert c.get(f"/v1/exports/tasks/{ot['id']}").json()["status"] == "ended" and c.get(f"/v1/exports/tasks/{ot['id']}/runs").json()[0]["id"] == rn["id"]
+    app.state.output.fence = SimpleNamespace(verify=lambda: False)                                                       # 已不是主控（ops/lease.py）→ 不產出
+    assert app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 17, 2, 5, tzinfo=ZoneInfo("Asia/Taipei")))["ran"] == []
+    app.state.output.fence = None
     tk = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 17, 2, 5, tzinfo=ZoneInfo("Asia/Taipei"))); assert tk["ran"] and tk["ran"][0]["task"] == dy["id"] and tk["ran"][0].get("status") == "ok", tk
     tk2 = app.state.output.tick(Subject("system:scheduler", ["admin"]), datetime(2026, 10, 17, 2, 6, tzinfo=ZoneInfo("Asia/Taipei"))); assert tk2["ran"] == [], tk2                     # 同一分區不重跑
     runs = c.get(f"/v1/exports/tasks/{dy['id']}/runs").json(); assert runs[0]["trigger"] == "schedule" and runs[0]["partition_date"] == "2026-10-16", runs
@@ -937,7 +994,7 @@ def main(store: Any | None = None) -> None:
     q = {x["key"]: x for x in pl["quality"]}; assert q["delivery_success"]["value"] is not None and q["k_suppressed"]["value"] is not None, q
     qp = c.get("/v1/ops/query-perf?window=24h").json(); mods = {m["module"]: m for m in qp["modules"]}
     assert "events" in mods and mods["events"]["n"] >= 1 and mods["events"]["p95_ms"] is not None and mods["events"]["sla_ms"] == 3000 and "sql" in mods and mods["sql"]["cn"] == "自定義 SQL", mods
-    assert qp["clickhouse"]["n"] == 42 and qp["slow"] and qp["slow"][0]["ms"] >= qp["slow"][-1]["ms"] and c.get("/v1/ops/query-perf?window=2h").status_code == 422
+    assert qp["clickhouse"]["n"] == 42 and qp["slow"] and qp["slow"][0]["ms"] >= qp["slow"][-1]["ms"] and c.get("/v1/ops/query-perf?window=2h").status_code == 400
     bj = c.get("/v1/ops/batch-jobs").json(); jn = [j["name"] for j in bj["jobs"]]
     assert "scheduler" in jn and "segments" in jn and bj["storage"][0]["name"] == "clickhouse.events" and bj["storage"][-1]["name"] == "control_plane" and bj["storage"][-1]["rows"] > 100, (jn, bj["storage"])
     sync_names = [j["name"] for j in bj["jobs"] if j["kind"] == "sync"]
@@ -971,7 +1028,10 @@ def main(store: Any | None = None) -> None:
     login(c, sm, ["admin"], "adm")
     # 7. CSRF：非 GET 沒帶 header → 403
     c.headers.pop("X-CSRF-Token"); assert c.post("/v1/semantic/compile", json=q).status_code == 403
-    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake legacy api)+bookmarks+sql sandbox+tags+activation(push/deliveries)+ops(pipeline/query-perf/batch-jobs/alerts/metrics/series/notify email+line+alertmanager)+ask(rules)+dashboard share(explain/render/token/expiry/schedule) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
+    r = c.post("/v1/semantic/compile", json=q); assert r.json()["code"] == "CSRF_INVALID" and r.headers["x-request-id"] == r.json()["request_id"], r.text
+    # 8. 統一錯誤輸出（docs/46）：每個代碼符合 Error、5xx 不洩漏、request_id 進審計與日誌
+    n_codes = errors_selftest.run(app, store)
+    print(f"api self-test ok: iam(roles crud w/ second review/break-glass/assignments/simulate)+sysadmin(members/local accounts/sessions/audit stats+export/settings) compile+events+funnel+retention+path+attribution+users+profile+exports/approvals/reveals+integration(connections/tables/tasks dry-run)+dashboards+meta(governance)+migration(fake legacy api)+bookmarks+sql sandbox+tags+activation(push/deliveries)+ops(pipeline/query-perf/batch-jobs/alerts/metrics/series/notify email+line+alertmanager)+ask(rules)+dashboard share(explain/render/token/expiry/schedule) +errors({n_codes} codes) (fake clickhouse) catalog audit={len(store.audit_tail())} routes={len(app.routes)}")
 
 
 if __name__ == "__main__":

@@ -1,16 +1,24 @@
 """同步任務排程器（第一階段微批版，docs/06 §7.1、docs/23 §2）。
 
 能力：cron（5 欄）／間隔排程、任務依賴（上游同一窗口成功才跑）、失敗重試與退避、增量水位（watermark）、
-Schema 變更策略（auto_map／ignore／pause）、執行紀錄與日誌、手動執行、啟停。狀態存 SQLite（標準函式庫），
-正式環境換 PostgreSQL 控制面同一張表結構；執行本體由 runner 提供（LocalRunner：檔案 → 模型 → ClickHouse）。
+Schema 變更策略（auto_map／ignore／pause）、執行紀錄與日誌、手動執行（排隊）、啟停。執行本體由 runner 提供（LocalRunner：檔案 → 模型 → ClickHouse）。
+狀態：沒有控制面 PostgreSQL 時存 SQLite（本機、CI、quickstart）；有的話存 PostgreSQL（PgSchedDB，schema `<控制面>_sched`），
+API 與 worker 拆開或切到主機 2 接手後同一份狀態（docs/44 §5a、docs/superpowers/specs/2026-10-28-scheduler-pg-design.md）。
+- 只有持有主控租約的 worker 跑 tick；「立即執行」由 API 登記成 queued，下一次 tick 執行。
+- 結案要「仍是 running、仍是我、租約仍有效」才寫入；新主控把別人留下的 running 標成 interrupted 並依重試設定重跑。
+- 畫面建的模型存在 models 表（任務 model_path = db:<id>）；執行紀錄與告警保留 365 天。
 
 時鐘可注入（tick(now)），所以排程邏輯可以用模擬時間完整測試。
 """
 from __future__ import annotations
 
+import contextlib
 import json
+import re
 import sqlite3
+import threading
 import traceback
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -32,7 +40,109 @@ CREATE INDEX IF NOT EXISTS runs_task ON runs(task_id, scheduled_for);
 CREATE TABLE IF NOT EXISTS watermarks (task_id TEXT PRIMARY KEY, value TEXT, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS known_fields (task_id TEXT PRIMARY KEY, fields TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, task_id TEXT, level TEXT NOT NULL, message TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS models (id TEXT PRIMARY KEY, yaml TEXT NOT NULL, updated_at TEXT NOT NULL);
 """
+DDL_AFTER = """
+CREATE INDEX IF NOT EXISTS runs_status ON runs(status);
+CREATE UNIQUE INDEX IF NOT EXISTS runs_one_queued ON runs(task_id) WHERE status = 'queued';
+"""
+PG_DDL = re.sub(r"INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY", DDL).replace(
+    "log TEXT NOT NULL DEFAULT '');", "log TEXT NOT NULL DEFAULT '', owner TEXT, generation BIGINT);") + DDL_AFTER
+KEEP_DAYS = 365                                             # 執行紀錄與告警保留天數（Windy 2026-10-28）
+
+
+class _Rows:
+    def __init__(self, rows: list[Any]): self.rows = rows
+    def fetchone(self) -> Any: return self.rows[0] if self.rows else None
+    def fetchall(self) -> list[Any]: return self.rows
+    def __iter__(self) -> Any: return iter(self.rows)
+
+
+class PgSchedDB:
+    """Scheduler 的 PostgreSQL 連線，介面模仿 sqlite3（execute／commit／rollback），兩邊共用同一份 SQL（? 轉 $n）。
+    - 用控制面連線池裡一條專用連線，search_path 指到 `<schema>_sched`；所有呼叫經控制面的事件迴圈執行緒。
+    - 交易語意同 sqlite3：第一條 INSERT／UPDATE／DELETE 開交易，commit() 結束；交易期間其他執行緒等待（不會混進別人的交易）。"""
+    def __init__(self, pg: Any) -> None:
+        self.pg, self.schema = pg, f"{pg.schema}_sched"
+        self.conn: Any = None
+        self._tx = False
+        self._lock = threading.RLock()
+        import asyncpg
+        x = asyncpg.exceptions
+        self._conn_errors = (x.ConnectionDoesNotExistError, x.InterfaceError, x.InternalClientError, x.OperatorInterventionError,
+                             x.PostgresConnectionError, ConnectionError, OSError)                 # 伺服器端踢掉連線後 asyncpg 下一次操作可能報 InternalClientError
+        self._run(self._connect())
+        self.executescript(PG_DDL)
+
+    def _run(self, coro: Any) -> Any:
+        return self.pg._loop.run(coro)
+
+    async def _connect(self) -> None:
+        self.conn = await self.pg.pool.acquire()
+        await self.conn.execute(f"CREATE SCHEMA IF NOT EXISTS {self.schema}; SET search_path TO {self.schema}")
+
+    @staticmethod
+    def _sql(sql: str) -> str:
+        n = iter(range(1, 10_000))
+        return re.sub(r"\?", lambda _: f"${next(n)}", sql)
+
+    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> _Rows:
+        write = sql.lstrip().split(None, 1)[0].upper() in ("INSERT", "UPDATE", "DELETE")
+        with self._lock:
+            for attempt in (0, 1):
+                fresh = not self._tx                          # 交易中途斷線：前面的語句已丟失，不能只重送這一條
+                try:
+                    if write and not self._tx:
+                        self._lock.acquire(); self._tx = True   # 交易這一層鎖到 commit()／rollback() 才放
+                        self._run(self.conn.execute("BEGIN"))
+                    return _Rows(list(self._run(self.conn.fetch(self._sql(sql), *params))))
+                except self._conn_errors:
+                    self._abort(); self._reconnect()            # 主備切換後 pg-primary 換主機：重連
+                    if attempt or not fresh: raise
+                except BaseException:
+                    self._abort(); raise
+        raise AssertionError("unreachable")
+
+    def _abort(self) -> None:
+        if self._tx:
+            self._tx = False
+            try:
+                self._run(self.conn.execute("ROLLBACK"))
+            except Exception:
+                pass
+            finally:
+                self._lock.release()
+
+    def _reconnect(self) -> None:
+        old, self.conn = self.conn, None
+        async def drop() -> None:                               # 斷掉的連線直接關閉再交還：連線池會補一條新的，不會把壞連線再借出去
+            old.terminate()
+            await self.pg.pool.release(old)
+        with contextlib.suppress(Exception):
+            self._run(drop())
+        self._run(self._connect())
+
+    def executescript(self, script: str) -> None:
+        with self._lock:
+            self._run(self.conn.execute(script))
+
+    def _end(self, verb: str) -> None:
+        with self._lock:
+            if self._tx:
+                self._tx = False
+                try:
+                    self._run(self.conn.execute(verb))
+                finally:
+                    self._lock.release()
+
+    def close(self) -> None:
+        """把專用連線還給連線池（連線池 close 會等所有借出的連線歸還）。"""
+        with self._lock:
+            if self.conn is not None:
+                self._run(self.pg.pool.release(self.conn)); self.conn = None
+
+    def commit(self) -> None: self._end("COMMIT")
+    def rollback(self) -> None: self._end("ROLLBACK")
 
 iso = lambda d: d.astimezone(UTC).isoformat(timespec="seconds")
 parse = lambda s: datetime.fromisoformat(s)
@@ -96,9 +206,44 @@ class SchemaChanged(Exception):
 
 # ---------------------------------------------------------------- 排程器
 class Scheduler:
-    def __init__(self, db_path: str | Path, runner: Runner):
-        self.db = sqlite3.connect(str(db_path), check_same_thread=False); self.db.row_factory = sqlite3.Row   # API 在執行緒池呼叫；呼叫端加鎖
-        self.db.executescript(DDL); self.runner = runner
+    def __init__(self, db: str | Path | PgSchedDB, runner: Runner):
+        """db：SQLite 路徑（本機、CI）或 PgSchedDB（控制面 PostgreSQL）。"""
+        if isinstance(db, PgSchedDB):
+            self.db: Any = db
+        else:
+            self.db = sqlite3.connect(str(db), check_same_thread=False); self.db.row_factory = sqlite3.Row   # API 在執行緒池呼叫；呼叫端加鎖
+            self.db.executescript(DDL)
+            cols = {r["name"] for r in self.db.execute("PRAGMA table_info(runs)")}
+            for c, typ in (("owner", "TEXT"), ("generation", "INTEGER")):    # 舊的本機排程檔補欄位
+                if c not in cols: self.db.execute(f"ALTER TABLE runs ADD COLUMN {c} {typ}")
+            self.db.executescript(DDL_AFTER); self.db.commit()
+        self.runner = runner
+        self.fence: Any = None                     # 主控租約（ops/lease.PgLease）；start_ticker 設定。沒有就是單程序（本機）
+        self.local_owner = f"local:{uuid.uuid4().hex[:8]}"
+        self._purged_on: str | None = None
+
+    def _who(self) -> tuple[str, int]:
+        f = self.fence
+        return (f.owner, int(f.generation)) if f is not None and f.generation is not None else (self.local_owner, 0)
+
+    def _held(self) -> tuple[str, tuple[Any, ...]]:
+        """結案條件：租約仍有效（資料庫時鐘）。沒有租約（本機）就不加條件。"""
+        f = self.fence
+        if f is None or not isinstance(self.db, PgSchedDB):
+            return "", ()
+        return (f" AND EXISTS (SELECT 1 FROM {f.pg.t('ops_leases')} WHERE name=? AND owner=? AND generation=? AND until > extract(epoch FROM clock_timestamp()))",
+                (f.name, f.owner, int(f.generation or -1)))
+
+    # ---- 畫面建的模型（存資料庫，接管不遺失）
+    def put_model(self, id: str, yaml_text: str, now: datetime | None = None) -> str:
+        self.db.execute("INSERT INTO models (id, yaml, updated_at) VALUES (?,?,?) ON CONFLICT (id) DO UPDATE SET yaml=excluded.yaml, updated_at=excluded.updated_at",
+                        (id, yaml_text, iso(now or datetime.now(UTC)))); self.db.commit()
+        return f"db:{id}"
+
+    def model_text(self, model_path: str) -> str:
+        r = self.db.execute("SELECT yaml FROM models WHERE id=?", (model_path.removeprefix("db:"),)).fetchone()
+        if not r: raise KeyError(model_path)
+        return r["yaml"]
 
     # ---- 任務 CRUD
     def add_task(self, id: str, model_path: str, *, cron: str | None = None, interval_min: int | None = None, mode: str = "incremental",
@@ -107,7 +252,10 @@ class Scheduler:
         assert (cron is None) != (interval_min is None), "cron 與 interval_min 擇一"
         assert schema_change in ("auto_map", "ignore", "pause")
         if cron: cron_match(cron, datetime(2026, 1, 1, tzinfo=UTC))   # 語法檢查
-        self.db.execute("INSERT OR REPLACE INTO tasks VALUES (?,?,?,?,?,?,?,?,?,1,NULL,?,?)",
+        self.db.execute("INSERT INTO tasks (id, model_path, cron, interval_min, mode, depends_on, retries, backoff_s, schema_change, enabled, paused_reason, source, created_at) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,1,NULL,?,?) ON CONFLICT (id) DO UPDATE SET model_path=excluded.model_path, cron=excluded.cron, interval_min=excluded.interval_min, "
+                        "mode=excluded.mode, depends_on=excluded.depends_on, retries=excluded.retries, backoff_s=excluded.backoff_s, schema_change=excluded.schema_change, "
+                        "enabled=1, paused_reason=NULL, source=excluded.source, created_at=excluded.created_at",
                         (id, model_path, cron, interval_min, mode, json.dumps(depends_on or []), retries, backoff_s, schema_change,
                          json.dumps(source or {}), iso(now or datetime.now(UTC))))
         self.db.commit()
@@ -118,7 +266,10 @@ class Scheduler:
     def task(self, task_id: str) -> dict[str, Any]:
         r = self.db.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
         if not r: raise KeyError(task_id)
-        d = dict(r); d["depends_on"] = json.loads(d["depends_on"]); d["source"] = json.loads(d["source"]); return d
+        d = dict(r); d["depends_on"] = json.loads(d["depends_on"]); d["source"] = json.loads(d["source"])
+        if d["model_path"].startswith("db:"):
+            d["model_yaml"] = self.model_text(d["model_path"])
+        return d
 
     def tasks(self) -> list[dict[str, Any]]:
         return [self.task(r["id"]) for r in self.db.execute("SELECT id FROM tasks ORDER BY id")]
@@ -167,12 +318,17 @@ class Scheduler:
     # ---- tick：一次掃描，啟動到期且上游就緒的任務；處理到期的重試
     def tick(self, now: datetime | None = None) -> list[dict[str, Any]]:
         now = now or datetime.now(UTC); started = []
+        self._recover(now); self._purge(now)
         # 到期的重試
         for r in self.db.execute("SELECT * FROM runs WHERE status='retry_wait' AND next_retry_at<=? ORDER BY id", (iso(now),)).fetchall():
             t = self.task(r["task_id"])
             if not t["enabled"]: continue
             self.db.execute("UPDATE runs SET status='retried' WHERE id=?", (r["id"],))   # 舊紀錄結案，避免重複觸發
             started.append(self._execute(t, parse(r["scheduled_for"]), r["attempt"] + 1, "retry", now))
+        # 排隊中的手動執行（API 只登記，主控在這裡跑）
+        for r in self.db.execute("SELECT * FROM runs WHERE status='queued' ORDER BY id").fetchall():
+            res = self._execute(self.task(r["task_id"]), parse(r["scheduled_for"]), r["attempt"], "manual", now, run_id=r["id"])
+            if res: started.append(res)
         for t in self.tasks():
             if not t["enabled"]: continue
             slot = self._due_slot(t, now)
@@ -185,61 +341,126 @@ class Scheduler:
         return started
 
     def run_now(self, task_id: str, now: datetime | None = None) -> dict[str, Any]:
+        """同步執行（CLI、測試）。API 用 enqueue：交給主控 worker 跑。"""
         now = now or datetime.now(UTC)
         return self._execute(self.task(task_id), now.replace(second=0, microsecond=0), 1, "manual", now)
+
+    def enqueue(self, task_id: str, now: datetime | None = None) -> dict[str, Any]:
+        """「立即執行」：登記 queued，下一次 tick 由主控執行。已有 queued／running 就回那一筆（重按不會排兩次）。"""
+        self.task(task_id)
+        slot = iso((now or datetime.now(UTC)).replace(second=0, microsecond=0))
+        active = "SELECT id, status, scheduled_for FROM runs WHERE task_id=? AND status IN ('queued','running') ORDER BY id DESC LIMIT 1"
+        cur = self.db.execute(active, (task_id,)).fetchone()
+        if cur is None:                                           # 部分唯一索引擋住兩個 API 同時排同一任務
+            r = self.db.execute("INSERT INTO runs(task_id, scheduled_for, attempt, status, trigger) VALUES (?,?,1,'queued','manual') ON CONFLICT DO NOTHING RETURNING id",
+                                (task_id, slot)).fetchone()
+            self.db.commit()
+            cur = self.db.execute(active, (task_id,)).fetchone() or ({"id": r["id"], "status": "queued", "scheduled_for": slot} if r else None)
+        return {"run_id": cur["id"] if cur else None, "task_id": task_id, "status": cur["status"] if cur else "queued", "scheduled_for": cur["scheduled_for"] if cur else slot}
+
+    def _recover(self, now: datetime) -> None:
+        """別人（前一任主控、已結束的程序）留下的 running：標 interrupted，依任務重試設定排重試，用完就 failed＋告警。"""
+        owner, gen = self._who()
+        rows = self.db.execute("UPDATE runs SET status='interrupted', finished_at=?, error=? WHERE status='running' AND NOT (COALESCE(owner,'')=? AND COALESCE(generation,0)=?) "
+                               "RETURNING id, task_id, scheduled_for, attempt", (iso(now), "執行中斷：前一任主控未完成（程序結束或失去主控）", owner, gen)).fetchall()
+        for r in rows:
+            try:
+                t = self.task(r["task_id"])
+            except KeyError:
+                continue
+            if r["attempt"] <= t["retries"]:
+                self.db.execute("INSERT INTO runs(task_id, scheduled_for, attempt, status, next_retry_at, trigger, error) VALUES (?,?,?,'retry_wait',?,'retry',?)",
+                                (r["task_id"], r["scheduled_for"], r["attempt"], iso(now), "前一次執行中斷，重跑"))
+            else:
+                self._alert(now, r["task_id"], "error", f"執行中斷且重試已用完（第 {r['attempt']} 次）")
+        self.db.commit()
+
+    def _purge(self, now: datetime) -> None:
+        """每天一次：刪除超過 KEEP_DAYS 天的執行紀錄與告警（任務、水位、已知欄位、模型不刪）。"""
+        day = now.strftime("%Y-%m-%d")
+        if self._purged_on == day:
+            return
+        cut = iso(now - timedelta(days=KEEP_DAYS))
+        self.db.execute("DELETE FROM runs WHERE scheduled_for < ? AND status NOT IN ('queued','running','retry_wait')", (cut,))
+        self.db.execute("DELETE FROM alerts WHERE at < ?", (cut,)); self.db.commit()
+        self._purged_on = day
 
     def _log_skip(self, task_id: str, slot: datetime, why: str, now: datetime) -> None:
         # 同一窗口只記一次 skipped，避免每次 tick 都寫
         if self.db.execute("SELECT 1 FROM runs WHERE task_id=? AND scheduled_for=? AND status='skipped'", (task_id, iso(slot))).fetchone(): return
         self.db.execute("INSERT INTO runs(task_id, scheduled_for, attempt, status, trigger, log) VALUES (?,?,0,'skipped','schedule',?)", (task_id, iso(slot), why)); self.db.commit()
 
-    def _execute(self, t: dict[str, Any], slot: datetime, attempt: int, trigger: str, now: datetime) -> dict[str, Any]:
+    def _execute(self, t: dict[str, Any], slot: datetime, attempt: int, trigger: str, now: datetime, run_id: int | None = None) -> dict[str, Any] | None:
         logs: list[str] = []
         log = lambda m: logs.append(f"{iso(now)} {m}")
+        owner, gen = self._who()
         self.db.execute("DELETE FROM runs WHERE task_id=? AND scheduled_for=? AND status='skipped'", (t["id"], iso(slot)))
-        cur = self.db.execute("INSERT INTO runs(task_id, scheduled_for, attempt, status, started_at, trigger, watermark_from) VALUES (?,?,?,'running',?,?,?)",
-                              (t["id"], iso(slot), attempt, iso(now), trigger, self.watermark(t["id"])))
-        run_id = cur.lastrowid; self.db.commit()
+        if run_id is not None:                                   # 排隊的手動執行：queued → running（別人先接走就不跑）
+            if self.db.execute("UPDATE runs SET status='running', started_at=?, watermark_from=?, owner=?, generation=? WHERE id=? AND status='queued' RETURNING id",
+                               (iso(now), self.watermark(t["id"]), owner, gen, run_id)).fetchone() is None:
+                self.db.commit(); return None
+        else:
+            run_id = self.db.execute("INSERT INTO runs(task_id, scheduled_for, attempt, status, started_at, trigger, watermark_from, owner, generation) VALUES (?,?,?,'running',?,?,?,?,?) RETURNING id",
+                                     (t["id"], iso(slot), attempt, iso(now), trigger, self.watermark(t["id"]), owner, gen)).fetchone()["id"]
+        self.db.commit()
         batch_id = f"{t['id']}:{slot:%Y%m%dT%H%M}:{attempt}"
         kf_row = self.db.execute("SELECT fields FROM known_fields WHERE task_id=?", (t["id"],)).fetchone()
         known = set(json.loads(kf_row["fields"])) if kf_row else None
+        held, held_args = self._held()
+        mine = f" WHERE id=? AND status='running' AND owner=? AND generation=?{held} RETURNING id"   # 結案條件：仍是 running、仍是我、租約仍有效
+        me = (run_id, owner, gen, *held_args)
+
+        def finish(sql: str, args: tuple[Any, ...]) -> bool:
+            if self.db.execute(sql + mine, args + me).fetchone() is None:
+                self.db.rollback()
+                return False
+            return True
         try:
             res = self.runner.run(t, watermark=self.watermark(t["id"]) if t["mode"] == "incremental" else None, batch_id=batch_id,
                                   known_fields=known, now=now, log=log)
+            if res.watermark_to is not None: res.watermark_to = str(res.watermark_to)
             status = "success"
             if res.new_fields:
                 policy = t["schema_change"]
                 if policy == "pause":
                     raise SchemaChanged(res.new_fields)
                 log(f"schema change ({policy}): {res.new_fields}")
-                self._alert(now, t["id"], "warn", f"來源新增欄位 {res.new_fields}，策略 {policy}")
-            if known is None or res.new_fields:
-                fields = sorted((known or set()) | set(res.new_fields) | set(self._runner_fields(res)))
-                self.db.execute("INSERT OR REPLACE INTO known_fields VALUES (?,?,COALESCE((SELECT version FROM known_fields WHERE task_id=?),0)+1)", (t["id"], json.dumps(fields), t["id"]))
-            if res.watermark_to is not None:
-                self.db.execute("INSERT OR REPLACE INTO watermarks VALUES (?,?,?)", (t["id"], res.watermark_to, iso(now)))
-            self.db.execute("UPDATE runs SET status=?, finished_at=?, rows_in=?, rows_ok=?, rows_quarantined=?, rows_rejected=?, rows_loaded=?, watermark_to=?, log=? WHERE id=?",
-                            (status, iso(now), res.rows_in, res.rows_ok, res.rows_quarantined, res.rows_rejected, res.rows_loaded, res.watermark_to, "\n".join(logs + res.log), run_id))
-            if res.rows_in and res.rows_quarantined / max(1, res.rows_in) > 0.01:
-                self._alert(now, t["id"], "warn", f"隔離率 {res.rows_quarantined / res.rows_in:.1%} > 1%")
-            if res.rows_loaded != res.rows_ok:
-                self._alert(now, t["id"], "error", f"對帳差異：通過 {res.rows_ok} 筆、載入 {res.rows_loaded} 筆")
+            if not finish("UPDATE runs SET status=?, finished_at=?, rows_in=?, rows_ok=?, rows_quarantined=?, rows_rejected=?, rows_loaded=?, watermark_to=?, log=?",
+                          (status, iso(now), res.rows_in, res.rows_ok, res.rows_quarantined, res.rows_rejected, res.rows_loaded, res.watermark_to, "\n".join(logs + res.log))):
+                status = "superseded"
+            else:
+                if res.new_fields:
+                    self._alert(now, t["id"], "warn", f"來源新增欄位 {res.new_fields}，策略 {t['schema_change']}")
+                if known is None or res.new_fields:
+                    fields = sorted((known or set()) | set(res.new_fields) | set(self._runner_fields(res)))
+                    self.db.execute("INSERT INTO known_fields (task_id, fields, version) VALUES (?,?,1) ON CONFLICT (task_id) DO UPDATE SET fields=excluded.fields, version=known_fields.version+1",
+                                    (t["id"], json.dumps(fields)))
+                if res.watermark_to is not None:
+                    self.db.execute("INSERT INTO watermarks (task_id, value, updated_at) VALUES (?,?,?) ON CONFLICT (task_id) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                                    (t["id"], res.watermark_to, iso(now)))
+                if res.rows_in and res.rows_quarantined / max(1, res.rows_in) > 0.01:
+                    self._alert(now, t["id"], "warn", f"隔離率 {res.rows_quarantined / res.rows_in:.1%} > 1%")
+                if res.rows_loaded != res.rows_ok:
+                    self._alert(now, t["id"], "error", f"對帳差異：通過 {res.rows_ok} 筆、載入 {res.rows_loaded} 筆")
         except SchemaChanged as e:
-            self.db.execute("UPDATE runs SET status='paused', finished_at=?, error=?, log=? WHERE id=?", (iso(now), str(e), "\n".join(logs), run_id))
-            self.set_enabled(t["id"], False, f"schema change: {e.new_fields}")
-            self._alert(now, t["id"], "error", f"來源 Schema 變更 {e.new_fields}，任務已暫停待確認")
             status = "paused"
+            if finish("UPDATE runs SET status='paused', finished_at=?, error=?, log=?", (iso(now), str(e), "\n".join(logs))):
+                self.db.execute("UPDATE tasks SET enabled=0, paused_reason=? WHERE id=?", (f"schema change: {e.new_fields}", t["id"]))
+                self._alert(now, t["id"], "error", f"來源 Schema 變更 {e.new_fields}，任務已暫停待確認")
+            else:
+                status = "superseded"
         except Exception as e:
             err = f"{type(e).__name__}: {e}"; logs.append(traceback.format_exc(limit=3))
             if attempt <= t["retries"]:
                 delay = t["backoff_s"] * (2 ** (attempt - 1)); status = "retry_wait"
-                self.db.execute("UPDATE runs SET status='retry_wait', finished_at=?, next_retry_at=?, error=?, log=? WHERE id=?",
-                                (iso(now), iso(now + timedelta(seconds=delay)), err, "\n".join(logs), run_id))
+                ok = finish("UPDATE runs SET status='retry_wait', finished_at=?, next_retry_at=?, error=?, log=?",
+                            (iso(now), iso(now + timedelta(seconds=delay)), err, "\n".join(logs)))
             else:
                 status = "failed"
-                self.db.execute("UPDATE runs SET status='failed', finished_at=?, error=?, log=? WHERE id=?", (iso(now), err, "\n".join(logs), run_id))
-                self._alert(now, t["id"], "error", f"重試 {t['retries']} 次後仍失敗：{err}")
-        self.db.commit()
+                ok = finish("UPDATE runs SET status='failed', finished_at=?, error=?, log=?", (iso(now), err, "\n".join(logs)))
+                if ok: self._alert(now, t["id"], "error", f"重試 {t['retries']} 次後仍失敗：{err}")
+            if not ok: status = "superseded"
+        self.db.commit()                                         # superseded：已不是主控（或被新主控標成中斷），結果不寫入，交給下一任重跑
         return {"run_id": run_id, "task_id": t["id"], "scheduled_for": iso(slot), "attempt": attempt, "status": status}
 
     @staticmethod
@@ -248,6 +469,137 @@ class Scheduler:
 
     def _alert(self, now: datetime, task_id: str | None, level: str, message: str) -> None:
         self.db.execute("INSERT INTO alerts(at, task_id, level, message) VALUES (?,?,?,?)", (iso(now), task_id, level, message))
+
+
+TASK_COLS = ("id", "model_path", "cron", "interval_min", "mode", "depends_on", "retries", "backoff_s", "schema_change", "enabled", "paused_reason", "source", "created_at")
+
+
+def import_sqlite(src: str | Path, dst: Scheduler, base: Path | None = None) -> dict[str, int]:
+    """一次性把 quickstart 的 SQLite 排程搬進 PostgreSQL（規格 §3.7、驗收 9）：任務、水位、已知欄位、模型。
+    - 執行紀錄與告警不搬（舊環境的紀錄，接手後重新累積）。
+    - 目的端已有的同 id 不覆蓋，重跑只會全部算「已存在」。
+    - 先驗來源結構：tasks／watermarks／known_fields 必須齊全（只有 models 可以沒有，#87 之前的舊版），否則 ValueError、不寫任何資料。
+    - 舊版畫面建的模型是 models.generated/<id>.yaml 檔：讀得到就入庫，任務改成 db:<id>；讀不到照原路徑搬並計入 missing_models。"""
+    if not Path(src).is_file():
+        raise FileNotFoundError(f"找不到 SQLite 排程檔：{src}")
+    old = sqlite3.connect(f"file:{src}?mode=ro", uri=True); old.row_factory = sqlite3.Row
+    try:                                                                              # 先驗結構：拿錯檔或缺表不能當成空資料「成功」結束
+        have = {r["name"]: {c["name"] for c in old.execute(f"PRAGMA table_info({r['name']})").fetchall()}
+                for r in old.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    except sqlite3.DatabaseError as e:
+        old.close(); raise ValueError(f"{src} 不是可讀的 SQLite 排程檔：{e}") from None
+    need = {"tasks": set(TASK_COLS), "watermarks": {"task_id", "value", "updated_at"}, "known_fields": {"task_id", "fields", "version"}}
+    bad = [f"{t}（缺 {', '.join(sorted(cols - have[t]))}）" if t in have else f"{t}（沒有這張表）" for t, cols in need.items() if t not in have or not cols <= have[t]]
+    if "models" in have and not {"id", "yaml", "updated_at"} <= have["models"]:
+        bad.append("models（欄位不完整）")
+    if bad:
+        old.close(); raise ValueError(f"{src} 不是完整的排程檔，未匯入任何資料：" + "；".join(bad))
+    def rows(table: str) -> list[sqlite3.Row]:
+        return old.execute(f"SELECT * FROM {table}").fetchall() if table in have else []   # 只有 models 可以沒有（#87 之前的舊版）
+    n = {"tasks": 0, "watermarks": 0, "known_fields": 0, "models": 0, "existing": 0, "missing_models": 0}
+    def put(sql: str, args: tuple[Any, ...], key: str) -> None:
+        hit = dst.db.execute(sql + " ON CONFLICT DO NOTHING RETURNING 1 AS ok", args).fetchone()
+        n[key if hit else "existing"] += 1
+    now = iso(datetime.now(UTC)); base = base or Path.cwd()
+    try:
+        for m in rows("models"):
+            put("INSERT INTO models (id, yaml, updated_at) VALUES (?,?,?)", (m["id"], m["yaml"], m["updated_at"]), "models")
+        for t in rows("tasks"):
+            v = dict(t); mp = str(v["model_path"])
+            if not mp.startswith("db:") and "models.generated" in mp:
+                f = Path(mp) if Path(mp).is_absolute() else base / mp
+                if f.is_file():
+                    put("INSERT INTO models (id, yaml, updated_at) VALUES (?,?,?)", (f.stem, f.read_text(encoding="utf-8"), now), "models"); v["model_path"] = f"db:{f.stem}"
+                else:
+                    n["missing_models"] += 1
+            put(f"INSERT INTO tasks ({', '.join(TASK_COLS)}) VALUES ({', '.join('?' * len(TASK_COLS))})", tuple(v[c] for c in TASK_COLS), "tasks")
+        for w in rows("watermarks"):
+            put("INSERT INTO watermarks (task_id, value, updated_at) VALUES (?,?,?)", (w["task_id"], w["value"], w["updated_at"]), "watermarks")
+        for k in rows("known_fields"):
+            put("INSERT INTO known_fields (task_id, fields, version) VALUES (?,?,?)", (k["task_id"], k["fields"], k["version"]), "known_fields")
+        dst.db.commit()
+    except Exception:
+        dst.db.rollback(); raise
+    finally:
+        old.close()
+    return n
+
+
+def common_selftest(s: Scheduler, fr: Any, t: datetime) -> None:
+    """SQLite 與 PostgreSQL 共用的 #87 驗收：排隊、模型、中斷接手、保留。"""
+    ypath = s.put_model("sync_gen", "model:\n  id: gen\n  entity: event\n", t)
+    s.add_task("sync_gen", ypath, cron="0 0 1 1 *", mode="full", retries=1, backoff_s=60, now=t)
+    assert ypath == "db:sync_gen" and "entity: event" in s.task("sync_gen")["model_yaml"]               # 模型存資料庫，任務以 db: 讀
+    q1 = s.enqueue("sync_gen", t); q2 = s.enqueue("sync_gen", t + timedelta(seconds=5))
+    assert q1["status"] == "queued" and q2["run_id"] == q1["run_id"], (q1, q2)                           # 重按回同一筆
+    gen_calls = lambda: sum(1 for c in fr.calls if c[0] == "sync_gen")
+    r = s.tick(t + timedelta(seconds=30))
+    assert [x["task_id"] for x in r if x["task_id"] == "sync_gen"] == ["sync_gen"] and gen_calls() == 1 and s.runs("sync_gen", 1)[0]["trigger"] == "manual", r
+    s.tick(t + timedelta(seconds=40)); assert gen_calls() == 1                                           # 排隊的只跑一次
+    # 別人留下的 running（前一任主控）→ interrupted＋重試
+    s.db.execute("INSERT INTO runs(task_id, scheduled_for, attempt, status, started_at, trigger, owner, generation) VALUES (?,?,1,'running',?,'schedule','old-owner',7)",
+                 ("sync_gen", iso(t), iso(t))); s.db.commit()
+    s.tick(t + timedelta(minutes=2))
+    st = [x["status"] for x in s.runs("sync_gen", 5)]
+    assert "interrupted" in st and "retried" in st and any(x["attempt"] == 2 and x["status"] == "success" for x in s.runs("sync_gen", 5)), s.runs("sync_gen", 5)
+    # 保留：一年多前的紀錄刪掉，近期留著
+    s.db.execute("INSERT INTO runs(task_id, scheduled_for, attempt, status, trigger) VALUES (?,?,1,'success','schedule')", ("sync_gen", iso(t - timedelta(days=400)))); s.db.commit()
+    s._purged_on = None; s.tick(t + timedelta(minutes=3))
+    left = s.db.execute("SELECT scheduled_for FROM runs WHERE task_id=?", ("sync_gen",)).fetchall()
+    assert left and all(parse(x["scheduled_for"]) > t - timedelta(days=KEEP_DAYS) for x in left), left
+
+
+def pg_selftest(fake_runner: Any) -> None:
+    """設 DMP_PG_DSN 時：兩份 worker 共用 PostgreSQL；只有主控跑；跑到一半換主控 → 舊主控晚到的結案不寫入。"""
+    import os
+    import time
+    if not os.environ.get("DMP_PG_DSN"):
+        print("DMP_PG_DSN 未設定：略過 PostgreSQL 排程自測"); return
+    from ..api.store_pg import PostgresStore
+    from ..ops.lease import PgLease
+    schema = "sched_selftest_" + uuid.uuid4().hex[:6]
+    pg = PostgresStore(os.environ["DMP_PG_DSN"], schema=schema)
+    try:
+        fa, fb = fake_runner(), fake_runner()
+        a, b = Scheduler(PgSchedDB(pg), fa), Scheduler(PgSchedDB(pg), fb)
+        la, lb = PgLease(pg, "dmp-tick", owner="A", ttl_s=1.5), PgLease(pg, "dmp-tick", owner="B", ttl_s=1.5)
+        a.fence, b.fence = la, lb
+        t = datetime.now(UTC).replace(second=0, microsecond=0)
+        a.add_task("sync_x", "m.yaml", interval_min=15, mode="incremental", retries=2, backoff_s=60, now=t - timedelta(hours=1))
+        assert la.ensure() and not lb.ensure()                                       # A 是主控
+        assert [x["status"] for x in a.tick(t)] == ["success"] and b.task("sync_x")["id"] == "sync_x"    # B 看得到 A 建的任務與結果
+        assert b.watermark("sync_x") == a.watermark("sync_x") is not None
+        pid = a.db.execute("SELECT pg_backend_pid() AS p").fetchone()["p"]
+        pg._loop.run(pg.pool.execute("SELECT pg_terminate_backend($1)", pid))          # 模擬主備切換斷線：下一次存取自動重連
+        assert a.task("sync_x")["id"] == "sync_x" and a.db.execute("SELECT pg_backend_pid() AS p").fetchone()["p"] != pid
+        q = b.enqueue("sync_x", t)                                                    # API（B 那份）只登記
+        assert q["status"] == "queued" and a.tick(t + timedelta(seconds=20))[0]["run_id"] == q["run_id"]
+        common_selftest(a, fa, t + timedelta(minutes=1))
+        # 跑到一半：A 失去主控、B 接手並把 A 的 running 標中斷重跑；A 晚到的結案不寫入、水位不被覆蓋
+        def slow(task: dict[str, Any], **kw: Any) -> RunResult:
+            time.sleep(1.7); assert lb.ensure() and not la.verify()
+            b.tick(datetime.now(UTC))
+            return RunResult(rows_in=1, rows_ok=1, rows_loaded=1, watermark_to="A-late")
+        fa.run = slow  # type: ignore[method-assign]
+        q = a.enqueue("sync_x", t + timedelta(minutes=5)); r = a.tick(t + timedelta(minutes=5, seconds=10))
+        mine = [x for x in r if x["run_id"] == q["run_id"]][0]
+        assert mine["status"] == "superseded" and a.watermark("sync_x") != "A-late", (mine, a.watermark("sync_x"))
+        sts = {x["id"]: x["status"] for x in b.runs("sync_x", 10)}
+        assert sts[q["run_id"]] == "interrupted" and "success" in sts.values(), sts
+        # 匯入 quickstart 的 SQLite 排程（驗收 9）：B 看得到、重跑不重複
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            old = Scheduler(Path(d) / "old.db", fake_runner()); old.add_task("old_sync", old.put_model("old_m", "model: {id: old_m}\n"), interval_min=30, now=t)
+            old.db.execute("INSERT INTO watermarks (task_id, value, updated_at) VALUES ('old_sync', '2026-10-01T00:00:00+00:00', ?)", (iso(t),)); old.db.commit(); old.db.close()
+            got = import_sqlite(Path(d) / "old.db", a); again = import_sqlite(Path(d) / "old.db", a)
+        assert got["tasks"] == got["models"] == got["watermarks"] == 1 and again["existing"] == 3 and again["tasks"] == 0, (got, again)
+        assert b.task("old_sync")["model_path"] == "db:old_m" and b.watermark("old_sync") == "2026-10-01T00:00:00+00:00" and "old_m" in b.model_text("db:old_m")
+        print(f"scheduler pg ok: 兩份 worker 共用、只有主控執行、排隊、中斷接手（舊主控晚到結案未寫入）、模型入庫、SQLite 匯入、保留 {KEEP_DAYS} 天")
+    finally:
+        for x in (a, b): x.db.close()
+        la.stop(); lb.stop()
+        pg._loop.run(pg.pool.execute(f"DROP SCHEMA IF EXISTS {schema}_sched CASCADE"))
+        pg.drop_schema(); pg.close()
 
 
 # ---------------------------------------------------------------- 自測（模擬時鐘、假 runner）
@@ -302,4 +654,29 @@ if __name__ == "__main__":
         assert st["sync_orders"]["last"]["status"] in ("success", "skipped") and st["sync_instrument"]["enabled"]
         assert cron_match("30 5 * * *", datetime(2026, 10, 16, 5, 30)) and not cron_match("30 5 * * 1-5", datetime(2026, 10, 17, 5, 30))  # 週六
         assert cron_prev("*/15 * * * *", datetime(2026, 10, 16, 5, 44)) == datetime(2026, 10, 16, 5, 30)
+        # #87：手動執行排隊、模型入庫、中斷接手、保留 365 天（SQLite 版；PostgreSQL 版見下方 pg_selftest）
+        common_selftest(s, fr, t0 + timedelta(days=2))
+        # 匯入 SQLite（quickstart 舊排程 → 新儲存）：任務、水位、已知欄位、模型；舊版 models.generated 檔入庫改 db:；重跑不重複
+        gen = Path(d) / "models.generated"; gen.mkdir(); (gen / "ui_x.yaml").write_text("model: {id: ui_x}\n", encoding="utf-8")
+        s.add_task("ui_x", str(gen / "ui_x.yaml"), interval_min=60, now=t0); s.add_task("lost", "models.generated/lost.yaml", interval_min=60, now=t0)
+        dst = Scheduler(Path(d) / "dst.db", fr)
+        got = import_sqlite(Path(d) / "sched.db", dst, base=Path(d) / "nowhere")
+        n_tasks = len(s.db.execute("SELECT id FROM tasks").fetchall())
+        assert got["tasks"] == n_tasks and got["missing_models"] == 1 and got["watermarks"] >= 2 and got["models"] >= 2, got
+        assert dst.task("ui_x")["model_path"] == "db:ui_x" and "ui_x" in dst.model_text("db:ui_x") and dst.watermark("sync_orders") == s.watermark("sync_orders")
+        assert dst.runs("sync_orders") == [] and dst.task("lost")["model_path"] == "models.generated/lost.yaml"
+        again = import_sqlite(Path(d) / "sched.db", dst); assert again["tasks"] == again["models"] == 0 and again["existing"] >= 8, again
+        # 來源結構不對：拿錯檔、缺水位表 → ValueError、目的端一筆都不寫；#87 之前沒有 models 表的舊版照常匯入
+        def bad_src(name: str, ddl: str) -> Path:
+            f = Path(d) / name; c = sqlite3.connect(f); c.executescript(ddl); c.commit(); c.close(); return f
+        empty = Scheduler(Path(d) / "empty.db", fr)
+        for f in (bad_src("wrong.db", "CREATE TABLE unrelated(x);"), bad_src("nowm.db", DDL.replace("CREATE TABLE IF NOT EXISTS watermarks", "CREATE TABLE IF NOT EXISTS skipped_wm")), Path(d) / "notsqlite.db"):
+            if not f.exists(): f.write_text("not a database")
+            try: import_sqlite(f, empty); raise AssertionError(f"應拒絕 {f.name}")
+            except ValueError as e: assert "未匯入" in str(e) or "不是可讀" in str(e), e
+        assert empty.db.execute("SELECT COUNT(*) AS n FROM tasks").fetchone()["n"] == 0
+        legacy = bad_src("legacy.db", DDL.replace("CREATE TABLE IF NOT EXISTS models (id TEXT PRIMARY KEY, yaml TEXT NOT NULL, updated_at TEXT NOT NULL);", ""))
+        lc = sqlite3.connect(legacy); lc.execute("INSERT INTO tasks (id, model_path, interval_min, mode, created_at) VALUES ('leg', 'm.yaml', 60, 'full', '2026-10-01T00:00:00+00:00')"); lc.commit(); lc.close()
+        assert import_sqlite(legacy, empty)["tasks"] == 1 and empty.task("leg")["model_path"] == "m.yaml"
         print("scheduler ok; runs:", len(s.db.execute("SELECT * FROM runs").fetchall()), "alerts:", len(s.alerts()))
+    pg_selftest(FakeRunner)

@@ -139,14 +139,15 @@ def retention_matrix(rows: list[dict[str, Any]], k: int, unit: str = "day") -> s
     return f'<table class="ret"><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table><p class="note">* 期間未完整</p>'
 
 
-def path_top(paths: list[dict[str, Any]], anchor_users: int, label_of: Any, k: int, limit: int = 10) -> str:
+def path_top(paths: list[dict[str, Any]], anchor_users: int, label_of: Any, k: int, limit: int = 10, anchor_sessions: int | None = None) -> str:
     if not paths: return '<p class="note">沒有資料</p>'
     rows = []
     for p in paths[:limit]:
         steps = " → ".join(esc(label_of(x)) for x in p.get("path", []))
-        sup = bool(p.get("suppressed")); u = p.get("users"); sh = p.get("share")
-        rows.append(f'<tr><td>{steps}</td><td class="num">{"&lt; " + str(k) if sup else esc(fmt(u))}</td><td class="num">{"" if sup or sh is None else f"{float(sh) * 100:.1f}%"}</td></tr>')
-    return f'<p class="note">起點用戶 {esc(fmt(anchor_users))}；Top {min(limit, len(paths))} 路徑</p><table><thead><tr><th>路徑</th><th>用戶</th><th>占比</th></tr></thead><tbody>{"".join(rows)}</tbody></table>'
+        sup = bool(p.get("suppressed")); u = p.get("users"); n = p.get("sessions"); sh = p.get("share")
+        rows.append(f'<tr><td>{steps}</td><td class="num">{"&lt; " + str(k) if sup else esc(fmt(u))}</td><td class="num">{"" if sup else esc(fmt(n))}</td><td class="num">{"" if sup or sh is None else f"{float(sh) * 100:.1f}%"}</td></tr>')
+    head = f"起點用戶 {esc(fmt(anchor_users))}" + (f"、會話 {esc(fmt(anchor_sessions))}" if anchor_sessions is not None else "")
+    return f'<p class="note">{head}；Top {min(limit, len(paths))} 路徑（占比＝占起點會話）</p><table><thead><tr><th>路徑</th><th>用戶</th><th>會話</th><th>占比</th></tr></thead><tbody>{"".join(rows)}</tbody></table>'
 
 
 def attribution_share(rows: list[dict[str, Any]], models: list[str], summary: dict[str, Any] | None, k: int) -> str:

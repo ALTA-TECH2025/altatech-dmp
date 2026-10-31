@@ -109,7 +109,7 @@ def card_html(card: dict[str, Any], data: dict[str, Any], k: int, label_of: Call
         g1 = rows[0].get("g1") if rows else None
         return svg.retention_matrix([r for r in rows if r.get("g1") in (None, g1)], k, str(q.get("unit") or "day"))
     if kind == "path":
-        return svg.path_top(data.get("paths") or [], int(data.get("anchor_users") or 0), label_of, k)
+        return svg.path_top(data.get("paths") or [], int(data.get("anchor_users") or 0), label_of, k, anchor_sessions=data.get("anchor_sessions"))
     return svg.attribution_share(rows, list(data.get("models") or []), data.get("summary"), k)
 
 
@@ -174,8 +174,8 @@ def explain_card(card: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
                 return len(steps) >= 1
             nxt = next((p for p in paths if real(p)), None); leave = next((p for p in paths if not real(p)), None)
             parts = []
-            if nxt: parts.append(f"最常見後續路徑 {' → '.join(nxt.get('path', []))}（{svg.fmt(nxt.get('users'))} 人，占起點 {float(nxt.get('share') or 0) * 100:.1f}%）")
-            if leave: parts.append(f"{float(leave.get('share') or 0) * 100:.0f}% 的起點用戶有過直接離開的會話")
+            if nxt: parts.append(f"最常見後續路徑 {' → '.join(nxt.get('path', []))}（{svg.fmt(nxt.get('sessions'))} 個會話，占起點會話 {float(nxt.get('share') or 0) * 100:.1f}%）")
+            if leave: parts.append(f"{float(leave.get('share') or 0) * 100:.0f}% 的起點會話直接離開")
             line = "；".join(parts) + f"；起點 {svg.fmt(data.get('anchor_users'))} 人"
     elif kind == "attribution" and rows:
         models = list(data.get("models") or []); m = models[0] if models else None
@@ -395,7 +395,8 @@ class DashboardShare:
         self.store.delete_item(SCHED_KIND, sid)
         self.store.audit("dashboard.schedule.deleted", {"user": who, "schedule": sid, "dashboard": dashboard_id})
 
-    def run_schedule(self, s: dict[str, Any], apply_time: Callable[..., dict[str, Any]], k: int, trigger: str = "tick", now: datetime | None = None) -> dict[str, Any]:
+    def run_schedule(self, s: dict[str, Any], apply_time: Callable[..., dict[str, Any]], k: int, trigger: str = "tick", now: datetime | None = None,
+                     fence_key: str | None = None) -> dict[str, Any]:
         d = next((x for x in self.store.items("dashboard") if x["id"] == s["dashboard"]), None)
         run: dict[str, Any] = {"at": (now or datetime.now(TZ)).isoformat(timespec="seconds"), "trigger": trigger, "artifact_id": None, "status": "failed", "recipients": 0, "error": None}
         try:
@@ -406,8 +407,13 @@ class DashboardShare:
             run["artifact_id"] = art["artifact_id"]
             to = sorted(set(self.recipients(s["audience"].get("roles") or [])) | set(s["audience"].get("emails") or []))
             run["recipients"] = len(to)
+            fence = getattr(self, "fence", None) if fence_key else None
             if self.mailer is None or not to:
                 run["status"] = "rendered_no_transport"
+            elif fence is not None and not fence.begin(fence_key):          # 寄信前一刻：已不是主控 → 不寄，也不寫 last_run，留給接手的 worker
+                run["status"] = "fenced"
+                self.store.audit("dashboard.schedule.fenced", {"user": s["created_by"], "schedule": s["id"], "dashboard": s["dashboard"], "artifact_id": run["artifact_id"]})
+                return run
             else:
                 self.mailer(to, f"[DMP] {d['name']} {datetime.now(TZ).strftime('%Y-%m-%d')}", f'<p>看板連結（到期 {art["expires_at"][:10]}）：<a href="{art["share_url"]}">{art["share_url"]}</a></p>')
                 run["status"] = "sent"
@@ -416,6 +422,8 @@ class DashboardShare:
             self.store.audit("dashboard.schedule.paused", {"user": s["created_by"], "schedule": s["id"], "dashboard": s["dashboard"], "reason": str(e)[:300]})
         except Exception as e:
             run["error"] = str(e)[:300]
+        if fence_key and getattr(self, "fence", None) is not None:
+            self.fence.finish(fence_key)
         s["last_run"] = run; self.store.put_item(SCHED_KIND, s)
         self.store.audit("dashboard.schedule.ran", {"user": s["created_by"], "schedule": s["id"], "dashboard": s["dashboard"], **{k2: v for k2, v in run.items() if k2 != "at"}})
         return run
@@ -440,7 +448,11 @@ class DashboardShare:
             lr = s.get("last_run") or {}
             if lr.get("at", "")[:10] == now.strftime("%Y-%m-%d") and lr.get("trigger") == "tick":
                 continue
-            ran.append(self.run_schedule(s, apply_time, k, "tick", now))
+            fence = getattr(self, "fence", None)                         # 多份 worker（ops/lease.py）：以「排程×日期」認領；真正寄信前 run_schedule 再 begin
+            key = f"dashboard_share:{s['id']}:{now:%Y-%m-%d}"
+            if fence is not None and not fence.claim(key):
+                continue
+            ran.append(self.run_schedule(s, apply_time, k, "tick", now, fence_key=key if fence is not None else None))
         if now.minute == 0:
             self.purge_expired()
         return ran
