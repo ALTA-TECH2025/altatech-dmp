@@ -180,6 +180,16 @@ class MemoryJournal:
             r.update(fields, state="queued"); self.s._save()
             return True
 
+    def reap_cancelled(self, rid: str, finished_at: str, now: float | None = None) -> bool:
+        """已要求取消、租約已過期的 running（worker 崩潰沒人收尾）→ 收成 cancelled，世代 +1 讓舊 worker 醒來寫入被擋。"""
+        now = self.clock() if now is None else now
+        with self.s.lock:
+            r = self.s.d["agent_runs"][rid]
+            if r["state"] != "running" or not r["cancel_requested"] or r["lease_until"] >= now:
+                return False
+            r.update(state="cancelled", generation=r["generation"] + 1, lease_owner=None, lease_until=0.0, finished_at=finished_at); self.s._save()
+            return True
+
     def request_cancel(self, rid: str) -> None:
         with self.s.lock:
             r = self.s.d["agent_runs"][rid]
@@ -338,6 +348,13 @@ class PostgresJournal:
                                          rid, json.dumps(fields, ensure_ascii=False, default=str)))
         return bool(self._run(fn))
 
+    def reap_cancelled(self, rid: str, finished_at: str, now: float | None = None) -> bool:
+        now = self.clock() if now is None else now
+        return bool(self._run(lambda c: c.fetchval(
+            f"UPDATE {self.s.t('agent_runs')} SET state = 'cancelled', generation = generation + 1, lease_owner = NULL, lease_until = 0, "
+            "doc = doc || jsonb_build_object('finished_at', $3::text), updated_at = now() "
+            "WHERE run_id = $1 AND state = 'running' AND cancel_requested AND lease_until < $2 RETURNING true", rid, now, finished_at)))
+
     def request_cancel(self, rid: str) -> None:
         self._run(lambda c: c.execute(
             f"UPDATE {self.s.t('agent_runs')} SET cancel_requested = true, state = CASE WHEN state IN ('queued', 'waiting_input', 'waiting_lease') THEN 'cancelled' ELSE state END "
@@ -436,6 +453,15 @@ def selftest(j: Any, store: Any, label: str) -> None:
     q = j.create_run(who); j.request_cancel(q["run_id"]); assert j.get_run(q["run_id"])["state"] == "cancelled"
     j.request_cancel(runs[1]["run_id"]); assert j.get_run(runs[1]["run_id"])["cancel_requested"] and j.claim(runs[1]["run_id"], "wc1", 60) is None
     j.set_state(runs[1]["run_id"], gens[1], "cancelled")
+    # 崩潰後才取消：租約內不收；租約過期 reap_cancelled 收成 cancelled、世代 +1，舊 worker 被擋；重收無效
+    cr = j.create_run(who); gc = j.claim(cr["run_id"], "wd", 60); j.request_cancel(cr["run_id"])
+    assert j.get_run(cr["run_id"])["state"] == "running" and not j.reap_cancelled(cr["run_id"], "t", now=T[0] + 1)
+    assert j.reap_cancelled(cr["run_id"], "t", now=T[0] + 61) and j.get_run(cr["run_id"])["state"] == "cancelled" and j.get_run(cr["run_id"])["generation"] == gc + 1
+    assert not j.reap_cancelled(cr["run_id"], "t", now=T[0] + 61)
+    try:
+        j.set_state(cr["run_id"], gc, "succeeded"); raise AssertionError("舊 worker 應被擋")
+    except Fenced:
+        pass
     # 列表（新的在前、依發起人與狀態）與冪等鍵到期（C5）
     u = f"lu_{tag}"; l1 = j.create_run({"initiator": {"user_id": u}, "created_ts": 1.0}, idempotency_key="k"); l2 = j.create_run({"initiator": {"user_id": u}, "created_ts": 2.0})
     assert [x["run_id"] for x in j.list_runs(u)] == [l2["run_id"], l1["run_id"]] and j.list_runs(u, ["running"]) == [] and len(j.list_runs(None, ["queued"], 500)) >= 2
@@ -446,7 +472,7 @@ def selftest(j: Any, store: Any, label: str) -> None:
     except LimitReached:
         pass
     assert j.create_run({"initiator": {"user_id": lu}}, idempotency_key="a", limit=2)["run_id"] == k1["run_id"]          # 冪等重送不佔新名額
-    print(f"run journal self-test ok ({label}): 名額上限、列表／冪等鍵到期、 崩潰回滾 0 筆、重試/接手 existing 同 id、租約過期未接手被擋 {expired} 次、被接手後舊 worker 被擋 {fenced} 次、改參數 CONFLICT、雙 run 併發 1 committed + 1 existing、狀態機與取消")
+    print(f"run journal self-test ok ({label}): 名額上限、列表／冪等鍵到期、 崩潰回滾 0 筆、重試/接手 existing 同 id、租約過期未接手被擋 {expired} 次、被接手後舊 worker 被擋 {fenced} 次、改參數 CONFLICT、雙 run 併發 1 committed + 1 existing、狀態機與取消、崩潰後取消收尾")
 
 
 if __name__ == "__main__":

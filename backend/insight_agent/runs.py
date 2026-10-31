@@ -206,6 +206,9 @@ class RunService:
         for r in reversed(self.j.list_runs(None, ["queued", "running", "waiting_lease"], 200)):   # 先建先跑；running 只有租約過期才接得到（claim 判斷）
             if n >= limit:
                 break
+            if r["state"] == "running" and r.get("cancel_requested"):        # worker 崩潰後才按取消：沒人會再接手，租約過期就直接收成 cancelled（草稿保留）
+                n += int(self.j.reap_cancelled(r["run_id"], datetime.fromtimestamp(self.clock(), UTC).isoformat(), now=self.clock()))
+                continue
             n += self._exec(r["run_id"], worker)
         return n
 
