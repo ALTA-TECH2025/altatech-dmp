@@ -16,10 +16,12 @@ from .runs import RunService, build_router
 
 class FakeCH:
     def __init__(self) -> None:
-        self.sql: list[str] = []; self.settings: list[dict[str, Any]] = []; self.fail: str | None = None
+        self.sql: list[str] = []; self.settings: list[dict[str, Any]] = []; self.fail: str | None = None; self.hook: Any = None
     def query(self, sql: str, data: bytes | None = None, settings: dict[str, Any] | None = None) -> str:
         if sql.startswith("EXPLAIN ESTIMATE"):
             return "dmp\tevents\t1\t1000\n"
+        if self.hook:
+            self.hook(dict(settings or {}))
         if self.fail:
             raise RuntimeError(self.fail)
         self.sql.append(sql); self.settings.append(dict(settings or {}))
@@ -124,11 +126,61 @@ def selftest() -> None:
     with ThreadPoolExecutor(6) as ex:
         got = list(ex.map(lambda i: code(svc.create, par, {**q, "question": f"上週登入人數 {i}"}, None)[1], range(6)))
     assert got.count("") == 2 and got.count("RATE_LIMITED") == 4, got
+    # 租約：worker 崩潰後由別的 worker 接手、已完成步驟不重做、舊 worker 寫入被擋；單步超過租約時背景續租
+    import threading
+
+    from .journal import Fenced
+
+    class Crash(BaseException):
+        pass
+
+    lu = Subject("u_lease", ["data_analyst"]); roles["u_lease"] = ["data_analyst"]
+    def ready() -> str:
+        x = svc.create(lu, q, None)["run_id"]; svc.tick(); svc.answer(lu, x, {"question_id": "term:開戶", "choice": "kh_apply"}); svc.tick()
+        svc.answer(lu, x, {"question_id": "confirm", "choice": "c0"}); return x
+    def sent(rid_: str, sid: str) -> int:
+        return sum(str(x.get("query_id", "")).startswith(f"{rid_}:{sid}:") for x in ch.settings)
+    lr = ready(); svc.beat_s = 0
+    def crash(st_: dict[str, Any]) -> None:
+        if ":s3_previous:" in str(st_.get("query_id", "")):
+            clock[0] += 120; raise Crash()
+    ch.hook = crash
+    try:
+        svc.tick(worker="wA"); raise AssertionError("應崩潰")
+    except Crash:
+        pass
+    ch.hook = None; ra = svc.j.get_run(lr); gen_a = ra["generation"]
+    assert ra["state"] == "running" and {x["step_id"]: x["state"] for x in ra["steps"]}.items() >= {"s2_current": "succeeded", "s3_previous": "running"}.items(), ra["steps"]
+    gen_b = svc.j.claim(lr, "wB", svc.lease_s, now=clock[0]); assert gen_b == gen_a + 1                                    # 租約過期 → 別的 worker 接得到
+    for bad in (lambda: svc.j.put_step(lr, gen_a, {"step_id": "s3_previous", "state": "failed"}), lambda: svc.j.set_state(lr, gen_a, "failed")):
+        try:
+            bad(); raise AssertionError("舊 worker 應被擋")
+        except Fenced:
+            pass
+    n_s2 = sent(lr, "s2_current"); svc.tick(worker="wB"); rb = svc._own(lu, lr)
+    assert rb["state"] == "succeeded" and len(rb["evidence"]) == 2 and sent(lr, "s2_current") == n_s2, rb.get("error")              # s2 沿用、不重查
+    assert next(x for x in rb["steps"] if x["step_id"] == "s3_previous")["attempts"] == 2
+    # 單步 90 秒（合成時鐘）：有續租 → 完成；沒續租 → 寫入被擋、留給下一個 worker 接手
+    lr2 = ready(); svc.beat_s = 0.001; beats = threading.Event(); svc.on_beat = beats.set
+    def slow(st_: dict[str, Any]) -> None:
+        if ":s2_current:" in str(st_.get("query_id", "")) and str(st_["query_id"]).endswith(":1"):
+            for _ in range(9):
+                clock[0] += 10; beats.clear(); assert beats.wait(5), "背景續租沒有發生"
+    ch.hook = slow; svc.tick(worker="wC"); ch.hook = None
+    assert svc._own(lu, lr2)["state"] == "succeeded"
+    lr3 = ready(); svc.beat_s = 0; svc.on_beat = None
+    def jump(st_: dict[str, Any]) -> None:
+        if str(st_.get("query_id", "")) == f"{lr3}:s2_current:1":
+            clock[0] += 90
+    ch.hook = jump; svc.tick(worker="wD"); ch.hook = None
+    assert svc.j.get_run(lr3)["state"] == "running"                                                                         # 沒續租：寫不進去
+    clock[0] += 61; svc.tick(worker="wE"); assert svc._own(lu, lr3)["state"] == "succeeded"
+    svc.beat_s = svc.lease_s / 3
     # 取消：排隊中直接取消；已結束再取消 409
     c = svc.create(ana, {**q, "question": "上週登入人數"}, None)["run_id"]; svc.cancel(ana, c)
     assert svc._own(ana, c)["state"] == "cancelled" and code(svc.cancel, ana, c)[1] == "CONFLICT"
     assert any(a["event"] == "agent.run.created" for a in st.audit_tail(1000))
-    print("agent runs self-test ok: A03 補問口徑、A27 規則模式確認前不查、上週＝完整週一到週日、C7 query_id、Q21、C6 他人 404、C3/C2 欄位與參數拒絕、C5 冪等 24h、A26 名額、A17、A25/A25b、A19 重試、重試與取消、A13 撤權（排隊／等待回答／重試後）、名額共用入口（重試／回答／併發建立）")
+    print("agent runs self-test ok: A03 補問口徑、A27 規則模式確認前不查、上週＝完整週一到週日、C7 query_id、Q21、C6 他人 404、C3/C2 欄位與參數拒絕、C5 冪等 24h、A26 名額、A17、A25/A25b、A19 重試、重試與取消、A13 撤權（排隊／等待回答／重試後）、名額共用入口（重試／回答／併發建立）、租約接手（崩潰接手不重做、舊 worker 被擋、長步驟續租）")
 
 
 if __name__ == "__main__":

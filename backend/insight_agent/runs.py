@@ -13,7 +13,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import time
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -63,12 +65,17 @@ class RunService:
             from .journal import PostgresJournal
             journal = PostgresJournal(store) if hasattr(store, "pool") else MemoryJournal(store)
         self.store, self.j, self.today, self.clock = store, journal, today, clock
+        if clock is not time.time:
+            self.j.clock = clock                           # 租約判斷與控制器同一個時鐘（測試用合成時鐘時兩邊一致）
         self.gw = gateway or Gateway(store, ch, today=today)
         self.model_missing = model_missing or missing_config
         self.skills = skills or skill_loader.load
         self.project = os.environ.get("DMP_PROJECT", "")
         self.roles_of = roles_of or (lambda uid: None)     # 權威來源：帳號與角色指派「現在」的狀態（停用／撤權 → None 或少了角色）；不用 run 上的快照
         self.limit = int(GW["limits"]["max_concurrent_runs_per_user"])
+        self.lease_s = float(GW["limits"]["lease_s"])
+        self.beat_s: float = self.lease_s / 3             # 長步驟執行中每 1/3 租約續租一次
+        self.on_beat: Any = None                          # 測試用：每次續租後呼叫
 
     # ---------- API ----------
     def _own(self, s: Subject, rid: str) -> dict[str, Any]:
@@ -181,12 +188,14 @@ class RunService:
     # ---------- 控制器 ----------
     def tick(self, worker: str = "local", limit: int = 5) -> int:
         n = 0
-        for r in reversed(self.j.list_runs(None, ["queued"], limit)):          # 先建先跑
+        for r in reversed(self.j.list_runs(None, ["queued", "running", "waiting_lease"], 200)):   # 先建先跑；running 只有租約過期才接得到（claim 判斷）
+            if n >= limit:
+                break
             n += self._exec(r["run_id"], worker)
         return n
 
     def _exec(self, rid: str, worker: str) -> int:
-        gen = self.j.claim(rid, worker, float(GW["limits"]["lease_s"]))
+        gen = self.j.claim(rid, worker, self.lease_s, now=self.clock())
         if gen is None:
             return 0
         r = self.j.get_run(rid); ini = r.get("initiator") or {}; t0 = self.clock()
@@ -210,10 +219,36 @@ class RunService:
         roles = self.roles_of(uid)
         return Subject(uid, list(roles or []))
 
+    @contextmanager
+    def _beat(self, rid: str, gen: int) -> Any:
+        """工具呼叫期間背景續租：單一查詢超過租約也不會被別的 worker 接手；被接手（Fenced）就停。"""
+        stop = threading.Event()
+        def run() -> None:
+            while not stop.wait(self.beat_s):
+                try:
+                    self.j.renew(rid, gen, self.lease_s, now=self.clock())
+                except Fenced:
+                    return
+                if self.on_beat:
+                    self.on_beat()
+        t = threading.Thread(target=run, daemon=True) if self.beat_s > 0 else None
+        if t:
+            t.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            if t:
+                t.join()
+
     def _call(self, rid: str, gen: int, uid: str, sid: str, tool: str, args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
-        attempt = 0
+        old = next((x for x in self.j.get_run(rid).get("steps") or [] if x["step_id"] == sid), None)
+        if old and old["state"] == "succeeded":                                # 接手後已完成的步驟不重做（結果存在步驟上）
+            return {"ok": True, "data": old.get("out") or {}, "result_digest": old.get("result_digest"), "warnings": old.get("warnings", []), "cached": True}
+        attempt = int(old["attempts"]) if old and old["state"] in ("running", "retry_wait") else 0
         while True:
             attempt += 1
+            self.j.renew(rid, gen, self.lease_s, now=self.clock())             # 每一步開始先續租；已被接手 → Fenced，整個 run 交給新 worker
             if self.j.get_run(rid).get("cancel_requested"):                    # 步驟之間檢查取消
                 raise _Cancel()
             wall = float(GW["limits"]["max_wall_time_s"]["interactive"])
@@ -228,9 +263,13 @@ class RunService:
                 self.j.put_step(rid, gen, {**step, "state": "failed", "error": err})
                 return {"ok": False, "error": err}
             tc = ToolContext(s, rid, sid, scan_bytes_used=ctx["used"], query_id=qid)
-            env = self.gw.call(tc, tool, args); ctx["used"] = tc.scan_bytes_used
+            with self._beat(rid, gen):
+                env = self.gw.call(tc, tool, args)
+            ctx["used"] = tc.scan_bytes_used
             if env["ok"]:
-                self.j.put_step(rid, gen, {**step, "state": "succeeded", "warnings": env["warnings"], "usage": env["usage"]})
+                env["result_digest"] = digest(env["data"])[:16]
+                out = {"cards": [{k: c.get(k) for k in ("title", "kind", "query")} for c in env["data"].get("cards") or []], "unmatched": env["data"].get("unmatched", [])} if tool == "analysis.configure" else {}
+                self.j.put_step(rid, gen, {**step, "state": "succeeded", "warnings": env["warnings"], "usage": env["usage"], "result_digest": env["result_digest"], "out": out})
                 return env
             err = env["error"]
             if err.get("retryable") and attempt <= RETRY.get(err["code"], 0):
@@ -269,7 +308,7 @@ class RunService:
                 return {"error": env["error"], "evidence": evid}, "failed"
             eid = "ev_" + digest([rid, sid])[:12]
             evid[eid] = {"evidence_id": eid, "run_id": rid, "label": label, "kind": card["kind"], "query": query, "period": {"from": period["from"], "to": period["to"], "tz": "Asia/Taipei"},
-                         "contract": {**r.get("contracts", {}), "skill": f"{r['skill']['name']}@{r['skill']['version']}"}, "result_digest": digest(env["data"])[:16],
+                         "contract": {**r.get("contracts", {}), "skill": f"{r['skill']['name']}@{r['skill']['version']}"}, "result_digest": env["result_digest"],
                          "created_at": datetime.fromtimestamp(self.clock(), UTC).isoformat()}
         return {"evidence": evid, "artifacts": [{"kind": "evidence", "id": e} for e in evid],
                 "result": {"answerable": True, "label": "規則模式（非 AI）", "evidence_ids": list(evid), "card": card["title"]}}, "succeeded"
