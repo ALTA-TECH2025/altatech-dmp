@@ -348,7 +348,9 @@ class Oracle:
         now = fq.time.now or date.today()
         step_events = {s.event for s in fq.steps}
         allowed = self._behaviors_ok(fq, decision, now)
-        rows = [r for r in self.events if r["project"] == fq.project and fq.time.start <= r["event_date"] <= fq.time.end and r["event"] in step_events
+        from .funnel import scan_end
+        last = scan_end(fq)
+        rows = [r for r in self.events if r["project"] == fq.project and fq.time.start <= r["event_date"] <= last and r["event"] in step_events
                 and self.group(fq.filters, r, now) and self._row_filters_ok(decision, r, now) and (allowed is None or r["one_id"] in allowed)]
         if fq.sample:
             raise ValueError("oracle 不做抽樣")
@@ -359,6 +361,8 @@ class Oracle:
             key = (r["one_id"], self.value(fq.relation, r) if fq.relation else None)
             sec = int((r["time"] - timedelta(hours=8)).replace(tzinfo=UTC).timestamp())
             for i, s in enumerate(fq.steps):
+                if i == 0 and r["event_date"] > fq.time.end:      # 第一步只看期間內（延伸區只給後續步驟）
+                    continue
                 if r["event"] == s.event and self.group(s.filters, r, now):
                     chains[key].append((sec, i))
                     if i == 0 and (key not in first_ev or r["time"] < first_ev[key][0]):
@@ -586,7 +590,7 @@ class Oracle:
 
     # ---- 路徑 ----
     def _path_slices(self, pq: PathQuery, decision: Any = None) -> list[tuple[str, tuple[str, ...], float]]:
-        """每個起點（終點）出現 → (one_id, path, 耗時 ms)；與 SQL 的 ev→會話→合併→離開→切片同口徑。"""
+        """每會話一條 → (one_id, path, 耗時 ms)：起點取會話第一次出現、終點取最後一次（同神策）；與 SQL 的 ev→會話→合併→離開→切片同口徑。"""
         now = pq.time.now or date.today()
         if pq.sample:
             raise ValueError("oracle 不做抽樣")
@@ -625,8 +629,9 @@ class Oracle:
                     seq = [x for i, x in enumerate(seq) if i == 0 or x[1] != seq[i - 1][1]]
                 if pq.exit_node and seq[-1][1] != EXIT:
                     seq.append((seq[-1][0], EXIT, pq.anchor == EXIT, seq[-1][3]))
-                for i, x in enumerate(seq):
-                    if not x[2]: continue
+                hits = [i for i, x in enumerate(seq) if x[2]]
+                if not hits: continue
+                for i in ([hits[0]] if pq.direction == "after" else [hits[-1]]):
                     sl = seq[i: i + pq.steps + 1] if pq.direction == "after" else seq[max(0, i - pq.steps): i + 1]
                     ms = (sl[-1][0].replace(microsecond=sl[-1][0].microsecond // 1000 * 1000) - sl[0][0].replace(microsecond=sl[0][0].microsecond // 1000 * 1000)).total_seconds() * 1000
                     out.append((oid, tuple(y[1] for y in sl), ms))
@@ -635,14 +640,14 @@ class Oracle:
     def run_path(self, pq: PathQuery, decision: Any = None) -> list[dict[str, Any]]:
         k = int(getattr(decision, "k_anonymity", 0) or 0)
         slices = self._path_slices(pq, decision)
-        anchor_users = len({o for o, _, _ in slices})
+        anchor_users = len({o for o, _, _ in slices}); anchor_sessions = len(slices)
         agg: dict[tuple[str, ...], tuple[set[str], int, float]] = {}
         for oid, path, ms in slices:
             u, n, t = agg.get(path, (set(), 0, 0.0)); u.add(oid); agg[path] = (u, n + 1, t + ms)
         rows = []
         for path, (u, n, t) in agg.items():
             users = len(u); sup = bool(k and users < k)
-            row: dict[str, Any] = {"path": list(path), "users": None if sup else users, "sessions": None if sup else n, "avg_ms": None if sup else t / n, "anchor_users": anchor_users, "_k": users}
+            row: dict[str, Any] = {"path": list(path), "users": None if sup else users, "sessions": None if sup else n, "avg_ms": None if sup else t / n, "anchor_users": anchor_users, "anchor_sessions": anchor_sessions, "_k": users}
             if k: row["suppressed"] = sup
             rows.append(row)
         rows.sort(key=lambda r: (-r["_k"], -(r["sessions"] if r["sessions"] is not None else agg[tuple(r["path"])][1]), r["path"]))

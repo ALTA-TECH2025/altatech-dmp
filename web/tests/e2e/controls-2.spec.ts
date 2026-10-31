@@ -50,7 +50,7 @@ test.describe.serial('控制項：漏斗、路徑、歸因', () => {
 
     // 轉換窗口：選項由短到長，完成最後一步的人只會變多或不變
     let prev = -1;
-    for (const w of await optionsOf(labeled(page, '轉換窗口'))) {
+    for (const w of (await optionsOf(labeled(page, '轉換窗口'))).filter((x) => x !== 'custom')) {
       await labeled(page, '轉換窗口').selectOption(w);
       const r = await query(page, '/v1/analytics/funnel');
       expect(r.status, `窗口 ${w}：${r.body.detail ?? ''}`).toBe(200);
@@ -59,7 +59,23 @@ test.describe.serial('控制項：漏斗、路徑、歸因', () => {
       expect(last(r.body.rows), `窗口 ${w} 不應比更短的窗口少`).toBeGreaterThanOrEqual(prev);
       prev = last(r.body.rows);
     }
+    expect(prev, '最長預設窗口（365 天）應有結果').toBeGreaterThan(0);
+    // 自訂窗口：45 天能查；366 天在畫面上就擋下（查詢按鈕不能按）
+    await labeled(page, '轉換窗口').selectOption('custom');
+    await page.getByLabel('窗口數值').fill('45'); await page.getByLabel('窗口單位').selectOption('day');
+    const cw = await query(page, '/v1/analytics/funnel');
+    expect(cw.status, cw.body.detail).toBe(200);
+    expect(cw.req.window).toEqual({ value: 45, unit: 'day' });
+    await page.getByLabel('窗口數值').fill('366');
+    await expect(page.getByRole('button', { name: '查詢', exact: true })).toBeDisabled();
+    await expect(page.getByText('最長 365 天')).toBeVisible();
     await labeled(page, '轉換窗口').selectOption('7:day');
+
+    // 步數上限（目錄 max_steps = 32）：一直加到「＋ 步驟」消失，正好 32 步
+    for (let i = 0; i < 40 && await page.getByRole('button', { name: '＋ 步驟' }).isVisible(); i++) await page.getByRole('button', { name: '＋ 步驟' }).click();
+    await expect(page.locator('select[aria-label^="第 "][aria-label$=" 步事件"]')).toHaveCount(32);
+    for (let i = 32; i > 2; i--) await page.getByRole('button', { name: `刪除第 ${i} 步` }).click();
+    await expect(page.locator('select[aria-label^="第 "][aria-label$=" 步事件"]')).toHaveCount(2);
 
     // 順序：嚴格不會比寬鬆多
     const res: Record<string, number> = {};
@@ -113,6 +129,21 @@ test.describe.serial('控制項：漏斗、路徑、歸因', () => {
       }
     }
     await labeled(page, '關聯屬性').selectOption('');
+
+    // 限制後續事件在時間區間內（同神策）：期間 10-05～10-09（之後還有資料）、窗口 3 天；勾選後第 1 步一樣、第 2 步只會變少
+    await setRange(page, '2026-10-05', '2026-10-09'); await labeled(page, '轉換窗口').selectOption('3:day');
+    const box = page.getByLabel('限制後續事件在時間區間內');
+    await expect(box).not.toBeChecked();
+    const open = await query(page, '/v1/analytics/funnel');
+    expect(open.status, open.body.detail).toBe(200);
+    expect(open.req.restrict_to_range, '預設不帶（後續步驟可落在期間後）').toBeUndefined();
+    await box.check();
+    const lim = await query(page, '/v1/analytics/funnel');
+    expect(lim.status, lim.body.detail).toBe(200);
+    expect(lim.req.restrict_to_range).toBe(true);
+    expect(first(lim.body.rows), '第 1 步人數不受限制影響').toBe(first(open.body.rows));
+    expect(last(lim.body.rows), '勾選限制後第 2 步 ≤ 不勾').toBeLessThanOrEqual(last(open.body.rows));
+    await box.uncheck();
   });
 
   test('路徑：每個方向 × 會話切割 × 抽樣都能查，有節點', async () => {
@@ -132,6 +163,12 @@ test.describe.serial('控制項：漏斗、路徑、歸因', () => {
       const paths = r.body.paths as { suppressed?: boolean }[];
       if (r.body.nodes.length === 0) expect(paths.length > 0 && paths.every((x) => x.suppressed), `路徑 ${d}／${s}：沒有節點時，所有路徑都應是 K 匿名抑制`).toBe(true);
       else expect(r.body.links.length, `路徑 ${d}／${s} 有節點就應有連線`).toBeGreaterThan(0);
+      // 桑基圖是會話數（同神策，每會話一條路徑）：任一連線、錨點層節點加總都不超過起點會話數
+      const as = Number(r.body.anchor_sessions);
+      expect(as, `路徑 ${d}／${s}：起點會話數 ≥ 起點人數`).toBeGreaterThanOrEqual(Number(r.body.anchor_users));
+      for (const l of r.body.links as { sessions: number }[]) expect(l.sessions, `路徑 ${d}／${s}：連線會話 ≤ 起點會話`).toBeLessThanOrEqual(as);
+      const lv = d === 'after' ? 0 : Math.max(0, ...(r.body.nodes as { level: number }[]).map((n) => n.level));
+      expect((r.body.nodes as { level: number; sessions: number }[]).filter((n) => n.level === lv).reduce((t, n) => t + n.sessions, 0), `路徑 ${d}／${s}：錨點層會話加總 ≤ 起點會話`).toBeLessThanOrEqual(as);
     }
     for (const v of await optionsOf(smp)) {
       await smp.selectOption(v);
