@@ -463,7 +463,7 @@ paths:
   /v1/agents/skills/{name}/drafts/{draft_id}/submit:
     post:
       tags: [Agents]
-      summary: 送發布：body 指明 revision、content_digest 與同一內容的 dry_run_id（草案改過後舊乾跑失效）；送出後內容鎖定（in_review 不可 PATCH）；含 proposed／pending_client 參數者只能以 trial 送出；需 ai_skills.use；審計 agent_skill.submitted
+      summary: 送發布：body 指明 revision、content_digest 與同一內容的 dry_run_id（草案改過後舊乾跑失效）；送出後內容鎖定（in_review 不可 PATCH）；含 proposed／pending_client 參數者也可送出並由核可人正式發布（1029-9），結果一律帶 CONTRACT_PENDING；需 ai_skills.use；審計 agent_skill.submitted
       parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: draft_id, in: path, required: true, schema: { type: string } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SubmitBinding' } } } }
       responses: { '202': { description: in_review, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } }, '409': { $ref: '#/components/responses/Error', description: 'revision／content_digest 與目前草案不符、乾跑不是這一版內容、或驗證未過' }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } }
@@ -476,7 +476,7 @@ paths:
   /v1/agents/skills/{name}/drafts/{draft_id}/approve:
     post:
       tags: [Agents]
-      summary: 核可發布 → 產生新版本號（published 或 trial）；body 指明核可的 revision、content_digest，須等於送審時鎖定的值；核可者不得為送出者；需 ai_skills.approve；審計 agent_skill.approved
+      summary: 核可發布 → 產生新版本號（published；前一個發布版改 retired，內容不變、既有 run 照舊可讀）；body 指明核可的 revision、content_digest，須等於送審時鎖定的值；核可者不得為送出者；需 ai_skills.approve；審計 agent_skill.approved
       parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: draft_id, in: path, required: true, schema: { type: string } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReviewBinding' } } } }
       responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } }, '403': { $ref: '#/components/responses/Error', description: 'AUTHZ_DENIED：沒有 ai_skills.approve' }, '409': { $ref: '#/components/responses/Error', description: 'FOUR_EYES_REQUIRED：核可者是送出者本人（四眼原則）；CONFLICT：ReviewBinding 不是送審時鎖定的那一版內容' }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } }
@@ -2171,7 +2171,7 @@ components:
         draft_id: { type: string }
         revision: { type: integer, description: 草案修訂號（PATCH 的 If-Match）；每次 PATCH +1 }
         content_digest: { type: string, description: 'sha256(草案可編輯內容的正規 JSON)；乾跑、送審、核可都綁這個值' }
-        state: { type: string, enum: [draft, in_review, published, trial, retired], description: 'trial = 含未核定參數的發布：結果帶 CONTRACT_PENDING，不能設為預設、不能排程、不能分享或送審' }
+        state: { type: string, enum: [draft, in_review, published, trial, retired], description: '只有 published 能選用來跑（1029-2）；含未核定參數的 published 結果一律帶 CONTRACT_PENDING，只擋受眾送審（1029-9、1029-10）；trial 保留不用（核可不產生 trial）；retired = 被新版本取代，內容不變' }
         base_version: { type: string }
         purpose: { type: string }
         refs: { type: object, properties: { bookmarks: { type: array, items: { type: string, pattern: '^bm_[A-Za-z0-9_]+$' }, description: '存好的分析或漏斗：書籤系統編號 bm_…（建立書籤時由後端產生）；不接受名稱或自編 ID，查不到 → 不能存' }, funnels: { type: array, items: { type: string }, deprecated: true, description: '舊欄位，新草案改用 bookmarks' }, metrics: { type: array, items: { type: string }, description: 'backend/semantic/metrics.yaml 實際存在的 key' }, events: { type: array, items: { type: string }, description: 'backend/semantic/events.yaml 實際存在的 key' } }, description: '只引用、不複製定義（Windy 2026-10-28：不做名稱比對）；解析不到 → 草案不能存（400，回欄位）；改共用定義走既有契約流程' }

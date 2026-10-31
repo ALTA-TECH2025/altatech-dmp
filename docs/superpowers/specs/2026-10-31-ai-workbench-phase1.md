@@ -55,6 +55,7 @@
 | C10 自核錯誤碼 | 送出者自己按核可 | 409 `FOUR_EYES_REQUIRED`（錯誤碼目錄既有）；沒有 `ai_skills.approve` 仍是 403 `AUTHZ_DENIED`。skills 與 configs 的 approve 都改 | docs/40 D03 |
 | C11 書籤引用 | 技能引用存好的漏斗 | `SkillVersion.refs` 加 `bookmarks`（`bm_…` 系統編號），不接受名稱或自編 ID；`funnels` 標為舊欄位 | 1028 決定、docs/40 D19 |
 | C12 權限分配 | `ai_skills` 給哪些角色 | 先只有系統管理員（`"*"`）；其他人要用就建自訂角色勾 `ai_skills`。`rbac.yaml` 不改 | Q 提案保留 |
+| C14 待確認參數發布 | 含 proposed／pending_client 參數能不能正式發布 | 契約原寫「只能以 trial 送出」，與 1029-9／1029-10 決定不符：改成可正式發布（published），結果一律帶 CONTRACT_PENDING，只擋受眾送審；核可不產生 trial；前一個發布版改 retired | 1029-2、1029-9、1029-10 |
 | C13 乾跑分段 | 乾跑要跑真資料 | 第 5 步：乾跑比對草案與發布版的參數、引用、說明差異，產生乾跑紀錄（`dry_run_id` 綁 `content_digest`），送審照綁定規則；兩份真資料結果在第 6 步接上 S1 後補，回應帶警示說明「本次只比對設定」 | docs/40 D02 延到第 6 步 |
 
 看板版本欄位（Q30）只有定期重跑更新同一份看板時才需要，第二階段之後再定。
