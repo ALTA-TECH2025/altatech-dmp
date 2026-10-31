@@ -78,6 +78,8 @@ class ToolContext:
     step_id: str = ""
     scan_bytes_used: float = 0.0
     query_id: str = ""              # C7：run_id:step_id:attempt；送 ClickHouse 的查詢帶這個（模型投影那次加 :mv），取消時 KILL QUERY 用
+    operation_id: str = ""          # 寫入工具：控制器產生，模型碰不到（C4）
+    commit: Callable[..., tuple[str, str]] | None = None   # 寫入工具：控制器給的 journal.commit_operation（帶 run、世代與 origin），唯一冪等來源
 
 
 class _QID:
@@ -166,7 +168,8 @@ class Gateway:
         self.evidence_of: Callable[[str, str], tuple[str, dict[str, Any]] | None] | None = None   # (run_id, evidence_id) → (發起人, 證據)；由 run 控制器接上
         self.handlers: dict[str, Callable[[ToolContext, dict[str, Any]], tuple[dict[str, Any], dict[str, Any], dict[str, Any]]]] = {
             "semantic.search": self._search, "semantic.describe": self._describe, "analysis.configure": self._configure,
-            "analysis.estimate": self._estimate, "analysis.run": self._run, "evidence.get": self._evidence_get, "data.readiness": self._readiness}
+            "analysis.estimate": self._estimate, "analysis.run": self._run, "dashboard.draft": self._dashboard_draft,
+            "evidence.get": self._evidence_get, "data.readiness": self._readiness}
 
     # ---- 共用：模組解析、授權、預算
     def _modules(self, spec: dict[str, Any], args: dict[str, Any], ctx: ToolContext | None = None) -> list[tuple[str, str]]:
@@ -217,6 +220,7 @@ class Gateway:
             if k in args:
                 args.pop(k); warnings.append({"code": "IDENTITY_ARG_DROPPED", "message": f"參數 {k} 已忽略：身分只來自登入者"})
         env: dict[str, Any] = {"ok": False, "data": None, "model_view": None, "evidence_id": None, "warnings": warnings, "error": None, "usage": usage}
+        stop: BaseException | None = None
         try:
             spec = TOOLS.get(tool)
             if spec is not None and spec.get("model_access") == "denied":
@@ -240,9 +244,13 @@ class Gateway:
             env["error"] = {"code": "TIMEOUT" if "TIMEOUT" in str(e).upper() else "INTERNAL", "message": str(e)[:300], "retryable": True, "detail": {}}
         except Exception as e:                                                        # 任何其他例外也回信封、照樣審計，不往外拋
             env["error"] = {"code": "INTERNAL", "message": type(e).__name__, "retryable": False, "detail": {}}
+            stop = e if getattr(e, "propagate", False) else None                   # 例外：租約已被接手（Fenced）→ 審計後交回控制器停手
         usage["ms"] = round((time.perf_counter() - t0) * 1000)
         self.store.audit(GW["policy"]["audit_event"], {"user": ctx.subject.user_id, "run_id": ctx.run_id, "step_id": ctx.step_id, "tool": tool, "args_digest": args_digest(args)[:16],
+                                                      **({"operation_id": ctx.operation_id} if ctx.operation_id else {}),
                                                       "ok": env["ok"], "error": (env["error"] or {}).get("code"), "warnings": [w["code"] for w in warnings], **usage})
+        if stop:
+            raise stop
         return env
 
     # ---- handlers：回 (data, model_view, usage)
@@ -308,6 +316,27 @@ class Gateway:
         from ..insight_agent.skill_loader import contract_versions
         out = {"sources": sources, "dates": dates, "backfill": None, "identity": None, "aggregates": agg, "contract": contract_versions(), "warnings": warns}
         return {**out, "_warnings": list(warns)}, copy.deepcopy(out), {"scan_bytes_est": est, "rows_read": len(rows)}
+
+    def _dashboard_draft(self, ctx: ToolContext, args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """私人看板草稿（docs/41 D4、B01）：卡片存 kind + query；先經看板服務層以發起人身分驗證組裝，再經 commit_operation 與操作紀錄同交易寫入。"""
+        from ..api.dashboards import _card, _now, _shared
+        name, cards = str(args.get("name") or "").strip()[:60], args.get("cards")
+        if not name or not isinstance(cards, list) or not 1 <= len(cards) <= 24 or not all(isinstance(c, dict) for c in cards):
+            raise ToolError("INVALID_ARGUMENT", "name 必填，cards 為 1–24 張卡片（title、kind、query）")
+        if ctx.commit is None or not ctx.operation_id:
+            raise ToolError("INTERNAL", "寫入工具必須由控制器帶 operation_id 呼叫")
+        built = []
+        for c in cards:
+            try:
+                built.append(_card({k: c[k] for k in ("title", "kind", "query", "chart", "width") if k in c}, ctx.subject, self.cat))
+            except HTTPException as e:
+                raise ToolError("AUTHZ_DENIED" if e.status_code == 403 else "INVALID_ARGUMENT", str(e.detail)) from None
+        doc = {"name": name, "description": "", "owner": ctx.subject.user_id, "shared": _shared(None), "time": {"preset": "30d"}, "cards": built, "created_at": _now(), "updated_at": _now()}
+        state, did = ctx.commit("dashboard.draft", "dashboard", args, doc)
+        if state == "committed":
+            self.store.audit("dashboard.created", {"user": ctx.subject.user_id, "dashboard": did, "name": name, "cards": len(built), "via": "agent", "run_id": ctx.run_id})
+        out = {"dashboard_id": did, "draft": True}
+        return out, out, {}                                                     # 契約輸出只有 dashboard_id、draft；重送拿到同一張（existing）時內容相同
 
     def _catalog(self) -> list[dict[str, Any]]:
         sem = ROOT.parent / "semantic"; out = []

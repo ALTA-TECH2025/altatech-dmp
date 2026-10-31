@@ -71,7 +71,7 @@ def selftest() -> None:
     assert code(svc.create, ana, {**q, "user_id": "admin", "roles": ["admin"]}, None)[2]["rejected"] == ["roles", "user_id"]
     assert code(svc.create, ana, {**q, "params": {"window": 30}}, None)[2]["rejected"] == ["window"]
     assert code(svc.create, Subject("u_none", []), q, None)[:2] == (403, "AUTHZ_DENIED")
-    assert code(svc.create, ana, {**q, "entry": "dashboard"}, None)[1] == "NOT_CONFIGURED"
+    assert code(svc.create, ana, {**q, "entry": "audience"}, None)[1] == "NOT_CONFIGURED"
     # C5：同鍵同內容回同一筆、不同內容 409；24 小時後可重用
     a = svc.create(other, q, "k1"); assert svc.create(other, q, "k1")["run_id"] == a["run_id"]
     assert code(svc.create, other, {**q, "question": "上週登入人數"}, "k1")[:2] == (409, "CONFLICT")
@@ -211,11 +211,34 @@ def selftest() -> None:
     assert r5["state"] == "succeeded" and ps == [("2026-10-12", "2026-10-18"), ("2026-10-19", "2026-10-25")] and sent(lr5, "s2_current") == n5, (ps, r5.get("error"))
     assert e2["result_digest"] == s2["result_digest"] and e2["query"]["time"]["from"] == "2026-10-19" and not any("~" in x["step_id"] for x in r5["steps"])
     day[0] = date(2026, 10, 28); svc.beat_s = svc.lease_s / 3
+    # 崩潰後才按取消：沒人會再接手（claim 不收已要求取消的 run），租約過期後 tick 收成 cancelled、不再送查詢、舊 worker 被擋
+    lr6 = ready(); svc.beat_s = 0
+    def crash_s2c(st_: dict[str, Any]) -> None:
+        if str(st_.get("query_id", "")) == f"{lr6}:s2_current:1":
+            clock[0] += 1; raise Crash()
+    ch.hook = crash_s2c
+    try:
+        svc.tick(worker="wJ"); raise AssertionError("應崩潰")
+    except Crash:
+        pass
+    ch.hook = None; r6 = svc.j.get_run(lr6); gen6 = r6["generation"]; q6 = len(ch.settings)
+    assert r6["state"] == "running"
+    svc.cancel(lu, lr6); svc.tick(worker="wK")
+    assert svc.j.get_run(lr6)["state"] == "running"                                                                          # 租約未過期：可能只是慢，不搶收
+    clock[0] += svc.lease_s + 1; svc.tick(worker="wK"); r6 = svc._own(lu, lr6)
+    assert r6["state"] == "cancelled" and r6.get("finished_at") and len(ch.settings) == q6, (r6["state"], len(ch.settings) - q6)
+    for bad in (lambda: svc.j.put_step(lr6, gen6, {"step_id": "s2_current", "state": "succeeded"}), lambda: svc.j.set_state(lr6, gen6, "succeeded")):
+        try:
+            bad(); raise AssertionError("舊 worker 醒來應被擋")
+        except Fenced:
+            pass
+    assert code(svc.cancel, lu, lr6)[1] == "CONFLICT" and svc.tick(worker="wK") == 0                                       # 已結束再取消 409；不會重複收尾
+    svc.beat_s = svc.lease_s / 3
     # 取消：排隊中直接取消；已結束再取消 409
     c = svc.create(ana, {**q, "question": "上週登入人數"}, None)["run_id"]; svc.cancel(ana, c)
     assert svc._own(ana, c)["state"] == "cancelled" and code(svc.cancel, ana, c)[1] == "CONFLICT"
     assert any(a["event"] == "agent.run.created" for a in st.audit_tail(1000))
-    print("agent runs self-test ok: A03 補問口徑、A27 規則模式確認前不查、上週＝完整週一到週日、C7 query_id、Q21、C6 他人 404、C3/C2 欄位與參數拒絕、C5 冪等 24h、A26 名額、A17、A25/A25b、A19 重試、重試與取消、A13 撤權（排隊／等待回答／重試後）、名額共用入口（重試／回答／併發建立）、租約接手（崩潰接手不重做、舊 worker 被擋、長步驟續租、接手時預算從步驟重算、跨週接手沿用確認當下的期間）")
+    print("agent runs self-test ok: A03 補問口徑、A27 規則模式確認前不查、上週＝完整週一到週日、C7 query_id、Q21、C6 他人 404、C3/C2 欄位與參數拒絕、C5 冪等 24h、A26 名額、A17、A25/A25b、A19 重試、重試與取消、A13 撤權（排隊／等待回答／重試後）、名額共用入口（重試／回答／併發建立）、租約接手（崩潰接手不重做、舊 worker 被擋、長步驟續租、接手時預算從步驟重算、跨週接手沿用確認當下的期間、崩潰後取消由 tick 收成 cancelled）")
 
 
 if __name__ == "__main__":
