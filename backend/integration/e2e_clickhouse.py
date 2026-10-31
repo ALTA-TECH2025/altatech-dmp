@@ -278,6 +278,9 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
     st = r["stage"]
     assert r["recon_ok"], r
     assert st["bad"] == st["lines"] - st["ok"] and st["bad"] > 0
+    from ..migration.validate import validate as migration_validate  # #53：獨立參考實作逐行核對去處（L1）與丟棄報告（L5）
+    vr = migration_validate(src, st, "sa_20261016", modeling.KEYS["k_idm"])
+    assert vr["layers"]["L1"]["status"] == "pass" and vr["layers"]["L5"]["status"] == "partial", [c for L in ("L1", "L5") for c in vr["layers"][L]["checks"] if not c["ok"]]
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND event IN ('order_submit','order_filled','quote_view','search_symbol')") == 0    # 別名已轉正式名
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND one_id LIKE 'C0%'") == 0                                                     # 登入 ID 全部代碼化
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND one_id LIKE 'ck-%'") == ch.scalar("SELECT count() FROM dmp.raw_legacy WHERE batch_id='sa_20261016' AND type='track' AND is_login=0")  # 匿名保留
