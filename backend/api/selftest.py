@@ -79,8 +79,8 @@ class FakeClickHouse:
             return '{"cohort":"2026-10-01","period":1,"users":300,"retained":120,"rate":0.4,"suppressed":false}\n{"cohort":"2026-10-01","period":2,"users":300,"retained":90,"rate":0.3,"suppressed":false}\n{"cohort":"2026-10-15","period":1,"users":5,"retained":null,"rate":null,"suppressed":true}\n'
         if "GROUPING SETS" in sql or "ARRAY JOIN touches AS t" in sql:     # 歸因（一次掃描版）／歸因落點名單
             return '{"ti":0,"first_conv":60,"first_val":6000000,"linear_conv":45.5,"linear_val":4200000,"_k":58,"conversions":100,"converters":80,"touched":70,"total_value":9000000,"avg_touches":1.8,"suppressed":false}\n{"ti":1,"first_conv":10,"first_val":900000,"linear_conv":24.5,"linear_val":2100000,"_k":30,"conversions":100,"converters":80,"touched":70,"total_value":9000000,"avg_touches":1.8,"suppressed":false}\n{"ti":2,"first_conv":null,"first_val":null,"linear_conv":null,"linear_val":null,"_k":5,"conversions":100,"converters":80,"touched":70,"total_value":9000000,"avg_touches":1.8,"suppressed":true}\n'
-        if "arrayEnumerate(seq3)" in sql:
-            return '{"path":["app_login_success","hq_stockdetail_view","bond_order","離開"],"users":120,"sessions":131,"avg_ms":84000.5,"anchor_users":300,"_k":120,"suppressed":false}\n{"path":["app_login_success","離開"],"users":90,"sessions":95,"avg_ms":0,"anchor_users":300,"_k":90,"suppressed":false}\n{"path":["app_login_success","bond_deal","離開"],"users":null,"sessions":null,"avg_ms":null,"anchor_users":300,"_k":7,"suppressed":true}\n'
+        if "AS anchor_sessions" in sql:
+            return '{"path":["app_login_success","hq_stockdetail_view","bond_order","離開"],"users":120,"sessions":131,"avg_ms":84000.5,"anchor_users":300,"anchor_sessions":262,"_k":120,"suppressed":false}\n{"path":["app_login_success","離開"],"users":90,"sessions":95,"avg_ms":0,"anchor_users":300,"anchor_sessions":262,"_k":90,"suppressed":false}\n{"path":["app_login_success","bond_deal","離開"],"users":null,"sessions":null,"avg_ms":null,"anchor_users":300,"anchor_sessions":262,"_k":7,"suppressed":true}\n'
         if "windowFunnel" in sql:
             return '{"step":1,"users":200,"_k":200,"suppressed":false}\n{"step":2,"users":80,"_k":80,"suppressed":false}\n{"step":3,"users":null,"_k":10,"suppressed":true}\n'
         return '{"bucket":"2026-10-01","m1":120,"m2":35,"_k":35,"suppressed":false}\n{"bucket":"2026-10-02","m1":5,"m2":4,"_k":4,"suppressed":true}\n'
@@ -211,12 +211,12 @@ def main(store: Any | None = None) -> None:
     rows = fr.json()["rows"]
     assert [r["alias"] for r in rows] == ["hq_stockdetail_view", "bond_order", "成交"] and rows[1]["rate_prev"] == 0.4 and rows[1]["rate_first"] == 0.4 and rows[2]["users"] is None and rows[2]["rate_prev"] is None and rows[2]["suppressed"] is True, rows
     assert "windowFunnel(604800)" in ch.sqls[-1] and fr.json()["chart_spec"]["type"] == "funnel"
-    assert c.post("/v1/analytics/funnel", json={**fq, "window": {"value": 91, "unit": "day"}}).status_code == 400
+    assert c.post("/v1/analytics/funnel", json={**fq, "window": {"value": 366, "unit": "day"}}).status_code == 400 and c.post("/v1/analytics/funnel", json={**fq, "window": {"value": 365, "unit": "day"}}).status_code == 200
     assert c.post("/v1/analytics/funnel", json={**fq, "metric": "times"}).status_code == 400
     pq = {"anchor": {"event": "app_login_success"}, "steps": 3, "time": q["time"]}
     pr = c.post("/v1/analytics/path", json=pq); assert pr.status_code == 200, pr.text
-    pb = pr.json(); assert pb["sampled"] == 0.1 and "SAMPLE 0.1" in ch.sqls[-1] and pb["anchor_users"] == 300 and pb["paths"][0]["share"] == 0.4 and pb["paths"][2]["suppressed"] is True and pb["paths"][2]["users"] is None, pb["paths"]
-    assert [n["node"] for n in pb["nodes"] if n["level"] == 0] == ["app_login_success"] and {(l["level"], l["from"], l["to"], l["users"]) for l in pb["links"] if l["level"] == 0} == {(0, "app_login_success", "hq_stockdetail_view", 120), (0, "app_login_success", "離開", 90)}, pb["links"]
+    pb = pr.json(); assert pb["sampled"] == 0.1 and "SAMPLE 0.1" in ch.sqls[-1] and pb["anchor_users"] == 300 and pb["anchor_sessions"] == 262 and pb["paths"][0]["share"] == 0.5 and pb["nodes"][0]["sessions"] == 131 + 95 and pb["paths"][2]["suppressed"] is True and pb["paths"][2]["users"] is None, pb["paths"]
+    assert [n["node"] for n in pb["nodes"] if n["level"] == 0] == ["app_login_success"] and {(l["level"], l["from"], l["to"], l["sessions"]) for l in pb["links"] if l["level"] == 0} == {(0, "app_login_success", "hq_stockdetail_view", 131), (0, "app_login_success", "離開", 95)}, pb["links"]
     assert pb["chart_spec"]["type"] == "sankey" and any("抽樣" in w for w in pb["warnings"])
     assert "SAMPLE" not in c.post("/v1/analytics/path", json={**pq, "sample": None}).json()["sql"]
     assert c.post("/v1/analytics/path", json={**pq, "steps": 11}).status_code == 400
@@ -233,7 +233,7 @@ def main(store: Any | None = None) -> None:
     rrows = rr.json()["rows"]; assert rrows[0]["complete"] is True and rrows[2]["complete"] is False and rrows[2]["suppressed"] is True and rr.json()["chart_spec"]["type"] == "retention_matrix", rrows
     assert c.post("/v1/analytics/retention", json={**rq, "periods": 0}).status_code == 400
     catl = c.get("/v1/semantic/catalog").json()
-    assert any(e["name"] == "bond_deal" for e in catl["events"]) and not any(u["key"] == "agent_id" for u in catl["user_props"]) and catl["funnel"]["max_window_days"] == 90 and "between" in catl["ops"]["number"]
+    assert any(e["name"] == "bond_deal" for e in catl["events"]) and not any(u["key"] == "agent_id" for u in catl["user_props"]) and catl["funnel"]["max_window_days"] == 365 and catl["funnel"]["max_steps"] == 32 and "between" in catl["ops"]["number"]
     # 5c. 用戶列表：行銷估數／列表（one_id、流失分遮罩）；資訊管理 403；分頁參數檢查；細查需理由（行銷 403、數據分析遮罩、不存在 404、props 去 L4 鍵、身分圖遮罩）
     uq = {"filters": [{"field": "user.tier", "op": "in", "value": ["P1", "P2"]}], "behaviors": [{"event": "bond_deal", "count": {"op": "gte", "value": 3}, "time": q["time"]}]}
     est = c.post("/v1/users/estimate", json=uq); assert est.status_code == 200 and est.json()["users"] == 123 and "bitmapCardinality(bm)" in est.json()["sql"], est.text

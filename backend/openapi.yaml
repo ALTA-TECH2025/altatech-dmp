@@ -1162,7 +1162,7 @@ components:
       required: [anchor, time]
       properties:
         project: { type: string }
-        anchor: { type: object, required: [event], properties: { event: { type: string, description: '事件名或拆分後節點（event:值）' }, filters: { type: array, items: { type: object } } }, description: 起點（direction=after）或終點（before） }
+        anchor: { type: object, required: [event], properties: { event: { type: string, description: '事件名或拆分後節點（event:值）' }, filters: { type: array, items: { type: object } } }, description: '起點（direction=after）或終點（before）。同神策：每個會話只取一次，起點取會話中第一次出現、終點取最後一次出現；會話裡沒有這個事件就不進路徑' }
         direction: { type: string, enum: [after, before], default: after }
         steps: { type: integer, minimum: 1, maximum: 10, default: 5 }
         session: { type: object, properties: { mode: { type: string, enum: [gap, id, cross], default: gap, description: 'gap = 依間隔切會話；id = 用 session_id；cross = 期間內整個用戶一條序列' }, gap_minutes: { type: integer, default: 30 }, max_events: { type: integer, default: 200, description: 每會話最多保留的事件數 } } }
@@ -1183,10 +1183,11 @@ components:
     PathResult:
       type: object
       properties:
-        paths: { type: array, items: { type: object, properties: { path: { type: array, items: { type: string } }, users: { type: integer, nullable: true }, sessions: { type: integer, nullable: true }, share: { type: number, nullable: true, description: 占起點用戶比例 }, avg_ms: { type: number, nullable: true }, suppressed: { type: boolean } } } }
-        anchor_users: { type: integer, description: 經過起點的用戶數（抽樣後） }
-        nodes: { type: array, items: { type: object, properties: { level: { type: integer }, node: { type: string }, users: { type: integer } } }, description: 桑基節點（由未抑制的路徑彙總） }
-        links: { type: array, items: { type: object, properties: { level: { type: integer }, from: { type: string }, to: { type: string }, users: { type: integer } } } }
+        paths: { type: array, items: { type: object, properties: { path: { type: array, items: { type: string } }, users: { type: integer, nullable: true }, sessions: { type: integer, nullable: true }, share: { type: number, nullable: true, description: 占起點會話比例（sessions ÷ anchor_sessions） }, avg_ms: { type: number, nullable: true }, suppressed: { type: boolean } } } }
+        anchor_users: { type: integer, description: 經過起點的用戶數（抽樣後，去重） }
+        anchor_sessions: { type: integer, description: 經過起點的會話數（抽樣後）；每會話一條路徑 }
+        nodes: { type: array, items: { type: object, properties: { level: { type: integer }, node: { type: string }, sessions: { type: integer } } }, description: '桑基節點（由未抑制的路徑彙總）。數值是會話數不是用戶數（同神策）；每會話只有一條路徑，所以加總不會重複計算' }
+        links: { type: array, items: { type: object, properties: { level: { type: integer }, from: { type: string }, to: { type: string }, sessions: { type: integer } } }, description: 桑基連線，數值同 nodes 為會話數 }
         sampled: { type: number, nullable: true }
         sql: { type: string }
         lineage: { type: array, items: { type: string } }
@@ -1223,9 +1224,10 @@ components:
       required: [steps, window, time]
       properties:
         project: { type: string }
-        steps: { type: array, minItems: 2, maxItems: 10, items: { type: object, required: [event], properties: { event: { type: string }, alias: { type: string }, filters: { type: array, items: { type: object } } } } }
-        window: { type: object, required: [value, unit], properties: { value: { type: integer, minimum: 1 }, unit: { type: string, enum: [minute, hour, day] } }, description: 最長 90 天 }
+        steps: { type: array, minItems: 2, maxItems: 32, description: '最多 32 步（Windy 2026-10-29；ClickHouse windowFunnel 條件上限 32，超過需另做演算法）', items: { type: object, required: [event], properties: { event: { type: string }, alias: { type: string }, filters: { type: array, items: { type: object } } } } }
+        window: { type: object, required: [value, unit], properties: { value: { type: integer, minimum: 1 }, unit: { type: string, enum: [minute, hour, day] } }, description: '最長 365 天（Windy 2026-10-29）；分鐘／小時／天可自訂' }
         order: { type: string, enum: [loose, strict], default: loose }
+        restrict_to_range: { type: boolean, default: false, description: '限制後續事件在時間區間內（同神策）。false＝time 只限第一步，後續步驟可落在期間結束之後、窗口期之內；true＝每一步都要落在 time 內' }
         relation: { type: string, description: 關聯屬性（業務 ID）：entity_id 或 props.<key>；同一值的事件才算同一流程 }
         metric: { type: string, enum: [users, times], default: users, description: times 需指定 relation（計算流程數） }
         group_by: { type: array, maxItems: 1, items: { type: string }, description: 分組值取自第一步事件 }
@@ -1236,7 +1238,7 @@ components:
         behaviors_op: { type: string, enum: [and, or], default: and }
         cohorts: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/Cohort' }, description: 對照組（同 SemanticQuery.cohorts；每列多一欄 cohort） }
         sample: { type: number, description: 按用戶抽樣比例 (0,1) }
-        time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string }, now: { type: string } } }
+        time: { type: object, required: [from, to], properties: { from: { type: string }, to: { type: string }, now: { type: string } }, description: '第一步發生的時間範圍；後續步驟是否也限在範圍內看 restrict_to_range' }
     RetentionQuery:
       type: object
       required: [initial, time]

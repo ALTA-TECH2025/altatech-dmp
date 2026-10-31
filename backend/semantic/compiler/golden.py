@@ -211,6 +211,7 @@ def _subject(role: str) -> Decision:
 
 T = {"from": "2026-10-01", "to": "2026-10-16", "grain": "day", "now": NOW.isoformat()}
 T_ALL = {"from": DAY0.isoformat(), "to": "2026-10-16", "grain": "day", "now": NOW.isoformat()}
+T_EARLY = {"from": "2026-10-05", "to": "2026-10-09", "grain": "day", "now": NOW.isoformat()}   # 期間後還有資料：驗證漏斗後續步驟延伸
 QUERIES: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("Q01 委託次數×日（走 MV）", {"metrics": [{"event": "bond_order", "agg": "total"}], "time": T}, "admin"),
     ("Q02 委託用戶數×日", {"metrics": [{"event": "bond_order", "agg": "users"}], "time": T}, "admin"),
@@ -268,6 +269,10 @@ FUNNELS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
     ("F07 每步篩選 + 全局篩選 + 用戶屬性", {"steps": [{"event": "hq_stockdetail_view", "filters": [{"field": "symbol", "op": "set"}]}, {"event": "bond_order", "filters": [{"field": "amount", "op": "gte", "value": 100000}]}, {"event": "bond_deal"}],
         "window": W7, "filters": [{"field": "platform", "op": "in", "value": ["iOS", "Android"]}, {"field": "user.has_margin", "op": "true"}], "time": T_ALL}, "admin"),
     ("F08 分群 vip + 行銷（K 匿名）", {"steps": [{"event": "app_login_success"}, {"event": "bond_deal"}], "window": W7, "segment": "vip", "group_by": ["user.tier"], "time": T_ALL}, "marketing"),
+    ("F11 32 步（ClickHouse windowFunnel 上限；事件 × 平台互斥，條件不重疊）", {"steps": [{"event": e, "filters": [{"field": "platform", "op": "eq", "value": p}]} for e in ["app_login_success", "hq_stockdetail_view", "$pageview", "search_submit", "bond_order", "bond_deal", "push_click", "act_click", "kh_entry_khpg_pv", "kh_apply", "stock_order_submit"] for p in ["iOS", "Android", "Web"]][:32], "window": {"value": 30, "unit": "day"}, "time": T_ALL}, "admin"),
+    ("F12 365 天窗口（月趨勢）", {"steps": [{"event": "app_login_success"}, {"event": "bond_order"}, {"event": "bond_deal"}], "window": {"value": 365, "unit": "day"}, "trend": "month", "time": T_ALL}, "admin"),
+    ("F13 期間 10-05～10-09、窗口 3 天：後續步驟可落在期間後（神策預設）", {"steps": [{"event": "app_login_success"}, {"event": "bond_order"}, {"event": "bond_deal"}], "window": {"value": 3, "unit": "day"}, "time": T_EARLY}, "admin"),
+    ("F14 同 F13 ＋ 限制後續事件在時間區間內", {"steps": [{"event": "app_login_success"}, {"event": "bond_order"}, {"event": "bond_deal"}], "window": {"value": 3, "unit": "day"}, "restrict_to_range": True, "time": T_EARLY}, "admin"),
     ("F09 90 天窗口、月趨勢、分群 market", {"steps": [{"event": "hq_stockdetail_view"}, {"event": "bond_deal"}], "window": {"value": 90, "unit": "day"}, "trend": "month", "group_by": ["market"], "time": T_ALL}, "admin"),
     ("F10 行為篩選（曾登入 ≥ 1 次）＋ 對照組 iOS／全體", {"steps": [{"event": "hq_stockdetail_view"}, {"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "behaviors": [{"event": "app_login_success"}],
         "cohorts": [{"name": "iOS", "filters": [{"field": "platform", "op": "eq", "value": "iOS"}]}, {"name": "全體"}], "time": T_ALL}, "admin"),
@@ -292,10 +297,12 @@ RETENTION_REJECTED: list[tuple[str, dict[str, Any], str]] = [
     ("RR4 未登記回訪事件", {"initial": {"event": "bond_order"}, "return": {"event": "nope"}, "time": T}, "事件字典"),
 ]
 FUNNEL_REJECTED: list[tuple[str, dict[str, Any], str]] = [
-    ("FR1 一步", {"steps": [{"event": "bond_order"}], "window": W7, "time": T}, "2–10 步"),
-    ("FR2 窗口 91 天", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": {"value": 91, "unit": "day"}, "time": T}, "90 天"),
+    ("FR1 一步", {"steps": [{"event": "bond_order"}], "window": W7, "time": T}, "2–32 步"),
+    ("FR2 窗口 366 天", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": {"value": 366, "unit": "day"}, "time": T}, "365 天"),
+    ("FR2b 33 步", {"steps": [{"event": "bond_order"}] * 33, "window": {"value": 1, "unit": "day"}, "time": T}, "2–32"),
     ("FR3 次數口徑沒關聯屬性", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "metric": "times", "time": T}, "關聯屬性"),
     ("FR4 關聯屬性是用戶屬性", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "relation": "user.tier", "time": T}, "業務 ID"),
+    ("FR6 restrict_to_range 不是布林", {"steps": [{"event": "bond_order"}, {"event": "bond_deal"}], "window": W7, "restrict_to_range": "yes", "time": T}, "true／false"),
     ("FR5 未登記事件", {"steps": [{"event": "bond_order"}, {"event": "nope"}], "window": W7, "time": T}, "事件字典"),
 ]
 PATHS: list[tuple[str, dict[str, Any], Decision | str | None]] = [
@@ -378,6 +385,10 @@ REJECTED: list[tuple[str, dict[str, Any], str, str]] = [   # 必須被拒絕的�
     ("R09 漏斗型指標走錯樣板", {"metric": "open_to_fund_rate", "time": T}, "admin", "樣板"),
     ("R10 AI 服務身份不可細查（authorize 拒絕）", {"metrics": [{"event": None, "agg": "total"}], "time": T}, "svc_insight_profile", "not granted"),
 ]
+
+
+def _funnel(prefix: str) -> dict[str, Any]:
+    return next(r for n, r, _ in FUNNELS if n.startswith(prefix))
 
 
 def decision_of(spec: Decision | str | None) -> Decision | None:
@@ -516,6 +527,9 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
         got = run_sql(ch, c.sql, c.settings); expect = oracle.run_funnel(fq, d)
         compare(name, c.columns, expect, got, (1 if fq.trend else 0) + (1 if fq.group_by else 0) + 1 + (1 if fq.cohorts else 0))
         report.append(f"  {name:<44} L0 rows={len(got):<4} step1={next((r['users'] for r in got if r['step'] == 1), None)}")
+    # 限制後續事件在時間區間內：第一步人數相同、後續步驟只會變少，且資料裡確實有期間後才完成的人
+    ext, lim = (run_sql(ch, compile_funnel(parse_funnel({**r, "project": PROJECT}, cat), cat, _subject("admin")).sql, {}) for r in (_funnel("F13"), _funnel("F14")))
+    assert ext[0]["users"] == lim[0]["users"] and all(b["users"] <= a["users"] for a, b in zip(ext, lim)) and ext[-1]["users"] > lim[-1]["users"], (ext, lim)
     fs = parse_funnel({**FUNNELS[0][1], "project": PROJECT, "order": "strict"}, cat); cs = compile_funnel(fs, cat, _subject("admin"))
     strict = run_sql(ch, cs.sql, cs.settings); loose = run_sql(ch, compile_funnel(parse_funnel({**FUNNELS[0][1], "project": PROJECT}, cat), cat, _subject("admin")).sql, cs.settings)
     assert [r["users"] for r in strict] == sorted([r["users"] for r in strict], reverse=True) and all(a["users"] <= b["users"] for a, b in zip(strict, loose)), (strict, loose)
@@ -538,8 +552,12 @@ def compiler_stage(ch: Any, ds: Dataset | None = None, verbose: bool = True) -> 
         got = run_sql(ch, c.sql, c.settings); expect = oracle.run_path(pq, d)
         compare(name, c.columns, expect, got, 1)
         assert [tuple(r["path"]) for r in got] == [tuple(r["path"]) for r in expect], (name, "Top N 順序")
-        sk = sankey(got, pq); assert sk["anchor_users"] == (got[0]["anchor_users"] if got else 0) and all(n["users"] > 0 for n in sk["nodes"])
-        report.append(f"  {name:<44} L0 paths={len(got):<4} anchor_users={sk['anchor_users']} nodes={len(sk['nodes'])} links={len(sk['links'])} suppressed={sum(1 for r in got if r.get('suppressed'))}")
+        sk = sankey(got, pq); assert sk["anchor_users"] == (got[0]["anchor_users"] if got else 0) and all(n["sessions"] > 0 for n in sk["nodes"])
+        # 會話口徑（同神策）：每會話一條路徑 → 第 0 層會話加總 = 未抑制路徑會話加總 ≤ 起點會話；任一連線 ≤ 起點會話
+        lv0 = sum(n["sessions"] for n in sk["nodes"] if n["level"] == (0 if pq.direction == "after" else pq.steps))
+        assert lv0 == sum(p["sessions"] for p in sk["paths"] if not p["suppressed"]) <= sk["anchor_sessions"] and all(l["sessions"] <= sk["anchor_sessions"] for l in sk["links"]), (name, lv0, sk["anchor_sessions"])
+        if len(got) < pq.top_n and not any(r.get("suppressed") for r in got): assert lv0 == sk["anchor_sessions"], (name, lv0, sk["anchor_sessions"])
+        report.append(f"  {name:<44} L0 paths={len(got):<4} anchor_users={sk['anchor_users']} anchor_sessions={sk['anchor_sessions']} nodes={len(sk['nodes'])} links={len(sk['links'])} suppressed={sum(1 for r in got if r.get('suppressed'))}")
     for name, raw, kw in PATH_REJECTED:
         try:
             parse_path({**raw, "project": PROJECT}, cat)
@@ -666,6 +684,24 @@ def users_stage(ch: Any, ds: Dataset, oracle: Oracle, cat: Catalog, report: list
     report.append(f"  {'細查 profile/summary/timeline/identities':<44} L0 events={len(all_rows)} edges={len(mine_e)} summary30d={exp_n}")
 
 
+def sensors_path_example(cat: Catalog) -> None:
+    """神策手冊「計算口徑」範例：會話 E-A-B-A／D-F-E／A-F-C-F／D；起點 A → A-B-A、A-F-C-F；終點 F → D-F、A-F-C-F（截到最後一個 F）。"""
+    from .path import parse_path, sankey
+    A, B, C, D, E, F = "app_login_success", "hq_stockdetail_view", "bond_order", "bond_deal", "$pageview", "search_submit"
+    t0 = datetime(2026, 10, 5, 9, 0, 0); evs = []
+    for si, seq in enumerate([[E, A, B, A], [D, F, E], [A, F, C, F], [D]]):
+        for j, ev in enumerate(seq):
+            t = t0 + timedelta(hours=2 * si, minutes=j)                # 會話之間隔 2 小時（> 30 分）
+            evs.append({"project": "sx", "one_id": "u1", "event": ev, "time": t, "event_date": t.date(), "platform": "iOS", "channel": "app", "utm_source": "", "utm_campaign": "",
+                        "symbol": "", "amount": None, "props": {}, "event_id": f"sx{si}{j}"})
+    o = Oracle(evs, {"u1": {}})
+    base = {"project": "sx", "steps": 5, "sample": None, "nodes": {"events": [A, B, C, D, E, F], "merge_repeats": False, "exit_node": False}, "time": {"from": "2026-10-05", "to": "2026-10-05", "now": NOW.isoformat()}}
+    for raw, want in [({**base, "anchor": {"event": A}}, {(A, B, A), (A, F, C, F)}), ({**base, "anchor": {"event": F}, "direction": "before"}, {(D, F), (A, F, C, F)})]:
+        pq = parse_path(raw, cat); rows = o.run_path(pq)
+        assert {tuple(r["path"]) for r in rows} == want and rows[0]["anchor_sessions"] == 2 and rows[0]["anchor_users"] == 1, rows
+        sk = sankey(rows, pq); assert all(l["sessions"] <= 2 for l in sk["links"]), sk
+
+
 def dry_run() -> None:
     cat = Catalog(); ds = build(); oracle = Oracle(ds.events, ds.users, ds.segments)
     # 去年同期對齊規則（Windy 2026-10-29）：同一日期，閏年 2/29 → 2/28；按週 52 週前仍是週一
@@ -722,6 +758,11 @@ def dry_run() -> None:
     for name, raw, kw in FUNNEL_REJECTED:
         try: parse_funnel({**raw, "project": PROJECT}, cat); raise AssertionError(name)
         except ValueError as e: assert kw in str(e), (name, e)
+    f13, f14 = (parse_funnel({**_funnel(x), "project": PROJECT}, cat) for x in ("F13", "F14"))
+    s13, s14 = compile_funnel(f13, cat).sql, compile_funnel(f14, cat).sql
+    assert "toDate('2026-10-12')" in s13 and "e.event_date <= toDate('2026-10-09')" in s13 and "toDate('2026-10-12')" not in s14 and "e.event_date <= toDate" not in s14, (s13, s14)
+    o13, o14 = oracle.run_funnel(f13), oracle.run_funnel(f14)
+    assert o13[0]["users"] == o14[0]["users"] and o13[-1]["users"] > o14[-1]["users"], (o13, o14)
     from .retention import compile_retention, parse_retention, with_complete
     for name, raw, spec in RETENTIONS:
         rq = parse_retention({**raw, "project": PROJECT}, cat); c = compile_retention(rq, cat, decision_of(spec))
@@ -735,13 +776,14 @@ def dry_run() -> None:
     from .path import compile_path, parse_path, sankey
     for name, raw, spec in PATHS:
         pq = parse_path({**raw, "project": PROJECT}, cat); d = decision_of(spec); c = compile_path(pq, cat, d)
-        rows = oracle.run_path(pq, d); assert rows and "ARRAY JOIN arrayEnumerate(seq3)" in c.sql and c.columns[0] == "path" and c.sql.count("(") == c.sql.count(")"), name
+        rows = oracle.run_path(pq, d); assert rows and ("arrayFirstIndex" if pq.direction == "after" else "arrayLastIndex") in c.sql and "arrayEnumerate(seq3)" not in c.sql and c.columns[0] == "path" and c.sql.count("(") == c.sql.count(")"), name
         assert all(r["path"][0 if pq.direction == "after" else -1] == pq.anchor for r in rows) and all(len(r["path"]) <= pq.steps + 1 for r in rows), name
         sk = sankey(rows, pq); assert sk["paths"][0]["share"] is None or 0 < sk["paths"][0]["share"] <= 1, name
         h.update(c.sql.encode())
     for name, raw, kw in PATH_REJECTED:
         try: parse_path({**raw, "project": PROJECT}, cat); raise AssertionError(name)
         except ValueError as e: assert kw in str(e), (name, e)
+    sensors_path_example(cat)
     from .attribution import SCAN_WINDOW_DAYS, compile_attribution, parse_attribution, shape
     aqm = parse_attribution({**ATTRIBUTIONS[1][1], "project": PROJECT}, cat); cm = compile_attribution(aqm, cat, decision_of("marketing"))      # 行銷看金額價值：模型金額與 total_value 都區間化
     assert set(cm.masked) == {"position_val", "decay_val", "custom_val", "total_value"} and all(v.startswith("bucket") for v in cm.masked.values()) and cm.sql.count("multiIf(") >= 4 and "區間" in " ".join(cm.warnings), (cm.masked, cm.warnings)

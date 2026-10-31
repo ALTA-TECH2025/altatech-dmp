@@ -7,7 +7,7 @@ describe('漏斗頁目錄合併', () => {
   });
 });
 
-import { funnelCsv, pct, summarize, trend } from './funnel';
+import { funnelCsv, pct, summarize, trend, windowError } from './funnel';
 import type { FunnelRow } from './types';
 const row = (p: Partial<FunnelRow> & { step: number; users: number | null }): FunnelRow => ({ alias: `s${p.step}`, event: `e${p.step}`, _k: 100, rate_prev: null, rate_first: null, ...p });
 describe('漏斗彙總', () => {
@@ -23,5 +23,16 @@ describe('漏斗彙總', () => {
     const s = summarize(rows); expect(s.map((x) => x.key)).toEqual(['A', 'B · iOS']);
     expect(s[0].steps[1].suppressed).toBe(true); expect(s[0].total_rate).toBeNull(); expect(s[1].total_rate).toBe(0.5);
     expect(pct(0.1234)).toBe('12.3%'); expect(funnelCsv(['a'], [[1], ['x,y']]).split('\r\n')[2]).toBe('"x,y"');
+  });
+});
+
+describe('windowError（窗口上限 365 天）', () => {
+  it('365 天可以、366 天與 0、小數不行；分鐘／小時換算後比上限', () => {
+    expect(windowError({ value: 365, unit: 'day' }, 365)).toBeNull();
+    expect(windowError({ value: 366, unit: 'day' }, 365)).toBe('最長 365 天');
+    expect(windowError({ value: 8760, unit: 'hour' }, 365)).toBeNull();
+    expect(windowError({ value: 8761, unit: 'hour' }, 365)).toBe('最長 365 天');
+    expect(windowError({ value: 0, unit: 'minute' }, 365)).toBe('請填 1 以上的整數');
+    expect(windowError({ value: 1.5, unit: 'day' }, 365)).toBe('請填 1 以上的整數');
   });
 });
