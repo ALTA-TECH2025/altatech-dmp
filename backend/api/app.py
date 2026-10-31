@@ -133,6 +133,10 @@ def create_app(auth: AuthService, store: Store, ch: Any | None = None, segment_s
     from ..insight_agent.runs import build_router as runs_router
     app.state.agent_runs = RunService(store, ch, roles_of=owner_roles)     # worker 每次工具呼叫前以帳號與指派的現況重讀身分                           # AI 工作台 run（第一階段；控制器由 core-worker 的背景例行呼叫 tick）
     app.include_router(runs_router(app.state.agent_runs, get_subject))
+    from ..insight_agent.skill_library import SkillLibrary
+    from ..insight_agent.skill_library import build_router as skills_router
+    app.state.skills = SkillLibrary(store, share.cat)                       # 技能庫：參數與說明的版本（第 5 步；乾跑第 6 步接 S1）
+    app.include_router(skills_router(app.state.skills, get_subject))
 
     errors.install(app, store)                                             # X-Request-Id、統一 Error 輸出、403 審計（docs/46）
 
