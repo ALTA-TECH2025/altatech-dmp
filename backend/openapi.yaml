@@ -620,25 +620,26 @@ paths:
     post:
       tags: [Agents]
       summary: 建立 AI 工作台 run（contract v1，docs/39 §4–§5）：身分 = 目前登入者（不可在 body 指定使用者或角色）；需 ai_ask.use；控制器依 skill 的工具白名單與 tools.yaml 預算執行；模型端點未設定時回 503 MODEL_ENDPOINT_NOT_CONFIGURED（不預設任何供應商）；審計 agent.run.created
-      parameters: [{ name: Idempotency-Key, in: header, required: false, schema: { type: string, maxLength: 128 }, description: '同鍵重送回同一個 run，不重複建立' }]
+      parameters: [{ name: Idempotency-Key, in: header, required: false, schema: { type: string, maxLength: 128 }, description: '冪等鍵（以「使用者＋鍵」區分，保留 24 小時；Windy 2026-10-31，C5）：同鍵同內容回同一個 run，不重複建立；同鍵不同內容 → 409 CONFLICT，不建立' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AgentRunCreate' } } } }
       responses:
         '202': { description: accepted（queued）, content: { application/json: { schema: { $ref: '#/components/schemas/AgentRun' } } } }
+        '400': { $ref: '#/components/responses/Error', description: 'INVALID_ARGUMENT：body 帶了未定義欄位（含 project、user_id、roles），或 params 含 Agent 設定未開放的參數（params.rejected 列出鍵名）' }
         '403': { $ref: '#/components/responses/Error', description: 無 ai_ask.use }
-        '409': { $ref: '#/components/responses/Error', description: CONTRACT_MISMATCH（skill 要求的契約版本與目前不相容） }
+        '409': { $ref: '#/components/responses/Error', description: CONTRACT_MISMATCH（skill 要求的契約版本與目前不相容）；CONFLICT（同一冪等鍵、內容不同） }
         '429': { $ref: '#/components/responses/Error', description: RATE_LIMITED（每使用者同時 run 數或每日額度） }
         '503': { $ref: '#/components/responses/Error', description: MODEL_ENDPOINT_NOT_CONFIGURED }
         '4XX': { $ref: '#/components/responses/Error' }
         '5XX': { $ref: '#/components/responses/Error' }
     get:
       tags: [Agents]
-      summary: run 列表：自己發起的；有 ai_admin.view 可看全部（不含他人 run 的資料結果，只有狀態與用量）
+      summary: run 列表：只列自己發起的（Windy 2026-10-31，C6）；系統管理員或 ai_admin.view 看他人 run 的範圍待法遵（docs/41 Q13），第一階段不開放
       parameters: [{ name: state, in: query, schema: { type: string } }, { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }]
       responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AgentRun' } } } } }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } }
   /v1/agents/runs/{run_id}:
     get:
       tags: [Agents]
-      summary: run 狀態與步驟（計畫、工具呼叫、用量、產物、錯誤）；發起人或 ai_admin.view；步驟只帶 model_view 摘要與 evidence_id，畫面數字以 evidence 依讀取者現在的權限重算
+      summary: run 狀態與步驟（計畫、工具呼叫、用量、產物、錯誤）；只有發起人（C6；他人一律 404）；步驟只帶 model_view 摘要與 evidence_id，畫面數字以 evidence 依讀取者現在的權限重算
       parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }]
       responses:
         '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AgentRun' } } } }
@@ -648,7 +649,7 @@ paths:
   /v1/agents/runs/{run_id}/cancel:
     post:
       tags: [Agents]
-      summary: 取消（設 cancel_requested；控制器在步驟之間檢查，執行中的查詢以 KILL QUERY 結束）；發起人或 ai_admin.view；已建立的草稿保留
+      summary: 取消（設 cancel_requested；控制器在步驟之間檢查，執行中的查詢以 KILL QUERY 結束，依 query_id = run_id:step_id:attempt）；只有發起人（C6）；已建立的草稿保留
       parameters: [{ name: run_id, in: path, required: true, schema: { type: string } }]
       responses: { '202': { description: accepted, content: { application/json: { schema: { $ref: '#/components/schemas/AgentRun' } } } }, '409': { $ref: '#/components/responses/Error', description: run 已結束 }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } }
   /v1/agents/runs/{run_id}/retry:
@@ -962,10 +963,14 @@ components:
     AgentRunCreate:
       type: object
       required: [entry, question]
+      additionalProperties: false
+      description: '專案不可由請求或模型指定（C3）：run 一律在分析 API 設定的專案執行；body 帶未定義欄位（project、user_id、roles 等）→ 400 INVALID_ARGUMENT'
       properties:
         entry: { type: string, enum: [explore, analyze, dashboard, audience] }
         question: { type: string, maxLength: 2000 }
-        skill: { type: string, description: 'skill 名稱；不帶由控制器依 entry 選；版本由技能庫發布版決定，run 固定引用' }
+        skill: { type: string, description: 'skill 名稱；不帶由控制器依 entry 選；只能選已發布版本（1029-2），run 固定引用當下發布版' }
+        agent: { type: string, description: 'Agent 設定名稱（選填；固定引用當下發布版）。帶 params 時必填' }
+        params: { type: object, additionalProperties: true, description: '參數覆寫（C2）：只接受該 Agent 設定 user_overridable 列出的 (skill, param)，其他鍵 → 400 INVALID_ARGUMENT（Error.params.rejected）；生效值記在 AgentRun.params' }
         period: { type: object, properties: { from: { type: string }, to: { type: string }, tz: { type: string, default: Asia/Taipei } } }
         context: { type: object, description: '畫面上下文（目前看板、分析配置）；不得含使用者或角色' }
     AgentRun:
@@ -976,7 +981,11 @@ components:
         entry: { type: string }
         question: { type: string }
         initiator: { type: object, properties: { user_id: { type: string }, auth_source: { type: string } } }
-        skill: { type: object, properties: { name: { type: string }, version: { type: string } } }
+        skill: { type: object, properties: { name: { type: string }, version: { type: string }, content_digest: { type: string, description: '建立 run 時技能版本的內容摘要（C1）；之後版本被回復或改版不影響本 run' } } }
+        agent: { type: object, nullable: true, properties: { name: { type: string }, version: { type: string }, content_digest: { type: string } } }
+        params: { type: object, description: '本 run 生效的參數覆寫（C2）' }
+        project: { type: string, description: '執行專案（唯讀；來源見 AgentRunCreate，C3）' }
+        bookmarks: { type: array, description: '引用書籤的快照（C1）：run 開始時記 query 摘要並全程使用快照；之後書籤被改，查看本 run 時 changed=true', items: { type: object, properties: { id: { type: string, description: 'bm_… 系統編號（1028-3）' }, query_digest: { type: string }, changed: { type: boolean } } } }
         model: { type: object, properties: { provider: { type: string }, id: { type: string } }, description: '模型供應商與型號待定（docs/41 D2）；測試替身為 provider=test-double' }
         contracts: { type: object, properties: { tools: { type: string }, semantic: { type: string }, oneid_rules: { type: string }, preset_properties: { type: string } } }
         budget: { type: object, properties: { scan_bytes_used: { type: number }, tokens_used: { type: integer } } }
@@ -992,7 +1001,8 @@ components:
       properties:
         step_id: { type: string }
         tool: { type: string }
-        operation_id: { type: string, description: '寫入類工具由控制器產生；模型不可產生或修改' }
+        operation_id: { type: string, description: '寫入類工具由控制器產生；模型不可產生或修改。寫入的唯一冪等來源是 agent_operations（C4）：服務層驗證組裝後與 operation 紀錄同一交易寫入；同 operation_id 不同 args_digest → CONFLICT' }
+        query_ids: { type: array, items: { type: string }, description: '讀取步驟送 ClickHouse 的 query_id（C7）：run_id:step_id:attempt；operation_id 只給寫入' }
         args_digest: { type: string }
         state: { type: string, enum: [pending, running, retry_wait, succeeded, failed, skipped] }
         attempts: { type: integer }
@@ -1602,6 +1612,7 @@ components:
             id: { type: string }
             owner: { type: string }
             mine: { type: boolean, description: '查看者是否為擁有者（可編輯）' }
+            origin: { type: object, nullable: true, description: 'AI 建立的看板（C6）：建立時只有擁有者看得到、不分享，畫面標「AI 草稿」；擁有者可照一般看板編輯與分享（分享仍是人操作，D4）。人建看板為 null；唯讀', properties: { kind: { type: string, enum: [ai_draft] }, run_id: { type: string }, skill: { type: object, properties: { name: { type: string }, version: { type: string } } } } }
             created_at: { type: string, format: date-time }
             updated_at: { type: string, format: date-time }
     RevealRequest:
