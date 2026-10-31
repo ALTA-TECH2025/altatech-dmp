@@ -116,6 +116,20 @@ class Outcome:
     type: str = ""
     record: dict[str, Any] | None = None
     dropped: list[str] = field(default_factory=list)
+    reason: str = ""                # bad 的原因碼（json／missing_field／time_invalid），不含原值
+
+
+def event_ms(v: Any) -> int:
+    """事件時間（毫秒整數）：整數、整數值的浮點、純數字字串可用；null、布林、其他字串、物件一律不合法。錯誤訊息不帶原值。"""
+    if isinstance(v, bool):
+        raise ValueError("time_invalid")
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    if isinstance(v, str) and v.strip().lstrip("-").isdigit():
+        return int(v.strip())
+    raise ValueError("time_invalid")
 
 
 def expect(path: Path, rules: Rules, key: bytes, skip_types: Iterable[str] = ()) -> Iterator[Outcome]:
@@ -128,13 +142,20 @@ def expect(path: Path, rules: Rules, key: bytes, skip_types: Iterable[str] = ())
                 yield Outcome(n, "blank"); continue
             try:
                 d = json.loads(line)
-                typ, did = d["type"], d["distinct_id"]
-                if not isinstance(typ, str) or not isinstance(did, (str, int)) or isinstance(did, bool):
-                    raise ValueError
-                if typ.startswith("track") and ("event" not in d or "time" not in d):
-                    raise ValueError
-            except (ValueError, KeyError, TypeError):
-                yield Outcome(n, "bad"); continue
+            except ValueError:
+                yield Outcome(n, "bad", reason="json"); continue
+            if not isinstance(d, dict):
+                yield Outcome(n, "bad", reason="json"); continue
+            typ, did = d.get("type"), d.get("distinct_id")
+            if not isinstance(typ, str) or not isinstance(did, (str, int)) or isinstance(did, bool) \
+                    or (typ.startswith("track") and ("event" not in d or "time" not in d)):
+                yield Outcome(n, "bad", reason="missing_field"); continue
+            t_ms = 0
+            if typ == "track":
+                try:
+                    t_ms = event_ms(d["time"])
+                except ValueError:
+                    yield Outcome(n, "bad", typ, reason="time_invalid"); continue
             props = d.get("properties") if isinstance(d.get("properties"), dict) else {}
             did, orig = str(did), str(d.get("original_id", ""))
             login = typ == "track_signup" or truthy(props.get("$is_login_id"))
@@ -144,7 +165,7 @@ def expect(path: Path, rules: Rules, key: bytes, skip_types: Iterable[str] = ())
             keep, dropped = scrub(props, rules)
             if typ == "track":
                 ev = str(d["event"])
-                yield Outcome(n, "events", typ, {"event": rules.aliases.get(ev, ev), "time": int(d["time"]), "user": user, "props": keep}, dropped)
+                yield Outcome(n, "events", typ, {"event": rules.aliases.get(ev, ev), "time": t_ms, "user": user, "props": keep}, dropped)
             elif typ == "track_signup":
                 yield Outcome(n, "id_map", typ, {"anon": orig, "user": user}, dropped)
             elif typ in PROFILE_OPS and login:
@@ -160,6 +181,7 @@ class RefSummary:
     accepted_by_type: Counter = field(default_factory=Counter)   # 通過預處理的行，依類型
     no_dest_by_type: Counter = field(default_factory=Counter)
     dropped: Counter = field(default_factory=Counter)       # 被丟的屬性鍵 → 次數
+    bad_reasons: Counter = field(default_factory=Counter)   # 壞行原因碼 → 行數
     samples: dict[str, list[int]] = field(default_factory=dict)
 
 
@@ -172,7 +194,9 @@ def summarize(outcomes: Iterable[Outcome]) -> RefSummary:
             s.dropped.update(o.dropped)
         if o.dest == "no_destination":
             s.no_dest_by_type[o.type] += 1
-        if o.dest in ("blank", "no_destination") and len(s.samples.setdefault(o.dest, [])) < SAMPLES:
+        if o.dest == "bad":
+            s.bad_reasons[o.reason] += 1
+        if o.dest in ("blank", "no_destination", "bad") and len(s.samples.setdefault(o.dest, [])) < SAMPLES:
             s.samples[o.dest].append(o.line)
     return s
 
@@ -196,7 +220,7 @@ def check_l1(ref: RefSummary, stage: dict[str, Any]) -> dict[str, Any]:
                "這些行通過預處理但沒有寫進任何表（匿名用戶屬性、item_set 等）：要入庫或明確略過待客戶決定（docs/42 §8 第 5 點），決定略過時以 --skip-type 列出" if ref.no_dest_by_type else ""),
         _check("L1.equation", ref.lines == sum(d.values()), ref.lines, sum(d.values()), "參考實作自身：各去處加總 = 原始行數"),
     ]
-    return {"status": "pass" if all(c["ok"] for c in checks) else "fail", "checks": checks, "counts": dict(d),
+    return {"status": "pass" if all(c["ok"] for c in checks) else "fail", "checks": checks, "counts": dict(d), "bad_reasons": dict(ref.bad_reasons),
             "samples": {k: v for k, v in ref.samples.items() if v}}
 
 
@@ -281,6 +305,17 @@ def selftest() -> None:
         # 字串 "false" 不算登入：參考實作不代碼化
         o = next(expect(_write(Path(d) / "f.jsonl", [{"type": "track", "event": "e", "distinct_id": "ck-2", "time": t, "properties": {"$is_login_id": "false"}}]), rules, key))
         assert o.record and o.record["user"] == "ck-2", o
+        # 時間不合法：參考實作逐行標 time_invalid、繼續統計，不中斷、不帶原值（Codex #114 P2）
+        bad_t = [{"type": "track", "event": "e", "distinct_id": "ck-3", "time": v, "properties": {}} for v in (None, "synthetic-invalid-time", {"x": 1}, True, 1.5)]
+        ok_t = [{"type": "track", "event": "e", "distinct_id": "ck-3", "time": v, "properties": {}} for v in (t, str(t), float(t))]
+        outs = list(expect(_write(Path(d) / "t.jsonl", bad_t + ok_t), rules, key))
+        assert [(o.dest, o.reason) for o in outs[:5]] == [("bad", "time_invalid")] * 5 and [o.record["time"] for o in outs[5:] if o.record] == [t] * 3, outs
+        assert "synthetic-invalid-time" not in json.dumps(check_l1(summarize(outs), {"lines": 8, "ok": 8, "bad": 0}), ensure_ascii=False)
+        # 管線把 time=null 當成 0 收進來（1970 年的事件）→ L1 判失敗，並指出壞行原因
+        src = _write(Path(d) / "n.jsonl", [{"type": "track", "distinct_id": "qa-anon", "event": "test", "time": None}])
+        st = legacy_format.stage(src, Path(d) / "s.jsonl", Path(d) / "q.jsonl", "k_idm", forbid).__dict__
+        r = validate(src, st, "x", key, rules)
+        assert r["verdict"] == "fail" and r["layers"]["L1"]["bad_reasons"] == {"time_invalid": 1} and r["layers"]["L1"]["samples"]["bad"] == [1], r["layers"]["L1"]
         # 參考實作的代碼與管線一致（同一金鑰、同一公式）
         assert token("C001", key) == modeling.apply_transform("token_v1(k_idm)", "C001")
     print("validate selftest ok: L1 每行去處（空行未計數、無去處類型、明確略過）、L5 丟棄報告、報告不含原值、未實作層判 incomplete")
