@@ -25,9 +25,10 @@
 | run 與工具契約（#60）、技能庫契約（#61） | 已合併：`/v1/agents/runs*`、`/v1/agents/skills*`、`/v1/agents/configs*` |
 | run 紀錄與寫入冪等底層（#62 journal：`commit_operation`、租約圍籬） | 已合併 |
 | 模型介面（#64，未設定明確拒絕）、SKILL.md 載入器（#65） | 已合併 |
-| Tool Gateway（#63：身分、每次授權、預算前置、模型投影、審計） | **open**；已獨立複測通過（06f92c4），head 已再合併 main（3fa84f7），需對最新 main 重跑 CI 後由負責人決定合併 |
+| Tool Gateway（#63：身分、每次授權、預算前置、模型投影、審計） | 已合併（2026-10-31） |
+| 第一階段契約 C1–C7（#117） | 已合併（2026-10-31） |
 | Gateway 的 `evidence.get`、`data.readiness`、`dashboard.draft` | 未接（目前回 `handler_not_implemented`） |
-| run API 端點、run 控制器 | **未實作**（只有契約） |
+| run API 端點、run 控制器 | 複審中：#118（API、撤權、名額，已通過複審）、#119（租約接手；複審發現預算與跨週證據兩項缺陷，修正中），兩者連續合併 |
 | 技能庫 API、`ai_skills` 角色勾選 | **未實作**（只有契約；前端角色編輯器沒有 `ai_skills`） |
 | 工作台、技能庫前端 | **未實作** |
 
@@ -38,7 +39,7 @@
 | 編號 | 內容 | 提案 | 對應 |
 |---|---|---|---|
 | C1 版本快照 | run 固定引用哪些版本 | `AgentRun` 記：技能 `{name, version, content_digest}`、引用書籤 `{bm_id: query_digest}`（run 開始時快照書籤 query，整個 run 用快照）、`contracts`（現有）。書籤之後被改不影響舊 run，重看結果時標「書籤已變更」 | Q29、Q34 |
-| C2 參數覆寫 | 使用者能改哪些參數 | `AgentRunCreate` 加 `params`：只接受該技能版本宣告為 `user_overridable` 的鍵，其他鍵回 400 `INVALID_ARGUMENT`（目錄已有）；覆寫值記在 run 上 | Q29 |
+| C2 參數覆寫 | 使用者能改哪些參數 | `AgentRunCreate` 加 `agent`、`params`：白名單來源是 **Agent 設定**（`AgentConfigVersion.user_overridable` 的 (skill, param)），不是技能版本；帶 `params` 時必須同時帶 `agent`，其他鍵回 400 `INVALID_ARGUMENT`（目錄已有）；覆寫值記在 run 上（契約 #117） | Q29 |
 | C3 專案來源 | run 在哪個專案執行 | 沿用分析 API 的專案設定，不讓請求或模型指定；`drop_identity_args` 加 `project`（A14） | Q33 |
 | C4 寫入冪等 | 建看板草稿只建一次 | 唯一冪等來源 = `agent_operations`（#62 已實作）：Gateway 先呼叫看板服務層驗證與組裝，再與 operation 紀錄同一交易寫入；同 `operation_id` 不同 `args_digest` 回 409 `CONFLICT`（B03、B04） | Q27 |
 | C5 建 run 的冪等鍵 | 同鍵不同內容 | 回 409 `CONFLICT`（與看板端點一致）；鍵保留 24 小時（已確認） | Q16 |
@@ -55,7 +56,7 @@
 | 1 | Tool Gateway #63 對最新 main 重跑 CI；負責人決定合併 | A12、A13、A15、A16、A23（已在自測） |
 | 2 | contract：§3 C1–C8 | Codex 契約審查 |
 | 3 | 後端：run API 與控制器（建立、查詢、取消、重試、補問回答、證據），跑在 core-worker、沿用背景作業租約；模型替身與規則模式 | A03、A17、A19、A25、A25b、A26、A27 |
-| 4 | 後端：Gateway 接 `evidence.get`、`data.readiness`、`dashboard.draft`（經 `commit_operation`） | A07、A20、B01、B02、B03、B04 |
+| 4 | 後端：Gateway 接 `evidence.get`、`data.readiness`、`dashboard.draft`（經 `commit_operation`） | A20、B01、B02、B03、B04（A07 待 #74 功能 PR，不列本期門檻） |
 | 5 | 後端：技能庫（草案、乾跑、送審、核可、回復、版本）與 `ai_skills` 權限 | D 集 |
 | 6 | S1 技能已發布版（含待確認參數、標 `CONTRACT_PENDING`）＋端到端：合成資料 oracle 比對 | A01、A02、A10、A11 |
 | 7 | 前端：工作台（選技能、問數、補問、進度、取消／重試、結果與證據、建看板草稿） | 端到端 Playwright |
