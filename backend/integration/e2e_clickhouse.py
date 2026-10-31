@@ -271,8 +271,9 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
     v1 = ch.query(f"SELECT {_LL.V1_ID} FROM (SELECT '{tok}' AS distinct_id, toInt64({first['time']}) AS time, '{first['event']}' AS event, '{pj}' AS properties) FORMAT TSV").strip()
     assert len(v1) == 32 and not v1.startswith("e2_"), v1
     ch.insert_json("dmp.events", [{"project": "altatech_dmp", "time": modeling.ms_to_dt(first["time"]), "event": first_event, "source": "legacy_format", "one_id": tok,
-                                   "entity_type": "", "entity_id": "", "distinct_id": tok, "session_id": "", "event_id": v1, "platform": "iOS", "app_id": "", "symbol": "", "side": "", "channel": "",
-                                   "amount": None, "utm_source": "", "utm_campaign": "", "props": first_props, "ingest_time": "2026-10-15 00:00:00.000", "schema_version": 1, "late": 0, "batch_id": "pre_v1"}])
+                                   "entity_type": "", "entity_id": "", "distinct_id": tok, "session_id": "", "event_id": v1, "platform": "iOS", "app_id": "", "symbol": first_props.get("symbol", ""), "side": first_props.get("side", ""), "channel": first_props.get("channel", ""),
+                                   "amount": first_props.get("amount"), "utm_source": "", "utm_campaign": "", "props": first_props, "ingest_time": "2026-10-15 00:00:00.000", "schema_version": 1, "late": 0, "batch_id": "pre_v1"}])
+    # 上面這筆的物化欄位與 props 一致（舊 normalize 也這樣寫）；校驗工具會連「已在倉中」的舊列一起核物化欄位與金額
     loader = LegacyLoader(ch, local=True)
     t0 = _t.perf_counter(); r = loader.run_file(src, work / "user_files", "sa_20261016", "k_idm", via_http=via_http); dt = _t.perf_counter() - t0
     st = r["stage"]

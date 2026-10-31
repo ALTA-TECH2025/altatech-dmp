@@ -108,29 +108,35 @@ class Checker:
     def _n(self, sql: str) -> int:
         return int(self._q(sql)[0]["n"])
 
-    def _load_actual(self) -> None:
-        self.ch.query(f"CREATE TABLE {self.act} (event_id String, fp String, k String, event String, ms Int64, user String, d Date, cents Nullable(Int64), mat_bad Array(String), kh Map(String, String)) ENGINE = MergeTree ORDER BY fp")
+    def _load_rows(self, table: str, where: str) -> None:
+        """事件表的列 → 指紋、物化欄位是否等於 props 原值、金額（分）；這批實際列與倉中舊列都用同一套。"""
+        self.ch.query(f"CREATE TABLE {table} (event_id String, fp String, k String, event String, ms Int64, user String, d Date, cents Nullable(Int64), mat_bad Array(String), kh Map(String, String)) ENGINE = MergeTree ORDER BY fp")
         cols = ", ".join(MATERIALIZED)
-        for a in _stream(self.ch, f"SELECT event_id, event, toUnixTimestamp64Milli(time) AS ms, distinct_id, toString(event_date) AS d, amount, {cols}, toJSONString(props) AS p FROM {self.db}.events WHERE batch_id = '{self.batch}'"):
+        for a in _stream(self.ch, f"SELECT event_id, event, toUnixTimestamp64Milli(time) AS ms, distinct_id, toString(event_date) AS d, amount, {cols}, toJSONString(props) AS p FROM {self.db}.events WHERE {where}"):
             props = json.loads(a["p"], parse_float=Decimal)
             bad = [c for c, k in MATERIALIZED.items() if a[c] != _mat(props.get(k))]
             if cents(a["amount"]) != cents(props.get("amount")):
                 bad.append("amount")
             self.buf.append({**row(a["event"], int(a["ms"]), a["distinct_id"], props), "event_id": a["event_id"], "d": a["d"], "cents": cents(a["amount"]), "mat_bad": bad})
             if len(self.buf) >= BATCH:
-                self._flush(self.act)
-        self._flush(self.act)
+                self._flush(table)
+        self._flush(table)
+
+    def _load_actual(self) -> None:
+        self._load_rows(self.act, f"batch_id = '{self.batch}'")
 
     def _load_already(self) -> None:
-        """預期有、這批沒有的：到其他批次找同內容（管線寫入前查倉，已有就不寫）。"""
-        self.ch.query(f"CREATE TABLE {self.old} (fp String) ENGINE = MergeTree ORDER BY fp")
+        """預期有、這批沒有的：到其他批次找同內容（管線寫入前查倉，已有就不寫）。找到的舊列一樣核物化欄位與金額，不能只比 props。"""
         miss = f"SELECT event, ms, user FROM {self.exp} WHERE fp NOT IN (SELECT fp FROM {self.act})"
-        for a in _stream(self.ch, f"SELECT event, toUnixTimestamp64Milli(time) AS ms, distinct_id, toJSONString(props) AS p FROM {self.db}.events "
-                                  f"WHERE batch_id != '{self.batch}' AND (event, toUnixTimestamp64Milli(time), distinct_id) IN ({miss})"):
-            self.buf.append({"fp": row(a["event"], int(a["ms"]), a["distinct_id"], json.loads(a["p"], parse_float=Decimal))["fp"]})
-            if len(self.buf) >= BATCH:
-                self._flush(self.old)
-        self._flush(self.old)
+        self._load_rows(self.old, f"batch_id != '{self.batch}' AND (event, toUnixTimestamp64Milli(time), distinct_id) IN ({miss})")
+
+    def _matched_old(self) -> str:
+        """倉中舊列裡真正對上預期指紋的（同指紋只取一筆）。"""
+        return f"(SELECT * FROM {self.old} WHERE fp IN (SELECT fp FROM {self.exp}) AND fp NOT IN (SELECT fp FROM {self.act}) ORDER BY event_id LIMIT 1 BY fp)"
+
+    def _loaded(self) -> str:
+        """這批新寫入 ∪ 已在倉中：物化欄位、金額、日期都對這個集合核。"""
+        return f"(SELECT event_id, fp, event, d, cents, mat_bad FROM {self.act} UNION ALL SELECT event_id, fp, event, d, cents, mat_bad FROM {self._matched_old()})"
 
     def _diff_keys(self, side: str, other: str, where: str) -> list[dict[str, Any]]:
         """差異樣本：同一事件／時間／用戶在另一邊的屬性雜湊比一比，只回不同的鍵名。"""
@@ -165,7 +171,7 @@ class Checker:
         old_names = list(self.aliases)
         lit = "[" + ", ".join("'" + x.replace("\\", "\\\\").replace("'", "\\'") + "'" for x in old_names) + "]"
         alias_left = self._n(f"SELECT count() AS n FROM {a} WHERE has({lit}, event)") if old_names else 0
-        bad_date = self._n(f"SELECT count() AS n FROM {a} AS y INNER JOIN (SELECT fp, any(d) AS d FROM {e} GROUP BY fp) AS x ON x.fp = y.fp WHERE x.d != y.d")
+        bad_date = self._n(f"SELECT count() AS n FROM {self._loaded()} AS y INNER JOIN (SELECT fp, any(d) AS d FROM {e} GROUP BY fp) AS x ON x.fp = y.fp WHERE x.d != y.d")
         checks = [
             _check("L3.per_event_day", not grp, "每組相等", grp, "（正式事件名, 台北日期）預期去重後筆數（扣除已在倉中）vs 實際" if grp else ""),
             _check("L3.dedupe", rows - uniq == rows - act_n - already, rows - uniq, rows - act_n - already, "去重筆數 = 參考實作算的完全重複數（預期列數 − 實際 − 已在倉中）"),
@@ -185,17 +191,18 @@ class Checker:
         exp_only = f"s.fp NOT IN (SELECT fp FROM {a}) AND s.fp NOT IN (SELECT fp FROM {o})"
         act_only = f"s.fp NOT IN (SELECT fp FROM {e})"
         n_exp, n_act = self._n(f"SELECT uniqExact(fp) AS n FROM {e} AS s WHERE {exp_only}"), self._n(f"SELECT count() AS n FROM {a} AS s WHERE {act_only}")
-        mat = self._q(f"SELECT event_id, mat_bad FROM {a} WHERE notEmpty(mat_bad) ORDER BY event_id LIMIT {SAMPLES}")
-        n_mat = self._n(f"SELECT count() AS n FROM {a} WHERE notEmpty(mat_bad)")
+        loaded = self._loaded()
+        mat = self._q(f"SELECT event_id, mat_bad FROM {loaded} WHERE notEmpty(mat_bad) ORDER BY event_id LIMIT {SAMPLES}")
+        n_mat = self._n(f"SELECT count() AS n FROM {loaded} WHERE notEmpty(mat_bad)")
         sums = self._q(f"""SELECT ifNull(x.event, y.event) AS event, toString(ifNull(x.d, y.d)) AS d, toString(ifNull(x.c, 0)) AS expected_cents, toString(ifNull(y.c, 0)) AS actual_cents FROM
-  (SELECT event, d, sum(c) AS c FROM (SELECT fp, any(event) AS event, any(d) AS d, any(cents) AS c FROM {e} WHERE fp NOT IN (SELECT fp FROM {o}) OR fp IN (SELECT fp FROM {a}) GROUP BY fp) GROUP BY event, d) AS x
-  FULL OUTER JOIN (SELECT event, d, sum(cents) AS c FROM {a} GROUP BY event, d) AS y ON x.event = y.event AND x.d = y.d
+  (SELECT event, d, sum(c) AS c FROM (SELECT fp, any(event) AS event, any(d) AS d, any(cents) AS c FROM {e} GROUP BY fp) GROUP BY event, d) AS x
+  FULL OUTER JOIN (SELECT event, d, sum(cents) AS c FROM {loaded} GROUP BY event, d) AS y ON x.event = y.event AND x.d = y.d
   WHERE expected_cents != actual_cents ORDER BY event, d LIMIT {SAMPLES}""")
         checks = [
             _check("L4.expected_not_loaded", n_exp == 0, 0, n_exp, "預期有、實際沒有（也不在倉中其他批次）" if n_exp else ""),
             _check("L4.actual_not_expected", n_act == 0, 0, n_act, "實際有、預期沒有：屬性值被改動（null 被丟為 #48、點分鍵被展成巢狀等）或多寫" if n_act else ""),
-            _check("L4.materialized", n_mat == 0, 0, n_mat, "物化欄位 ≠ props 原值" if n_mat else ""),
-            _check("L4.amount_sum_cents", not sums, "每組相等", sums, "每事件每台北日 Σamount（Decimal，精確到分）" if sums else ""),
+            _check("L4.materialized", n_mat == 0, 0, n_mat, "物化欄位 ≠ props 原值（含已在倉中的舊列）" if n_mat else ""),
+            _check("L4.amount_sum_cents", not sums, "每組相等", sums, "每事件每台北日 Σamount（Decimal，精確到分；實際 = 這批新寫入＋已在倉中）" if sums else ""),
         ]
         samples = {"expected_not_loaded": self._diff_keys(e, a, exp_only) if n_exp else [], "actual_not_expected": self._diff_keys(a, e, act_only) if n_act else [],
                    "materialized": mat}
@@ -245,6 +252,18 @@ def selftest_ch(ch: Any, work: Any) -> None:
     loader.run_file(src, work / "uf_val", "val_ch_1r", "k_idm", via_http=True)                                             # 整檔重送
     r = validate(src, st, "val_ch_1", key, ch=ch, batch_id="val_ch_1", replay_batch="val_ch_1r")
     assert r["layers"]["L3"]["status"] == "pass" and any(c["id"] == "L3.replay_idempotent" and c["ok"] for c in r["layers"]["L3"]["checks"])
+    # 倉內金額被改掉（props 不變）：原批次與重送批次都要失敗——重送批次的列全是「已在倉中」，舊列也要核物化欄位與金額（Codex #116）
+    eid = ch.query("SELECT event_id FROM dmp.events WHERE batch_id = 'val_ch_1' AND amount = 1000.5 FORMAT TSV").strip()
+    ch.query(f"ALTER TABLE dmp.events UPDATE amount = 999 WHERE event_id = '{eid}' SETTINGS mutations_sync = 2")
+    for b in ("val_ch_1", "val_ch_1r"):
+        r = validate(src, st, b, key, ch=ch, batch_id=b)
+        c4 = {c["id"]: c for c in r["layers"]["L4"]["checks"]}
+        assert not c4["L4.materialized"]["ok"] and not c4["L4.amount_sum_cents"]["ok"], (b, c4)
+        assert r["layers"]["L4"]["samples"]["materialized"] == [{"event_id": eid, "mat_bad": ["amount"]}], (b, r["layers"]["L4"]["samples"])
+        assert "99900" not in json.dumps(r) and "100050" not in json.dumps(r), "樣本不可帶單筆金額"
+    assert r["layers"]["L3"]["counts"]["actual"] == 0 and r["layers"]["L3"]["counts"]["already_loaded"] == 7, r["layers"]["L3"]["counts"]
+    ch.query(f"ALTER TABLE dmp.events UPDATE amount = 1000.5 WHERE event_id = '{eid}' SETTINGS mutations_sync = 2")
+    assert validate(src, st, "val_ch_1r", key, ch=ch, batch_id="val_ch_1r")["layers"]["L4"]["status"] == "pass"
     # 竄改：刪掉大整數那筆、再寫回一筆 n 被改掉的 → L3 該組少一筆、L4 兩向都有差異，樣本只有行號／event_id 與鍵名
     big = json.loads(ch.query("SELECT * EXCEPT (event_date, props), toJSONString(props) AS p FROM dmp.events WHERE batch_id = 'val_ch_1' AND toJSONString(props) LIKE '%9007199254740993%' FORMAT JSONEachRow",
                               settings={"output_format_json_quote_64bit_integers": 0}))
@@ -264,4 +283,4 @@ def selftest_ch(ch: Any, work: Any) -> None:
     _, _, r = load("val_null", [{"type": "track", "event": "bond_order", "distinct_id": "V009", "time": t + 9, "properties": {**base, "x": None}}], "val_ch_null")
     assert r["layers"]["L4"]["status"] == "fail" and r["layers"]["L4"]["samples"]["actual_not_expected"][0]["keys"] == ["x"], r["layers"]["L4"]
     print("validate L3/L4 (ClickHouse) ok: 完全重複 1 筆、同時間不同屬性 2 筆、大整數差 1 各一筆、台北日界分兩天、別名、重送 0 筆；"
-          "刪一筆 → L3 分組與 L4 預期未入庫（樣本行號 5、鍵 n）；改值 → L4 實際非預期（鍵 n）；null 被丟（#48）被報出")
+          "刪一筆 → L3 分組與 L4 預期未入庫（樣本行號 5、鍵 n）；改值 → L4 實際非預期（鍵 n）；null 被丟（#48）被報出；倉內金額被改 → 原批次與重送批次都失敗（樣本只有 event_id）")
