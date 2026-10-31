@@ -19,7 +19,7 @@ NOW = datetime(2026, 10, 27, 18, 0, tzinfo=UTC)                          # 台�
 class CH(FakeCH):
     """漏斗結果帶非零人數（給 A20 比對）；readiness 的來源新鮮度與待重建日期另外回。"""
     def __init__(self) -> None:
-        super().__init__(); self.src: list[dict[str, Any]] = []; self.pending: str | None = "2026-10-20\n2026-09-01\n"
+        super().__init__(); self.src: list[dict[str, Any]] = []; self.pending: str | None = "2026-10-20\n2026-09-01\n"; self.users = 120
     def query(self, sql: str, data: bytes | None = None, settings: dict[str, Any] | None = None) -> str:
         if sql.startswith("EXPLAIN ESTIMATE"):
             return super().query(sql, data, settings)
@@ -30,7 +30,7 @@ class CH(FakeCH):
         if "max(e.time)" in sql:
             self.sql.append(sql); self.settings.append(dict(settings or {})); return "\n".join(json.dumps(r) for r in self.src)
         self.sql.append(sql); self.settings.append(dict(settings or {}))
-        return "\n".join(json.dumps(r) for r in ({"step": 1, "users": 120, "_k": 120, "suppressed": 0, "g1": ""}, {"step": 2, "users": 45, "_k": 45, "suppressed": 0, "g1": ""}))
+        return "\n".join(json.dumps(r) for r in ({"step": 1, "users": self.users, "_k": self.users, "suppressed": 0, "g1": ""}, {"step": 2, "users": 45, "_k": 45, "suppressed": 0, "g1": ""}))
 
 
 def selftest() -> None:
@@ -55,6 +55,17 @@ def selftest() -> None:
     assert d["evidence_id"] == eid and d["run_id"] == x and d["kind"] == ev["kind"] and d["query"] == ev["query"] and d["result_digest"] == ev["result_digest"]
     assert d["data"]["rows"][0]["users"] == 120 and d["sql_hash"] and "sql" not in d and "SELECT " not in json.dumps(d, ensure_ascii=False)
     assert not _has_internal(e1["model_view"]) and e1["model_view"]["data"]["rows"] and "lineage" not in e1["model_view"]["data"]
+    # C9 摘要：結果沒變 → recomputed_digest == result_digest；結果變了 → 不同，result_digest 仍是原 run 的值；模型投影帶同樣兩個摘要
+    assert d["recomputed_digest"] == d["result_digest"] == ev["result_digest"] and e2["data"]["recomputed_digest"] == d["recomputed_digest"]
+    assert e1["model_view"]["recomputed_digest"] == d["recomputed_digest"] and e1["model_view"]["result_digest"] == ev["result_digest"]
+    ch.users = 240
+    try:
+        ch_ = get(ana)["data"]
+        assert ch_["data"]["rows"][0]["users"] == 240 and ch_["recomputed_digest"] != ch_["result_digest"] == ev["result_digest"]
+        assert svc.evidence(ana, x, eid)["recomputed_digest"] == ch_["recomputed_digest"]                    # REST 同一個值
+    finally:
+        ch.users = 120
+    assert get(ana)["data"]["recomputed_digest"] == ev["result_digest"]                                        # 資料回原樣，摘要也回原樣
     # 權限指紋：角色或行級條件不同 → 指紋不同、照新權限重算（SQL 帶新的行級條件）
     RBAC["roles"]["custom_ev_7d"] = {"cn": "合成：近 7 天", "scope": "global", "lookback_days": 7, "grants": {"funnel": ["view", "use"], "events": ["view", "use"], "ai_ask": ["use"]}, "note": ""}
     try:
@@ -127,7 +138,7 @@ def selftest() -> None:
     n = len(ch.sql); ch.est_rows = 10 ** 12
     assert call(ana, {"events": ["kh_apply"], "period": p})["error"]["code"] == "BUDGET_EXCEEDED" and len(ch.sql) == n
     ch.est_rows = 1000
-    print("agent evidence/readiness self-test ok: evidence.get 每次重算不快取、不回 SQL、D3 投影、權限指紋隨角色／行級條件變、404 先於 403、預算前置、REST 同實作；"
+    print("agent evidence/readiness self-test ok: evidence.get 每次重算不快取、不回 SQL、D3 投影、C9 摘要（沒變相同／變了不同／原摘要不變）、權限指紋隨角色／行級條件變、404 先於 403、預算前置、REST 同實作；"
           "A20 數字可追溯（四捨五入、百分比、日期不算、捏造數字被抓）；data.readiness 來源 ok/late/missing、依日期到齊、backfill／identity null + READINESS_PARTIAL、待重建日期、行級條件、參數與權限檢查")
 
 
