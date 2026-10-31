@@ -191,6 +191,71 @@ class SkillLibrary:
         if d["state"] != "draft": raise ApiError("CONFLICT", "送審中的草案不能捨棄，請先撤回")
         self.store.delete_item(D_KIND, did)
 
+    def dry_run(self, s: Subject, name: str, did: str, body: Any) -> dict[str, Any]:
+        """第 5 步：只比對設定（C13）。驗證、與發布版逐欄差異、乾跑紀錄綁 content_digest；兩份真資料結果第 6 步接 S1 後補。"""
+        self.need(s, "use"); d = self.draft(name, did)
+        if d["state"] != "draft": raise ApiError("CONFLICT", "送審中的草案不需要再乾跑")
+        errs = self.validate(content_of(d)); p = self.published(name)
+        warns = [{"code": "DRY_RUN_CONFIG_ONLY", "message": "本次只比對參數與設定差異；草案與發布版的實際查詢結果待技能接上分析（第 6 步）後提供"}]
+        if pending_params(d): warns.append({"code": "CONTRACT_PENDING", "message": f"含未核定參數：{', '.join(pending_params(d))}；發布後結果一律標「口徑待確認」"})
+        rid = "dr_" + secrets.token_hex(6)
+        d["last_dry_run"] = {"dry_run_id": rid, "revision": d["revision"], "content_digest": d["content_digest"], "at": _now(), "ok": not errs}
+        self.store.put_item(D_KIND, d)
+        return {"dry_run_id": rid, "draft_revision": d["revision"], "content_digest": d["content_digest"], "published": {"version": (p or {}).get("version"), "evidence_id": None, "data": None},
+                "draft": {"draft_id": did, "evidence_id": None, "data": None}, "diff": [{"path": c["field"], "published": c["before"], "draft": c["after"]} for c in self._changes(p or DEFAULTS, d)],
+                "errors": errs, "warnings": warns}
+
+    def submit(self, s: Subject, name: str, did: str, body: Any) -> dict[str, Any]:
+        self.need(s, "use"); d = self.draft(name, did); b = body if isinstance(body, dict) else {}
+        if d["state"] != "draft": raise ApiError("CONFLICT", "這份草案已在送審中", params={"state": d["state"]})
+        dr = d.get("last_dry_run") or {}
+        if b.get("revision") != d["revision"] or b.get("content_digest") != d["content_digest"]: raise ApiError("CONFLICT", "送審的內容不是目前的草案（revision 或 content_digest 不符），請重新載入")
+        if not dr or b.get("dry_run_id") != dr.get("dry_run_id") or dr.get("content_digest") != d["content_digest"]: raise ApiError("CONFLICT", "乾跑不是這一版內容（草案改過後要重新乾跑）")
+        if not dr.get("ok"): raise ApiError("CONFLICT", "乾跑時驗證未過，請修正後重新乾跑")
+        self._check(content_of(d))
+        d.update(state="in_review", submitted={"revision": d["revision"], "content_digest": d["content_digest"], "dry_run_id": dr["dry_run_id"], "at": _now(), "note": str(b.get("note") or "")[:500]})
+        d["audit"] = {**d["audit"], "submitted_by": s.user_id}
+        self.store.put_item(D_KIND, d)
+        self.store.audit("agent_skill.submitted", {"user": s.user_id, "skill": name, "draft_id": did, "revision": d["revision"], "content_digest": d["content_digest"][:16]})
+        return d
+
+    def withdraw(self, s: Subject, name: str, did: str) -> dict[str, Any]:
+        self.need(s, "use"); d = self.draft(name, did)
+        if d["state"] != "in_review": raise ApiError("CONFLICT", "這份草案不在送審中")
+        if d["audit"].get("submitted_by") != s.user_id: raise ApiError("AUTHZ_DENIED", "只有送出者本人能撤回")
+        d.update(state="draft", submitted=None, last_dry_run=None); d["audit"] = {k: v for k, v in d["audit"].items() if k != "submitted_by"}
+        self.store.put_item(D_KIND, d)
+        self.store.audit("agent_skill.withdrawn", {"user": s.user_id, "skill": name, "draft_id": did})
+        return d
+
+    def approve(self, s: Subject, name: str, did: str, body: Any) -> dict[str, Any]:
+        self.need(s, "approve"); d = self.draft(name, did); b = body if isinstance(body, dict) else {}
+        if d["state"] != "in_review": raise ApiError("CONFLICT", "這份草案不在送審中")
+        if d["audit"].get("submitted_by") == s.user_id: raise ApiError("FOUR_EYES_REQUIRED", "不能核可自己送出的版本，請另一位有核可權限的人處理")
+        sub = d["submitted"] or {}
+        if b.get("revision") != sub.get("revision") or b.get("content_digest") != sub.get("content_digest") or d["content_digest"] != sub.get("content_digest"):
+            raise ApiError("CONFLICT", "核可的內容不是送審時鎖定的那一版")
+        vs = self.versions(name)
+        nv = "1.0.0" if not vs else f"{int(vs[0]['version'].split('.')[0])}.{int(vs[0]['version'].split('.')[1]) + 1}.0"
+        old = self.published(name)
+        if old: self.store.put_item(V_KIND, {**old, "state": "retired", "retired_at": _now()})
+        v = {**{k: d[k] for k in ("name", "base_version", "identity")}, **content_of(d), "id": f"{name}@{nv}", "version": nv, "state": "published", "draft_id": did,
+             "revision": d["revision"], "content_digest": d["content_digest"], "contract_pending": bool(pending_params(d)),
+             "audit": {"created_by": d["audit"]["created_by"], "submitted_by": d["audit"]["submitted_by"], "approved_by": s.user_id, "published_at": _now(), "note": str(b.get("note") or "")[:500]}}
+        self.store.put_item(V_KIND, v); self.store.delete_item(D_KIND, did)
+        self.store.audit("agent_skill.approved", {"user": s.user_id, "skill": name, "draft_id": did, "version": nv, "submitted_by": d["audit"]["submitted_by"], "contract_pending": v["contract_pending"]})
+        return v
+
+    def reject(self, s: Subject, name: str, did: str, body: Any) -> dict[str, Any]:
+        self.need(s, "approve"); d = self.draft(name, did)
+        reason = str((body or {}).get("reason") or "").strip() if isinstance(body, dict) else ""
+        if not reason or len(reason) > 500: raise ApiError("INVALID_ARGUMENT", "退回要附 500 字以內的理由", errors=[{"field": "reason", "message": "必填，500 字以內"}])
+        if d["state"] != "in_review": raise ApiError("CONFLICT", "這份草案不在送審中")
+        d.update(state="draft", submitted=None, last_dry_run=None, rejected={"by": s.user_id, "reason": reason, "at": _now()})
+        self.store.put_item(D_KIND, d)
+        self.store.audit("agent_skill.rejected", {"user": s.user_id, "skill": name, "draft_id": did, "reason": reason[:200]})
+        return d
+
     def rollback(self, s: Subject, name: str, body: Any) -> dict[str, Any]:
         to = str((body or {}).get("to_version") or "") if isinstance(body, dict) else ""
         self.need(s, "use"); self._known(name)
@@ -258,6 +323,18 @@ def build_router(lib: SkillLibrary, get_subject: Any) -> APIRouter:
     @r.delete(P + "/{name}/drafts/{draft_id}", status_code=204)
     def delete(name: str, draft_id: str, s: Subject = Depends(get_subject)) -> Response:
         lib.discard(s, name, draft_id); return Response(status_code=204)
+
+    def action(fn: Any) -> Any:                                              # 不能用預設參數綁 fn：FastAPI 會把它當成查詢參數
+        def ep(name: str, draft_id: str, body: Any = Body(None), s: Subject = Depends(get_subject)) -> dict[str, Any]:
+            return fn(s, name, draft_id, body)
+        return ep
+
+    for act, fn, code in (("dry-run", lib.dry_run, 200), ("submit", lib.submit, 202), ("approve", lib.approve, 200), ("reject", lib.reject, 200)):
+        r.add_api_route(f"{P}/{{name}}/drafts/{{draft_id}}/{act}", action(fn), methods=["POST"], status_code=code)
+
+    @r.post(P + "/{name}/drafts/{draft_id}/withdraw")
+    def withdraw(name: str, draft_id: str, s: Subject = Depends(get_subject)) -> dict[str, Any]:
+        return lib.withdraw(s, name, draft_id)
 
     @r.post(P + "/{name}/rollback", status_code=201)
     def rollback(name: str, body: Any = Body(...), s: Subject = Depends(get_subject)) -> dict[str, Any]:
