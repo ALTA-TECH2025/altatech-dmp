@@ -46,6 +46,7 @@
 | C6 可見性 | 誰看得到 run 與 AI 看板 | run：只有發起人看得到。系統管理員看別人的 run 能看到什麼仍待法遵（Q13），第一階段先不開放。AI 建的看板：擁有者私人、不分享，加 `origin: {run_id, skill}` 讓畫面標「AI 草稿」；擁有者可照一般看板編輯 | Q13（部分） |
 | C7 讀取查詢 ID | 逾時重試與中止查詢 | ClickHouse `query_id` = `run_id:step_id:attempt`；`operation_id` 只給寫入 | Q28 |
 | C8 語意層版本 | `contract_versions()` 回哪些鍵 | 先維持整檔版本（semantic／tools／oneid_rules，加 `preset_properties`），單一物件版本留到之後 | Q35 |
+| C9 證據摘要 | 重看證據時數字已重算，摘要要分得出新舊 | `result_digest` 固定為原 run 當時的結果摘要（結論依據）；新增 `recomputed_digest` 為本次重算摘要，同一演算法；兩者不同時畫面標「資料已變動」（Windy 2026-10-31 同意；Codex #121 審查提出） | A20 |
 
 看板版本欄位（Q30）只有定期重跑更新同一份看板時才需要，第二階段之後再定。
 

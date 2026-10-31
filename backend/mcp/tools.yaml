@@ -265,7 +265,7 @@ tools:
   - name: evidence.get
     mvp: true
     module: "<證據產生時的模組>.use"
-    description: 取證據物件（docs/39 §2.5）；以讀取者現在的權限重算，權限指紋不同不給快取結果；不回明細。
+    description: 取證據物件（docs/39 §2.5）；以讀取者現在的權限重算，權限指紋不同不給快取結果；不回明細。result_digest 是原 run 當時的結果摘要，recomputed_digest 是本次重算的摘要，兩者不同代表結果已變。
     input: { evidence_id: string }
     output: { envelope: true, data: Evidence }
     scope: read

@@ -1051,7 +1051,8 @@ components:
         contract: { type: object, properties: { semantic: { type: string }, tools: { type: string }, skill: { type: string } } }
         period: { type: object, properties: { from: { type: string }, to: { type: string }, tz: { type: string } } }
         freshness: { type: object, properties: { max_event_time: { type: string }, backfill_pending: { type: boolean } } }
-        result_digest: { type: string }
+        result_digest: { type: string, description: '原 run 產生此證據當時的結果摘要（結論依據的那份），之後不變' }
+        recomputed_digest: { type: string, description: '本次重算的 data 摘要（與 result_digest 同一演算法、同一輸入範圍）；兩者不同 = 資料或權限已變，畫面標「資料已變動」' }
         subject_fingerprint: { type: string }
         data: { type: object, description: '依讀取者現在的權限重算的結果（與 /v1/analytics/* 相同結構）' }
         created_at: { type: string, format: date-time }
