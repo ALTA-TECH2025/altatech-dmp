@@ -50,7 +50,7 @@ export const demoFetch: typeof fetch = async (input, init) => {
 // ---- 記憶體覆蓋層：示範站建立的看板／書籤 ----
 type Obj = Record<string, unknown>;
 let curQs = '';                                            // 目前請求的 query string（覆蓋層需要 ?status=recycled 之類的篩選）
-const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj>(), sqlSaved: new Map<string, Obj>(), sqlRuns: [] as Obj[], mids: new Map<string, Obj>(), midGone: new Set<string>(), tags: new Map<string, Obj>(), dests: new Map<string, Obj>(), pushes: new Map<string, Obj>(), dl: [] as Obj[], otasks: new Map<string, Obj>(), oruns: [] as Obj[], notify: null as Obj | null, ntf: [] as Obj[] };
+const mem = { dashboards: new Map<string, Obj>(), bookmarks: new Map<string, Obj>(), sqlSaved: new Map<string, Obj>(), sqlRuns: [] as Obj[], mids: new Map<string, Obj>(), midGone: new Set<string>(), tags: new Map<string, Obj>(), dests: new Map<string, Obj>(), pushes: new Map<string, Obj>(), dl: [] as Obj[], otasks: new Map<string, Obj>(), oruns: [] as Obj[], notify: null as Obj | null, ntf: [] as Obj[], fresh: new Map<string, Obj>() };
 const now = () => new Date().toISOString().slice(0, 19) + 'Z';
 const me = (fx: Fixtures): string => String(((fx.roles[demoRole()] ?? fx.roles.admin) as { user: { id: string } }).user.id);
 const nid = (p: string) => `${p}_demo${Math.random().toString(36).slice(2, 7)}`;
@@ -150,6 +150,7 @@ function overlay(method: string, path: string, init: RequestInit | undefined, fx
   const seg = path.split('/').filter(Boolean);            // ['v1','dashboards',id,...]
   const who = me(fx);
   if (seg[0] !== 'v1') return null;
+  if (seg[1] === 'integration' && seg[2] === 'source-freshness') return demoFreshness(method, seg[3], b, fx);
   if (seg[1] === 'meta' && seg[2] === 'templates' && seg[3] in TEMPLATE_KEYS) {                    // 示範：範本由固定資料的清單產生；上傳只預覽、套用回模擬成功
     const kind = seg[3] as TemplateKind;
     const src = { events: 'GET /v1/meta/events', properties: 'GET /v1/meta/properties', 'user-properties': 'GET /v1/meta/user-properties' }[kind];
@@ -628,4 +629,20 @@ function runPush(p: Obj, fx: Fixtures): Obj {
   }
   mem.pushes.set(String(p.id), { ...p, last_delivered_version: ver, last_run_at: now(), last_result: result, runs: Number(p.runs ?? 0) + 1, updated_at: now() });
   return result;
+}
+
+// ---- 示範：來源新鮮度設定（記憶體，重新整理即消失）；清單＝擷取資料裡的來源（未設定）＋示範站設定過的
+const DEMO_SOURCES = ['legacy_format', 'ga360_intraday', 'ga360_daily', 'mdl_open_acct'];
+function demoFreshness(method: string, source: string | undefined, b: Obj, fx: Fixtures): { body: unknown; status?: number } {
+  const last = (s: string) => (s === 'ga360_daily' ? fx.captured_at.slice(0, 10) + 'T15:59:00Z' : fx.captured_at);
+  const row = (s: string) => { const c = mem.fresh.get(s); return { source: s, configured: !!c, mode: c?.mode ?? null, max_lag_minutes: c?.max_lag_minutes ?? null, ready_at: c?.ready_at ?? null, covers_days_back: c?.covers_days_back ?? null, timezone: 'Asia/Taipei', note: c?.note ?? null, last_event_time: DEMO_SOURCES.includes(s) ? last(s) : null }; };
+  if (method === 'GET' && !source) return { body: [...new Set([...DEMO_SOURCES, ...mem.fresh.keys()])].sort().map(row) };
+  if (!source) return { body: { detail: '缺少來源代號' }, status: 400 };
+  const role = demoRole();
+  if (role !== 'admin' && role !== 'it') return { body: { code: 'AUTHZ_DENIED', detail: '需資訊管理（integration.admin）' }, status: 403 };
+  if (method === 'DELETE') { if (!mem.fresh.delete(source)) return { body: { code: 'NOT_FOUND', detail: `來源 ${source} 沒有新鮮度設定` }, status: 404 }; return { body: { ok: true, demo: true } }; }   // 204 不能帶 body，示範站回 200
+  const mode = b.mode === 'realtime' || b.mode === 'daily_batch' ? b.mode : null;
+  if (!mode) return { body: { code: 'INVALID_ARGUMENT', detail: 'mode 必須是 realtime 或 daily_batch' }, status: 400 };
+  mem.fresh.set(source, mode === 'realtime' ? { mode, max_lag_minutes: b.max_lag_minutes, note: b.note ?? null } : { mode, ready_at: b.ready_at, covers_days_back: b.covers_days_back, note: b.note ?? null });
+  return { body: { ...row(source), last_event_time: null } };
 }
