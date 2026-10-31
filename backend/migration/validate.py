@@ -9,7 +9,8 @@
   客戶決定略過時以 --skip-type 明確列出，照樣計數。
 - L5 的「丟棄報告」：被丟的屬性鍵與次數，參考實作 vs 管線。
 - 報告：分片、原始檔大小與 SHA-256、規則版本（規則檔內容雜湊）、各層結果、差異樣本（只放行號），不含任何原值。
-  還沒實作的層標 not_run，判定為 incomplete，不會被當成通過（L2、L3、L4、L5 其餘項目在後續 PR）。
+  還沒實作的層標 not_run，判定為 incomplete，不會被當成通過（L2、L5 其餘項目在後續 PR）。
+- L3 事件層／L4 欄位層對 ClickHouse 的比對在 validate_ch.py；給 ch 與 batch_id 才跑（CLI：--clickhouse-url、--batch-id、--replay-batch-id）。
 
 用法：
   DMP_K_IDM=… python3 -m backend.migration.validate run --file sa_20261016.jsonl --stage-report stage.json --shard sa_20261016 [--skip-type item_set] [--out report.json]
@@ -26,8 +27,9 @@ import os
 import sys
 import unicodedata
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -127,7 +129,7 @@ def expect(path: Path, rules: Rules, key: bytes, skip_types: Iterable[str] = ())
             if not line:
                 yield Outcome(n, "blank"); continue
             try:
-                d = json.loads(line)
+                d = json.loads(line, parse_float=Decimal)      # 小數原樣（金額精確到分、浮點誤差不吞掉）
                 typ, did = d["type"], d["distinct_id"]
                 if not isinstance(typ, str) or not isinstance(did, (str, int)) or isinstance(did, bool):
                     raise ValueError
@@ -163,9 +165,11 @@ class RefSummary:
     samples: dict[str, list[int]] = field(default_factory=dict)
 
 
-def summarize(outcomes: Iterable[Outcome]) -> RefSummary:
+def summarize(outcomes: Iterable[Outcome], sink: Callable[[Outcome], None] | None = None) -> RefSummary:
     s = RefSummary()
     for o in outcomes:
+        if sink:
+            sink(o)
         s.lines += 1; s.dest[o.dest] += 1
         if o.dest not in ("blank", "bad", "pii_id"):
             s.accepted_by_type[o.type] += 1
@@ -216,10 +220,23 @@ def file_meta(path: Path) -> dict[str, Any]:
     return {"name": path.name, "bytes": path.stat().st_size, "sha256": h.hexdigest()}
 
 
-def validate(path: Path, stage: dict[str, Any], shard: str, key: bytes, rules: Rules | None = None, skip_types: Iterable[str] = ()) -> dict[str, Any]:
+def validate(path: Path, stage: dict[str, Any], shard: str, key: bytes, rules: Rules | None = None, skip_types: Iterable[str] = (),
+             ch: Any = None, batch_id: str | None = None, db: str = "dmp", replay_batch: str | None = None) -> dict[str, Any]:
+    """ch＋batch_id 有給才跑 L3／L4（對 ClickHouse）；沒給時兩層維持 not_run。"""
     rules = rules or load_rules()
-    ref = summarize(expect(path, rules, key, skip_types))
-    layers: dict[str, Any] = {"L1": check_l1(ref, stage), "L2": {"status": "not_run"}, "L3": {"status": "not_run"}, "L4": {"status": "not_run"},
+    l3: dict[str, Any] = {"status": "not_run", "note": "需要 ClickHouse 與 batch_id"}; l4 = dict(l3)
+    checker = None
+    if ch is not None and batch_id:
+        from .validate_ch import Checker
+        try:
+            checker = Checker(ch, batch_id, db, rules.aliases, replay_batch)
+        except Exception as e:                          # 連不上也是失敗，不是「沒有差異」
+            l3 = l4 = {"status": "fail", "error": f"{type(e).__name__}: {str(e)[:300]}"}
+    sink = (lambda o: checker.add(o.line, o.record) if o.dest == "events" and o.record else None) if checker else None
+    ref = summarize(expect(path, rules, key, skip_types), sink)
+    if checker:
+        l3, l4 = checker.run()
+    layers: dict[str, Any] = {"L1": check_l1(ref, stage), "L2": {"status": "not_run"}, "L3": l3, "L4": l4,
                               "L5": check_l5_drop_report(ref, stage), "L6": {"status": "not_run", "note": "L1–L5 通過後另跑 docs/22 T4／T9"}}
     req = [layers[k]["status"] for k in ("L1", "L2", "L3", "L4", "L5")]
     verdict = "fail" if "fail" in req else "pass" if all(s == "pass" for s in req) else "incomplete"
@@ -299,6 +316,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--skip-type", action="append", default=[], help="客戶決定明確略過的類型（照樣計數）")
     ap.add_argument("--key-env", default="DMP_K_IDM", help="客戶代碼金鑰所在的環境變數（由 secret 注入）")
     ap.add_argument("--out", type=Path)
+    ap.add_argument("--clickhouse-url", help="給了才跑 L3／L4（帳密取 CLICKHOUSE_USER／CLICKHOUSE_PASSWORD）")
+    ap.add_argument("--batch-id", help="這個檔載入時的 batch_id")
+    ap.add_argument("--replay-batch-id", help="同一檔重送時用的 batch_id：應寫入 0 筆")
     a = ap.parse_args(argv)
     if a.cmd == "selftest":
         selftest(); return 0
@@ -307,7 +327,12 @@ def main(argv: list[str]) -> int:
     key = os.environ.get(a.key_env)
     if not key:
         ap.error(f"環境變數 {a.key_env} 未設定（客戶代碼金鑰）")
-    rep = validate(a.file, json.loads(a.stage_report.read_text(encoding="utf-8")), a.shard or a.file.stem, key.encode(), skip_types=a.skip_type)
+    ch = None
+    if a.clickhouse_url:
+        from ..integration.runner import ClickHouseHTTP
+        ch = ClickHouseHTTP(a.clickhouse_url, user=os.environ.get("CLICKHOUSE_USER", "default"), password=os.environ.get("CLICKHOUSE_PASSWORD", ""), timeout=3600)
+    rep = validate(a.file, json.loads(a.stage_report.read_text(encoding="utf-8")), a.shard or a.file.stem, key.encode(), skip_types=a.skip_type,
+                   ch=ch, batch_id=a.batch_id, replay_batch=a.replay_batch_id)
     out = json.dumps(rep, ensure_ascii=False, indent=2)
     (a.out.write_text(out, encoding="utf-8") if a.out else print(out))
     return 0 if rep["verdict"] != "fail" else 1

@@ -279,8 +279,9 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
     assert r["recon_ok"], r
     assert st["bad"] == st["lines"] - st["ok"] and st["bad"] > 0
     from ..migration.validate import validate as migration_validate  # #53：獨立參考實作逐行核對去處（L1）與丟棄報告（L5）
-    vr = migration_validate(src, st, "sa_20261016", modeling.KEYS["k_idm"])
-    assert vr["layers"]["L1"]["status"] == "pass" and vr["layers"]["L5"]["status"] == "partial", [c for L in ("L1", "L5") for c in vr["layers"][L]["checks"] if not c["ok"]]
+    vr = migration_validate(src, st, "sa_20261016", modeling.KEYS["k_idm"], ch=ch, batch_id="sa_20261016")                         # L3／L4：預期 vs ClickHouse 實際
+    assert all(vr["layers"][L]["status"] == s for L, s in (("L1", "pass"), ("L3", "pass"), ("L4", "pass"), ("L5", "partial"))), [(L, vr["layers"][L]) for L in ("L1", "L3", "L4", "L5")]
+    assert vr["layers"]["L3"]["counts"]["already_loaded"] == 1, vr["layers"]["L3"]["counts"]                                          # 改版前已入倉的那筆：在倉中、不算漏寫
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND event IN ('order_submit','order_filled','quote_view','search_symbol')") == 0    # 別名已轉正式名
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND one_id LIKE 'C0%'") == 0                                                     # 登入 ID 全部代碼化
     assert ch.scalar("SELECT count() FROM dmp.events WHERE batch_id='sa_20261016' AND one_id LIKE 'ck-%'") == ch.scalar("SELECT count() FROM dmp.raw_legacy WHERE batch_id='sa_20261016' AND type='track' AND is_login=0")  # 匿名保留
@@ -313,6 +314,8 @@ def legacy_stage(ch: ClickHouseHTTP, work: Path, n_lines: int, rnd_seed: int = 3
     print("  events by name:", by_ev)
     legacy_v1_collision(ch, loader, work, via_http)
     legacy_bigint(ch, loader, work, via_http)
+    from ..migration.validate_ch import selftest_ch as migration_validate_ch
+    migration_validate_ch(ch, work)
 
 
 def legacy_v1_collision(ch: ClickHouseHTTP, loader: Any, work: Path, via_http: bool) -> None:
