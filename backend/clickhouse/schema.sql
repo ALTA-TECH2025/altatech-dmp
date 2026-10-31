@@ -173,29 +173,37 @@ CREATE TABLE IF NOT EXISTS dmp.oneid_backfill
     created_at           DateTime64(3, 'UTC')
 )
 ENGINE = ReplicatedReplacingMergeTree('/ch/{shard}/dmp.oneid_backfill', '{replica}', created_at)
-ORDER BY (distinct_id_uint, from_time);
+ORDER BY (distinct_id, from_time);   -- 沿用舊版排序鍵：與 (distinct_id_uint, from_time) 去重效果相同，舊庫不必重建這張表
+-- 舊庫升級（CREATE IF NOT EXISTS 不會改既有表）：補新欄、拿掉已不用的 applied；全部可重跑
+ALTER TABLE dmp.oneid_backfill ADD COLUMN IF NOT EXISTS distinct_id_uint UInt64 DEFAULT cityHash64(distinct_id) AFTER distinct_id;
+ALTER TABLE dmp.oneid_backfill ADD COLUMN IF NOT EXISTS anon_one_id_uint UInt64 DEFAULT cityHash64(anon_one_id) AFTER anon_one_id;
+ALTER TABLE dmp.oneid_backfill ADD COLUMN IF NOT EXISTS target_one_id_uint UInt64 DEFAULT cityHash64(target_one_id) AFTER target_one_id;
+ALTER TABLE dmp.oneid_backfill ADD COLUMN IF NOT EXISTS source LowCardinality(String) DEFAULT 'login' AFTER target_one_id_uint;
+ALTER TABLE dmp.oneid_backfill DROP COLUMN IF EXISTS applied;
 
 -- 查詢時換算用的區間字典：key = distinct_id_uint，區間 = [from_time, to_time]；每 10 分鐘重載（LIFETIME）。
 -- 量級：每日登入 ~40 萬次 → 每日 ~40 萬條對照、保留 90 天 ≈ 3,600 萬條，記憶體約數 GB；超過時改按月分表或縮短保留。
 CREATE DICTIONARY IF NOT EXISTS dmp.oneid_backfill_dict
 (
     distinct_id_uint    UInt64,
-    from_time           DateTime64(3, 'UTC'),
-    to_time             DateTime64(3, 'UTC'),
+    from_ms             Int64,      -- 區間以毫秒整數存：range_hashed 的區間欄只收 Date／DateTime／整數，不收 DateTime64
+    to_ms               Int64,
     anon_one_id_uint    UInt64,
     target_one_id_uint  UInt64
 )
 PRIMARY KEY distinct_id_uint
-SOURCE(CLICKHOUSE(TABLE 'oneid_backfill' DB 'dmp'))
+SOURCE(CLICKHOUSE(NAME dmp_dict QUERY 'SELECT distinct_id_uint, toUnixTimestamp64Milli(from_time) AS from_ms, toUnixTimestamp64Milli(to_time) AS to_ms, anon_one_id_uint, target_one_id_uint FROM dmp.oneid_backfill FINAL'))   -- 同 users_dict 走 named collection（有密碼的伺服器才連得上）
 LAYOUT(RANGE_HASHED())
-RANGE(MIN from_time MAX to_time)
+RANGE(MIN from_ms MAX to_ms)
 LIFETIME(MIN 300 MAX 600);
 
 -- 有效歸屬：回補視窗內、且寫入時歸屬正是對照裡那個匿名用戶的事件，換算成登入客戶；其餘等於 one_id_uint（docs/19 §2.5 範圍：已歸任何客戶的事件不受影響）。
 -- ALIAS 不佔空間、查詢時計算；字典未命中或匿名用戶不符都回傳 one_id_uint。
+-- 舊庫：排序鍵與抽樣鍵要先由 backend/clickhouse/migrate_events.py 換成新的（套 schema 前呼叫）；下一行只是保險，避免沒跑遷移時 ALIAS 找不到欄位。
+ALTER TABLE dmp.events ADD COLUMN IF NOT EXISTS distinct_id_uint UInt64 DEFAULT cityHash64(distinct_id) AFTER distinct_id;
 ALTER TABLE dmp.events ADD COLUMN IF NOT EXISTS one_id_eff UInt64
-    ALIAS if(dictGetOrDefault('dmp.oneid_backfill_dict', 'anon_one_id_uint', distinct_id_uint, time, toUInt64(0)) = one_id_uint,
-             dictGetOrDefault('dmp.oneid_backfill_dict', 'target_one_id_uint', distinct_id_uint, time, one_id_uint),
+    ALIAS if(dictGetOrDefault('dmp.oneid_backfill_dict', 'anon_one_id_uint', distinct_id_uint, toUnixTimestamp64Milli(time), toUInt64(0)) = one_id_uint,
+             dictGetOrDefault('dmp.oneid_backfill_dict', 'target_one_id_uint', distinct_id_uint, toUnixTimestamp64Milli(time), one_id_uint),
              one_id_uint);
 
 -- 隔離區（docs/06 §3）：清洗未通過的來源列，30 天後丟棄；拒絕列（個資命中）只記原因不記內容

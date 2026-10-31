@@ -67,11 +67,14 @@ schema() {
   cd "$ROOT" && python3 - <<'PY'
 import os
 from pathlib import Path
+from backend.clickhouse import migrate_events
 from backend.integration import aggregates
 from backend.integration.runner import ClickHouseHTTP, local_ddl
 ch = ClickHouseHTTP("http://127.0.0.1:8123", password=os.environ.get("CH_PASSWORD", "dmp-local"))
 if aggregates.migrate_legacy_mv(ch):               # 舊版日彙總是 MV：先拆掉
     print(">> 已拆除舊版日彙總 MV")
+if migrate_events.migrate(ch) == "migrated":     # 舊版事件表（one_id_uint 排序鍵）：換成新排序鍵，舊表留作 dmp.events_pre_rekey
+    print(">> 事件表已換新排序鍵（回退表 dmp.events_pre_rekey）")
 for st in local_ddl(Path("backend/clickhouse/schema.sql").read_text(encoding="utf-8")):
     ch.query(st, settings={"allow_experimental_json_type": 1})
 filled = aggregates.finish_upgrade(ch)             # 有升級待辦就從底表完整重建再清待辦；否則只補缺分區的日期
