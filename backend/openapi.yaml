@@ -1060,7 +1060,7 @@ components:
       properties:
         sources: { type: array, items: { type: object, properties: { source: { type: string }, mode: { type: [string, 'null'], enum: [realtime, daily_batch, null], description: '來源新鮮度設定（/v1/integration/source-freshness）；null＝未設定' }, max_event_time: { type: string }, lag_minutes: { type: number }, expected_lag_minutes: { type: [number, 'null'], description: 即時來源的門檻；日批或未設定為 null }, expected_through: { type: [string, 'null'], description: '日批：此刻應涵蓋到的台北日期（到齊時間前 T-(n+1)、之後 T-n）；其他為 null' }, status: { type: string, enum: [ok, late, missing, unknown], description: 'unknown＝來源未設定新鮮度，不套預設門檻，並帶 READINESS_PARTIAL' } } } }
         dates: { type: array, items: { type: object, properties: { date: { type: string }, complete: { type: [boolean, 'null'], description: '有未設定的來源時為 null（未知）' }, missing_sources: { type: array, items: { type: string } }, unknown_sources: { type: array, items: { type: string }, description: 未設定新鮮度、無法判斷是否到齊的來源 } } } }
-        backfill: { type: object, properties: { pending_distinct_ids: { type: integer }, oldest_pending: { type: string } } }
+        backfill: { type: [object, 'null'], description: '依賴 #74 回補對照；未完成回 null（同時帶 READINESS_PARTIAL）', properties: { pending_distinct_ids: { type: integer }, oldest_pending: { type: string } } }
         identity: { type: [object, 'null'], description: '依賴 #33；未完成回 null' }
         aggregates: { type: [object, 'null'], description: '依賴 #32（events_daily_agg_pending）；未完成回 null' }
         contract: { type: object }

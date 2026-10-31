@@ -86,7 +86,7 @@
 - `/v1/data/readiness` 與 `tools.yaml` 的 `data.readiness` 說明補上 unknown 規則。
 - CI 契約工作加入 `SourceFreshnessUpdate` 的正例與負例。
 
-不在本 PR：後端儲存與 readiness 改寫（#121 分支要跟著改）、數據源管理頁的設定表單。`Readiness.backfill` 在 #121 會回 null，但 schema 不是 nullable。這是另一個既有落差，本 PR 不處理，留給 #121 修。
+不在本 PR：後端儲存與 readiness 改寫（#121 分支要跟著改）、數據源管理頁的設定表單。另外順手修正既有落差：`Readiness.backfill` 在 #74 回補對照完成前會回 null，原 schema 不是 nullable，本 PR 改成 `[object, 'null']`（與 `identity`、`aggregates` 一致；Codex 在 #121 審查要求併入本契約 PR）。
 
 ## 7. 實作順序
 
