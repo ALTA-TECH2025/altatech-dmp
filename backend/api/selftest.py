@@ -341,8 +341,10 @@ def main(store: Any | None = None) -> None:
     put = lambda s, b: c.put(f"/v1/integration/source-freshness/{s}", json=b)
     ok = put("ga360_daily", daily); assert ok.status_code == 200 and ok.json()["configured"] and ok.json()["max_lag_minutes"] is None and ok.json()["ready_at"] == "07:00", ok.text
     for s, b in (("ga360_daily", {"mode": "realtime", "max_lag_minutes": 15, "ready_at": "07:00"}), ("ga360_daily", {"mode": "daily_batch", "ready_at": "07:00"}),
-                 ("ga360_daily", {**daily, "timezone": "UTC"}), ("ga360_daily", [1]), ("GA360", daily)):
-        bad = put(s, b); assert bad.status_code == 400 and bad.json()["code"] == "INVALID_ARGUMENT", (s, b, bad.text)
+                 ("ga360_daily", {**daily, "timezone": "UTC"}), ("ga360_daily", [1]), ("GA360", daily),
+                 ("ga360_daily", {"mode": [], "max_lag_minutes": 15}), ("ga360_daily", {"mode": {}, "max_lag_minutes": 15})):
+        bad = put(s, b); assert bad.status_code == 400 and bad.json()["code"] == "INVALID_ARGUMENT" and bad.json()["retryable"] is False, (s, b, bad.text)
+    assert c.get("/v1/integration/source-freshness").json()[0]["ready_at"] == "07:00"                                              # 被拒的請求不動既有設定
     assert put("ga360_daily", {"mode": "realtime", "max_lag_minutes": 30}).json()["ready_at"] is None                               # 整筆取代：切換模式清掉日批欄位
     assert put("ga360_daily", daily).status_code == 200 and put("mdl_new_task", {"mode": "realtime", "max_lag_minutes": 60}).status_code == 200   # 同內容重送也成功；可預先設定沒資料的來源
     fr = {x["source"]: x for x in c.get("/v1/integration/source-freshness").json()}
