@@ -49,7 +49,11 @@ jobs:
                    ("AgentConfigDraftUpdate", {"skills": [{"name": "explore-data", "version": "1.0.0"}], "notes_md": "n"},
                     [bad, {"skills": [{"name": "explore-data", "version": "latest"}]}, {"skills": [{"name": "a", "version": "1", "tools": ["x"]}]}, {"user_overridable": [{"skill": "a", "param": "k", "status": "confirmed"}]}]),
                    ("AgentRunCreate", {"entry": "analyze", "question": "上週開戶漏斗", "agent": "s1", "params": {"period": "last_week"}},      # C3：專案與身分不可由請求指定
-                    [{"entry": "analyze", "question": "q", "project": "other"}, {"entry": "analyze", "question": "q", "user_id": "u", "roles": ["admin"]}])]
+                    [{"entry": "analyze", "question": "q", "project": "other"}, {"entry": "analyze", "question": "q", "user_id": "u", "roles": ["admin"]}]),
+                   ("SourceFreshnessUpdate", {"mode": "daily_batch", "ready_at": "07:00", "covers_days_back": 1},      # 來源新鮮度：模式與欄位必須成對、時區固定台北不可帶
+                    [{"mode": "realtime"}, {"mode": "realtime", "max_lag_minutes": 15, "ready_at": "07:00"}, {"mode": "daily_batch", "ready_at": "07:00"},
+                     {"mode": "daily_batch", "ready_at": "07:00", "covers_days_back": 1, "max_lag_minutes": 15}, {"mode": "daily_batch", "ready_at": "24:00", "covers_days_back": 1},
+                     {"mode": "daily_batch", "ready_at": "7:00", "covers_days_back": 1}, {"mode": "realtime", "max_lag_minutes": 15, "timezone": "UTC"}, {"mode": "realtime", "max_lag_minutes": 0}, {"mode": "hourly"}])]
           for name, ok, rejects in cases:
               v = jsonschema.Draft202012Validator(S[name]); v.validate(ok)
               for r in rejects:
