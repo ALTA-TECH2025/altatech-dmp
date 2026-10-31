@@ -59,6 +59,20 @@ class _Cancel(Exception):
     pass
 
 
+def used_of(r: dict[str, Any]) -> float:
+    """run 已用掃描量＝各步驟各 attempt 的預扣加總；以 attempt 為鍵，重寫同一個 attempt 不會重複計。"""
+    return float(sum(sum(float(v) for v in (x.get("scan_by_attempt") or {}).values()) for x in r.get("steps") or []))
+
+
+class _Ctx(ToolContext):
+    """Gateway 在送查詢前預扣 scan_bytes_used；這裡一預扣就寫進步驟紀錄，worker 中途崩潰也不會漏算。"""
+    def __setattr__(self, k: str, v: Any) -> None:
+        hook = self.__dict__.get("_hook")
+        if k == "scan_bytes_used" and hook and "scan_bytes_used" in self.__dict__:
+            hook(float(v) - float(self.__dict__["scan_bytes_used"]))
+        object.__setattr__(self, k, v)
+
+
 class RunService:
     def __init__(self, store: Any, ch: Any, journal: Any = None, gateway: Any = None, model_missing: Any = None, skills: Any = None, today: Any = date.today, clock: Any = time.time, roles_of: Any = None):
         if journal is None:
@@ -161,7 +175,8 @@ class RunService:
         b = body if isinstance(body, dict) else {}
         if b.get("question_id") != pq.get("question_id") or b.get("choice") not in [c["id"] for c in pq.get("choices", [])]:
             raise ApiError("INVALID_ARGUMENT", "問題編號或選項不正確")
-        if not self._admit(lambda: self.j.resume(rid, self.limit, answers={**(r.get("answers") or {}), pq["question_id"]: b["choice"]}, pending_question=None)):
+        extra = {"plan": dict(zip(("current", "previous"), last_weeks(self.today())))} if pq["question_id"] == "confirm" else {}   # 確認當下就固定絕對期間，接手一律沿用
+        if not self._admit(lambda: self.j.resume(rid, self.limit, answers={**(r.get("answers") or {}), pq["question_id"]: b["choice"]}, pending_question=None, **extra)):
             raise ApiError("CONFLICT", "run 不在等待回答")
         return self.view(self.j.get_run(rid))
 
@@ -199,7 +214,7 @@ class RunService:
         if gen is None:
             return 0
         r = self.j.get_run(rid); ini = r.get("initiator") or {}; t0 = self.clock()
-        ctx = {"used": float((r.get("budget") or {}).get("scan_bytes_used") or 0), "t0": t0, "exec_s": float(r.get("exec_s") or 0)}
+        ctx = {"used": used_of(r), "t0": t0, "exec_s": float(r.get("exec_s") or 0)}          # 已用掃描量從步驟紀錄重算（含失敗與中斷步驟的預扣）
         try:
             fields, to = self._rules(rid, gen, r, str(ini.get("user_id") or ""), ctx)
         except _Cancel:
@@ -242,10 +257,15 @@ class RunService:
                 t.join()
 
     def _call(self, rid: str, gen: int, uid: str, sid: str, tool: str, args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+        dig = digest(args)[:16]
         old = next((x for x in self.j.get_run(rid).get("steps") or [] if x["step_id"] == sid), None)
+        if old and old.get("args_digest") != dig:                             # 參數不同（例如期間變了）就不是同一步：換步驟編號重查，不沿用舊結果
+            sid = f"{sid}~{dig[:8]}"
+            old = next((x for x in self.j.get_run(rid).get("steps") or [] if x["step_id"] == sid), None)
         if old and old["state"] == "succeeded":                                # 接手後已完成的步驟不重做（結果存在步驟上）
             return {"ok": True, "data": old.get("out") or {}, "result_digest": old.get("result_digest"), "warnings": old.get("warnings", []), "cached": True}
         attempt = int(old["attempts"]) if old and old["state"] in ("running", "retry_wait") else 0
+        byatt: dict[str, float] = dict((old or {}).get("scan_by_attempt") or {})
         while True:
             attempt += 1
             self.j.renew(rid, gen, self.lease_s, now=self.clock())             # 每一步開始先續租；已被接手 → Fenced，整個 run 交給新 worker
@@ -255,14 +275,18 @@ class RunService:
             if ctx["exec_s"] + self.clock() - ctx["t0"] > wall:                 # 只算執行時間，不含等待回答
                 return {"ok": False, "error": {"code": "TIMEOUT", "message": "超過單次分析的執行時間上限", "retryable": False, "detail": {"limit_s": wall}}}
             qid = f"{rid}:{sid}:{attempt}"
-            step = {"step_id": sid, "tool": tool, "args_digest": digest(args)[:16], "attempts": attempt, "query_ids": [qid]}
+            step = {"step_id": sid, "tool": tool, "args_digest": dig, "attempts": attempt, "query_ids": [qid], "scan_by_attempt": byatt}
             self.j.put_step(rid, gen, {**step, "state": "running"})
             s = self.subject_now(uid)                                           # 每次工具呼叫前重讀身分（A13：撤權、停用即時生效）
             if not authorize(s, "use", "ai_ask").allowed:
                 err = {"code": "AUTHZ_DENIED", "message": "發起人目前沒有 AI 分析權限（已撤權或停用）", "retryable": False, "detail": {"permission": "ai_ask.use"}}
                 self.j.put_step(rid, gen, {**step, "state": "failed", "error": err})
                 return {"ok": False, "error": err}
-            tc = ToolContext(s, rid, sid, scan_bytes_used=ctx["used"], query_id=qid)
+            tc = _Ctx(s, rid, sid, scan_bytes_used=ctx["used"], query_id=qid)
+            def reserve(delta: float, step: dict[str, Any] = step, key: str = str(attempt)) -> None:
+                byatt[key] = byatt.get(key, 0.0) + delta
+                self.j.put_step(rid, gen, {**step, "state": "running", "scan_by_attempt": dict(byatt)})
+            object.__setattr__(tc, "_hook", reserve)
             with self._beat(rid, gen):
                 env = self.gw.call(tc, tool, args)
             ctx["used"] = tc.scan_bytes_used
@@ -289,7 +313,8 @@ class RunService:
                     choices = [{"id": ev, "label": f"{word}（{ev}）"} for ev, word in opts]
                     return {"pending_question": {"question_id": qid, "text": f"「{term}」要算哪一個事件？", "choices": choices}}, "waiting_input"
                 q = q.replace(term, dict(opts)[ans[qid]])
-        cur, prev = last_weeks(self.today())
+        plan = r.get("plan") or {}
+        cur, prev = (plan["current"], plan["previous"]) if plan else last_weeks(self.today())
         if "confirm" not in ans:                                               # A27：規則模式先給候選，確認前不送查詢
             env = self._call(rid, gen, s, "s1_configure", "analysis.configure", {"question": q, "context": {"time": cur}}, ctx)
             if not env["ok"]:
