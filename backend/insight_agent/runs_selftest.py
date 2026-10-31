@@ -71,7 +71,7 @@ def selftest() -> None:
     assert code(svc.create, ana, {**q, "user_id": "admin", "roles": ["admin"]}, None)[2]["rejected"] == ["roles", "user_id"]
     assert code(svc.create, ana, {**q, "params": {"window": 30}}, None)[2]["rejected"] == ["window"]
     assert code(svc.create, Subject("u_none", []), q, None)[:2] == (403, "AUTHZ_DENIED")
-    assert code(svc.create, ana, {**q, "entry": "dashboard"}, None)[1] == "NOT_CONFIGURED"
+    assert code(svc.create, ana, {**q, "entry": "audience"}, None)[1] == "NOT_CONFIGURED"
     # C5：同鍵同內容回同一筆、不同內容 409；24 小時後可重用
     a = svc.create(other, q, "k1"); assert svc.create(other, q, "k1")["run_id"] == a["run_id"]
     assert code(svc.create, other, {**q, "question": "上週登入人數"}, "k1")[:2] == (409, "CONFLICT")

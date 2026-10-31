@@ -22,14 +22,14 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, Header
 
 from ..api.errors import ApiError
-from ..mcp.server import GW, Gateway, ToolContext
+from ..mcp.server import GW, Gateway, ToolContext, ToolError
 from ..security.policy import Subject, authorize
 from . import skill_loader
-from .journal import TERMINAL, Fenced, LimitReached, MemoryJournal
+from .journal import TERMINAL, Conflict, Fenced, LimitReached, MemoryJournal
 from .model import missing_config
 
 FIELDS = {"entry", "question", "skill", "agent", "params", "period", "context"}
-ENTRY_SKILL = {"explore": "explore-data", "analyze": "explore-data"}       # 看板／受眾入口在後續 PR（B 集）
+ENTRY_SKILL = {"explore": "explore-data", "analyze": "explore-data", "dashboard": "explore-data"}   # 受眾入口在後續 PR（B05–B12）
 AMBIGUOUS = {"開戶": (("kh_apply", "開戶申請"), ("kh_review_pass", "審核通過"))}   # 選定後改寫成不歧義的詞再交給規則解析
 EXPLICIT = ("開戶申請", "完成開戶", "審核通過", "開戶成功")
 IDEM_TTL, RETRY, UNSET = 86400, {"INTERNAL": 2, "TIMEOUT": 1}, "（未設定）"
@@ -115,7 +115,7 @@ class RunService:
         if not isinstance(q, str) or not q.strip() or len(q) > 2000 or entry not in ("explore", "analyze", "dashboard", "audience") or not isinstance(params, dict):
             raise ApiError("INVALID_ARGUMENT", "entry、question（1–2000 字）必填；params 必須是物件")
         if entry not in ENTRY_SKILL:
-            raise ApiError("NOT_CONFIGURED", "看板與受眾入口在後續版本開放")
+            raise ApiError("NOT_CONFIGURED", "受眾入口在後續版本開放")
         if params or body.get("agent"):                                        # C2：Agent 設定尚無已發布版，沒有任何可覆寫參數
             raise ApiError("INVALID_ARGUMENT", "參數覆寫只接受已發布 Agent 設定開放的參數", params={"rejected": sorted(params) or ["agent"]})
         name = str(body.get("skill") or ENTRY_SKILL[entry])
@@ -186,7 +186,7 @@ class RunService:
             raise ApiError("CONFLICT", "只有失敗或取消的 run 可以重試")
         keep = ("entry", "question", "skill", "agent", "params", "project", "bookmarks", "contracts", "mode", "model", "answers", "period", "context", "candidates")
         now = self.clock()
-        doc = {**{k: r.get(k) for k in keep}, "budget": {"scan_bytes_used": 0, "tokens_used": 0}, "evidence": {}, "artifacts": [], "retry_of": rid, "initiator": {"user_id": s.user_id, "auth_source": "session"},
+        doc = {**{k: r.get(k) for k in keep}, "budget": {"scan_bytes_used": 0, "tokens_used": 0}, "evidence": {}, "artifacts": [], "retry_of": rid, "op_root": r.get("op_root") or rid, "initiator": {"user_id": s.user_id, "auth_source": "session"},   # op_root：寫入步驟沿用原 operation_id
                "request_digest": r.get("request_digest"), "created_ts": now, "created_at": datetime.fromtimestamp(now, UTC).isoformat()}
         return self.view(self._admit(lambda: self.j.create_run(doc, None, self.limit)))
 
@@ -259,7 +259,7 @@ class RunService:
             if t:
                 t.join()
 
-    def _call(self, rid: str, gen: int, uid: str, sid: str, tool: str, args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    def _call(self, rid: str, gen: int, uid: str, sid: str, tool: str, args: dict[str, Any], ctx: dict[str, Any], op: str = "") -> dict[str, Any]:
         dig = digest(args)[:16]
         old = next((x for x in self.j.get_run(rid).get("steps") or [] if x["step_id"] == sid), None)
         if old and old.get("args_digest") != dig:                             # 參數不同（例如期間變了）就不是同一步：換步驟編號重查，不沿用舊結果
@@ -278,14 +278,14 @@ class RunService:
             if ctx["exec_s"] + self.clock() - ctx["t0"] > wall:                 # 只算執行時間，不含等待回答
                 return {"ok": False, "error": {"code": "TIMEOUT", "message": "超過單次分析的執行時間上限", "retryable": False, "detail": {"limit_s": wall}}}
             qid = f"{rid}:{sid}:{attempt}"
-            step = {"step_id": sid, "tool": tool, "args_digest": dig, "attempts": attempt, "query_ids": [qid], "scan_by_attempt": byatt}
+            step = {"step_id": sid, "tool": tool, "args_digest": dig, "attempts": attempt, "query_ids": [qid], "scan_by_attempt": byatt, **({"operation_id": op} if op else {})}
             self.j.put_step(rid, gen, {**step, "state": "running"})
             s = self.subject_now(uid)                                           # 每次工具呼叫前重讀身分（A13：撤權、停用即時生效）
             if not authorize(s, "use", "ai_ask").allowed:
                 err = {"code": "AUTHZ_DENIED", "message": "發起人目前沒有 AI 分析權限（已撤權或停用）", "retryable": False, "detail": {"permission": "ai_ask.use"}}
                 self.j.put_step(rid, gen, {**step, "state": "failed", "error": err})
                 return {"ok": False, "error": err}
-            tc = _Ctx(s, rid, sid, scan_bytes_used=ctx["used"], query_id=qid)
+            tc = _Ctx(s, rid, sid, scan_bytes_used=ctx["used"], query_id=qid, operation_id=op, commit=self._committer(rid, gen, op) if op else None)
             def reserve(delta: float, step: dict[str, Any] = step, key: str = str(attempt)) -> None:
                 byatt[key] = byatt.get(key, 0.0) + delta
                 self.j.put_step(rid, gen, {**step, "state": "running", "scan_by_attempt": dict(byatt)})
@@ -295,7 +295,8 @@ class RunService:
             ctx["used"] = tc.scan_bytes_used
             if env["ok"]:
                 env["result_digest"] = digest(env["data"])[:16]
-                out = {"cards": [{k: c.get(k) for k in ("title", "kind", "query")} for c in env["data"].get("cards") or []], "unmatched": env["data"].get("unmatched", [])} if tool == "analysis.configure" else {}
+                out = ({"cards": [{k: c.get(k) for k in ("title", "kind", "query")} for c in env["data"].get("cards") or []], "unmatched": env["data"].get("unmatched", [])} if tool == "analysis.configure"
+                       else {"dashboard_id": env["data"]["dashboard_id"], "draft": True} if tool == "dashboard.draft" else {})
                 self.j.put_step(rid, gen, {**step, "state": "succeeded", "warnings": env["warnings"], "usage": env["usage"], "result_digest": env["result_digest"], "out": out})
                 return env
             err = env["error"]
@@ -304,6 +305,17 @@ class RunService:
                 continue
             self.j.put_step(rid, gen, {**step, "state": "failed", "error": err})
             return env
+
+    def _committer(self, rid: str, gen: int, op: str) -> Any:
+        """寫入工具用的提交函式：唯一冪等來源是 agent_operations（C4）；origin 由控制器填，模型與參數碰不到（C6）。"""
+        def commit(tool: str, kind: str, args: dict[str, Any], doc: dict[str, Any]) -> tuple[str, str]:
+            sk = self.j.get_run(rid).get("skill") or {}
+            doc = {**doc, "origin": {"kind": "ai_draft", "run_id": rid, "skill": {"name": sk.get("name"), "version": sk.get("version")}}}
+            try:
+                return self.j.commit_operation(rid, gen, op, tool, kind, args, doc)
+            except Conflict:
+                raise ToolError("CONFLICT", "同一個寫入操作已以不同內容提交（不覆寫原產物）", operation_id=op) from None
+        return commit
 
     def _rules(self, rid: str, gen: int, r: dict[str, Any], s: str, ctx: dict[str, Any]) -> tuple[dict[str, Any], str]:
         q, ans = r["question"], r.get("answers") or {}
@@ -338,8 +350,20 @@ class RunService:
             evid[eid] = {"evidence_id": eid, "run_id": rid, "label": label, "kind": card["kind"], "query": query, "period": {"from": period["from"], "to": period["to"], "tz": "Asia/Taipei"},
                          "contract": {**r.get("contracts", {}), "skill": f"{r['skill']['name']}@{r['skill']['version']}"}, "result_digest": env["result_digest"],
                          "created_at": datetime.fromtimestamp(self.clock(), UTC).isoformat()}
-        return {"evidence": evid, "artifacts": [{"kind": "evidence", "id": e} for e in evid],
-                "result": {"answerable": True, "label": "規則模式（非 AI）", "evidence_ids": list(evid), "card": card["title"]}}, "succeeded"
+        arts: list[dict[str, Any]] = [{"kind": "evidence", "id": e} for e in evid]
+        result: dict[str, Any] = {"answerable": True, "label": "規則模式（非 AI）", "evidence_ids": list(evid), "card": card["title"]}
+        if r["entry"] == "dashboard":                                          # 開戶主管週報：私人看板草稿，卡片存 kind + query，期間固定（pinned）不被看板預設期間覆蓋
+            pin = lambda p: {**card["query"], "time": {**p, "pinned": True}}
+            cards = [{"title": f"{card['title']}・上週（{cur['from']}～{cur['to']}）", "kind": card["kind"], "query": pin(cur)},
+                     {"title": f"{card['title']}・前週（{prev['from']}～{prev['to']}）", "kind": card["kind"], "query": pin(prev)}]
+            if card["kind"] == "funnel" and not card["query"].get("group_by"):
+                cards.append({"title": f"{card['title']}・上週依渠道", "kind": "funnel", "query": {**pin(cur), "group_by": [{"field": "channel"}]}})
+            op = "op_" + digest([r.get("op_root") or rid, "s4_dashboard"])[:16]
+            env = self._call(rid, gen, s, "s4_dashboard", "dashboard.draft", {"name": f"週報：{card['title']}（{cur['from']}～{cur['to']}）", "cards": cards}, ctx, op=op)
+            if not env["ok"]:
+                return {"error": env["error"], "evidence": evid, "artifacts": arts}, "failed"
+            arts.append({"kind": "dashboard", "id": env["data"]["dashboard_id"], "operation_id": op}); result["dashboard_id"] = env["data"]["dashboard_id"]
+        return {"evidence": evid, "artifacts": arts, "result": result}, "succeeded"
 
 
 def build_router(svc: RunService, get_subject: Any) -> APIRouter:
@@ -376,5 +400,5 @@ def build_router(svc: RunService, get_subject: Any) -> APIRouter:
 
 
 if __name__ == "__main__":
-    from .runs_selftest import selftest
-    selftest()
+    from . import draft_selftest, runs_selftest
+    runs_selftest.selftest(); draft_selftest.main()

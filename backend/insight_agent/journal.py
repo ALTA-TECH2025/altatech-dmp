@@ -36,6 +36,7 @@ ARTIFACT = {"dashboard": ("d_", "dashboard"), "segment": ("sg_", "segments")}   
 
 class Fenced(Exception):
     """世代不符：這個 worker 的租約已被接手，寫入整筆不生效。"""
+    propagate = True    # 經 Gateway 呼叫寫入工具時不被包成錯誤信封，控制器才知道要停手
 
 
 class Conflict(Exception):
