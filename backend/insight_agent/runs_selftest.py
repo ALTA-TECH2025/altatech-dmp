@@ -16,10 +16,12 @@ from .runs import RunService, build_router
 
 class FakeCH:
     def __init__(self) -> None:
-        self.sql: list[str] = []; self.settings: list[dict[str, Any]] = []; self.fail: str | None = None
+        self.sql: list[str] = []; self.settings: list[dict[str, Any]] = []; self.fail: str | None = None; self.hook: Any = None; self.est_rows = 1000
     def query(self, sql: str, data: bytes | None = None, settings: dict[str, Any] | None = None) -> str:
         if sql.startswith("EXPLAIN ESTIMATE"):
-            return "dmp\tevents\t1\t1000\n"
+            return f"dmp\tevents\t1\t{self.est_rows}\n"
+        if self.hook:
+            self.hook(dict(settings or {}))
         if self.fail:
             raise RuntimeError(self.fail)
         self.sql.append(sql); self.settings.append(dict(settings or {}))
@@ -37,7 +39,8 @@ def selftest() -> None:
     import jsonschema
     import yaml
     st, ch, clock = MemoryStore(), FakeCH(), [1_000_000.0]
-    today = lambda: date(2026, 10, 28)                                         # 週三 → 上週 10/19–10/25、前週 10/12–10/18
+    day = [date(2026, 10, 28)]
+    today = lambda: day[0]                                                     # 週三 → 上週 10/19–10/25、前週 10/12–10/18
     missing = ["DMP_AGENT_MODEL_PROVIDER", "model_view.approved_params"]
     roles: dict[str, list[str] | None] = {"u_ana": ["data_analyst"], "u_other": ["data_analyst"], "u_rev": ["data_analyst"], "u_par": ["data_analyst"]}   # 權威來源（帳號＋指派現況）
     svc = RunService(st, ch, gateway=Gateway(st, ch, today=today), model_missing=lambda: missing, today=today, clock=lambda: clock[0], roles_of=roles.get)
@@ -124,11 +127,95 @@ def selftest() -> None:
     with ThreadPoolExecutor(6) as ex:
         got = list(ex.map(lambda i: code(svc.create, par, {**q, "question": f"上週登入人數 {i}"}, None)[1], range(6)))
     assert got.count("") == 2 and got.count("RATE_LIMITED") == 4, got
+    # 租約：worker 崩潰後由別的 worker 接手、已完成步驟不重做、舊 worker 寫入被擋；單步超過租約時背景續租
+    import threading
+
+    from .journal import Fenced
+
+    class Crash(BaseException):
+        pass
+
+    lu = Subject("u_lease", ["data_analyst"]); roles["u_lease"] = ["data_analyst"]
+    def ready() -> str:
+        x = svc.create(lu, q, None)["run_id"]; svc.tick(); svc.answer(lu, x, {"question_id": "term:開戶", "choice": "kh_apply"}); svc.tick()
+        svc.answer(lu, x, {"question_id": "confirm", "choice": "c0"}); return x
+    def sent(rid_: str, sid: str) -> int:
+        return sum(str(x.get("query_id", "")).startswith(f"{rid_}:{sid}:") for x in ch.settings)
+    lr = ready(); svc.beat_s = 0
+    def crash(st_: dict[str, Any]) -> None:
+        if ":s3_previous:" in str(st_.get("query_id", "")):
+            clock[0] += 120; raise Crash()
+    ch.hook = crash
+    try:
+        svc.tick(worker="wA"); raise AssertionError("應崩潰")
+    except Crash:
+        pass
+    ch.hook = None; ra = svc.j.get_run(lr); gen_a = ra["generation"]
+    assert ra["state"] == "running" and {x["step_id"]: x["state"] for x in ra["steps"]}.items() >= {"s2_current": "succeeded", "s3_previous": "running"}.items(), ra["steps"]
+    gen_b = svc.j.claim(lr, "wB", svc.lease_s, now=clock[0]); assert gen_b == gen_a + 1                                    # 租約過期 → 別的 worker 接得到
+    for bad in (lambda: svc.j.put_step(lr, gen_a, {"step_id": "s3_previous", "state": "failed"}), lambda: svc.j.set_state(lr, gen_a, "failed")):
+        try:
+            bad(); raise AssertionError("舊 worker 應被擋")
+        except Fenced:
+            pass
+    n_s2 = sent(lr, "s2_current"); svc.tick(worker="wB"); rb = svc._own(lu, lr)
+    assert rb["state"] == "succeeded" and len(rb["evidence"]) == 2 and sent(lr, "s2_current") == n_s2, rb.get("error")              # s2 沿用、不重查
+    assert next(x for x in rb["steps"] if x["step_id"] == "s3_previous")["attempts"] == 2
+    # 單步 90 秒（合成時鐘）：有續租 → 完成；沒續租 → 寫入被擋、留給下一個 worker 接手
+    lr2 = ready(); svc.beat_s = 0.001; beats = threading.Event(); svc.on_beat = beats.set
+    def slow(st_: dict[str, Any]) -> None:
+        if ":s2_current:" in str(st_.get("query_id", "")) and str(st_["query_id"]).endswith(":1"):
+            for _ in range(9):
+                clock[0] += 10; beats.clear(); assert beats.wait(5), "背景續租沒有發生"
+    ch.hook = slow; svc.tick(worker="wC"); ch.hook = None
+    assert svc._own(lu, lr2)["state"] == "succeeded"
+    lr3 = ready(); svc.beat_s = 0; svc.on_beat = None
+    def jump(st_: dict[str, Any]) -> None:
+        if str(st_.get("query_id", "")) == f"{lr3}:s2_current:1":
+            clock[0] += 90
+    ch.hook = jump; svc.tick(worker="wD"); ch.hook = None
+    assert svc.j.get_run(lr3)["state"] == "running"                                                                         # 沒續租：寫不進去
+    clock[0] += 61; svc.tick(worker="wE"); assert svc._own(lu, lr3)["state"] == "succeeded"
+    svc.beat_s = svc.lease_s / 3
+    # 預算：中斷的 attempt 已預扣的量要算進去；接近 per_run 上限時崩潰接手 → 下一步 BUDGET_EXCEEDED、不送查詢
+    from ..mcp.server import BYTES_PER_ROW, GW
+    lr4 = ready(); budgets = dict(GW["budgets"]); GW["budgets"]["per_run_scan_bytes"] = 40e9; ch.est_rows = int(15e9 / BYTES_PER_ROW); svc.beat_s = 0
+    def crash_s2(st_: dict[str, Any]) -> None:
+        if str(st_.get("query_id", "")) == f"{lr4}:s2_current:1":
+            clock[0] += 120; raise Crash()
+    ch.hook = crash_s2
+    try:
+        svc.tick(worker="wF"); raise AssertionError("應崩潰")
+    except Crash:
+        pass
+    ch.hook = None; clock[0] += 1
+    from .runs import used_of
+    assert used_of(svc.j.get_run(lr4)) == 15e9                                                                               # 崩潰前的預扣已寫進步驟
+    svc.tick(worker="wG"); r4 = svc._own(lu, lr4)
+    assert r4["state"] == "failed" and r4["error"]["code"] == "BUDGET_EXCEEDED" and sent(lr4, "s3_previous") == 0, (r4["state"], r4.get("error"))
+    assert r4["budget"]["scan_bytes_used"] == 30e9                                                                           # 15（中斷）＋15（重跑）；s3 沒有預扣
+    GW["budgets"].update(budgets); ch.est_rows = 1000; svc.beat_s = svc.lease_s / 3
+    # 跨週接手：10/28 確認、崩潰，11/02 才接手 → 期間仍是確認當下的 10/19–10/25 與 10/12–10/18，s2 沿用的摘要與證據一致
+    lr5 = ready(); svc.beat_s = 0
+    def crash_s3(st_: dict[str, Any]) -> None:
+        if str(st_.get("query_id", "")) == f"{lr5}:s3_previous:1":
+            clock[0] += 120; raise Crash()
+    ch.hook = crash_s3
+    try:
+        svc.tick(worker="wH"); raise AssertionError("應崩潰")
+    except Crash:
+        pass
+    ch.hook = None; day[0] = date(2026, 11, 2); n5 = sent(lr5, "s2_current"); svc.tick(worker="wI"); r5 = svc._own(lu, lr5)
+    ps = sorted((e["period"]["from"], e["period"]["to"]) for e in r5["evidence"].values())
+    s2 = next(x for x in r5["steps"] if x["step_id"] == "s2_current"); e2 = next(e for e in r5["evidence"].values() if e["label"] == "上週")
+    assert r5["state"] == "succeeded" and ps == [("2026-10-12", "2026-10-18"), ("2026-10-19", "2026-10-25")] and sent(lr5, "s2_current") == n5, (ps, r5.get("error"))
+    assert e2["result_digest"] == s2["result_digest"] and e2["query"]["time"]["from"] == "2026-10-19" and not any("~" in x["step_id"] for x in r5["steps"])
+    day[0] = date(2026, 10, 28); svc.beat_s = svc.lease_s / 3
     # 取消：排隊中直接取消；已結束再取消 409
     c = svc.create(ana, {**q, "question": "上週登入人數"}, None)["run_id"]; svc.cancel(ana, c)
     assert svc._own(ana, c)["state"] == "cancelled" and code(svc.cancel, ana, c)[1] == "CONFLICT"
     assert any(a["event"] == "agent.run.created" for a in st.audit_tail(1000))
-    print("agent runs self-test ok: A03 補問口徑、A27 規則模式確認前不查、上週＝完整週一到週日、C7 query_id、Q21、C6 他人 404、C3/C2 欄位與參數拒絕、C5 冪等 24h、A26 名額、A17、A25/A25b、A19 重試、重試與取消、A13 撤權（排隊／等待回答／重試後）、名額共用入口（重試／回答／併發建立）")
+    print("agent runs self-test ok: A03 補問口徑、A27 規則模式確認前不查、上週＝完整週一到週日、C7 query_id、Q21、C6 他人 404、C3/C2 欄位與參數拒絕、C5 冪等 24h、A26 名額、A17、A25/A25b、A19 重試、重試與取消、A13 撤權（排隊／等待回答／重試後）、名額共用入口（重試／回答／併發建立）、租約接手（崩潰接手不重做、舊 worker 被擋、長步驟續租、接手時預算從步驟重算、跨週接手沿用確認當下的期間）")
 
 
 if __name__ == "__main__":
