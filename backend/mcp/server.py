@@ -46,7 +46,6 @@ def is_identifier(name: str) -> bool:
     for pre in ("props.", "u.", "e."):
         n = n[len(pre):] if n.startswith(pre) else n
     return n in IDENTIFIERS or n.startswith("identity_")
-SLA = yaml.safe_load((ROOT.parent / "ops" / "sla.yaml").read_text(encoding="utf-8"))
 PROJECT = "altatech_dmp"                                # 與分析編譯器的預設專案相同（C3：不讓請求或模型指定）
 TPE = timedelta(hours=8)                                # Asia/Taipei（無日光節約）
 TRUSTED_COLS = {"bucket", "cohort", "period", "step", "alias", "event", "touch", "complete", "suppressed"}   # 系統產生的值，不是資料字串
@@ -287,7 +286,7 @@ class Gateway:
         if d1 < d0 or (d1 - d0).days > 92:
             raise ToolError("INVALID_ARGUMENT", "期間需 from ≤ to 且不超過 93 天")
         from ..semantic.compiler.policy import rewrite_row_filter
-        rc = _RowCtx(); expected = float(SLA["freshness"]["behavior_events_min"])
+        rc = _RowCtx()
         rf = [rewrite_row_filter(f, self.cat, rc) for f in authorize(ctx.subject, "view", "events").row_filters]   # 行級條件照讀取者，與編譯器同一套改寫
         lookback = d0 - timedelta(days=28)                                            # 來源清單：期間前 28 天到現在有出現過這些事件的來源
         where = [f"e.project = '{PROJECT}'", f"e.event_date >= toDate('{lookback.isoformat()}')", "e.event IN (" + ", ".join("'" + n.replace("'", "") + "'" for n in names if n) + ")", *rf]
@@ -297,18 +296,24 @@ class Gateway:
         q = _QID(self.ch, ctx.query_id) if ctx.query_id else self.ch
         rows = [json.loads(x) for x in q.query(sql + " FORMAT JSONEachRow").splitlines() if x.strip()]
         now = datetime.fromtimestamp(self.clock(), UTC); start0 = datetime(d0.year, d0.month, d0.day, tzinfo=UTC) - TPE
-        sources = []
+        from ..integration import freshness  # 門檻來自數據源管理的新鮮度設定（#122）；未設定 → unknown，不套任何預設值
+        cfgs = {x["source"]: x for x in self.store.items(freshness.KIND)}
+        sources, lasts = [], {}
         for r in rows:
-            t = datetime.fromisoformat(str(r["t"]).replace(" ", "T")).replace(tzinfo=UTC)
-            lag = round((now - t).total_seconds() / 60, 1)
-            sources.append({"source": str(r["source"]), "max_event_time": t.isoformat(), "lag_minutes": lag, "expected_lag_minutes": expected,
-                            "status": "missing" if t < start0 else "late" if lag > expected else "ok"})
+            src, t = str(r["source"]), datetime.fromisoformat(str(r["t"]).replace(" ", "T")).replace(tzinfo=UTC)
+            lasts[src] = t
+            sources.append({"source": src, "max_event_time": t.isoformat(), "lag_minutes": round((now - t).total_seconds() / 60, 1), **freshness.judge(cfgs.get(src), t, start0, now)})
         dates = []
         for i in range((d1 - d0).days + 1):
             dd = d0 + timedelta(days=i); end = datetime(dd.year, dd.month, dd.day, tzinfo=UTC) + timedelta(days=1) - TPE   # 台北日期的結束時刻（UTC）
-            miss = [x["source"] for x in sources if datetime.fromisoformat(x["max_event_time"]) < end]
-            dates.append({"date": dd.isoformat(), "complete": bool(sources) and not miss and end <= now, "missing_sources": miss})   # 沒有任何來源 → 不算到齊
+            arr = {s: freshness.arrived(cfgs.get(s), t, dd) for s, t in lasts.items()}
+            miss, unk = [s for s, a in arr.items() if a is False], [s for s, a in arr.items() if a is None]
+            dates.append({"date": dd.isoformat(), "complete": None if unk else bool(sources) and not miss and end <= now,   # 有未設定的來源 → 不知道（null），不可當成到齊；沒有任何來源 → 不算到齊
+                          "missing_sources": miss, "unknown_sources": unk})
         warns = [{"code": "READINESS_PARTIAL", "message": "回補對照（#74）與歸戶品質（#33）尚未提供：backfill、identity 為 null，請視為「未知」不是「良好」"}]
+        unknown = [s["source"] for s in sources if s["status"] == "unknown"]
+        if unknown:
+            warns.append({"code": "READINESS_PARTIAL", "message": f"{len(unknown)} 個來源尚未設定新鮮度（{', '.join(unknown)}）：狀態為 unknown，請到數據源管理設定；設定前不當成「良好」或「延遲」"})
         try:
             from ..integration.aggregates import pending_dates
             agg: dict[str, Any] | None = {"pending_rebuild_dates": [x for x in pending_dates(self.ch) if d0.isoformat() <= x <= d1.isoformat()]}

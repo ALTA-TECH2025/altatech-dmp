@@ -100,17 +100,27 @@ def selftest() -> None:
         assert untraced(f"共有120{sp}萬人，交易額3.5{sp}億", big) == [] and untraced(f"共有1.2{sp}M人", big) == [f"1.2{sp}M"]
     assert untraced("共有 120 人，轉換率 37.5 %", [{"users": 120, "rate": 0.375}]) == [] and untraced("共有 120 人", big) == ["120"]
 
-    # data.readiness：依來源新鮮度、依日期是否到齊；backfill（#74）、identity（#33）回 null + READINESS_PARTIAL
-    ch.src = [{"source": "sdk", "t": "2026-10-27 17:55:00.000"},                  # 5 分鐘前 → ok
-              {"source": "trade", "t": "2026-10-24 04:00:00.000"},                # 台北 10/24 12:00 → late；10/24、10/25 未到齊
+    # data.readiness：依數據源管理的新鮮度設定判斷（#122）；未設定 → unknown；backfill（#74）、identity（#33）回 null + READINESS_PARTIAL
+    from ..integration import freshness
+    put_cfg = lambda s, b: st.put_item(freshness.KIND, {"id": freshness.item_id(s), "source": s, **freshness.validate(b)})
+    rd_call = lambda **kw: gw.call(ToolContext(ana, x, "rd", **kw), "data.readiness", {"events": ["kh_apply", "kh_review_pass"], "period": {"from": "2026-10-19", "to": "2026-10-25"}})
+    ch.src = [{"source": "sdk", "t": "2026-10-27 17:55:00.000"},                  # 即時 15 分：5 分鐘前 → ok
+              {"source": "trade", "t": "2026-10-24 04:00:00.000"},                # 日批 07:00／T-1：現在台北 10/28 02:00 應涵蓋到 10/26，只到 10/24 → late
               {"source": "legacy", "t": "2026-10-01 00:00:00.000"}]               # 期間開始前就沒資料 → missing
-    rd = gw.call(ToolContext(ana, x, "rd", query_id=f"{x}:rd:1"), "data.readiness", {"events": ["kh_apply", "kh_review_pass"], "period": {"from": "2026-10-19", "to": "2026-10-25"}})
+    R0 = rd_call()["data"]                                                                                       # 上線初始：一個都沒設定 → 全部 unknown、日期到齊回 null
+    assert [(s["source"], s["status"], s["mode"], s["expected_lag_minutes"]) for s in R0["sources"]] == [(s, "unknown", None, None) for s in ("sdk", "trade", "legacy")]
+    assert all(d_["complete"] is None and d_["unknown_sources"] == ["sdk", "trade", "legacy"] and d_["missing_sources"] == [] for d_ in R0["dates"])
+    assert [w["code"] for w in R0["warnings"]] == ["READINESS_PARTIAL"] * 2 and "sdk, trade, legacy" in R0["warnings"][1]["message"]
+    put_cfg("sdk", {"mode": "realtime", "max_lag_minutes": 15}); put_cfg("trade", {"mode": "daily_batch", "ready_at": "07:00", "covers_days_back": 1})
+    put_cfg("legacy", {"mode": "realtime", "max_lag_minutes": 60})
+    rd = rd_call(query_id=f"{x}:rd:1")
     assert rd["ok"], rd["error"]; R = rd["data"]
     assert [(s["source"], s["status"]) for s in R["sources"]] == [("sdk", "ok"), ("trade", "late"), ("legacy", "missing")] and R["sources"][0]["lag_minutes"] == 5.0
-    assert R["sources"][0]["expected_lag_minutes"] == 15                                                         # 取自 ops/sla.yaml，不另訂門檻
+    assert R["sources"][0]["expected_lag_minutes"] == 15 and R["sources"][0]["expected_through"] is None                       # 門檻取自設定，不再讀 ops/sla.yaml
+    assert R["sources"][1]["mode"] == "daily_batch" and R["sources"][1]["expected_lag_minutes"] is None and R["sources"][1]["expected_through"] == "2026-10-26"
     by = {x_["date"]: x_ for x_ in R["dates"]}
     assert sorted(by) == [f"2026-10-{i}" for i in range(19, 26)] and by["2026-10-23"]["missing_sources"] == ["legacy"] and by["2026-10-25"]["missing_sources"] == ["trade", "legacy"]
-    assert not any(x_["complete"] for x_ in R["dates"])
+    assert not any(x_["complete"] for x_ in R["dates"]) and all(x_["unknown_sources"] == [] for x_ in R["dates"])
     assert R["backfill"] is None and R["identity"] is None and R["aggregates"] == {"pending_rebuild_dates": ["2026-10-20"]}
     assert [w["code"] for w in R["warnings"]] == ["READINESS_PARTIAL"] and "READINESS_PARTIAL" in [w["code"] for w in rd["warnings"]] and set(R["contract"]) >= {"semantic", "tools"}
     assert rd["model_view"]["backfill"] is None and not _has_internal(rd["model_view"])
@@ -118,7 +128,14 @@ def selftest() -> None:
     assert "e.event IN ('kh_apply', 'kh_review_pass')" in sql and "e.project = 'altatech_dmp'" in sql and "e.event_date >= toDate('2026-09-21')" in sql and "JOIN" not in sql
     assert ch.settings[-1].get("query_id") == f"{x}:rd:1"                                                         # C7：讀取帶 query_id
     S = yaml.safe_load((Path(__file__).resolve().parents[1] / "openapi.yaml").read_text(encoding="utf-8"))["components"]["schemas"]
-    jsonschema.Draft202012Validator(S["Readiness"]).validate({k: v for k, v in R.items() if k != "backfill"})   # backfill 的 null 待契約補（見 PR 說明）
+    for out in (R0, R):
+        jsonschema.Draft202012Validator(S["Readiness"]).validate(out)                                          # 完整回應（含 backfill=null、unknown、complete=null）都符合 #122 契約
+    clock[0] = datetime(2026, 10, 27, 22, 59, tzinfo=UTC).timestamp()            # 台北 10/28 06:59：日批仍只要求到 10/26
+    ch.src[1] = {"source": "trade", "t": "2026-10-26 15:00:00.000"}              # 最後事件台北 10/26 23:00
+    assert rd_call()["data"]["sources"][1]["status"] == "ok"
+    clock[0] = datetime(2026, 10, 27, 23, 0, tzinfo=UTC).timestamp()             # 台北 10/28 07:00：改要求到 10/27 → late
+    Rb = rd_call()["data"]["sources"][1]; assert (Rb["status"], Rb["expected_through"]) == ("late", "2026-10-27"), Rb
+    clock[0] = NOW.timestamp(); ch.src[1] = {"source": "trade", "t": "2026-10-24 04:00:00.000"}
     # 兩個來源都到齊的日期才算 complete；行級條件照讀取者；未登錄事件、無 events.view、待重建表讀不到、預算不足
     ch.src = ch.src[:1]; R2 = gw.call(ToolContext(ana, x, "rd"), "data.readiness", {"events": ["kh_apply"], "period": {"from": "2026-10-19", "to": "2026-10-28"}})["data"]
     assert [x_["complete"] for x_ in R2["dates"]] == [True] * 9 + [False]                                         # 現在台北 10/28 02:00：10/27 已過完且來源已超過、10/28 還沒過完
@@ -139,7 +156,7 @@ def selftest() -> None:
     assert call(ana, {"events": ["kh_apply"], "period": p})["error"]["code"] == "BUDGET_EXCEEDED" and len(ch.sql) == n
     ch.est_rows = 1000
     print("agent evidence/readiness self-test ok: evidence.get 每次重算不快取、不回 SQL、D3 投影、C9 摘要（沒變相同／變了不同／原摘要不變）、權限指紋隨角色／行級條件變、404 先於 403、預算前置、REST 同實作；"
-          "A20 數字可追溯（四捨五入、百分比、日期不算、捏造數字被抓）；data.readiness 來源 ok/late/missing、依日期到齊、backfill／identity null + READINESS_PARTIAL、待重建日期、行級條件、參數與權限檢查")
+          "A20 數字可追溯（四捨五入、百分比、日期不算、捏造數字被抓）；data.readiness 依新鮮度設定（未設定 unknown／即時 ok／日批 06:59／07:00 邊界／late／missing）、依日期到齊（未設定 → null）、backfill／identity null + READINESS_PARTIAL、待重建日期、行級條件、參數與權限檢查")
 
 
 if __name__ == "__main__":
