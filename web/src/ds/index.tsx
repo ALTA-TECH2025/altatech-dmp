@@ -38,3 +38,4 @@ export function KeyValue({ rows }: { rows: [ReactNode, ReactNode][] }) {
 export function EmptyState({ children }: { children: ReactNode }) { return <Text ta="center" c="dimmed" size="sm" py="xl">{children}</Text>; }
 
 export function Mono({ children }: { children: ReactNode }) { return <Text component="span" ff="monospace" size="sm" style={{ fontVariantNumeric: 'tabular-nums' }}>{children}</Text>; }
+export { ErrorAlert } from './ErrorAlert';

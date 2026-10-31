@@ -1,7 +1,7 @@
 # OneID 歸戶規則（對齊舊平台 IDM 3.0「全域用戶關聯」的運作方式；docs/19）
 # 原則：
 #   1. 歸戶在接入時決定，事件寫入即定 one_id；未登入的行為事件以 distinct_id（cookie／裝置／匿名 ID）歸到匿名用戶。
-#      登入事件到達時做歸戶，並把該 distinct_id 近 7 天仍屬匿名用戶的事件改寫到登入客戶（login_backfill）；更早的事件不動。
+#      登入事件到達時做歸戶，並把該 distinct_id 近 7 天仍屬匿名用戶的事件在查詢時算到登入客戶（login_backfill，寫對照、不改寫事件）；更早的事件不動。
 #   2. 一個 ID 同一時刻只屬於一個用戶；兩個已存在的用戶不自動合併（只有人工工具可合併／拆分，需審批與審計）。
 #   3. 同一條資料裡多個 ID 分屬不同用戶 → 資料歸「優先級最高的 ID」所屬用戶（登入事件永遠以客戶代碼為準，裝置只是事件屬性）。
 #      弱 ID（裝置／cookie／匿名）已屬「已識別客戶」時不自動改綁：關聯失敗、記 conflict、事件仍歸客戶代碼的用戶（舊平台 IDM 2.0「關聯失敗」、
@@ -10,7 +10,7 @@
 #   5. 登入帳號（客戶代碼）優先級最高、單值、不可改、不可解綁。
 #   6. 舊平台 IDM 3.0「配置用戶關聯」的欄位本系統都有：優先級、關聯約束（單值／多值）、關聯上限（max_count）、超限策略（rolling_unbind 滾動解綁預設／intercept 整筆攔截）、
 #      父節點（parent：父 ID 解綁時子 ID 一併解綁）、狀態（status: enabled|disabled，停用的不參與歸戶）。舊平台沒有「衝突待人工」清單，那是本系統加的（id_edges status=conflict）。
-version: 1
+version: 2                                # v1.3（2026-10-22）：login_backfill.rewrite 改為 none、apply 改為 mapping
 alias:                                   # 接入時先正規化：同源 ID 併成同一類型
   $identity_ga_user_id: $identity_login_id      # GA user_id 已是 HMAC 客戶代碼，直接視為 login_id
 ids:
@@ -27,17 +27,17 @@ anonymous_user:
   create_from: [$identity_cookie_id, $identity_device_id, $identity_anonymous_id]   # 只有弱 ID 的資料也建立用戶（匿名用戶），事件先歸它
   distinct_id: first_present_of_create_from   # 未登入事件的 distinct_id = 該筆資料裡第一個弱 ID（Web: cookie_id；App: device_id；Collector: anonymous_id），寫進 events.distinct_id
   upgrade_on_first_strong_bind: true      # 匿名用戶第一次與強 ID 共現且該強 ID 尚無用戶 → 直接升級為客戶（歷史匿名事件自動歸戶，不需改寫事件）
-  merge_into_existing_customer: true      # 匿名用戶第一次與「已存在的客戶」共現 → 整個匿名用戶（所有弱 ID）併入該客戶，近 7 天事件改寫（舊平台 IDM 2.0 方案三「合併並讀取過去 7 天 events 修復」）
-login_backfill:                           # 登入歸戶 + 近 7 天匿名行為改寫
+  merge_into_existing_customer: true      # 匿名用戶第一次與「已存在的客戶」共現 → 整個匿名用戶（所有弱 ID）併入該客戶，近 7 天事件寫回補對照（舊平台 IDM 2.0 方案三「合併並讀取過去 7 天 events 修復」）
+login_backfill:                           # 登入歸戶 + 近 7 天匿名行為回補（查詢時換算）
   enabled: true
   trigger_events: [login, $SignUp, ga.login, oneid.bind]   # 帶 login_id 與 distinct_id 共現的資料都算「登入事件」
   window_days: 7                          # 以登入事件時間往前 7 天（event time，不是到達時間）
-  scope: events_of_distinct_id_owned_by_anonymous_user     # 只改寫「同 distinct_id、目前仍屬匿名用戶」的事件；已歸到任何客戶的事件不動
-  rewrite: { one_id: target_customer, one_id_uint: target_customer, keep: distinct_id }   # distinct_id 原值保留，可追溯
-  apply: { mode: micro_batch, interval_minutes: 10, storage: clickhouse_lightweight_update, partition_bound: 8 }   # 每 10 分鐘合併一批改寫；只動近 8 個日分區
-  consistency: query_overlay_until_applied   # 改寫落地前查詢以 oneid_backfill 覆蓋表即時生效，報表不會有「先少後多」
+  scope: events_of_distinct_id_owned_by_anonymous_user     # 只回補「同 distinct_id、寫入時仍屬匿名用戶」的事件；已歸到任何客戶的事件不受影響
+  rewrite: none                           # v1.3：事件表只增刪不改寫；one_id、one_id_uint、distinct_id 寫入後都不動
+  apply: { mode: mapping, table: oneid_backfill, dictionary: oneid_backfill_dict, layout: range_hashed, reload_minutes: 10 }   # 登入時寫對照；查詢以區間字典換算成 events.one_id_eff
+  consistency: query_time_resolution      # 對照寫入後字典下次重載即生效（≤ 10 分鐘），事件列永不改寫
   anonymous_user_after_backfill: keep_if_remaining_events_else_tombstone   # 匿名用戶若 7 天外仍有事件則保留，否則標記已併入
-  audit: oneid.backfilled                 # 記錄 distinct_id、目標客戶、改寫筆數、視窗
+  audit: oneid.backfilled                 # 記錄 distinct_id、目標客戶、估算筆數、視窗
   not_applied_when: [consent_denied, distinct_id_already_bound_to_other_customer_at_event_time]
 consent:
   key: privacy_info.analytics_storage
@@ -49,4 +49,4 @@ manual_tools:
   merge: { who: [it_admin], approval: [admin], effect: rewrite_events_one_id_uint, audit: oneid.merged }
   split: { who: [it_admin], approval: [admin], effect: rewrite_events_from_time, audit: oneid.split }
   unbind: { who: [admin, it_admin], blocked_for: [$identity_login_id], audit: oneid.unbound }
-dense_id: { one_id_uint: monotonic_uint64, assigned_at: user_create }   # 無自動合併 → 只有 login_backfill（近 7 天匿名事件）與人工合併／拆分會改寫 one_id_uint
+dense_id: { one_id_uint: monotonic_uint64, assigned_at: user_create }   # 無自動合併；login_backfill 與人工合併／拆分都只寫對照，事件表的 one_id_uint 永不改寫

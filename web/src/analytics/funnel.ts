@@ -57,3 +57,12 @@ export function funnelCsv(head: string[], body: (string | number | null)[][]): s
   const esc = (v: string | number | null) => { const s = v === null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   return '﻿' + [head.map(esc).join(','), ...body.map((r) => r.map(esc).join(','))].join('\r\n');
 }
+
+/** 轉換窗口檢查：數值 ≥ 1 的整數，且不超過目錄的上限天數（Windy 2026-10-29：最長 365 天）。回錯誤訊息或 null。 */
+export const WINDOW_UNIT_S = { minute: 60, hour: 3600, day: 86400 } as const;
+export function windowError(w: { value: number; unit: keyof typeof WINDOW_UNIT_S }, maxDays: number): string | null {
+  if (!Number.isInteger(w.value) || w.value < 1) return '請填 1 以上的整數';
+  if (w.value * WINDOW_UNIT_S[w.unit] > maxDays * 86400) return `最長 ${maxDays} 天`;
+  return null;
+}
+

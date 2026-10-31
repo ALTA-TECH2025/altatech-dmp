@@ -34,5 +34,6 @@ export interface SyncTask {
 }
 export interface SyncTaskCreate { id: string; cn: string; model_path: string; source: { table_id: string; incremental_column?: string }; schedule: { cron?: string; interval_min?: number }; mode: 'full' | 'incremental'; depends_on: string[]; schema_change: 'auto_map' | 'ignore' | 'pause_and_notify'; retries: number }
 export interface SyncRun { id: number; task_id: string; scheduled_for: string; attempt: number; status: string; trigger: string; started_at: string | null; finished_at: string | null; rows_in: number | null; rows_ok: number | null; rows_quarantined: number | null; rows_rejected: number | null; rows_loaded: number | null; error: string | null; log: string[]; watermark_from: string | null; watermark_to: string | null }
-export interface RunNow { task_id: string; cn: string; status: string; rows_in: number | null; rows_ok: number | null; rows_quarantined: number | null; rows_rejected: number | null; rows_loaded: number | null; error: string | null }
+/** POST /v1/integration/sync-tasks/{id}/run 的 202：只登記排隊，由持有主控租約的 worker 執行（#87）；同一任務已在排隊或執行中時回同一筆。 */
+export interface RunNow { task_id: string; cn: string; run_id: number | null; status: string; scheduled_for: string; demo?: boolean }
 export interface Preview { summary: { in: number; ok: number; quarantined: number; rejected: number }; sample_ok: Record<string, unknown>[]; quarantined: { reason: string; row: Record<string, unknown> }[]; rejected: { reason: string }[]; new_fields: string[]; pii_hits: number; events: string[] }

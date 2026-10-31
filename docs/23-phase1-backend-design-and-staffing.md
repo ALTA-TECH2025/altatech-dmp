@@ -1,5 +1,7 @@
-# 第一階段後端代碼設計規劃與分工（v1.0，2026-10-16）
+# 第一階段後端代碼設計規劃與分工（v1.1，2026-10-22）
 
+> **v1.1 變更（2026-10-22）**：事件表定為「只新增、刪除，不改寫」——去重鍵 `time`＋`event_id`、線下資料不去重全部入庫、重載先刪再寫、OneID 回補改為查詢時換算（§4.1、§4.2；docs/19 v1.3；`schema.sql` 排序鍵與 SAMPLE BY 同步改）。
+>
 > 依 docs/22 的專案目的（舊平台 → GA360 遷移、歷史資料銜接、交易結合分析；不做 AI）梳理第一階段**必留功能**，給出後端代碼結構、每個模組的設計要點、六人分工與里程碑交付，最後回答「團隊沒有 ClickHouse 查詢優化與 Flink 狀態管理專家怎麼辦」。本文取代 docs/02 §3 元件清單與 docs/15 §1 分工在第一階段的適用範圍；契約（`backend/openapi.yaml`、`semantic/*.yaml`、`security/*.yaml`）不變。
 
 ## 0. 結論先講
@@ -17,7 +19,7 @@
 | 模組 | 必留 | 簡化 | 延後 |
 |---|---|---|---|
 | 接入 | 舊平台歷史匯入（Impala／HDFS／API）、GA360 BigQuery 日批 + 串流匯出、數據中台交易／帳務批次、`/v1/events` 直送（MA、LINE、短鏈）、橋接轉名、去重、隔離區、三方對帳 | CRM 主檔以日批全量取代 CDC | Kafka 流任務、Debezium CDC、Go Collector |
-| OneID | id_map、綁定（登入 ID、帳號、裝置）、登入後 7 天改寫（微批）、人工合併／拆分（資訊管理發起、系統管理員審批）、DSAR 刪除 | 改寫以 `oneid_backfill` 覆蓋表 + 每 10 分鐘 lightweight update | 即時歸戶 |
+| OneID | id_map、綁定（登入 ID、帳號、裝置）、登入後 7 天回補、人工合併／拆分（資訊管理發起、系統管理員審批）、DSAR 刪除 | 回補只寫 `oneid_backfill` 對照，查詢時以區間字典換算（事件表不改寫）| 即時歸戶 |
 | 語意層與編譯器 | events／metrics／dimensions／user_properties YAML、同一個 `compile()`、成本估算、Policy 注入、血緣 | 虛擬屬性只支援欄位運算與 CASE | 虛擬事件以外的進階表達式 |
 | 分析模組 | 事件分析（含公式指標、對比、分組、合計）、漏斗（窗口、每步篩選、分組、趨勢）、留存（四模型）、路徑（會話口徑、抽樣）、歸因（五模型）、用戶列表（Bitmap 估數、分頁、下鑽、存為分群） | 路徑全量查詢需確認；歸因觸點表日批 | 間隔分析、分布分析、LTV 進階 |
 | 自定義 SQL | 表目錄依權限、唯讀 SELECT／WITH、遮罩欄位預校驗、1,000 列預覽、下載審批、歷史與已存查詢 | 中間表只支援「存為表」不支援排程更新 | 可視化進階、排程中間表 |
@@ -40,10 +42,10 @@ GA360 BigQuery ── Storage Read API ─► stage/ga360/…      ├─► dmp
 MA／LINE／短鏈 ── POST /v1/events ─► dmp.raw_events ────┘     ▼
                                                           dmp.events（月分區，排序 project/event_date/event/one_id/time）
                                                             ├─ MV L1 日彙總 ─ L2 常用分組 ─ L3 cohort
-                                                            ├─ dmp.id_map ─ dmp.oneid_backfill（微批改寫）
+                                                            ├─ dmp.id_map ─ dmp.oneid_backfill（回補對照，查詢時換算）
                                                             ├─ dmp.users ─ dim_*（dictionary）
                                                             └─ dmp.user_tags（Bitmap）─ segments
-Airflow（LocalExecutor）：匯入 DAG（每 5／15 分鐘、每日）、dbt（標籤、觸點表、對帳、MV 補算）、OneID 改寫、推送
+Airflow（LocalExecutor）：匯入 DAG（每 5／15 分鐘、每日）、dbt（標籤、觸點表、對帳、MV 補算）、OneID 對照、推送
 FastAPI dmp-api：analytics / users / segments / tags / sql / migration / meta / iam / ops / events 直送
 PostgreSQL：控制面（定義、任務、審批、審計索引、分群定義、已存查詢）   Valkey：查詢快取、估數快取
 ```
@@ -85,7 +87,14 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 
 - 職責：把四種來源落成 `dmp.raw_events` 統一格式（`source, event_name_raw, time_ms, distinct_id, login_id_hmac, props JSON, ingest_batch`），再以 `normalize.sql` 寫入 `dmp.events`。
 - 關鍵介面：`Importer.run(window) -> Batch`、`Loader.apply(batch) -> ReconRow`；Airflow DAG 每來源一條。
-- 標準化全部在 ClickHouse SQL：橋接轉名用 `dictGet('bridge', ...)`（`legacy_ga4_bridge.yaml` 匯成字典）、別名表、時間轉 UTC、`event_id` 去重（`ReplacingMergeTree` + 日批覆蓋串流）、OneID `dictGet('id_map', ...)`、HMAC 在匯入端（Python，金鑰從 KMS／HSM）。
+- 標準化全部在 ClickHouse SQL：橋接轉名用 `dictGet('bridge', ...)`（`legacy_ga4_bridge.yaml` 匯成字典）、別名表、時間轉 UTC、OneID `dictGet('id_map', ...)`、HMAC 在匯入端（Python，金鑰從 KMS／HSM）。
+- **事件表只新增、刪除，不改寫**（2026-10-22 定案，與研發、運維共同決定）：
+  - 行為事件的去重鍵 = `time`（毫秒）＋ `event_id`。來源自帶 event_id 的（Collector `/v1/events`、MA 回流）用組合鍵；沒有的（GA360、舊平台歷史）由匯入端以內容雜湊產生 `event_id`（`ga4_event_id`／`modeling.content_id`，雜湊含事件時間與入倉參數）。寫入前先查倉（`aggregates.dedupe`：倉裡已有就不寫，同批重複只留第一筆），`ReplacingMergeTree` 排序鍵 `(project, event_date, event, distinct_id_uint, time, event_id)` 在合併時保底。
+  - 線下資料（交易／帳務／客戶，數據中台批次）沒有事件時間、只有 `update_time`：以 `update_time` 當 `time`，每一筆狀態變更都是一筆事件（委託→成交→刪單各一筆），**不做內容去重、全部入庫**；但仍要產生 `event_id`（雜湊含 update_time），否則排序鍵相同的列會在合併時被吃掉。
+  - 重載一律「先刪再寫」：同一批重送、重跑，或 GA 72 小時重寫後的 D-2／D-3 重載（`ga360_restate`），都先依 `batch_id`（或該日的 `batch_id` 集合）`DELETE` 舊列，再整批寫入。只追加不刪會讓重寫過的事件（參數不同 → 雜湊不同）變成兩份。
+  - `one_id` 寫入後不改寫：登入後 7 天匿名事件的回補、人工合併／拆分，都改為寫 `oneid_backfill` 對照、查詢時以區間字典換算成 `one_id_eff`（docs/19 §2.5）。因此排序鍵與 `SAMPLE BY` 都不放 `one_id_uint`，改放永不變動的 `distinct_id_uint`。
+  - **既有環境升級**（排序鍵與 `SAMPLE BY` 無法 ALTER）：套 schema 前先跑 `python3 -m backend.clickhouse.migrate_events run`（quickstart 的 schema 步驟已自動呼叫）。做法是建新表 `events_rekey` → 逐月分區 `INSERT SELECT`，比對筆數＋內容簽章 → 拆日彙總 MV → `EXCHANGE TABLES` → 舊表留作 `events_pre_rekey` 回退；中斷可直接重跑（進度表 `_mig_events_rekey`），搬移中被寫入的分區會重搬。**切換前要停接入排程**（連續三輪都有新寫入會中止）；套 schema 後 MV 重建、`oneid_backfill` 補 `*_uint`／`source` 欄並拆掉 `applied`。回歸：`CLICKHOUSE_BIN=… python3 -m backend.clickhouse.migrate_events selftest`（e2e 也會跑）。正式叢集各分片／副本的執行順序與磁碟（約需事件表一倍空間）列入運維 runbook，待運維確認。
+  - 以上規則適用第一階段的全部路徑（都是批次／微批）。即時路徑（Kafka＋Flink）依 docs/45 D-04（2026-10-23）留第二階段；屆時串流寫入器沿用同一組去重與只增刪協定（docs/43 §3.5，第二階段參考）。
 - 對不上的事件名進 `dmp.quarantine` 並登記元事件待辦。
 - 測試：每來源一組 fixture（含遲到、重送、未知事件名、拒絕同意）；三方對帳表每批自動寫；差異 > 0.1% 的日分片自動重跑。
 - 效能目標：舊平台歷史 70 億筆以 `INSERT SELECT FROM s3()` 載入，單節點 ≥ 100 萬列/秒。
@@ -100,8 +109,9 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 
 ### 4.2 oneid — 12 人日
 
-- 已有 `attribution.py` 的規則與自測；補 `bind_service`（REST + 批次）、`backfill_job`（每 10 分鐘：查 `oneid_backfill` 待套用 → `ALTER TABLE UPDATE` 限近 8 個日分區 → 標記完成）、`merge_split`（審批單 → 重算 id_map → 審計）、DSAR。
-- 測試：docs/19 的 10 個情境 + 改寫的分區邊界（跨月、重複登入、同裝置多帳號）。
+- 已有 `attribution.py` 的規則與自測；補 `bind_service`（REST + 批次）、`backfill_writer`（登入事件 → 寫 `oneid_backfill` 對照；不再有 `ALTER TABLE UPDATE`）、`merge_split`（審批單 → 重算 id_map → 寫 source=manual 對照 → 審計；撤銷 = 刪對照）、DSAR。
+- 編譯器配合：所有用戶口徑改用事件表的 `one_id_eff`（ALIAS，經 `oneid_backfill_dict` 區間字典換算），`one_id_uint` 只留給寫入時歸屬的追溯；日彙總 `events_daily_agg` 的重建 SQL（`aggregates.AGG_SELECT`）改以 `one_id_eff` 聚合，近 8 天每日重建一次吸收新對照（docs/19 §2.5）。
+- 測試：docs/19 的 10 個情境（結果不變、事件列不動）+ 對照邊界（跨月、重複登入、同裝置多帳號、對照刪除後數字回復）+ 字典重載延遲（≤ 10 分鐘）。
 
 ### 4.3 semantic.compiler（編譯器）— 35 人日，最關鍵（已有可跑的骨架：`backend/semantic/compiler/`，事件分析樣板 + Policy 注入 + 黃金測試在真 ClickHouse 通過）
 
@@ -184,12 +194,12 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 | Flink 狀態管理（OneID 狀態、session 視窗、exactly-once、checkpoint 調校、反壓） | 不上 Flink。全部微批：OneID 用 `id_map` 字典 + 覆蓋表；session 在 dbt 按日重算；去重靠 `ReplacingMergeTree` + 日批覆蓋 | 這一類問題整個消失；代價是延遲從秒級變 5–15 分鐘，本案沒有秒級需求 |
 | Kafka 叢集維運 | 降為選配，第一階段不部署 | 少一套有狀態系統 |
 | ClickHouse 分散式 JOIN、分片、Distributed 表 | 單分片 2 副本（docs/13 A 檔本來就是），維度表用 dictionary，不做分散式 JOIN | 避開最難的一塊 |
-| ClickHouse mutation 效能 | 只在 OneID 改寫用 `ALTER UPDATE`，且限近 8 個日分區、每 10 分鐘一批 | 可控 |
+| ClickHouse mutation 效能 | 事件表沒有 UPDATE；只有重載時依 `batch_id` 的 lightweight DELETE，和 DSAR 刪除 | 可控 |
 | 任意 SQL 的效能 | 分析查詢只走五個樣板；自定義 SQL 有獨立 profile（10 GB／10 s） | 優化對象從無限縮到五個 |
 
 ### 6.2 把剩下的 ClickHouse 工作變成「可學、可測、可審」
 
-1. **設計一次定稿，之後不碰**：排序鍵 `(project, event_date, event, one_id, time, event_id)`（接入端到端測試已抓到一個教訓：ReplacingMergeTree 以排序鍵去重，少了 event_id 時同客戶同事件同秒的兩筆會被合併掉）、`SAMPLE BY one_id_uint`（等同舊平台按用戶分桶：抽到的用戶事件全在樣本裡，路徑分析 1/10 抽樣因此按人一致）、月分區、高頻屬性物化欄位、三層 MV。第 2 週用 1 千萬筆合成資料驗證五個樣板的掃描量與耗時，第 3 週請顧問做第一次審查。之後改 schema 要走設計審查。
+1. **設計一次定稿，之後不碰**：排序鍵 `(project, event_date, event, distinct_id_uint, time, event_id)`（只放寫入後永不變動的欄位，`one_id` 不進去；接入端到端測試已抓到一個教訓：ReplacingMergeTree 以排序鍵去重，少了 event_id 時同裝置同事件同毫秒的兩筆會被合併掉）、`SAMPLE BY distinct_id_uint`（按裝置／cookie 分桶：同一裝置登入前後的事件在同一桶，路徑與漏斗的 1/10 抽樣橫跨登入仍一致）、月分區、高頻屬性物化欄位、三層 MV。第 2 週用 1 千萬筆合成資料驗證五個樣板的掃描量與耗時，第 3 週請顧問做第一次審查。之後改 schema 要走設計審查。
 2. **五個樣板人寫，AI 寫變體**：每個樣板附「為什麼這樣寫」的註解、`EXPLAIN` 期望、golden 結果。AI 產生的每一條 SQL 都要通過 golden 答案集與 `EXPLAIN ESTIMATE` 掃描量門檻（≤ 樣板 1.5 倍），不通過 CI 直接擋。
 3. **效能基準提早、每週跑**：第 4 週起 1 億筆、固定 40 條查詢、P95 對 SLA；超標當週處理，不累積到 10 億才發現。
 4. **查詢守門在伺服器端**：settings profile 限掃描量、逾時、併發；工作負載隔離（human／batch／sql_user）。即使寫出爛查詢，也只是該查詢逾時，不拖垮系統。
@@ -239,7 +249,7 @@ tools/synth/      合成資料產生器（1 千萬 → 1 億 → 10 億）
 | 模組 | 做完的定義 |
 |---|---|
 | ingest | 四種來源 fixture 全過；三方對帳自動寫；70 億歷史載入測試環境且差異 < 0.1% |
-| oneid | 10 情境自測 + 分區邊界測試；改寫延遲 < 10 分鐘 |
+| oneid | 10 情境自測 + 對照邊界測試；回補對照生效延遲（字典重載）< 10 分鐘 |
 | compiler | 五樣板 golden 誤差 0；單元 ≥ 90%；掃描量門檻全過 |
 | api | schemathesis 0 違反；五角色 × 端點 0 越權 |
 | segments／tags | 舊平台匯入分群成員一致；規則分群與舊平台差異 ≤ 1%；500 個日批 < 20 分鐘 |

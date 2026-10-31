@@ -433,6 +433,9 @@ class OutputService:
             if len(rows) > self.max_rows: raise Conflict(f"列數超過單次上限 {self.max_rows:,}")
             wm = hashlib.sha256(f"{t['id']}|{run['id']}|{t['owner']}|{self._ts()}".encode()).hexdigest()[:12]
             files = self._write(t, run, rows, wm, partition)
+            fence = getattr(self, "fence", None)
+            if files and fence is not None and not fence.verify():          # 上傳前一刻已不是主控：不上傳，本次 run 記失敗，接手的 worker 會補跑
+                raise Conflict("已不是背景作業主控，未上傳（由接手的 worker 補跑）")
             remote = self.uploader.upload(dest, [(Path(f["local"]), f["path"]) for f in files]) if files else []
             run.update({"status": "ok", "finished_at": self._ts(), "rows": len(rows), "bytes": sum(f["bytes"] for f in files), "files": [{k: v for k, v in f.items() if k != "local"} for f in files], "watermark": wm,
                         "remote": remote})
@@ -517,6 +520,9 @@ class OutputService:
             hh, mm = (int(x) for x in (t.get("schedule") or {}).get("at", "02:00").split(":"))
             if (now.hour, now.minute) < (hh, mm): continue
             if any(r["task_id"] == t["id"] and r["partition_date"] == yday and (r["status"] in ("ok", "running") or r.get("skip_reason") == "no_data") for r in self.store.items("output_run")): continue   # 因目的地暫停／待核可而略過的分區，恢復後要補跑
+            f = getattr(self, "fence", None)
+            if f is not None and not f.verify():                          # 已不是主控（ops/lease.py）：不再產出
+                return out
             try:
                 r = self.run(t["id"], subject, yday, trigger="schedule"); out["ran"].append({"task": t["id"], "run": r["id"], "status": r["status"], "rows": r["rows"]})
             except (Conflict, PermissionError, ValueError) as e:

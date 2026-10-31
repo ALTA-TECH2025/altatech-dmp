@@ -13,7 +13,7 @@ export interface CardData {
   rows: Record<string, unknown>[]; columns?: string[]; chart_spec: Record<string, unknown>; sql: string; lineage: string[]; cost: { ms: number; rows: number; layer: string }; warnings: string[];
   card: { id: string; kind: CardKind; chart: CardChart; format?: CardFormat; title: string }; time: { from?: string; to?: string; grain?: string; pinned?: boolean };
   steps?: { event: string; alias: string }[]; masked?: Record<string, string>;
-  nodes?: { level: number; node: string; users: number }[]; links?: { level: number; from: string; to: string; users: number }[]; paths?: unknown[]; anchor_users?: number; sampled?: number | null;
+  nodes?: { level: number; node: string; sessions?: number; users?: number }[]; links?: { level: number; from: string; to: string; sessions?: number; users?: number }[]; paths?: unknown[]; anchor_users?: number; anchor_sessions?: number; sampled?: number | null;
   summary?: { conversions: number; converters: number; touched: number; untouched: number; value: number; avg_touches: number | null }; models?: string[];
 }
 

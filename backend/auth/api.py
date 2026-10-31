@@ -1,6 +1,6 @@
-"""FastAPI 路由：/auth/*（登入、回呼、LDAP、登出、API token）與 /v1/iam/me。router 只做：驗證 → Policy → 呼叫服務 → 審計；不在這裡寫 SQL。
+"""FastAPI 路由：/auth/*（登入、回呼、本機帳號、登出、API token）與 /v1/iam/me。router 只做：驗證 → Policy → 呼叫服務 → 審計；不在這裡寫 SQL。
 
-依賴注入（AuthService）由部署組裝：providers（OIDC／LDAP）、SessionManager、ApiTokens、assignments 讀取。
+依賴注入（AuthService）由部署組裝：providers（OIDC／本機帳號）、SessionManager、ApiTokens、assignments 讀取。AD 一律經 Keycloak（OIDC）接入，這裡不直連目錄。
 """
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from urllib.parse import urlencode
 import yaml  # type: ignore
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from ..api.errors import ApiError
 from ..security.policy import Subject, authorize
-from .ldap import LdapError, LdapProvider
 from .local import LocalError, LocalProvider
 from .mapping import base_roles, map_roles, me_payload
 from .oidc import OIDCError, OIDCProvider
@@ -26,7 +26,7 @@ LOGIN_COOKIE = "dmp_login"
 @dataclass
 class AuthService:
     cfg: dict[str, Any]
-    providers: dict[str, OIDCProvider | LdapProvider | LocalProvider]
+    providers: dict[str, OIDCProvider | LocalProvider]
     sessions: SessionManager
     tokens: ApiTokens | None = None
     assignments: Callable[[], list[dict[str, Any]]] = lambda: []
@@ -37,7 +37,7 @@ class AuthService:
         return self.cfg.get("mode", "broker")
 
     def visible_providers(self) -> list[dict[str, str]]:
-        keys = ["keycloak"] if self.mode == "broker" else ["entra", "ad", "local"]
+        keys = ["keycloak"] if self.mode == "broker" else ["entra", "local"]
         return [{"key": k, "cn": self.providers[k].cfg["cn"], "kind": self.providers[k].cfg["kind"]} for k in keys if k in self.providers]
 
     def finish_login(self, ident: Any, ip: str) -> Session:
@@ -46,6 +46,11 @@ class AuthService:
         return self.sessions.create(user_id=f"{ident.provider}:{ident.subject}", username=ident.username, name=ident.name, email=ident.email, provider=ident.provider,
                                     roles=roles, groups=ident.groups, amr=ident.amr, auth_time=ident.auth_time, scope=scope, ip=ip, base_roles=base_roles(ident, self.cfg["role_mapping"]))
 
+
+
+def _login_code(why: str) -> str:
+    """帳密登入失敗分類：鎖定 → ACCOUNT_LOCKED；速率限制 → RATE_LIMITED；其餘（帳密錯、到期）→ UNAUTHENTICATED。"""
+    return "ACCOUNT_LOCKED" if "鎖定" in why else "RATE_LIMITED" if ("頻繁" in why or "次數過多" in why) else "UNAUTHENTICATED"
 
 def _set(resp: Response, headers: list[tuple[str, str]]) -> None:
     for k, v in headers:
@@ -56,9 +61,9 @@ def current_session(svc: AuthService, req: Request) -> Session:
     sid = req.cookies.get(svc.cfg["session"]["cookie"]["name"])
     s = svc.sessions.resolve(sid, req.client.host if req.client else "")
     if not s:
-        raise HTTPException(401, "未登入或 session 已逾時")
+        raise ApiError("UNAUTHENTICATED", "未登入或 session 已逾時")
     if req.method not in ("GET", "HEAD", "OPTIONS") and not svc.sessions.check_csrf(s, req.headers.get(svc.cfg["session"]["csrf"]["header"])):
-        raise HTTPException(403, "CSRF token 不符")
+        raise ApiError("CSRF_INVALID")
     return s
 
 
@@ -100,26 +105,28 @@ def build_router(svc: AuthService) -> APIRouter:
 
     @r.post("/auth/ldap")
     def ldap_login(body: dict[str, Any], req: Request, resp: Response) -> dict[str, Any]:
-        """帳密登入（direct 模式）：provider=ad → LDAPS bind；provider=local → 本機帳號。mfa=totp 時第一步回 next=totp，第二步帶 totp 真正驗證。"""
-        key = str(body.get("provider") or "ad")
+        """本機帳號登入（direct 模式，provider=local）。AD 帳號走 Keycloak（/auth/login?provider=keycloak），這裡不接。mfa=totp 時第一步回 next=totp，第二步帶 totp 真正驗證。"""
+        key = str(body.get("provider") or "local")
         p = svc.providers.get(key)
-        if key not in ("ad", "local") or not isinstance(p, LdapProvider | LocalProvider) or svc.mode != "direct":
-            raise HTTPException(400, "此環境未啟用帳密登入" if key in ("ad", "local") else "未知的身分提供者")
+        if key == "ad":
+            raise HTTPException(400, "網域帳號（AD）請由公司 SSO（Keycloak）登入")
+        if key != "local" or not isinstance(p, LocalProvider) or svc.mode != "direct":
+            raise HTTPException(400, "此環境未啟用帳密登入" if key == "local" else "未知的身分提供者")
         ip = req.client.host if req.client else ""
         username = str(body.get("username", ""))
         try:
             ident = p.authenticate(username, str(body.get("password", "")), ip)
-        except (LdapError, LocalError) as e:
+        except LocalError as e:
             svc.sessions.audit("auth.login.failed", {"provider": key, "user": username[:64], "why": str(e)})
-            raise HTTPException(401, str(e)) from None
+            raise ApiError(_login_code(str(e)), str(e)) from None
         if p.cfg.get("mfa") == "totp":
             code = str(body.get("totp") or "")
             if not code:
                 return {"next": "totp", "message": "請輸入驗證器 6 位數"}       # 第二因子：前端再送一次含 totp 的請求
-            check = getattr(p, "check_totp", None)                               # AD 直連的 TOTP 需另接驗證器服務；沒有實作時這裡不放行 mfa
+            check = getattr(p, "check_totp", None)                               # 沒有 TOTP 驗證能力的提供者不放行 mfa
             if check is None or not check(username, code):
                 svc.sessions.audit("auth.login.failed", {"provider": key, "user": username[:64], "why": "totp"})
-                raise HTTPException(401, "驗證碼錯誤或已使用" if check else "此環境尚未接上 TOTP 驗證器")
+                raise ApiError("OTP_INVALID", "驗證碼錯誤或已使用" if check else "此環境尚未接上 TOTP 驗證器")
             ident.amr = ["pwd", "mfa"]
         s = svc.finish_login(ident, ip)
         _set(resp, svc.sessions.cookie_headers(s))
@@ -135,7 +142,7 @@ def build_router(svc: AuthService) -> APIRouter:
             raise HTTPException(400, "此登入方式的 step-up 由身分提供者處理，請重新登入")
         if not check(s.username, str(body.get("totp") or "")):
             svc.sessions.audit("auth.step_up.failed", {"user": s.user_id})
-            raise HTTPException(401, "驗證碼錯誤或已使用")
+            raise ApiError("OTP_INVALID", "驗證碼錯誤或已使用")
         s.step_up_at = int(svc.sessions.now())
         if "mfa" not in s.amr:
             s.amr = [*s.amr, "mfa"]
@@ -217,13 +224,33 @@ def subject_from_request(svc: AuthService, req: Request) -> Subject:
         try:
             return svc.tokens.verify(auth[7:])
         except Exception:
-            raise HTTPException(401, "API token 無效或過期") from None
+            raise ApiError("TOKEN_INVALID", "API token 無效或過期") from None
     return svc.sessions.subject(current_session(svc, req))
 
 
 def load_cfg() -> dict[str, Any]:
     from pathlib import Path
     return yaml.safe_load((Path(__file__).resolve().parent / "idp.yaml").read_text(encoding="utf-8"))
+
+
+def apply_env_overrides(cfg: dict[str, Any], env: Any) -> dict[str, Any]:
+    """部署環境覆寫 SSO 網址（idp.yaml 只放範例網域）：
+    DMP_IDP_MODE → mode；DMP_OIDC_ISSUER → keycloak.issuer；DMP_PUBLIC_URL → 各 OIDC 提供者的 redirect_uri 與登出後網址。"""
+    if env.get("DMP_IDP_MODE"):
+        if env["DMP_IDP_MODE"] not in ("broker", "direct"):
+            raise ValueError("DMP_IDP_MODE 只能是 broker 或 direct")
+        cfg["mode"] = env["DMP_IDP_MODE"]
+    if env.get("DMP_OIDC_ISSUER"):
+        cfg["providers"]["keycloak"]["issuer"] = env["DMP_OIDC_ISSUER"]
+    base = (env.get("DMP_PUBLIC_URL") or "").rstrip("/")
+    if base:
+        if not base.startswith(("https://", "http://")):
+            raise ValueError("DMP_PUBLIC_URL 要是完整網址（https://…）")
+        for p in cfg["providers"].values():
+            if p.get("kind") == "oidc":
+                p["redirect_uri"] = base + "/auth/callback"
+                p["post_logout_redirect_uri"] = base + "/login"
+    return cfg
 
 
 def login_redirect(return_to: str) -> str:

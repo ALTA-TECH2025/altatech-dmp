@@ -1,0 +1,24 @@
+# 用戶主檔建模範例（#46）：CRM／數據中台的客戶主檔 → dmp.users，只更新這批帶到的屬性。
+# - one_id = 客戶代碼經 token_v1（與事件路徑相同的代碼），同一個人的事件與屬性才對得起來；
+#   改由 id_map 決定 one_id 是 #41 的事，屆時只換 identities 的解析，這份模型不用改。
+# - 來源欄位空白 = 沒帶到，不覆寫舊值；要清空屬性走 unset（#43）。first_seen 只在第一次見到這個人時設定。
+# - 客戶代碼（customer_code）是 L3，不進用戶寬表；姓名、身分證、電話永不入倉。
+model:
+  id: mdl_customer_master
+  name: 數據中台客戶主檔 → 用戶屬性
+  source: { connector: dwh, connection: dwh_crm, table: dim_customer, mode: incremental, pk: [CUST_ID], incremental_field: UPDATED_AT }
+  entity: user
+  identities:
+    - { target: $identity_login_id, from: CUST_ID, transform: token_v1(k_idm) }
+  fields:
+    - { target: tier,        from: GRADE,       transform: "map({1: P1, 2: P2, 3: P3, 4: P4, 5: P5})" }
+    - { target: branch_id,   from: BRANCH,      transform: trim }
+    - { target: gender,      from: SEX,         transform: "map({M: 男, F: 女})" }
+    - { target: signup_date, from: OPEN_DATE }
+    - { target: has_margin,  from: MARGIN_FLAG, transform: "map({Y: 1, N: 0})" }
+    - { target: aum,         from: AUM,         transform: to_decimal(2) }
+  drop_fields: [CUST_NAME, ID_NO, PHONE, EMAIL, BIRTHDAY]   # 個資：永不進入平台
+  cleansing:
+    - { rule: pii_scan, on_fail: reject_and_alert }
+  schedule: { mode: incremental, cron: "30 5 * * *", retries: 3, backoff_s: 60 }
+  owner: 數據中台

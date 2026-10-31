@@ -3,7 +3,8 @@
 # 兩種部署模式（docs/24 §2）：
 #   broker（預設）：Keycloak 當身分代理。Entra ID 以 OIDC 身分提供者掛進 Keycloak，機房 AD 以 LDAP User Federation 掛進 Keycloak；
 #                  本系統只對 Keycloak 講一種協定（OIDC 授權碼 + PKCE）。LDAP 帳密驗證、MFA、Conditional Access 都在 IdP 端。
-#   direct：客戶不允許多一層 Keycloak 時，本系統直接對 Entra ID（OIDC）與 AD（LDAPS bind）。兩條路徑輸出同一個 Identity 物件。
+#   direct：客戶不允許多一層 Keycloak 時，本系統直接對 Entra ID（OIDC）；另可開本機帳號（外包／單機）。
+# AD 一律經 Keycloak 接入（API → Keycloak → AD）：本系統不持有 AD 服務帳號、不做 LDAPS bind。原本直連 AD 的參數搬到 Keycloak User Federation，對照見 docs/24 §2.1。
 version: 1
 mode: broker                                   # broker | direct
 
@@ -35,23 +36,8 @@ providers:
     pkce: S256
     require_amr: [mfa]                         # ID token 的 amr 需含 mfa（由 Conditional Access 對本 App 強制 MFA）
     tid_check: true                            # 只接受本租戶（iss 含 tenant）
-  ad:                                          # mode=direct 用；機房 Active Directory（LDAPS）
-    kind: ldap
-    cn: 網域帳號（AD）
-    url: ldaps://ad.internal:636
-    ca_bundle_ref: kv/data/dmp/auth/ad#ca_pem  # 釘選內部 CA；不允許關閉憑證驗證
-    bind_dn: CN=svc-dmp-ldap,OU=Service,DC=corp,DC=internal
-    bind_password_ref: kv/data/dmp/auth/ad#bind_password
-    base_dn: OU=Users,DC=corp,DC=internal
-    user_filter: "(&(objectClass=user)(sAMAccountName={username})(!(userAccountControl:1.2.840.113556.1.4.803:=2)))"   # 排除已停用
-    attributes: { username: sAMAccountName, email: mail, name: displayName, groups: memberOf, upn: userPrincipalName }
-    nested_groups: true                        # memberOf:1.2.840.113556.1.4.1941:= 取巢狀群組
-    group_base_dn: OU=Groups,DC=corp,DC=internal
-    username_pattern: "^[A-Za-z0-9._-]{2,64}$"
-    rate_limit: { per_account_per_min: 5, per_ip_per_min: 30 }
-    mfa: totp                                  # 直連 AD 沒有 IdP MFA：本系統要求 TOTP 第二因子（admin／digital_ops 必要）
 
-role_mapping:                                  # IdP 群組 → rbac.yaml 角色。Entra 用群組 Object ID（GUID）；AD／Keycloak 用群組名
+role_mapping:                                  # IdP 群組 → rbac.yaml 角色。Entra 用群組 Object ID（GUID）；Keycloak（含經 Federation 帶進來的 AD 群組）用群組名
   by_group:
     - { group: DMP-Admins,     entra_id: 1c7b1c9a-0000-4000-8000-000000000001, roles: [admin] }
     - { group: DMP-Marketing,  entra_id: 1c7b1c9a-0000-4000-8000-000000000002, roles: [marketing] }
