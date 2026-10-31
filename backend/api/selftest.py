@@ -57,6 +57,8 @@ class FakeClickHouse:
             return "event_date\nn\n"
         if "system.parts" in sql:
             return '{"table":"events","rows":120000,"bytes":48000000,"parts":6}\n{"table":"users","rows":3000,"bytes":900000,"parts":1}\n'
+        if "/* source_freshness */" in sql:                                           # 近 30 天出現過的來源（新鮮度設定清單）
+            return '{"source":"ga360_daily","last":"2026-10-27 15:00:00.000"}\n{"source":"legacy_format","last":"2026-10-28 01:58:00.000"}\n'
         if "max(time) AS t" in sql:
             return '{"t":"2026-10-15 09:00:00"}\n'
         if "system.query_log" in sql:
@@ -329,7 +331,31 @@ def main(store: Any | None = None) -> None:
     assert c.post("/v1/integration/connections/ga_bq/rotate", json={"secret_ref": "kv/data/dmp/prod/x#k"}).status_code == 409
     assert c.get("/v1/integration/connections/ga_bq/privileges").json()["items"]                                     # 平面清單型的最小權限
     login(c, sm, ["data_analyst"], "ana"); assert c.post("/v1/integration/connections", json=conn).status_code == 403 and len(c.get("/v1/integration/connections").json()) == 2
+    # 來源新鮮度：integration.view 看清單（近 30 天出現過、未設定 → configured=false）、只有 integration.admin 能改
+    fr = c.get("/v1/integration/source-freshness").json()
+    assert [(x["source"], x["configured"], x["mode"], x["timezone"]) for x in fr] == [("ga360_daily", False, None, "Asia/Taipei"), ("legacy_format", False, None, "Asia/Taipei")], fr
+    assert fr[0]["last_event_time"] == "2026-10-27T15:00:00Z" and "project = 'altatech_dmp'" in next(s for s in ch.sqls if "/* source_freshness */" in s)
+    daily = {"mode": "daily_batch", "ready_at": "07:00", "covers_days_back": 1, "note": "GA360 每日匯出"}
+    assert c.put("/v1/integration/source-freshness/ga360_daily", json=daily).status_code == 403 and c.delete("/v1/integration/source-freshness/ga360_daily").status_code == 403
     login(c, sm, ["it_admin"], "it")
+    put = lambda s, b: c.put(f"/v1/integration/source-freshness/{s}", json=b)
+    ok = put("ga360_daily", daily); assert ok.status_code == 200 and ok.json()["configured"] and ok.json()["max_lag_minutes"] is None and ok.json()["ready_at"] == "07:00", ok.text
+    for s, b in (("ga360_daily", {"mode": "realtime", "max_lag_minutes": 15, "ready_at": "07:00"}), ("ga360_daily", {"mode": "daily_batch", "ready_at": "07:00"}),
+                 ("ga360_daily", {**daily, "timezone": "UTC"}), ("ga360_daily", [1]), ("GA360", daily)):
+        bad = put(s, b); assert bad.status_code == 400 and bad.json()["code"] == "INVALID_ARGUMENT", (s, b, bad.text)
+    assert put("ga360_daily", {"mode": "realtime", "max_lag_minutes": 30}).json()["ready_at"] is None                               # 整筆取代：切換模式清掉日批欄位
+    assert put("ga360_daily", daily).status_code == 200 and put("mdl_new_task", {"mode": "realtime", "max_lag_minutes": 60}).status_code == 200   # 同內容重送也成功；可預先設定沒資料的來源
+    fr = {x["source"]: x for x in c.get("/v1/integration/source-freshness").json()}
+    assert fr["ga360_daily"]["configured"] and fr["ga360_daily"]["covers_days_back"] == 1 and fr["ga360_daily"]["last_event_time"] == "2026-10-27T15:00:00Z"
+    assert fr["mdl_new_task"]["configured"] and fr["mdl_new_task"]["last_event_time"] is None and not fr["legacy_format"]["configured"]
+    up = [x for x in store.audit_tail(500) if x["event"] == "integration.freshness.updated" and x["source"] == "ga360_daily"]
+    assert len(up) == 3 and up[0]["before"] is None and up[1]["before"]["mode"] == "daily_batch" and up[1]["after"]["ready_at"] is None and up[2]["before"] == {**up[1]["after"]}, up
+    assert c.delete("/v1/integration/source-freshness/ga360_daily").status_code == 204
+    gone = c.delete("/v1/integration/source-freshness/ga360_daily"); assert gone.status_code == 404 and gone.json()["code"] == "NOT_FOUND"
+    cl = [x for x in store.audit_tail(500) if x["event"] == "integration.freshness.cleared"]
+    assert len(cl) == 1 and cl[0]["before"]["mode"] == "daily_batch" and cl[0]["user"] == "entra:it"
+    assert not {x["source"]: x for x in c.get("/v1/integration/source-freshness").json()}["ga360_daily"]["configured"]
+    assert c.delete("/v1/integration/source-freshness/mdl_new_task").status_code == 204
     tb = c.post("/v1/integration/tables", json={"connection": "dwh_trade", "table": "dbo.fact_order_hist", "pk": ["ORD_NO", "STATUS"], "incremental_field": "UPDATED_AT", "source": {"kind": "csv", "path": str(files["orders"])}}).json()
     assert tb["id"] == "dwh_trade.dbo.fact_order_hist" and {f["name"] for f in tb["fields"] if f["sensitivity"] == "L4"} == {"CUST_NAME", "ID_NO", "PHONE"} and all(f["sample"] == "" for f in tb["fields"] if f["sensitivity"] == "L4"), tb["fields"]
     assert c.post("/v1/integration/tables", json={"table": "x", "pk": ["nope"], "fields": [{"name": "a"}]}).status_code == 400

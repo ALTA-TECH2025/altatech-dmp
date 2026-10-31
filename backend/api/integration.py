@@ -17,13 +17,14 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 
 from ..integration import auth as conn_auth
-from ..integration import modeling
+from ..integration import freshness, modeling
 from ..integration.runner import read_source
 from ..integration.scheduler import Scheduler
 from ..security.policy import Subject, authorize
+from .errors import ApiError
 from .store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,7 +73,7 @@ def _is_num(v: Any) -> bool:
 
 
 def build_router(store: Store, get_subject: Any, sched: Scheduler, secret_writer: Callable[[str, str, str], str] | None = None,
-                 probes: Callable[[conn_auth.Connection], dict[str, Any]] | None = None) -> APIRouter:
+                 probes: Callable[[conn_auth.Connection], dict[str, Any]] | None = None, ch: Any = None) -> APIRouter:
     r = APIRouter()
     probes = probes or default_probes
     lock = threading.RLock()      # Scheduler 的 SQLite 連線一次只給一個請求用
@@ -405,6 +406,53 @@ def build_router(store: Store, get_subject: Any, sched: Scheduler, secret_writer
         pii = [c for c in res["rejected"] if "pii" in c["reason"].lower() or "個資" in c["reason"]]
         store.audit("integration.task.previewed", {"user": subject.user_id, "task_id": id, **res["summary"]})
         return {**res, "pii_hits": len(pii), "events": model.event_names}
+
+    # ---------------------------------------------------------------- 來源新鮮度（規格 docs/superpowers/specs/2026-10-31-source-freshness.md）
+    def _src(source: str) -> str:
+        if not freshness.SOURCE_RE.match(source):
+            raise ApiError("INVALID_ARGUMENT", "來源代號只能是小寫英數與底線，1–64 字", params={"source": source[:80]})
+        return source
+
+    def _fresh(source: str) -> dict[str, Any] | None:
+        return next((x for x in store.items(freshness.KIND) if x.get("source") == source), None)
+
+    @r.get("/v1/integration/source-freshness")
+    def source_freshness(subject: Subject = Depends(get_subject)) -> list[dict[str, Any]]:
+        need(subject, "view")
+        conf = {x["source"]: x for x in store.items(freshness.KIND)}
+        seen: dict[str, Any] = {}
+        if ch is not None:                                                  # 近 30 天出現過的來源與最後事件時間；未設定的列 configured=false 等人設定
+            sql = (f"SELECT source, max(time) AS last FROM dmp.events WHERE project = '{freshness.PROJECT}' AND event_date >= today() - 30 "
+                   "GROUP BY source ORDER BY source /* source_freshness */ FORMAT JSONEachRow")
+            for line in ch.query(sql, settings={"max_execution_time": 60}).splitlines():
+                if line.strip():
+                    row = json.loads(line); seen[str(row["source"])] = freshness.parse_ch_time(row.get("last"))
+        return [freshness.view(s, conf.get(s), seen.get(s)) for s in sorted(set(conf) | set(seen))]
+
+    @r.put("/v1/integration/source-freshness/{source}")
+    def put_source_freshness(source: str, body: Any = Body(...), subject: Subject = Depends(get_subject)) -> dict[str, Any]:
+        need(subject, "admin")
+        _src(source)
+        try:
+            cfg = freshness.validate(body)
+        except freshness.Invalid as e:
+            raise ApiError("INVALID_ARGUMENT", str(e)) from None
+        old = _fresh(source)
+        store.put_item(freshness.KIND, {"id": freshness.item_id(source), "source": source, **cfg, "updated_by": subject.user_id, "updated_at": datetime.now(UTC).isoformat()})
+        pick = lambda x: {k: x.get(k) for k in ("mode", "max_lag_minutes", "ready_at", "covers_days_back", "note")} if x else None
+        store.audit("integration.freshness.updated", {"user": subject.user_id, "source": source, "before": pick(old), "after": pick(cfg)})   # 整筆取代；同內容重送也記
+        return freshness.view(source, cfg, None)
+
+    @r.delete("/v1/integration/source-freshness/{source}", status_code=204)
+    def delete_source_freshness(source: str, subject: Subject = Depends(get_subject)) -> Response:
+        need(subject, "admin")
+        old = _fresh(_src(source))
+        if not old:
+            raise ApiError("NOT_FOUND", f"來源 {source} 沒有新鮮度設定")
+        store.delete_item(freshness.KIND, old["id"])
+        store.audit("integration.freshness.cleared", {"user": subject.user_id, "source": source,
+                                                      "before": {k: old.get(k) for k in ("mode", "max_lag_minutes", "ready_at", "covers_days_back", "note")}})
+        return Response(status_code=204)
 
     return r
 
