@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { can, display, parsePolicy, toggleAction, unionGrants, visibleModules } from './policy';
-import type { Me } from '@/api/types';
+import { can, copyAsCustom, display, parsePolicy, toggleAction, unionGrants, visibleModules } from './policy';
+import type { Action, Me } from '@/api/types';
 
 const me = (grants: Me['grants'], masking: Me['masking'] = {}): Me => ({
   user: { id: 'u', username: 'u', name: 'U', email: '', provider: 'entra' },
@@ -52,5 +52,12 @@ describe('角色矩陣編輯', () => {
   });
   it('unionGrants 多角色聯集且順序固定', () => {
     expect(unionGrants([{ events: ['view', 'use'] }, { events: ['export'], iam: ['view'] }])).toEqual({ events: ['view', 'use', 'export'], iam: ['view'] });
+  });
+  it('copyAsCustom：內建角色複製成可改的自訂角色（沒有 key、名稱加副本、權限照抄且不共用參照）', () => {
+    const r = { key: 'data_analyst', name: '數據分析', scope: 'global' as const, lookback_days: 0, grants: { events: ['view', 'use'] as Action[] }, builtin: true };
+    const c = copyAsCustom(r);
+    expect(c).toEqual({ ...r, key: undefined, name: '數據分析（副本）', builtin: false });
+    c.grants.events!.push('export');
+    expect(r.grants.events).toEqual(['view', 'use']);
   });
 });
