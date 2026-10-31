@@ -251,7 +251,7 @@ tools:
   - name: data.readiness
     mvp: true
     module: events.view
-    description: 依來源／日期的新鮮度、回填狀態、歸戶品質摘要（docs/39 §3.3）。identity／aggregates 依賴 #33、#32；未完成前回 null 並帶 READINESS_PARTIAL，視為「未知」不是「良好」。
+    description: 依來源／日期的新鮮度、回填狀態、歸戶品質摘要（docs/39 §3.3）。identity／aggregates 依賴 #33、#32；未完成前回 null 並帶 READINESS_PARTIAL，視為「未知」不是「良好」。來源新鮮度依數據源管理的設定判斷（即時看延遲門檻、日批看到齊時間與應涵蓋日）；未設定的來源標 unknown 並帶 READINESS_PARTIAL，不套預設門檻。
     input: { events: [string], "metrics?": [string], period: { from, to } }
     output: { envelope: true, data: Readiness }
     scope: read

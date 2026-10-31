@@ -679,7 +679,7 @@ paths:
   /v1/data/readiness:
     post:
       tags: [Agents]
-      summary: 資料就緒（data.readiness 工具的 REST 入口）：依來源／日期的新鮮度、回填狀態、歸戶品質；identity／aggregates 依賴 #33、#32，未完成時回 null 並帶 READINESS_PARTIAL；需 events.view
+      summary: 資料就緒（data.readiness 工具的 REST 入口）：依來源／日期的新鮮度、回填狀態、歸戶品質；identity／aggregates 依賴 #33、#32，未完成時回 null 並帶 READINESS_PARTIAL；來源新鮮度依 /v1/integration/source-freshness 的設定判斷，未設定的來源標 unknown 並帶 READINESS_PARTIAL；需 events.view
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [events, period], properties: { events: { type: array, items: { type: string } }, metrics: { type: array, items: { type: string } }, period: { type: object, properties: { from: { type: string }, to: { type: string } } } } } } } }
       responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/Readiness' } } } }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } }
   /auth/providers:
@@ -879,6 +879,28 @@ paths:
     post: { tags: [Integration], summary: '輪替密鑰（新 secret_ref；新舊並存 24 小時；短效憑證回 409）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok }, '409': { $ref: '#/components/responses/Error', description: 短效憑證不需輪替 }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } } }
   /v1/integration/connections/{id}/privileges:
     get: { tags: [Integration], summary: '權限自檢結果（對照 least_privilege 清單逐項 ✓／✗）', parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { '200': { description: ok }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } } }
+  /v1/integration/source-freshness:
+    get:
+      tags: [Integration]
+      summary: '資料來源新鮮度設定（數據源管理頁）：已設定的來源，加上近 30 天 events.source 出現過但尚未設定的來源（configured=false）；需 integration.view。未設定的來源在 data.readiness 標 unknown，不套任何預設門檻（規格 docs/superpowers/specs/2026-10-31-source-freshness.md）'
+      responses: { '200': { description: ok, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/SourceFreshness' } } } } }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } }
+  /v1/integration/source-freshness/{source}:
+    put:
+      tags: [Integration]
+      summary: '設定（整筆取代）某來源的新鮮度：即時（最大延遲分鐘）或日批（每日到齊時間 Asia/Taipei、到齊後應涵蓋到 T-n）；需 integration.admin；審計 integration.freshness.updated（含修改前後）'
+      parameters: [{ name: source, in: path, required: true, schema: { type: string, pattern: '^[a-z0-9_]{1,64}$' }, description: 'events.source 的值' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SourceFreshnessUpdate' } } } }
+      responses:
+        '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SourceFreshness' } } } }
+        '400': { $ref: '#/components/responses/Error', description: 'INVALID_ARGUMENT：模式與欄位不符（即時缺最大延遲、日批缺到齊時間或涵蓋天數、帶了另一模式的欄位）、數值超出範圍' }
+        '403': { $ref: '#/components/responses/Error', description: 無 integration.admin }
+        '4XX': { $ref: '#/components/responses/Error' }
+        '5XX': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Integration]
+      summary: '清除某來源的設定（回到未設定，readiness 標 unknown）；需 integration.admin；審計 integration.freshness.cleared'
+      parameters: [{ name: source, in: path, required: true, schema: { type: string, pattern: '^[a-z0-9_]{1,64}$' } }]
+      responses: { '204': { description: cleared }, '404': { $ref: '#/components/responses/Error', description: 該來源沒有設定 }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } }
   /v1/destinations:
     get: { tags: [Activation], summary: '目的地清單（webhook / kafka / gcs / sftp / s3；皆為內部系統；資料輸出任務與受眾推送共用）', responses: { '200': { description: ok }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } } }
     post: { tags: [Activation], summary: '建立目的地（需 segments.approve；新目的地首次推送另需稽核核可）', requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Destination' } } } }, responses: { '201': { description: created }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } } }
@@ -1036,9 +1058,9 @@ components:
     Readiness:
       type: object
       properties:
-        sources: { type: array, items: { type: object, properties: { source: { type: string }, max_event_time: { type: string }, lag_minutes: { type: number }, expected_lag_minutes: { type: number }, status: { type: string, enum: [ok, late, missing] } } } }
-        dates: { type: array, items: { type: object, properties: { date: { type: string }, complete: { type: boolean }, missing_sources: { type: array, items: { type: string } } } } }
-        backfill: { type: object, properties: { pending_distinct_ids: { type: integer }, oldest_pending: { type: string } } }
+        sources: { type: array, items: { type: object, properties: { source: { type: string }, mode: { type: [string, 'null'], enum: [realtime, daily_batch, null], description: '來源新鮮度設定（/v1/integration/source-freshness）；null＝未設定' }, max_event_time: { type: string }, lag_minutes: { type: number }, expected_lag_minutes: { type: [number, 'null'], description: 即時來源的門檻；日批或未設定為 null }, expected_through: { type: [string, 'null'], description: '日批：此刻應涵蓋到的台北日期（到齊時間前 T-(n+1)、之後 T-n）；其他為 null' }, status: { type: string, enum: [ok, late, missing, unknown], description: 'unknown＝來源未設定新鮮度，不套預設門檻，並帶 READINESS_PARTIAL' } } } }
+        dates: { type: array, items: { type: object, properties: { date: { type: string }, complete: { type: [boolean, 'null'], description: '有未設定的來源時為 null（未知）' }, missing_sources: { type: array, items: { type: string } }, unknown_sources: { type: array, items: { type: string }, description: 未設定新鮮度、無法判斷是否到齊的來源 } } } }
+        backfill: { type: [object, 'null'], description: '依賴 #74 回補對照；未完成回 null（同時帶 READINESS_PARTIAL）', properties: { pending_distinct_ids: { type: integer }, oldest_pending: { type: string } } }
         identity: { type: [object, 'null'], description: '依賴 #33；未完成回 null' }
         aggregates: { type: [object, 'null'], description: '依賴 #32（events_daily_agg_pending）；未完成回 null' }
         contract: { type: object }
@@ -1120,6 +1142,37 @@ components:
         rotation: { type: object, properties: { kind: { type: string, enum: [short_lived, rotating] }, every_days: { type: integer }, due: { type: string, format: date }, days_left: { type: integer }, state: { type: string, enum: [ok, warn, expired] } } }
         last_test: { type: object, properties: { at: { type: string, format: date-time }, ok: { type: boolean }, failed_step: { type: string, nullable: true } } }
         owner: { type: string }
+    SourceFreshnessUpdate:
+      type: object
+      additionalProperties: false
+      required: [mode]
+      description: '模式決定必填欄位：realtime 只帶 max_lag_minutes；daily_batch 帶 ready_at 與 covers_days_back。時區固定 Asia/Taipei，不可指定'
+      properties:
+        mode: { type: string, enum: [realtime, daily_batch] }
+        max_lag_minutes: { type: integer, minimum: 1, maximum: 1440, description: 即時：最後一筆事件距今超過這個分鐘數就算延遲 }
+        ready_at: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', description: '日批：每日到齊時間（Asia/Taipei，HH:MM）' }
+        covers_days_back: { type: integer, minimum: 1, maximum: 7, description: '日批：到齊時間之後，資料應涵蓋到 T-n（1 = 前一天）；到齊時間之前，應涵蓋到 T-(n+1)' }
+        note: { type: string, maxLength: 200 }
+      allOf:
+        - if: { properties: { mode: { const: realtime } } }
+          then: { required: [max_lag_minutes], not: { anyOf: [{ required: [ready_at] }, { required: [covers_days_back] }] } }
+        - if: { properties: { mode: { const: daily_batch } } }
+          then: { required: [ready_at, covers_days_back], not: { required: [max_lag_minutes] } }
+    SourceFreshness:
+      type: object
+      required: [source, configured]
+      properties:
+        source: { type: string }
+        configured: { type: boolean, description: 'false＝近 30 天有資料但未設定；readiness 標 unknown' }
+        mode: { type: [string, 'null'], enum: [realtime, daily_batch, null] }
+        max_lag_minutes: { type: [integer, 'null'] }
+        ready_at: { type: [string, 'null'] }
+        covers_days_back: { type: [integer, 'null'] }
+        timezone: { type: string, const: Asia/Taipei }
+        note: { type: [string, 'null'] }
+        last_event_time: { type: [string, 'null'], format: date-time, description: 近 30 天該來源最後一筆事件時間（未出現則 null） }
+        updated_by: { type: [string, 'null'] }
+        updated_at: { type: [string, 'null'], format: date-time }
     ConnectionTest:
       type: object
       properties:
