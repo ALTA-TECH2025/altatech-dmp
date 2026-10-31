@@ -6,7 +6,7 @@ import { api, ApiError } from '@/api/client';
 import { ACTIONS, MODULES, type Action, type Assignment, type Module, type PendingReview, type Role, type ScopeSimulation, type SessionRow } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import { Mono, PageHeader, SectionTitle, StatusBadge } from '@/ds';
-import { toggleAction, unionGrants } from '@/lib/policy';
+import { copyAsCustom, toggleAction, unionGrants } from '@/lib/policy';
 import { ChangesTab } from './ChangesTab';
 import { MembersTab } from './MembersTab';
 
@@ -83,25 +83,28 @@ export function RolesTab() {
                 <Table.Td><StatusBadge tone={r.scope === 'global' ? 'blue' : 'amber'}>{r.scope}</StatusBadge>{r.lookback_days ? ` · 回溯 ${r.lookback_days} 天` : ''}</Table.Td>
                 <Table.Td>{r.description}</Table.Td>
                 <Table.Td><Text size="xs" c="dimmed">{Object.keys(r.grants).length} 個模組 · 匯出 {Object.values(r.grants).filter((a) => a?.includes('export')).length} · 審批 {Object.values(r.grants).filter((a) => a?.includes('approve')).length}</Text></Table.Td>
-                <Table.Td ta="right"><Group gap={4} justify="flex-end" wrap="nowrap"><Button size="compact-sm" variant="subtle" onClick={() => setEdit(structuredClone(r))}>{editable ? '編輯' : '檢視'}</Button>
-                  {editable && <Button size="compact-sm" variant="subtle" onClick={() => setEdit({ ...structuredClone(r), key: undefined, name: r.name + '（副本）', builtin: false })}>複製</Button>}
+                <Table.Td ta="right"><Group gap={4} justify="flex-end" wrap="nowrap"><Button size="compact-sm" variant="subtle" onClick={() => setEdit(structuredClone(r))}>{editable && r.builtin !== true ? '編輯' : '檢視'}</Button>
+                  {editable && <Button size="compact-sm" variant="subtle" onClick={() => setEdit(copyAsCustom(r))}>複製</Button>}
                   {editable && r.builtin === false && <Button size="compact-sm" variant="subtle" color="red" onClick={() => void remove(r)}>刪除</Button>}</Group></Table.Td>
               </Table.Tr>))}</Table.Tbody>
           </Table>
         </Table.ScrollContainer>
       </Paper>
       {editable && <Group gap="xs"><Button variant="filled" onClick={() => setEdit({ name: '', scope: 'global', grants: {}, builtin: false })}>＋ 新增角色</Button></Group>}
-      {edit && <RoleEditor role={edit} readOnly={!editable || edit.builtin === true} onChange={setEdit} onSave={save} onCancel={() => setEdit(null)} />}
+      {edit && <RoleEditor role={edit} readOnly={!editable || edit.builtin === true} onChange={setEdit} onSave={save} onCancel={() => setEdit(null)}
+        onCopy={editable && edit.builtin === true ? () => setEdit(copyAsCustom(edit)) : undefined} />}
     </Stack>
   );
 }
 
-export function RoleEditor({ role, readOnly, onChange, onSave, onCancel }: { role: Role; readOnly: boolean; onChange: (r: Role) => void; onSave: () => void; onCancel: () => void }) {
+export function RoleEditor({ role, readOnly, onChange, onSave, onCancel, onCopy }: { role: Role; readOnly: boolean; onChange: (r: Role) => void; onSave: () => void; onCancel: () => void; onCopy?: () => void }) {
   const set = (m: Module, a: Action, on: boolean) => onChange({ ...role, grants: { ...role.grants, [m]: toggleAction(role.grants[m] ?? [], a, on) } });
   return (
     <Paper>
       <Stack gap="md">
-        <SectionTitle title={role.key ? `角色：${role.name}` : '新增角色'}>{role.builtin && <StatusBadge tone="gray">內建角色：權限由 rbac.yaml 定義，不可在 UI 修改</StatusBadge>}</SectionTitle>
+        <SectionTitle title={role.key ? `角色：${role.name}` : '新增角色'}>{role.builtin && <Group gap="xs"><StatusBadge tone="gray">內建角色：權限由 rbac.yaml 定義，不可直接修改</StatusBadge>
+          {onCopy && <Button size="compact-sm" variant="light" onClick={onCopy}>複製後可修改</Button>}</Group>}</SectionTitle>
+        {role.builtin && onCopy && <Text size="sm" c="dimmed">要調整這個角色的權限：按「複製後可修改」建立一份自訂角色，勾選後儲存（走雙人複核），再到「使用者指派」把人改指派到新角色。</Text>}
         <SimpleGrid cols={{ base: 1, sm: 3 }}>
           <TextInput label="名稱" value={role.name} disabled={readOnly} onChange={(e) => onChange({ ...role, name: e.target.value })} />
           <NativeSelect label="範圍" value={role.scope} disabled={readOnly} data={[{ value: 'global', label: '全域' }, { value: 'aggregate_only', label: '僅聚合' }, { value: 'branch', label: '分公司（保留）' }, { value: 'agent', label: '營業員（保留）' }]} onChange={(e) => onChange({ ...role, scope: e.target.value as Role['scope'] })} />

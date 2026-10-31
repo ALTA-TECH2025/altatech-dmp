@@ -1,6 +1,6 @@
 // 前端的權限輔助：只拿 /v1/iam/me 的 grants／masking 決定「畫不畫、能不能按」；最終裁決永遠是後端 authorize()。
 // 規則與 backend/security/policy.py 一致：多角色功能取聯集、欄位遮罩取最嚴格、use 蘊含 view、export 蘊含 use。
-import type { Action, Me, Module } from '@/api/types';
+import type { Action, Me, Module, Role } from '@/api/types';
 
 const IMPLIES: Record<Action, Action[]> = { view: [], use: ['view'], export: ['use', 'view'], approve: ['view'], admin: ['view'] };
 
@@ -66,4 +66,9 @@ export function toggleAction(acts: Action[], a: Action, on: boolean): Action[] {
   if (on) { s.add(a); IMPLIES[a].forEach((x) => s.add(x)); }
   else { s.delete(a); if (a === 'view') s.clear(); if (a === 'use') s.delete('export'); }
   return (['view', 'use', 'export', 'approve', 'admin'] as Action[]).filter((x) => s.has(x));
+}
+
+/** 內建角色不可直接改：複製成自訂角色（新 key 由後端給、名稱加「（副本）」），權限與範圍照抄，改完走雙人複核 */
+export function copyAsCustom(r: Role): Role {
+  return { ...structuredClone(r), key: undefined, name: `${r.name}（副本）`, builtin: false };
 }
