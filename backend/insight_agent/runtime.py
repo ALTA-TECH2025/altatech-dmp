@@ -37,15 +37,17 @@ class Run:
 
 
 class Gateway:
-    """MCP client 介面；骨架直接 import 本地 server。"""
+    """骨架：直接呼叫本地 Tool Gateway（backend/mcp/server.py）。示範身分固定為數據分析角色；正式版由 run 的 initiator 解析（PR5 控制器）。"""
     def __init__(self, user_id: str, run_id: str):
-        from backend.mcp import server  # type: ignore
-        self._s = server
-        self._caller = server.Caller(user_id=user_id, run_id=run_id)
-        self._budget = server.Budget()
+        from backend.api.store import MemoryStore
+        from backend.mcp import server
+        from backend.security.policy import Subject
+        self._gw = server.Gateway(MemoryStore(), ch=None)
+        self._ctx = server.ToolContext(Subject(user_id, ["data_analyst"]), run_id=run_id)
 
     def call(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
-        return self._s.call(self._caller, self._budget, name, args)
+        env = self._gw.call(self._ctx, name, args)
+        return {**(env["data"] or {}), "cost": {"scan_bytes": env["usage"].get("scan_bytes_est", 0)}, "warnings": [w["code"] for w in env["warnings"]] + ([env["error"]["code"]] if env["error"] else [])}
 
 
 class InsightAgent:
