@@ -47,7 +47,9 @@ jobs:
           bad = {"tools": ["profile.get"], "model_view": {"identifiers": "all"}, "automation": "publish"}
           cases = [("SkillDraftUpdate", {"purpose": "p", "notes_md": "n"}, [bad, {"purpose": "p", "tools": ["x"]}]),
                    ("AgentConfigDraftUpdate", {"skills": [{"name": "explore-data", "version": "1.0.0"}], "notes_md": "n"},
-                    [bad, {"skills": [{"name": "explore-data", "version": "latest"}]}, {"skills": [{"name": "a", "version": "1", "tools": ["x"]}]}, {"user_overridable": [{"skill": "a", "param": "k", "status": "confirmed"}]}])]
+                    [bad, {"skills": [{"name": "explore-data", "version": "latest"}]}, {"skills": [{"name": "a", "version": "1", "tools": ["x"]}]}, {"user_overridable": [{"skill": "a", "param": "k", "status": "confirmed"}]}]),
+                   ("AgentRunCreate", {"entry": "analyze", "question": "上週開戶漏斗", "agent": "s1", "params": {"period": "last_week"}},      # C3：專案與身分不可由請求指定
+                    [{"entry": "analyze", "question": "q", "project": "other"}, {"entry": "analyze", "question": "q", "user_id": "u", "roles": ["admin"]}])]
           for name, ok, rejects in cases:
               v = jsonschema.Draft202012Validator(S[name]); v.validate(ok)
               for r in rejects:
