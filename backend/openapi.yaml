@@ -479,7 +479,7 @@ paths:
       summary: 核可發布 → 產生新版本號（published 或 trial）；body 指明核可的 revision、content_digest，須等於送審時鎖定的值；核可者不得為送出者；需 ai_skills.approve；審計 agent_skill.approved
       parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: draft_id, in: path, required: true, schema: { type: string } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReviewBinding' } } } }
-      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } }, '403': { $ref: '#/components/responses/Error', description: 自己核可自己或無 ai_skills.approve }, '409': { $ref: '#/components/responses/Error', description: 不是送審中的那一版內容 }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/SkillVersion' } } } }, '403': { $ref: '#/components/responses/Error', description: 'AUTHZ_DENIED：沒有 ai_skills.approve' }, '409': { $ref: '#/components/responses/Error', description: 'FOUR_EYES_REQUIRED：核可者是送出者本人（四眼原則）；CONFLICT：ReviewBinding 不是送審時鎖定的那一版內容' }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } }
   /v1/agents/skills/{name}/drafts/{draft_id}/reject:
     post:
       tags: [Agents]
@@ -565,7 +565,7 @@ paths:
       summary: 核可發布：ReviewBinding 須等於送審鎖定值；核可者不得為送出者；需 ai_skills.approve；審計 agent_config.approved
       parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: draft_id, in: path, required: true, schema: { type: string } }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReviewBinding' } } } }
-      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AgentConfigVersion' } } } }, '403': { $ref: '#/components/responses/Error', description: 自己核可自己或無 ai_skills.approve }, '409': { $ref: '#/components/responses/Error', description: 不是送審中的那一版內容 }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { description: ok, content: { application/json: { schema: { $ref: '#/components/schemas/AgentConfigVersion' } } } }, '403': { $ref: '#/components/responses/Error', description: 'AUTHZ_DENIED：沒有 ai_skills.approve' }, '409': { $ref: '#/components/responses/Error', description: 'FOUR_EYES_REQUIRED：核可者是送出者本人（四眼原則）；CONFLICT：ReviewBinding 不是送審時鎖定的那一版內容' }, '4XX': { $ref: '#/components/responses/Error' }, '5XX': { $ref: '#/components/responses/Error' } }
   /v1/agents/configs/{name}/drafts/{draft_id}/reject:
     post:
       tags: [Agents]
@@ -2174,7 +2174,7 @@ components:
         state: { type: string, enum: [draft, in_review, published, trial, retired], description: 'trial = 含未核定參數的發布：結果帶 CONTRACT_PENDING，不能設為預設、不能排程、不能分享或送審' }
         base_version: { type: string }
         purpose: { type: string }
-        refs: { type: object, properties: { funnels: { type: array, items: { type: string } }, metrics: { type: array, items: { type: string } }, events: { type: array, items: { type: string } } }, description: '引用語意層 ID@版本（唯讀，不複製定義；改共用定義走既有契約流程）' }
+        refs: { type: object, properties: { bookmarks: { type: array, items: { type: string, pattern: '^bm_[A-Za-z0-9_]+$' }, description: '存好的分析或漏斗：書籤系統編號 bm_…（建立書籤時由後端產生）；不接受名稱或自編 ID，查不到 → 不能存' }, funnels: { type: array, items: { type: string }, deprecated: true, description: '舊欄位，新草案改用 bookmarks' }, metrics: { type: array, items: { type: string }, description: 'backend/semantic/metrics.yaml 實際存在的 key' }, events: { type: array, items: { type: string }, description: 'backend/semantic/events.yaml 實際存在的 key' } }, description: '只引用、不複製定義（Windy 2026-10-28：不做名稱比對）；解析不到 → 草案不能存（400，回欄位）；改共用定義走既有契約流程' }
         params: { type: array, items: { $ref: '#/components/schemas/SkillParam' } }
         timezone: { type: string, default: Asia/Taipei }
         identity: { type: object, properties: { rules: { type: string, description: 'oneid_rules@版本，唯讀' } } }
