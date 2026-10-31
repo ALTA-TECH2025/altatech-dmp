@@ -43,7 +43,7 @@ def validate(body: Any) -> dict[str, Any]:
     if extra:
         raise Invalid(f"不接受的欄位：{', '.join(extra)}（時區固定 {TZ_NAME}，不可指定）")
     mode = body.get("mode")
-    if mode not in _BY_MODE:
+    if not isinstance(mode, str) or mode not in _BY_MODE:                       # 先確認是字串：陣列／物件不可拿去查字典（會變 500）
         raise Invalid("mode 必須是 realtime 或 daily_batch")
     need, other = _BY_MODE[mode], set().union(*(v for k, v in _BY_MODE.items() if k != mode))
     missing, wrong = sorted(need - set(body)), sorted(other & set(body))
@@ -122,7 +122,7 @@ def selftest() -> None:
         raise AssertionError(f"應該被拒：{b}")
     assert ok({"mode": "realtime", "max_lag_minutes": 15, "note": "x"}) == {"mode": "realtime", "max_lag_minutes": 15, "ready_at": None, "covers_days_back": None, "note": "x"}
     assert ok({"mode": "daily_batch", "ready_at": "07:00", "covers_days_back": 1})["max_lag_minutes"] is None
-    for b in ([], {"mode": "hourly"}, {"mode": "realtime"}, {"mode": "realtime", "max_lag_minutes": 0}, {"mode": "realtime", "max_lag_minutes": 1441},
+    for b in ([], {"mode": "hourly"}, {"mode": [], "max_lag_minutes": 15}, {"mode": {}, "max_lag_minutes": 15}, {"mode": None, "max_lag_minutes": 15}, {"mode": "realtime"}, {"mode": "realtime", "max_lag_minutes": 0}, {"mode": "realtime", "max_lag_minutes": 1441},
               {"mode": "realtime", "max_lag_minutes": True}, {"mode": "realtime", "max_lag_minutes": 15.0}, {"mode": "realtime", "max_lag_minutes": 15, "ready_at": "07:00"},
               {"mode": "daily_batch", "ready_at": "07:00"}, {"mode": "daily_batch", "ready_at": "24:00", "covers_days_back": 1},
               {"mode": "daily_batch", "ready_at": "7:00", "covers_days_back": 1}, {"mode": "daily_batch", "ready_at": "07:00", "covers_days_back": 8},
@@ -151,7 +151,7 @@ def selftest() -> None:
                                               "timezone": TZ_NAME, "note": None, "last_event_time": None}
     assert view("x", db, parse_ch_time("2026-10-15 09:00:00.000"))["last_event_time"] == "2026-10-15T09:00:00Z" and parse_ch_time("1970-01-01 00:00:00") is None
     assert SOURCE_RE.match("mdl_open_acct") and not SOURCE_RE.match("GA360") and not SOURCE_RE.match("a" * 65)
-    print("source freshness self-test ok: 2 正例＋15 負例、未設定 unknown、即時 ok/late 邊界、missing、日批 06:59／07:00 邊界、跨午夜、到齊判斷、清單列")
+    print("source freshness self-test ok: 2 正例＋18 負例、未設定 unknown、即時 ok/late 邊界、missing、日批 06:59／07:00 邊界、跨午夜、到齊判斷、清單列")
 
 
 if __name__ == "__main__":
