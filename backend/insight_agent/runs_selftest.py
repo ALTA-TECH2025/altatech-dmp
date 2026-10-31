@@ -39,7 +39,8 @@ def selftest() -> None:
     st, ch, clock = MemoryStore(), FakeCH(), [1_000_000.0]
     today = lambda: date(2026, 10, 28)                                         # 週三 → 上週 10/19–10/25、前週 10/12–10/18
     missing = ["DMP_AGENT_MODEL_PROVIDER", "model_view.approved_params"]
-    svc = RunService(st, ch, gateway=Gateway(st, ch, today=today), model_missing=lambda: missing, today=today, clock=lambda: clock[0])
+    roles: dict[str, list[str] | None] = {"u_ana": ["data_analyst"], "u_other": ["data_analyst"], "u_rev": ["data_analyst"], "u_par": ["data_analyst"]}   # 權威來源（帳號＋指派現況）
+    svc = RunService(st, ch, gateway=Gateway(st, ch, today=today), model_missing=lambda: missing, today=today, clock=lambda: clock[0], roles_of=roles.get)
     build_router(svc, lambda: None)
     ana, other = Subject("u_ana", ["data_analyst"]), Subject("u_other", ["data_analyst"])
     q = {"entry": "analyze", "question": "上週開戶漏斗跟前週比"}
@@ -99,11 +100,35 @@ def selftest() -> None:
         assert r["state"] == "failed" and r["error"]["code"] == want and step["attempts"] == attempts and step["query_ids"] == [f"{b}:s2_current:{attempts}"], (r["state"], r.get("error"), step)
     nr = svc.retry(ana, b); assert nr["retry_of"] == b and code(svc.retry, ana, rid)[1] == "CONFLICT"
     svc.tick(); assert svc._own(ana, nr["run_id"])["state"] == "succeeded"
+    # A13：排隊後、等待回答後、重試後撤權 → 不送查詢、AUTHZ_DENIED（worker 每次工具呼叫前重讀；回答與重試照現在權限）
+    rev = Subject("u_rev", ["data_analyst"]); n_sql = len(ch.sql)
+    x = svc.create(rev, q, None)["run_id"]; roles["u_rev"] = []; svc.tick()
+    assert svc._own(rev, x)["state"] == "failed" and svc._own(rev, x)["error"]["code"] == "AUTHZ_DENIED" and len(ch.sql) == n_sql
+    roles["u_rev"] = ["data_analyst"]; y = svc.create(rev, q, None)["run_id"]; svc.tick(); roles["u_rev"] = None              # 帳號停用
+    assert code(svc.answer, Subject("u_rev", []), y, {"question_id": "term:開戶", "choice": "kh_apply"})[:2] == (403, "AUTHZ_DENIED")
+    svc.j.resume(y, answers={"term:開戶": "kh_apply"}, pending_question=None); svc.tick()                                         # 就算已回到佇列，worker 也擋下
+    assert svc._own(rev, y)["error"]["code"] == "AUTHZ_DENIED" and len(ch.sql) == n_sql
+    assert code(svc.retry, Subject("u_rev", []), x)[:2] == (403, "AUTHZ_DENIED")
+    roles["u_rev"] = ["data_analyst"]; z = svc.retry(rev, x)["run_id"]; roles["u_rev"] = []; svc.tick()
+    assert svc._own(rev, z)["error"]["code"] == "AUTHZ_DENIED" and len(ch.sql) == n_sql and "roles" not in json.dumps(svc.j.get_run(z)["initiator"])
+    # P2：重試、回答後回佇列與建立共用名額；同一 run 連續重試、併發建立都不能超過 2
+    roles["u_rev"] = ["data_analyst"]
+    svc.retry(rev, x); svc.retry(rev, x)
+    assert code(svc.retry, rev, x)[:2] == (429, "RATE_LIMITED") and code(svc.retry, rev, y)[:2] == (429, "RATE_LIMITED")
+    wu = Subject("u_w", ["data_analyst"]); roles["u_w"] = ["data_analyst"]
+    wr = svc.create(wu, q, None)["run_id"]; svc.tick(); assert svc._own(wu, wr)["state"] == "waiting_input"
+    svc.create(wu, {**q, "question": "上週登入人數"}, None); svc.create(wu, {**q, "question": "上週委託人數"}, None)        # waiting_input 不佔名額，所以還能建 2 個
+    assert code(svc.answer, wu, wr, {"question_id": "term:開戶", "choice": "kh_apply"})[:2] == (429, "RATE_LIMITED")      # 回到佇列要佔名額 → 已滿
+    from concurrent.futures import ThreadPoolExecutor
+    par = Subject("u_par", ["data_analyst"])
+    with ThreadPoolExecutor(6) as ex:
+        got = list(ex.map(lambda i: code(svc.create, par, {**q, "question": f"上週登入人數 {i}"}, None)[1], range(6)))
+    assert got.count("") == 2 and got.count("RATE_LIMITED") == 4, got
     # 取消：排隊中直接取消；已結束再取消 409
     c = svc.create(ana, {**q, "question": "上週登入人數"}, None)["run_id"]; svc.cancel(ana, c)
     assert svc._own(ana, c)["state"] == "cancelled" and code(svc.cancel, ana, c)[1] == "CONFLICT"
     assert any(a["event"] == "agent.run.created" for a in st.audit_tail(1000))
-    print("agent runs self-test ok: A03 補問口徑、A27 規則模式確認前不查、上週＝完整週一到週日、C7 query_id、Q21、C6 他人 404、C3/C2 欄位與參數拒絕、C5 冪等 24h、A26 名額、A17、A25/A25b、A19 重試、重試與取消")
+    print("agent runs self-test ok: A03 補問口徑、A27 規則模式確認前不查、上週＝完整週一到週日、C7 query_id、Q21、C6 他人 404、C3/C2 欄位與參數拒絕、C5 冪等 24h、A26 名額、A17、A25/A25b、A19 重試、重試與取消、A13 撤權（排隊／等待回答／重試後）、名額共用入口（重試／回答／併發建立）")
 
 
 if __name__ == "__main__":

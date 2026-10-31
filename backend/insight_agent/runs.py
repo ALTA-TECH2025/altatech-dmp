@@ -23,7 +23,7 @@ from ..api.errors import ApiError
 from ..mcp.server import GW, Gateway, ToolContext
 from ..security.policy import Subject, authorize
 from . import skill_loader
-from .journal import TERMINAL, Fenced, MemoryJournal
+from .journal import TERMINAL, Fenced, LimitReached, MemoryJournal
 from .model import missing_config
 
 FIELDS = {"entry", "question", "skill", "agent", "params", "period", "context"}
@@ -31,7 +31,6 @@ ENTRY_SKILL = {"explore": "explore-data", "analyze": "explore-data"}       # 看
 AMBIGUOUS = {"開戶": (("kh_apply", "開戶申請"), ("kh_review_pass", "審核通過"))}   # 選定後改寫成不歧義的詞再交給規則解析
 EXPLICIT = ("開戶申請", "完成開戶", "審核通過", "開戶成功")
 IDEM_TTL, RETRY, UNSET = 86400, {"INTERNAL": 2, "TIMEOUT": 1}, "（未設定）"
-ACTIVE = ["queued", "running", "waiting_lease"]                           # 同時名額只算這些（waiting_input 不算，1029-12）
 HIDDEN = {"generation", "lease_owner", "lease_until", "request_digest", "idem_key", "created_ts", "exec_s", "candidates_raw"}
 
 
@@ -59,7 +58,7 @@ class _Cancel(Exception):
 
 
 class RunService:
-    def __init__(self, store: Any, ch: Any, journal: Any = None, gateway: Any = None, model_missing: Any = None, skills: Any = None, today: Any = date.today, clock: Any = time.time):
+    def __init__(self, store: Any, ch: Any, journal: Any = None, gateway: Any = None, model_missing: Any = None, skills: Any = None, today: Any = date.today, clock: Any = time.time, roles_of: Any = None):
         if journal is None:
             from .journal import PostgresJournal
             journal = PostgresJournal(store) if hasattr(store, "pool") else MemoryJournal(store)
@@ -68,6 +67,8 @@ class RunService:
         self.model_missing = model_missing or missing_config
         self.skills = skills or skill_loader.load
         self.project = os.environ.get("DMP_PROJECT", "")
+        self.roles_of = roles_of or (lambda uid: None)     # 權威來源：帳號與角色指派「現在」的狀態（停用／撤權 → None 或少了角色）；不用 run 上的快照
+        self.limit = int(GW["limits"]["max_concurrent_runs_per_user"])
 
     # ---------- API ----------
     def _own(self, s: Subject, rid: str) -> dict[str, Any]:
@@ -114,20 +115,28 @@ class RunService:
             if old.get("request_digest") != req:
                 raise ApiError("CONFLICT", "同一個冪等鍵已用於不同內容", params={"idempotency_key": key})
             return self.view(old)
-        lim = int(GW["limits"]["max_concurrent_runs_per_user"])
-        if sum(r["state"] in ACTIVE for r in mine) >= lim:
-            raise ApiError("RATE_LIMITED", params={"limit": lim})
-        doc = {"entry": entry, "question": q, "initiator": {"user_id": s.user_id, "auth_source": "session", "roles": list(s.roles)},
+        doc = {"entry": entry, "question": q, "initiator": {"user_id": s.user_id, "auth_source": "session"},
                "skill": {"name": sk.name, "version": sk.version, "content_digest": digest({"meta": sk.meta, "body": sk.body})}, "agent": None, "params": {},
                "project": self.project, "bookmarks": [], "contracts": skill_loader.contract_versions(),
                "mode": "rules" if missing else "model", "model": {"provider": "rules" if missing else "pending", "id": ""},
                "budget": {"scan_bytes_used": 0, "tokens_used": 0}, "answers": {}, "evidence": {}, "artifacts": [], "period": body.get("period"), "context": body.get("context"),
                "request_digest": req, "idem_key": key, "created_ts": now, "created_at": datetime.fromtimestamp(now, UTC).isoformat()}
-        r = self.j.create_run(doc, key)
+        r = self._admit(lambda: self.j.create_run(doc, key, self.limit))
         if r.get("request_digest") != req:                                   # 併發同鍵：資料庫唯一鍵擋下，回到既有那筆
             raise ApiError("CONFLICT", "同一個冪等鍵已用於不同內容", params={"idempotency_key": key or ""})
         self.store.audit("agent.run.created", {"user": s.user_id, "run_id": r["run_id"], "skill": sk.name, "mode": doc["mode"]})
         return self.view(r)
+
+    def _admit(self, fn: Any) -> Any:
+        """建立、重試、回答後回到佇列共用同一個名額入口；檢查與寫入在 journal 的同一把鎖／交易內（P2）。"""
+        try:
+            return fn()
+        except LimitReached:
+            raise ApiError("RATE_LIMITED", params={"limit": self.limit}) from None
+
+    def _may(self, s: Subject) -> None:
+        if not authorize(s, "use", "ai_ask").allowed:                           # 回答、重試也照「現在」的權限（A13）
+            raise ApiError("AUTHZ_DENIED", params={"permission": "ai_ask.use"})
 
     def list(self, s: Subject, state: str | None, limit: int) -> list[dict[str, Any]]:
         return [self.view(r) for r in self.j.list_runs(s.user_id, [state] if state else None, max(1, min(limit, 200)))]
@@ -139,25 +148,25 @@ class RunService:
         return self.view(self.j.get_run(rid))
 
     def answer(self, s: Subject, rid: str, body: Any) -> dict[str, Any]:
-        r = self._own(s, rid); pq = r.get("pending_question") or {}
+        r = self._own(s, rid); pq = r.get("pending_question") or {}; self._may(s)
         if r["state"] != "waiting_input":
             raise ApiError("CONFLICT", "run 不在等待回答")
         b = body if isinstance(body, dict) else {}
         if b.get("question_id") != pq.get("question_id") or b.get("choice") not in [c["id"] for c in pq.get("choices", [])]:
             raise ApiError("INVALID_ARGUMENT", "問題編號或選項不正確")
-        if not self.j.resume(rid, answers={**(r.get("answers") or {}), pq["question_id"]: b["choice"]}, pending_question=None):
+        if not self._admit(lambda: self.j.resume(rid, self.limit, answers={**(r.get("answers") or {}), pq["question_id"]: b["choice"]}, pending_question=None)):
             raise ApiError("CONFLICT", "run 不在等待回答")
         return self.view(self.j.get_run(rid))
 
     def retry(self, s: Subject, rid: str) -> dict[str, Any]:
-        r = self._own(s, rid)
+        r = self._own(s, rid); self._may(s)
         if r["state"] not in ("failed", "cancelled"):
             raise ApiError("CONFLICT", "只有失敗或取消的 run 可以重試")
-        keep = ("entry", "question", "initiator", "skill", "agent", "params", "project", "bookmarks", "contracts", "mode", "model", "answers", "period", "context", "candidates")
+        keep = ("entry", "question", "skill", "agent", "params", "project", "bookmarks", "contracts", "mode", "model", "answers", "period", "context", "candidates")
         now = self.clock()
-        doc = {**{k: r.get(k) for k in keep}, "budget": {"scan_bytes_used": 0, "tokens_used": 0}, "evidence": {}, "artifacts": [], "retry_of": rid,
+        doc = {**{k: r.get(k) for k in keep}, "budget": {"scan_bytes_used": 0, "tokens_used": 0}, "evidence": {}, "artifacts": [], "retry_of": rid, "initiator": {"user_id": s.user_id, "auth_source": "session"},
                "request_digest": r.get("request_digest"), "created_ts": now, "created_at": datetime.fromtimestamp(now, UTC).isoformat()}
-        return self.view(self.j.create_run(doc))
+        return self.view(self._admit(lambda: self.j.create_run(doc, None, self.limit)))
 
     def evidence(self, s: Subject, rid: str, eid: str) -> dict[str, Any]:
         ev = (self._own(s, rid).get("evidence") or {}).get(eid)
@@ -183,7 +192,7 @@ class RunService:
         r = self.j.get_run(rid); ini = r.get("initiator") or {}; t0 = self.clock()
         ctx = {"used": float((r.get("budget") or {}).get("scan_bytes_used") or 0), "t0": t0, "exec_s": float(r.get("exec_s") or 0)}
         try:
-            fields, to = self._rules(rid, gen, r, Subject(ini.get("user_id", ""), list(ini.get("roles") or [])), ctx)
+            fields, to = self._rules(rid, gen, r, str(ini.get("user_id") or ""), ctx)
         except _Cancel:
             fields, to = {}, "cancelled"
         except Fenced:
@@ -197,7 +206,11 @@ class RunService:
             return 0
         return 1
 
-    def _call(self, rid: str, gen: int, s: Subject, sid: str, tool: str, args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    def subject_now(self, uid: str) -> Subject:
+        roles = self.roles_of(uid)
+        return Subject(uid, list(roles or []))
+
+    def _call(self, rid: str, gen: int, uid: str, sid: str, tool: str, args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
         attempt = 0
         while True:
             attempt += 1
@@ -209,6 +222,11 @@ class RunService:
             qid = f"{rid}:{sid}:{attempt}"
             step = {"step_id": sid, "tool": tool, "args_digest": digest(args)[:16], "attempts": attempt, "query_ids": [qid]}
             self.j.put_step(rid, gen, {**step, "state": "running"})
+            s = self.subject_now(uid)                                           # 每次工具呼叫前重讀身分（A13：撤權、停用即時生效）
+            if not authorize(s, "use", "ai_ask").allowed:
+                err = {"code": "AUTHZ_DENIED", "message": "發起人目前沒有 AI 分析權限（已撤權或停用）", "retryable": False, "detail": {"permission": "ai_ask.use"}}
+                self.j.put_step(rid, gen, {**step, "state": "failed", "error": err})
+                return {"ok": False, "error": err}
             tc = ToolContext(s, rid, sid, scan_bytes_used=ctx["used"], query_id=qid)
             env = self.gw.call(tc, tool, args); ctx["used"] = tc.scan_bytes_used
             if env["ok"]:
@@ -221,8 +239,10 @@ class RunService:
             self.j.put_step(rid, gen, {**step, "state": "failed", "error": err})
             return env
 
-    def _rules(self, rid: str, gen: int, r: dict[str, Any], s: Subject, ctx: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    def _rules(self, rid: str, gen: int, r: dict[str, Any], s: str, ctx: dict[str, Any]) -> tuple[dict[str, Any], str]:
         q, ans = r["question"], r.get("answers") or {}
+        if not authorize(self.subject_now(s), "use", "ai_ask").allowed:              # 接手執行前也先確認發起人現在仍有權限
+            return {"error": {"code": "AUTHZ_DENIED", "message": "發起人目前沒有 AI 分析權限（已撤權或停用）", "retryable": False, "detail": {"permission": "ai_ask.use"}}}, "failed"
         for term, opts in AMBIGUOUS.items():                                   # A03：口徑未核定就問，不替使用者選
             if term in q and not any(x in q for x in EXPLICIT):
                 qid = "term:" + term

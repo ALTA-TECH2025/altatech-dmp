@@ -46,6 +46,13 @@ class BadTransition(ValueError):
     pass
 
 
+class LimitReached(Exception):
+    """同一使用者 queued／running／waiting_lease 已達上限（RATE_LIMITED）；檢查與寫入在同一把鎖／交易內，併發請求不會都過。"""
+
+
+ACTIVE = ("queued", "running", "waiting_lease")       # 佔同時名額的狀態（waiting_input 不算，1029-12）
+
+
 def args_digest(args: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(args, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
@@ -78,11 +85,16 @@ class MemoryJournal:
         for k in ("agent_runs", "agent_steps", "agent_operations", "agent_idem"):
             self.s.d.setdefault(k, {})
 
-    def create_run(self, doc: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
+    def _active(self, user: str, skip: str = "") -> int:
+        return sum(r["state"] in ACTIVE and (r.get("initiator") or {}).get("user_id") == user and r["run_id"] != skip for r in self.s.d["agent_runs"].values())
+
+    def create_run(self, doc: dict[str, Any], idempotency_key: str | None = None, limit: int | None = None) -> dict[str, Any]:
         with self.s.lock:
             idem = _idem_key(doc, idempotency_key)
             if idem and idem in self.s.d["agent_idem"]:
                 return self._get(self.s.d["agent_idem"][idem])
+            if limit is not None and self._active(str((doc.get("initiator") or {}).get("user_id") or "")) >= limit:
+                raise LimitReached(limit)
             rid = "run_" + uuid.uuid4().hex[:12]
             self.s.d["agent_runs"][rid] = {**doc, "run_id": rid, "state": "queued", "generation": 0, "lease_owner": None, "lease_until": 0.0, "cancel_requested": False}
             self.s.d["agent_steps"][rid] = []
@@ -157,12 +169,14 @@ class MemoryJournal:
             self.s._save()
             return "committed", a["id"]
 
-    def resume(self, rid: str, **fields: Any) -> bool:
-        """使用者回答口徑：waiting_input → queued（不需世代，由 API 呼叫）。"""
+    def resume(self, rid: str, limit: int | None = None, **fields: Any) -> bool:
+        """使用者回答口徑：waiting_input → queued（不需世代，由 API 呼叫）；回到佇列也要佔名額。"""
         with self.s.lock:
             r = self.s.d["agent_runs"][rid]
             if r["state"] != "waiting_input":
                 return False
+            if limit is not None and self._active(str((r.get("initiator") or {}).get("user_id") or ""), rid) >= limit:
+                raise LimitReached(limit)
             r.update(fields, state="queued"); self.s._save()
             return True
 
@@ -230,11 +244,23 @@ class PostgresJournal:
             raise Fenced(f"{rid} 世代已不是 {gen}、不在 running 或租約已過期")       # 例外 → 交易回滾
         return row
 
-    def create_run(self, doc: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
+    async def _limit(self, c: Any, user: str, limit: int | None, skip: str = "") -> None:
+        """同一使用者的建立／恢復以 advisory lock 排隊，再數名額：兩個併發請求不會都過。"""
+        if limit is None:
+            return
+        await c.execute("SELECT pg_advisory_xact_lock(hashtext($1))", "agent_runs:" + user)
+        n = await c.fetchval(f"SELECT count(*) FROM {self.s.t('agent_runs')} WHERE doc->'initiator'->>'user_id' = $1 AND state = ANY($2::text[]) AND run_id <> $3", user, list(ACTIVE), skip)
+        if n >= limit:
+            raise LimitReached(limit)
+
+    def create_run(self, doc: dict[str, Any], idempotency_key: str | None = None, limit: int | None = None) -> dict[str, Any]:
         user = str((doc.get("initiator") or {}).get("user_id") or "")
         key = str(idempotency_key) if idempotency_key else None
         rid = "run_" + uuid.uuid4().hex[:12]
         async def fn(c: Any) -> str:
+            if key and (old := await c.fetchval(f"SELECT run_id FROM {self.s.t('agent_runs')} WHERE idem_user = $1 AND idem_key = $2", user, key)):
+                return str(old)                                                    # 冪等重送不佔新名額
+            await self._limit(c, user, limit)
             got = await c.fetchval(f"INSERT INTO {self.s.t('agent_runs')} (run_id, state, idem_user, idem_key, doc) VALUES ($1, 'queued', $2, $3, $4) "
                                    "ON CONFLICT (idem_user, idem_key) DO NOTHING RETURNING run_id", rid, user if key else None, key, json.dumps(doc, ensure_ascii=False))
             return got or await c.fetchval(f"SELECT run_id FROM {self.s.t('agent_runs')} WHERE idem_user = $1 AND idem_key = $2", user, key)
@@ -304,10 +330,13 @@ class PostgresJournal:
             return "committed", a["id"]
         return self._run(fn)
 
-    def resume(self, rid: str, **fields: Any) -> bool:
-        return bool(self._run(lambda c: c.fetchval(
-            f"UPDATE {self.s.t('agent_runs')} SET state = 'queued', doc = doc || $2::jsonb, updated_at = now() WHERE run_id = $1 AND state = 'waiting_input' RETURNING true",
-            rid, json.dumps(fields, ensure_ascii=False, default=str))))
+    def resume(self, rid: str, limit: int | None = None, **fields: Any) -> bool:
+        async def fn(c: Any) -> bool:
+            user = await c.fetchval(f"SELECT doc->'initiator'->>'user_id' FROM {self.s.t('agent_runs')} WHERE run_id = $1", rid)
+            await self._limit(c, str(user or ""), limit, rid)
+            return bool(await c.fetchval(f"UPDATE {self.s.t('agent_runs')} SET state = 'queued', doc = doc || $2::jsonb, updated_at = now() WHERE run_id = $1 AND state = 'waiting_input' RETURNING true",
+                                         rid, json.dumps(fields, ensure_ascii=False, default=str)))
+        return bool(self._run(fn))
 
     def request_cancel(self, rid: str) -> None:
         self._run(lambda c: c.execute(
@@ -411,7 +440,13 @@ def selftest(j: Any, store: Any, label: str) -> None:
     u = f"lu_{tag}"; l1 = j.create_run({"initiator": {"user_id": u}, "created_ts": 1.0}, idempotency_key="k"); l2 = j.create_run({"initiator": {"user_id": u}, "created_ts": 2.0})
     assert [x["run_id"] for x in j.list_runs(u)] == [l2["run_id"], l1["run_id"]] and j.list_runs(u, ["running"]) == [] and len(j.list_runs(None, ["queued"], 500)) >= 2
     j.expire_idem(1.5); assert j.create_run({"initiator": {"user_id": u}, "created_ts": 3.0}, idempotency_key="k")["run_id"] != l1["run_id"]
-    print(f"run journal self-test ok ({label}): 列表／冪等鍵到期、 崩潰回滾 0 筆、重試/接手 existing 同 id、租約過期未接手被擋 {expired} 次、被接手後舊 worker 被擋 {fenced} 次、改參數 CONFLICT、雙 run 併發 1 committed + 1 existing、狀態機與取消")
+    lu = f"lim_{tag}"; k1 = j.create_run({"initiator": {"user_id": lu}}, idempotency_key="a", limit=2); j.create_run({"initiator": {"user_id": lu}}, limit=2)
+    try:
+        j.create_run({"initiator": {"user_id": lu}}, limit=2); raise AssertionError("應達上限")
+    except LimitReached:
+        pass
+    assert j.create_run({"initiator": {"user_id": lu}}, idempotency_key="a", limit=2)["run_id"] == k1["run_id"]          # 冪等重送不佔新名額
+    print(f"run journal self-test ok ({label}): 名額上限、列表／冪等鍵到期、 崩潰回滾 0 筆、重試/接手 existing 同 id、租約過期未接手被擋 {expired} 次、被接手後舊 worker 被擋 {fenced} 次、改參數 CONFLICT、雙 run 併發 1 committed + 1 existing、狀態機與取消")
 
 
 if __name__ == "__main__":
