@@ -112,7 +112,7 @@ def build_router(store: Store, get_subject: Any, ch: Executor | None, cat: Catal
         return d
 
     def out(d: dict[str, Any], subject: Subject) -> dict[str, Any]:
-        return {**d, "mine": d.get("owner") == subject.user_id, "editable": editable(d, subject)}
+        return {**d, "origin": d.get("origin"), "mine": d.get("owner") == subject.user_id, "editable": editable(d, subject)}   # origin：AI 草稿（契約 #117 C6），人建為 null
 
     @r.get("/v1/dashboards")
     def list_(subject: Subject = Depends(get_subject)) -> list[dict[str, Any]]:
