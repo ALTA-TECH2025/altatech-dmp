@@ -19,7 +19,7 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +46,23 @@ def is_identifier(name: str) -> bool:
     for pre in ("props.", "u.", "e."):
         n = n[len(pre):] if n.startswith(pre) else n
     return n in IDENTIFIERS or n.startswith("identity_")
+SLA = yaml.safe_load((ROOT.parent / "ops" / "sla.yaml").read_text(encoding="utf-8"))
+PROJECT = "altatech_dmp"                                # 與分析編譯器的預設專案相同（C3：不讓請求或模型指定）
+TPE = timedelta(hours=8)                                # Asia/Taipei（無日光節約）
 TRUSTED_COLS = {"bucket", "cohort", "period", "step", "alias", "event", "touch", "complete", "suppressed"}   # 系統產生的值，不是資料字串
+
+
+class _RowCtx:
+    """data.readiness 自己組 SQL 時給 rewrite_row_filter 用的最小編譯情境（事件表別名 e、台北今天）。"""
+    t = "e"
+    def __init__(self) -> None:
+        self.cold: dict[str, Any] = {}
+    def expr(self, f: Any) -> str:
+        if f.kind == "user_cold":
+            self.cold[f.name] = f
+        return str(f.sql)
+    def now_sql(self) -> str:
+        return "toDate(now(), 'Asia/Taipei')"
 
 
 class ToolError(Exception):
@@ -145,18 +161,21 @@ def _has_internal(o: Any) -> bool:
 
 
 class Gateway:
-    def __init__(self, store: Any, ch: Any | None, cat: Catalog | None = None, today: Callable[[], date] = date.today):
-        self.store, self.ch, self.cat, self.today = store, ch, cat or Catalog(), today
+    def __init__(self, store: Any, ch: Any | None, cat: Catalog | None = None, today: Callable[[], date] = date.today, clock: Callable[[], float] = time.time):
+        self.store, self.ch, self.cat, self.today, self.clock = store, ch, cat or Catalog(), today, clock
+        self.evidence_of: Callable[[str, str], tuple[str, dict[str, Any]] | None] | None = None   # (run_id, evidence_id) → (發起人, 證據)；由 run 控制器接上
         self.handlers: dict[str, Callable[[ToolContext, dict[str, Any]], tuple[dict[str, Any], dict[str, Any], dict[str, Any]]]] = {
             "semantic.search": self._search, "semantic.describe": self._describe, "analysis.configure": self._configure,
-            "analysis.estimate": self._estimate, "analysis.run": self._run}
+            "analysis.estimate": self._estimate, "analysis.run": self._run, "evidence.get": self._evidence_get, "data.readiness": self._readiness}
 
     # ---- 共用：模組解析、授權、預算
-    def _modules(self, spec: dict[str, Any], args: dict[str, Any]) -> list[tuple[str, str]]:
+    def _modules(self, spec: dict[str, Any], args: dict[str, Any], ctx: ToolContext | None = None) -> list[tuple[str, str]]:
         mods = []
         for part in str(spec.get("module", "")).split("+"):
             mod, _, act = part.rpartition(".")
-            if mod == "<kind>":
+            if mod == "<證據產生時的模組>" and ctx is not None:                    # 先找證據（找不到或不是自己的 → 404），再照證據的分析種類授權
+                mod = RUNNERS[self._evidence(ctx, args)["kind"]].module
+            elif mod == "<kind>":
                 kind = str((args.get("config") or {}).get("model") or "")
                 if kind not in ANALYSIS_KINDS:
                     raise ToolError("INVALID_ARGUMENT", f"config.model 只能是 {list(ANALYSIS_KINDS)}")
@@ -204,7 +223,7 @@ class Gateway:
                 raise ToolError("AUTHZ_DENIED", f"{tool} 不開放給模型")
             if spec is None or not spec.get("mvp"):
                 raise ToolError("INVALID_ARGUMENT", f"{tool} 不是 MVP 可用工具")
-            for mod, act in self._modules(spec, args):
+            for mod, act in self._modules(spec, args, ctx):
                 d = authorize(ctx.subject, act, mod)                                  # 每次呼叫都重新授權
                 if not d.allowed:
                     raise ToolError("AUTHZ_DENIED", d.reason, module=mod, action=act)
@@ -227,6 +246,69 @@ class Gateway:
         return env
 
     # ---- handlers：回 (data, model_view, usage)
+    def _evidence(self, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+        found = self.evidence_of(ctx.run_id, str(args.get("evidence_id") or "")) if self.evidence_of else None
+        if not found or found[0] != ctx.subject.user_id or found[1].get("kind") not in ANALYSIS_KINDS:   # C6：只有 run 發起人看得到
+            raise ToolError("NOT_FOUND", "證據不存在或你沒有檢視權")
+        return found[1]
+
+    def _evidence_get(self, ctx: ToolContext, args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """證據物件（docs/39 §2.5）：每次以讀取者現在的權限重算，不存、不給快取結果；不回 SQL 本文與明細。"""
+        ev = self._evidence(ctx, args); cfg = {"config": {"model": ev["kind"], "params": ev["query"]}}
+        _, _, c, _, d = self._compile(ctx, cfg)
+        data, mv, use = self._run(ctx, cfg)
+        meta = {k: ev.get(k) for k in ("evidence_id", "run_id", "kind", "query", "contract", "period", "result_digest", "created_at")}
+        meta.update(sql_hash=hashlib.sha256(c.sql.encode()).hexdigest()[:16],          # 讀取者這次重算的 SQL 摘要；本文不回
+                    subject_fingerprint=hashlib.sha256(json.dumps([ctx.subject.user_id, sorted(ctx.subject.roles), d.row_filters, sorted(c.masked.items())], ensure_ascii=False).encode()).hexdigest()[:16])
+        warns = data.pop("_warnings", [])
+        return {**meta, "data": data, "_warnings": warns}, {**meta, "data": mv}, use
+
+    def _readiness(self, ctx: ToolContext, args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """資料就緒（docs/39 §3.3）：依來源的新鮮度、依日期是否到齊、日彙總待重建日期；回補（#74）與歸戶（#33）未完成 → null + READINESS_PARTIAL。"""
+        evs, per = args.get("events"), args.get("period") or {}
+        if not isinstance(evs, list) or not 1 <= len(evs) <= 20 or not isinstance(per, dict):
+            raise ToolError("INVALID_ARGUMENT", "events 為 1–20 個事件名，period 需有 from、to")
+        names = [self.cat.canonical_event(str(e)) for e in evs]
+        if None in names:
+            raise ToolError("INVALID_ARGUMENT", "有未登錄的事件", unknown=[str(e) for e, n in zip(evs, names, strict=True) if n is None])
+        try:
+            d0, d1 = date.fromisoformat(str(per.get("from"))), date.fromisoformat(str(per.get("to")))
+        except ValueError:
+            raise ToolError("INVALID_ARGUMENT", "period.from／to 必須是 YYYY-MM-DD") from None
+        if d1 < d0 or (d1 - d0).days > 92:
+            raise ToolError("INVALID_ARGUMENT", "期間需 from ≤ to 且不超過 93 天")
+        from ..semantic.compiler.policy import rewrite_row_filter
+        rc = _RowCtx(); expected = float(SLA["freshness"]["behavior_events_min"])
+        rf = [rewrite_row_filter(f, self.cat, rc) for f in authorize(ctx.subject, "view", "events").row_filters]   # 行級條件照讀取者，與編譯器同一套改寫
+        lookback = d0 - timedelta(days=28)                                            # 來源清單：期間前 28 天到現在有出現過這些事件的來源
+        where = [f"e.project = '{PROJECT}'", f"e.event_date >= toDate('{lookback.isoformat()}')", "e.event IN (" + ", ".join("'" + n.replace("'", "") + "'" for n in names if n) + ")", *rf]
+        join = f" LEFT JOIN (SELECT one_id, {', '.join(f'`{n}`' for n in rc.cold)} FROM dmp.users FINAL) AS u ON u.one_id = e.one_id" if rc.cold else ""
+        sql = f"SELECT e.source AS source, max(e.time) AS t FROM dmp.events AS e{join} WHERE " + " AND ".join(where) + " GROUP BY source ORDER BY source"
+        est = self._est(sql); self._budget(ctx, est); ctx.scan_bytes_used += est
+        q = _QID(self.ch, ctx.query_id) if ctx.query_id else self.ch
+        rows = [json.loads(x) for x in q.query(sql + " FORMAT JSONEachRow").splitlines() if x.strip()]
+        now = datetime.fromtimestamp(self.clock(), UTC); start0 = datetime(d0.year, d0.month, d0.day, tzinfo=UTC) - TPE
+        sources = []
+        for r in rows:
+            t = datetime.fromisoformat(str(r["t"]).replace(" ", "T")).replace(tzinfo=UTC)
+            lag = round((now - t).total_seconds() / 60, 1)
+            sources.append({"source": str(r["source"]), "max_event_time": t.isoformat(), "lag_minutes": lag, "expected_lag_minutes": expected,
+                            "status": "missing" if t < start0 else "late" if lag > expected else "ok"})
+        dates = []
+        for i in range((d1 - d0).days + 1):
+            dd = d0 + timedelta(days=i); end = datetime(dd.year, dd.month, dd.day, tzinfo=UTC) + timedelta(days=1) - TPE   # 台北日期的結束時刻（UTC）
+            miss = [x["source"] for x in sources if datetime.fromisoformat(x["max_event_time"]) < end]
+            dates.append({"date": dd.isoformat(), "complete": bool(sources) and not miss and end <= now, "missing_sources": miss})   # 沒有任何來源 → 不算到齊
+        warns = [{"code": "READINESS_PARTIAL", "message": "回補對照（#74）與歸戶品質（#33）尚未提供：backfill、identity 為 null，請視為「未知」不是「良好」"}]
+        try:
+            from ..integration.aggregates import pending_dates
+            agg: dict[str, Any] | None = {"pending_rebuild_dates": [x for x in pending_dates(self.ch) if d0.isoformat() <= x <= d1.isoformat()]}
+        except Exception:                                                              # 標記表讀不到：不當成「沒有待重建」
+            agg = None; warns.append({"code": "READINESS_PARTIAL", "message": "日彙總待重建日期讀取失敗：aggregates 為 null"})
+        from ..insight_agent.skill_loader import contract_versions
+        out = {"sources": sources, "dates": dates, "backfill": None, "identity": None, "aggregates": agg, "contract": contract_versions(), "warnings": warns}
+        return {**out, "_warnings": list(warns)}, copy.deepcopy(out), {"scan_bytes_est": est, "rows_read": len(rows)}
+
     def _catalog(self) -> list[dict[str, Any]]:
         sem = ROOT.parent / "semantic"; out = []
         for kind, fn, key in (("event", "events.yaml", "events"), ("metric", "metrics.yaml", "metrics"), ("dimension", "dimensions.yaml", "dimensions")):
