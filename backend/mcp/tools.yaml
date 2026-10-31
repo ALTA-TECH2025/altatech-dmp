@@ -21,7 +21,9 @@ gateway:
     masking: column_level           # 回傳前套列級遮罩
     row_level: from_dimensions      # 由 dimensions.yaml 的 row_level 規則套用
     audit_event: agent.tool_called
-    drop_identity_args: [user_id, roles, project_override, subject]   # 模型帶這些參數 → 丟棄並記 warning（A16）
+    drop_identity_args: [user_id, roles, project, project_override, subject]   # 模型帶這些參數 → 丟棄並記 warning（A16；project 依 C3 加入，run 一律在設定的專案執行）
+    query_id: "{run_id}:{step_id}:{attempt}"   # 讀取送 ClickHouse 的 query_id（C7）：逾時重試與取消時 KILL QUERY 用；operation_id 只給寫入
+    write_idempotency: agent_operations        # 寫入唯一冪等來源（C4）：先經服務層驗證組裝，再與 operation 紀錄同一交易寫入
 envelope:                           # 統一信封（docs/39 §2.1、§2.2）
   request: { run_id: string, step_id: string, tool: string, args: object, contract: { tools: v1, semantic: string, skill: string } }
   response:
