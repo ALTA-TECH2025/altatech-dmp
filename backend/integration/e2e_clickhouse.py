@@ -192,6 +192,8 @@ def main() -> int:
             ga4_stage(ch, work, int(os.environ.get("E2E_GA4_PER_TICK", "20000")))
             agg_stage(ch)
             agg_upgrade_stage(ch)
+            from ..clickhouse.migrate_selftest import run as events_rekey_stage  # 舊庫事件表換排序鍵（#74）：空庫／舊庫兩條路
+            events_rekey_stage(ch)
             dbapi_stage(ch, work, all_rows)
             users_stage(ch, work)
             if os.environ.get("E2E_USERS", "1") != "0":

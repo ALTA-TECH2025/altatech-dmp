@@ -12,7 +12,7 @@
 | ClickHouse | **4 分片 × 2 副本**，每節點 44 vCPU／352 GB／8 TB NVMe（Hyperdisk Extreme 或本地 SSD）；Keeper ×3 |
 | 分片鍵 | `cityHash64(one_id)` → 同一人永遠同片；漏斗／路徑／歸因／用戶列表無跨片 shuffle |
 | 分區 | 按月（熱）；最近 7 天可按日分區以加速小範圍查詢與 TTL 搬移 |
-| 排序鍵 | `(project, event_date, event, one_id_uint, time)`；`SAMPLE BY one_id_uint` |
+| 排序鍵 | `(project, event_date, event, distinct_id_uint, time, event_id)`；`SAMPLE BY distinct_id_uint`（docs/23 §4.1，2026-10-22 定案） |
 
 ## 2. 稠密使用者 ID（效能基礎）
 - OneID 服務在建立 one_id 時同時分配 **`one_id_uint`（UInt32/UInt64 單調遞增）**；事件表與所有 Bitmap 皆用它。

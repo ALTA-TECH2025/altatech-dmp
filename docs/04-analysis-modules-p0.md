@@ -145,7 +145,7 @@ SELECT level, count() FROM (
 - 事件表以 `cityHash64(one_id)` 分片 → 每片獨立算完再合併，無 shuffle。
 - 步驟間關聯屬性：用 `sequenceMatch` + `arrayJoin` 的 per-user 陣列版本（Java UDF 不可用時）。
 - 大視窗（> 30 天）時先以 Bitmap 篩出「做過第一步」的人，減少掃描。
-- 抽樣：對 > 1 億人的群體以 `SAMPLE 1/10`（表定義 `SAMPLE BY one_id_uint`）給出近似，UI 標示。
+- 抽樣：對 > 1 億人的群體以 `SAMPLE 1/10`（表定義 `SAMPLE BY distinct_id_uint`，按裝置分桶）給出近似，UI 標示。
 
 ### 2.3 效能目標
 30 天、6 步、1 億事件：P95 < 10 s；抽樣模式 < 3 s。
