@@ -61,6 +61,16 @@ class ToolContext:
     run_id: str
     step_id: str = ""
     scan_bytes_used: float = 0.0
+    query_id: str = ""              # C7：run_id:step_id:attempt；送 ClickHouse 的查詢帶這個（模型投影那次加 :mv），取消時 KILL QUERY 用
+
+
+class _QID:
+    """把 query_id 帶進每次查詢的 ClickHouse settings；EXPLAIN 估算不帶。"""
+    def __init__(self, ch: Any, qid: str):
+        self.ch, self.qid = ch, qid
+
+    def query(self, sql: str, data: bytes | None = None, settings: dict[str, Any] | None = None) -> str:
+        return self.ch.query(sql, data, {**(settings or {}), "query_id": self.qid})
 
 
 def args_digest(args: dict[str, Any]) -> str:
@@ -267,9 +277,10 @@ class Gateway:
         self._budget(ctx, est)                                                        # 送查詢之前
         ctx.scan_bytes_used += est                                                    # 先預扣；查詢失敗或逾時也不退，避免重試繞過 run 預算
         t0 = time.perf_counter()
-        rows = run_rows(self.ch, c)
+        qid = lambda sfx: _QID(self.ch, ctx.query_id + sfx) if ctx.query_id else self.ch
+        rows = run_rows(qid(""), c)
         data = {**strip_internal(run.shape(rows, q, c)), "lineage": c.lineage}
-        mres = data if cm.sql == c.sql else strip_internal(run.shape(run_rows(self.ch, cm), qm, cm))
+        mres = data if cm.sql == c.sql else strip_internal(run.shape(run_rows(qid(":mv"), cm), qm, cm))
         mv = project(mres, TRUSTED_COLS | set(cm.masked))
         warns = [{"code": "K_SUPPRESSED", "message": "部分群組人數不足 K，已抑制"}] if any(isinstance(r, dict) and r.get("suppressed") for r in mres.get("rows") or []) else []
         if data.get("sampled"):

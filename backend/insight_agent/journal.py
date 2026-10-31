@@ -176,6 +176,19 @@ class MemoryJournal:
                 r["state"] = "cancelled"
             self.s._save()
 
+    def list_runs(self, user_id: str | None = None, states: list[str] | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        """新的在前；user_id＝發起人（None＝全部，給控制器撈 queued 用）。"""
+        with self.s.lock:
+            rs = [r for r in self.s.d["agent_runs"].values() if (user_id is None or (r.get("initiator") or {}).get("user_id") == user_id) and (not states or r["state"] in states)]
+            return [self._get(r["run_id"]) for r in sorted(rs, key=lambda r: -float(r.get("created_ts") or 0))[:limit]]
+
+    def expire_idem(self, before_ts: float) -> None:
+        """冪等鍵保留期過了就釋放（C5：24 小時），同鍵之後可再建新 run。"""
+        with self.s.lock:
+            for k, rid in list(self.s.d["agent_idem"].items()):
+                if float(self.s.d["agent_runs"].get(rid, {}).get("created_ts") or 0) < before_ts:
+                    del self.s.d["agent_idem"][k]
+
     def operations(self, rid: str | None = None) -> list[dict[str, Any]]:
         with self.s.lock:
             return [dict(o) for o in self.s.d["agent_operations"].values() if rid is None or o["run_id"] == rid]
@@ -301,6 +314,15 @@ class PostgresJournal:
             f"UPDATE {self.s.t('agent_runs')} SET cancel_requested = true, state = CASE WHEN state IN ('queued', 'waiting_input', 'waiting_lease') THEN 'cancelled' ELSE state END "
             "WHERE run_id = $1 AND state <> ALL($2::text[])", rid, sorted(TERMINAL)))
 
+    def list_runs(self, user_id: str | None = None, states: list[str] | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        ids = self._run(lambda c: c.fetch(
+            f"SELECT run_id FROM {self.s.t('agent_runs')} WHERE ($1::text IS NULL OR doc->'initiator'->>'user_id' = $1) AND ($2::text[] IS NULL OR state = ANY($2::text[])) "
+            "ORDER BY (doc->>'created_ts')::float DESC NULLS LAST LIMIT $3", user_id, states or None, limit))
+        return [self.get_run(r["run_id"]) for r in ids]
+
+    def expire_idem(self, before_ts: float) -> None:
+        self._run(lambda c: c.execute(f"UPDATE {self.s.t('agent_runs')} SET idem_user = NULL, idem_key = NULL WHERE idem_key IS NOT NULL AND (doc->>'created_ts')::float < $1", before_ts))
+
     def operations(self, rid: str | None = None) -> list[dict[str, Any]]:
         async def fn(c: Any) -> list[dict[str, Any]]:
             rows = await c.fetch(f"SELECT * FROM {self.s.t('agent_operations')} WHERE $1::text IS NULL OR run_id = $1", rid)
@@ -385,7 +407,11 @@ def selftest(j: Any, store: Any, label: str) -> None:
     q = j.create_run(who); j.request_cancel(q["run_id"]); assert j.get_run(q["run_id"])["state"] == "cancelled"
     j.request_cancel(runs[1]["run_id"]); assert j.get_run(runs[1]["run_id"])["cancel_requested"] and j.claim(runs[1]["run_id"], "wc1", 60) is None
     j.set_state(runs[1]["run_id"], gens[1], "cancelled")
-    print(f"run journal self-test ok ({label}): 崩潰回滾 0 筆、重試/接手 existing 同 id、租約過期未接手被擋 {expired} 次、被接手後舊 worker 被擋 {fenced} 次、改參數 CONFLICT、雙 run 併發 1 committed + 1 existing、狀態機與取消")
+    # 列表（新的在前、依發起人與狀態）與冪等鍵到期（C5）
+    u = f"lu_{tag}"; l1 = j.create_run({"initiator": {"user_id": u}, "created_ts": 1.0}, idempotency_key="k"); l2 = j.create_run({"initiator": {"user_id": u}, "created_ts": 2.0})
+    assert [x["run_id"] for x in j.list_runs(u)] == [l2["run_id"], l1["run_id"]] and j.list_runs(u, ["running"]) == [] and len(j.list_runs(None, ["queued"], 500)) >= 2
+    j.expire_idem(1.5); assert j.create_run({"initiator": {"user_id": u}, "created_ts": 3.0}, idempotency_key="k")["run_id"] != l1["run_id"]
+    print(f"run journal self-test ok ({label}): 列表／冪等鍵到期、 崩潰回滾 0 筆、重試/接手 existing 同 id、租約過期未接手被擋 {expired} 次、被接手後舊 worker 被擋 {fenced} 次、改參數 CONFLICT、雙 run 併發 1 committed + 1 existing、狀態機與取消")
 
 
 if __name__ == "__main__":
