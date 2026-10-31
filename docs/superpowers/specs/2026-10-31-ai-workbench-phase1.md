@@ -48,6 +48,16 @@
 | C8 語意層版本 | `contract_versions()` 回哪些鍵 | 先維持整檔版本（semantic／tools／oneid_rules，加 `preset_properties`），單一物件版本留到之後 | Q35 |
 | C9 證據摘要 | 重看證據時數字已重算，摘要要分得出新舊 | `result_digest` 固定為原 run 當時的結果摘要（結論依據）；新增 `recomputed_digest` 為本次重算摘要，同一演算法；兩者不同時畫面標「資料已變動」（Windy 2026-10-31 同意；Codex #121 審查提出） | A20 |
 
+技能庫（第 5 步）開工前的決定（Windy 2026-10-31）：
+
+| 編號 | 內容 | 決定 | 對應 |
+|---|---|---|---|
+| C10 自核錯誤碼 | 送出者自己按核可 | 409 `FOUR_EYES_REQUIRED`（錯誤碼目錄既有）；沒有 `ai_skills.approve` 仍是 403 `AUTHZ_DENIED`。skills 與 configs 的 approve 都改 | docs/40 D03 |
+| C11 書籤引用 | 技能引用存好的漏斗 | `SkillVersion.refs` 加 `bookmarks`（`bm_…` 系統編號），不接受名稱或自編 ID；`funnels` 標為舊欄位 | 1028 決定、docs/40 D19 |
+| C12 權限分配 | `ai_skills` 給哪些角色 | 先只有系統管理員（`"*"`）；其他人要用就建自訂角色勾 `ai_skills`。`rbac.yaml` 不改 | Q 提案保留 |
+| C14 待確認參數發布 | 含 proposed／pending_client 參數能不能正式發布 | 契約原寫「只能以 trial 送出」，與 1029-9／1029-10 決定不符：改成可正式發布（published），結果一律帶 CONTRACT_PENDING，只擋受眾送審；核可不產生 trial；前一個發布版改 retired | 1029-2、1029-9、1029-10 |
+| C13 乾跑分段 | 乾跑要跑真資料 | 第 5 步：乾跑比對草案與發布版的參數、引用、說明差異，產生乾跑紀錄（`dry_run_id` 綁 `content_digest`），送審照綁定規則；兩份真資料結果在第 6 步接上 S1 後補，回應帶警示說明「本次只比對設定」 | docs/40 D02 延到第 6 步 |
+
 看板版本欄位（Q30）只有定期重跑更新同一份看板時才需要，第二階段之後再定。
 
 ## 4. 實作 PR 順序（每個 < 400 行）
