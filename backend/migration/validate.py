@@ -125,8 +125,13 @@ def event_ms(v: Any) -> int:
         raise ValueError("time_invalid")
     if isinstance(v, int):
         return v
-    if isinstance(v, float) and v.is_integer():
-        return int(v)
+    if isinstance(v, float):
+        try:
+            if v == int(v):
+                return int(v)
+        except (ValueError, OverflowError, ArithmeticError):      # NaN、Infinity
+            pass
+        raise ValueError("time_invalid")
     if isinstance(v, str) and v.strip().lstrip("-").isdigit():
         return int(v.strip())
     raise ValueError("time_invalid")
@@ -306,11 +311,11 @@ def selftest() -> None:
         o = next(expect(_write(Path(d) / "f.jsonl", [{"type": "track", "event": "e", "distinct_id": "ck-2", "time": t, "properties": {"$is_login_id": "false"}}]), rules, key))
         assert o.record and o.record["user"] == "ck-2", o
         # 時間不合法：參考實作逐行標 time_invalid、繼續統計，不中斷、不帶原值（Codex #114 P2）
-        bad_t = [{"type": "track", "event": "e", "distinct_id": "ck-3", "time": v, "properties": {}} for v in (None, "synthetic-invalid-time", {"x": 1}, True, 1.5)]
+        bad_t = [{"type": "track", "event": "e", "distinct_id": "ck-3", "time": v, "properties": {}} for v in (None, "synthetic-invalid-time", {"x": 1}, True, 1.5, float("inf"), float("nan"))]
         ok_t = [{"type": "track", "event": "e", "distinct_id": "ck-3", "time": v, "properties": {}} for v in (t, str(t), float(t))]
         outs = list(expect(_write(Path(d) / "t.jsonl", bad_t + ok_t), rules, key))
-        assert [(o.dest, o.reason) for o in outs[:5]] == [("bad", "time_invalid")] * 5 and [o.record["time"] for o in outs[5:] if o.record] == [t] * 3, outs
-        assert "synthetic-invalid-time" not in json.dumps(check_l1(summarize(outs), {"lines": 8, "ok": 8, "bad": 0}), ensure_ascii=False)
+        assert [(o.dest, o.reason) for o in outs[:7]] == [("bad", "time_invalid")] * 7 and [o.record["time"] for o in outs[7:] if o.record] == [t] * 3, outs
+        assert "synthetic-invalid-time" not in json.dumps(check_l1(summarize(outs), {"lines": 10, "ok": 10, "bad": 0}), ensure_ascii=False)
         # 管線把 time=null 當成 0 收進來（1970 年的事件）→ L1 判失敗，並指出壞行原因
         src = _write(Path(d) / "n.jsonl", [{"type": "track", "distinct_id": "qa-anon", "event": "test", "time": None}])
         st = legacy_format.stage(src, Path(d) / "s.jsonl", Path(d) / "q.jsonl", "k_idm", forbid).__dict__
