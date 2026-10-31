@@ -78,6 +78,12 @@ def selftest() -> None:
     rate = datas[0]["rows"][1]["rate_first"]
     assert untraced(f"上週（10/19～10/25）審核通過 120 人，其中 45 人成交，轉換率 {rate * 100:.1f}%", datas) == []
     assert untraced("上週 2026-10-19 起審核通過 121 人，轉換率 40%", datas) == ["121", "40%"]
+    big = [{"users": 1_200_000, "amount": 350_000_000}]                       # 量級字：萬／億要換算後比對，不能只看前面的數字
+    assert untraced("共有120萬人，交易額3.5億", big) == [] and untraced("共有120人", big) == ["120"]
+    assert untraced("共有120億人", big) == ["120億"] and untraced("共有12萬人", big) == ["12萬"]
+    assert untraced("共有1.2百萬人", big) == [] and untraced("共有1萬人", big) == ["1萬"]
+    assert untraced("共有120萬人", [{"users": 120}]) == ["120萬"] and untraced("共有120億人", [{"users": 120}]) == ["120億"]
+    assert untraced("共有1.2M人、3k筆", big) == ["1.2M", "3k"]                # 英文量級不解析，一律不放行
 
     # data.readiness：依來源新鮮度、依日期是否到齊；backfill（#74）、identity（#33）回 null + READINESS_PARTIAL
     ch.src = [{"source": "sdk", "t": "2026-10-27 17:55:00.000"},                  # 5 分鐘前 → ok
